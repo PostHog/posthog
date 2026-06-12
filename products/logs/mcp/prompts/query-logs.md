@@ -115,6 +115,10 @@ Maximum number of results (1-1000). Defaults to 100.
 
 Cursor for pagination. Use the `nextCursor` value from the previous response.
 
+## query.excludeAttributes
+
+Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
+
 # Examples
 
 ## List recent error logs

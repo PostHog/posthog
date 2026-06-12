@@ -76,6 +76,8 @@ class HogQLContext:
     modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
     # Enables more verbose output for debugging
     debug: bool = False
+    # Internal optimizer flag. Keep disabled until typed rewrites have broader compatibility coverage.
+    enable_type_aware_cast_simplification: bool = False
 
     # Optional per-query HogQL type-system observability accumulator.
     type_observability: Optional["HogQLTypeObservability"] = None

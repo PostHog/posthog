@@ -9,8 +9,8 @@
  */
 /**
  * * `screenshot` - Screenshot
- * `iframe` - Iframe
- * `recording` - Recording
+ * * `iframe` - Iframe
+ * * `recording` - Recording
  */
 export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
 
@@ -22,8 +22,8 @@ export const HeatmapTypeApi = {
 
 /**
  * * `processing` - Processing
- * `completed` - Completed
- * `failed` - Failed
+ * * `completed` - Completed
+ * * `failed` - Failed
  */
 export type HeatmapScreenshotResponseStatusEnumApi =
     (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
@@ -43,13 +43,13 @@ export interface HeatmapSnapshotMetadataApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -120,16 +120,16 @@ export interface HeatmapScreenshotResponseApi {
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
     target_widths?: unknown
     /** Render mode: 'screenshot', 'iframe', or 'recording'.
-
-  * `screenshot` - Screenshot
-  * `iframe` - Iframe
-  * `recording` - Recording */
+     *
+     * * `screenshot` - Screenshot
+     * * `iframe` - Iframe
+     * * `recording` - Recording */
     type?: HeatmapTypeApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
-
-  * `processing` - Processing
-  * `completed` - Completed
-  * `failed` - Failed */
+     *
+     * * `processing` - Processing
+     * * `completed` - Completed
+     * * `failed` - Failed */
     readonly status: HeatmapScreenshotResponseStatusEnumApi
     /** Whether at least one rendered image is ready to fetch. */
     readonly has_content: boolean
@@ -218,13 +218,15 @@ export interface SavedHeatmapRequestApi {
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
      * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
      */
     widths?: number[]
     /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
-
-  * `screenshot` - Screenshot
-  * `iframe` - Iframe
-  * `recording` - Recording */
+     *
+     * * `screenshot` - Screenshot
+     * * `iframe` - Iframe
+     * * `recording` - Recording */
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
@@ -251,13 +253,15 @@ export interface PatchedSavedHeatmapRequestApi {
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
      * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
      */
     widths?: number[]
     /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
-
-  * `screenshot` - Screenshot
-  * `iframe` - Iframe
-  * `recording` - Recording */
+     *
+     * * `screenshot` - Screenshot
+     * * `iframe` - Iframe
+     * * `recording` - Recording */
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
@@ -265,7 +269,7 @@ export interface PatchedSavedHeatmapRequestApi {
 
 /**
  * * `Up` - Up
- * `Down` - Down
+ * * `Down` - Down
  */
 export type DirectionEnumApi = (typeof DirectionEnumApi)[keyof typeof DirectionEnumApi]
 
@@ -278,9 +282,9 @@ export interface WoWChangeApi {
     /** Absolute percentage change, rounded to nearest integer. */
     percent: number
     /** Direction of the change relative to the prior period.
-
-  * `Up` - Up
-  * `Down` - Down */
+     *
+     * * `Up` - Up
+     * * `Down` - Down */
     direction: DirectionEnumApi
     /** Hex color indicating whether the change is a positive or negative signal. */
     color: string
@@ -412,12 +416,12 @@ export type HeatmapScreenshotsContentRetrieveParams = {
 
 export type HeatmapsListParams = {
     /**
- * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
-
-* `unique_visitors` - unique_visitors
-* `total_count` - total_count
- * @minLength 1
- */
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+     *
+     * * `unique_visitors` - unique_visitors
+     * * `total_count` - total_count
+     * @minLength 1
+     */
     aggregation?: HeatmapsListAggregation
     /**
      * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
@@ -477,12 +481,12 @@ export const HeatmapsListAggregation = {
 
 export type HeatmapsEventsRetrieveParams = {
     /**
- * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
-
-* `unique_visitors` - unique_visitors
-* `total_count` - total_count
- * @minLength 1
- */
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+     *
+     * * `unique_visitors` - unique_visitors
+     * * `total_count` - total_count
+     * @minLength 1
+     */
     aggregation?: HeatmapsEventsRetrieveAggregation
     /**
      * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.

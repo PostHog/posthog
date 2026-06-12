@@ -30,9 +30,9 @@ function createMockContext(): { context: Context; request: ReturnType<typeof vi.
     return { context, request }
 }
 
-const runTool = GENERATED_TOOLS['workflows-run']!()
+const runTool = GENERATED_TOOLS['workflows-test-run']!()
 
-describe('workflows-run handler', () => {
+describe('workflows-test-run handler', () => {
     it('posts to the invocations endpoint with the workflow id in the path', async () => {
         const { context, request } = createMockContext()
 

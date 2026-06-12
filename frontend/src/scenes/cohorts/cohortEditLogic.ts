@@ -1,4 +1,17 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -6,6 +19,7 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
@@ -25,6 +39,7 @@ import {
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -46,11 +61,13 @@ import {
     PropertyType,
 } from '~/types'
 
+import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
-    tabId?: string
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
@@ -74,20 +91,10 @@ const inferStaticCohortMode = (cohort: CohortType): StaticCohortMode =>
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => {
-        if (props.id === 'new' || !props.id) {
-            if (props.tabId == null) {
-                return 'new'
-            }
-            return `new-${props.tabId}`
-        }
-        if (props.tabId == null) {
-            return props.id
-        }
-        return `${props.id}-${props.tabId}`
-    }),
+    key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
         logic: [cohortsModel],
     })),
@@ -368,7 +375,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    loaders(({ actions, values, key }) => ({
+    loaders(({ actions, values, key, props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -583,6 +590,30 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+
+        usedIn: [
+            null as CohortUsedInResponseApi | null,
+            {
+                loadUsedIn: async () => {
+                    // On mount `values.cohort` is still NEW_COHORT (fetchCohort hasn't resolved),
+                    // so fall back to the id from props.
+                    const id = values.cohort.id !== 'new' ? values.cohort.id : props.id
+                    if (!id || id === 'new') {
+                        return null
+                    }
+                    try {
+                        return await cohortsUsedInRetrieve(String(values.currentProjectId), Number(id))
+                    } catch (error) {
+                        // A 404 just means the endpoint isn't deployed yet (deploy skew) or the
+                        // cohort is gone; neither is worth reporting.
+                        if (!(error instanceof ApiError) || error.status !== 404) {
+                            posthog.captureException(error, { feature: 'cohort-used-in' })
+                        }
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
@@ -630,6 +661,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
         },
+        // Refresh once the save request actually resolves; submitCohortSuccess fires as soon
+        // as the synchronous submit handler dispatches saveCohort.
+        saveCohortSuccess: () => {
+            actions.loadUsedIn()
+        },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             const isPendingCalculation = checkIsPendingCalculation(cohort)
             const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
@@ -637,9 +673,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
-                        const newCohort = await api.cohorts.get(cohort.id)
-                        breakpoint()
-                        actions.checkIfFinishedCalculating(newCohort)
+                        try {
+                            const newCohort = await api.cohorts.get(cohort.id)
+                            // breakpoint() throws to abort once the logic unmounts. Because this runs
+                            // in a detached setTimeout callback (not the listener body), that throw
+                            // would otherwise surface as an unhandled rejection — keep it contained.
+                            breakpoint()
+                            actions.checkIfFinishedCalculating(newCohort)
+                        } catch (e: any) {
+                            if (!isBreakpoint(e)) {
+                                throw e
+                            }
+                            // Poll superseded or logic unmounted — stop quietly.
+                        }
                     }, 1000)
                 )
             } else {
@@ -702,6 +748,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
         } else {
             actions.fetchCohort(props.id)
+            actions.loadUsedIn()
         }
     }),
     beforeUnmount(({ values }) => {

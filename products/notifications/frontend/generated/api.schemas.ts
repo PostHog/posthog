@@ -9,13 +9,13 @@
  */
 /**
  * * `replay` - REPLAY
- * `notebook` - NOTEBOOK
- * `insight` - INSIGHT
- * `feature_flag` - FEATURE_FLAG
- * `dashboard` - DASHBOARD
- * `survey` - SURVEY
- * `experiment` - EXPERIMENT
- * `error_tracking` - ERROR_TRACKING
+ * * `notebook` - NOTEBOOK
+ * * `insight` - INSIGHT
+ * * `feature_flag` - FEATURE_FLAG
+ * * `dashboard` - DASHBOARD
+ * * `survey` - SURVEY
+ * * `experiment` - EXPERIMENT
+ * * `error_tracking` - ERROR_TRACKING
  */
 export type NotificationEventSourceTypeEnumApi =
     (typeof NotificationEventSourceTypeEnumApi)[keyof typeof NotificationEventSourceTypeEnumApi]
