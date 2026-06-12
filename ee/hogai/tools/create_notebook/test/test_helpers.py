@@ -99,6 +99,22 @@ class TestSaveNotebookToDb(BaseTest):
                 "InsightVizNode",
                 "TrendsQuery",
             ),
+            (
+                "traces_query_wrapped_in_data_table_node",
+                "vtrc",
+                "ntrc",
+                {"kind": "TracesQuery", "limit": 50, "offset": 0, "properties": []},
+                "DataTableNode",
+                "TracesQuery",
+            ),
+            (
+                "trace_query_wrapped_in_data_table_node",
+                "vtrq",
+                "ntrq",
+                {"kind": "TraceQuery", "traceId": "abc123", "properties": []},
+                "DataTableNode",
+                "TraceQuery",
+            ),
         ]
     )
     def test_save_notebook_to_db_wraps_query_correctly(

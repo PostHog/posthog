@@ -13,6 +13,20 @@ from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_st
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
+# InsightVizNode is only a valid container for product-analytics insight kinds. Any other
+# source (e.g. TracesQuery, TraceQuery) wrapped in it crashes the insight scene with
+# "encountered unexpected type for view". Mirrors `nodeKindToInsightType` on the frontend.
+INSIGHT_VIZ_NODE_SOURCE_KINDS = frozenset(
+    {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+)
+
 
 class ArtifactStatus(Enum):
     CREATED = "created"
@@ -84,8 +98,13 @@ async def save_notebook_to_db(
                 notebook_query = query
             elif kind == "HogQLQuery" or "HogQL" in kind:
                 notebook_query = {"kind": "DataVisualizationNode", "source": query}
-            else:
+            elif kind in INSIGHT_VIZ_NODE_SOURCE_KINDS:
                 notebook_query = {"kind": "InsightVizNode", "source": query}
+            else:
+                # Non-insight data sources (e.g. TracesQuery, TraceQuery) render as a table,
+                # the same as the AI observability product. Wrapping them in InsightVizNode
+                # produces a link that crashes the insight scene.
+                notebook_query = {"kind": "DataTableNode", "source": query}
             viz_lookup[ref_id] = {"query": notebook_query, "name": result.content.name}
 
     def resolve_visualization(artifact_id: str) -> dict | None:
