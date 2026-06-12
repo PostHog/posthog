@@ -98,12 +98,24 @@ pub async fn decompress_payload(
         None => return Ok(bytes),
     };
 
+    let first_byte = bytes.first().copied();
     let reader = tokio::io::BufReader::new(std::io::Cursor::new(bytes));
 
     match encoding {
         "gzip" => {
             read_decompressed(
                 bufread::GzipDecoder::new(reader),
+                payload_size_limit,
+                chunk_size_kb,
+                encoding,
+            )
+            .await
+        }
+        // RFC 9110: Content-Encoding "deflate" = zlib (RFC 1950, 0x78 prefix).
+        // Sniff first byte: zlib-wrapped → ZlibDecoder, raw → DeflateDecoder.
+        "deflate" if first_byte == Some(0x78) => {
+            read_decompressed(
+                bufread::ZlibDecoder::new(reader),
                 payload_size_limit,
                 chunk_size_kb,
                 encoding,
@@ -173,7 +185,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use bytes::Bytes;
-    use flate2::write::{DeflateEncoder, GzEncoder};
+    use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
     use flate2::Compression;
     use futures::stream;
     use std::io::Write;
@@ -251,6 +263,12 @@ mod tests {
         encoder.finish().unwrap()
     }
 
+    fn compress_zlib(data: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
     fn compress_brotli(data: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         {
@@ -280,9 +298,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decompress_deflate_valid() {
+    async fn decompress_deflate_raw_valid() {
         let original = b"hello deflate world";
         let compressed = Bytes::from(compress_deflate(original));
+        assert_ne!(
+            compressed.first(),
+            Some(&0x78),
+            "raw deflate must not start with zlib magic"
+        );
+        let result =
+            decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
+        assert_eq!(result.unwrap(), Bytes::from_static(original));
+    }
+
+    #[tokio::test]
+    async fn decompress_deflate_zlib_wrapped_valid() {
+        let original = b"hello zlib-wrapped deflate world";
+        let compressed = Bytes::from(compress_zlib(original));
+        assert_eq!(
+            compressed.first(),
+            Some(&0x78),
+            "zlib payload must start with 0x78 magic"
+        );
         let result =
             decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
         assert_eq!(result.unwrap(), Bytes::from_static(original));
@@ -313,12 +350,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decompress_deflate_exceeds_limit() {
+    async fn decompress_deflate_raw_exceeds_limit() {
         let big = vec![0u8; 64 * 1024];
         let compressed = Bytes::from(compress_deflate(&big));
         let result =
             decompress_payload(Some("deflate"), compressed, 1024, TEST_CHUNK_SIZE_KB).await;
         assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn decompress_deflate_zlib_exceeds_limit() {
+        let big = vec![0u8; 64 * 1024];
+        let compressed = Bytes::from(compress_zlib(&big));
+        assert_eq!(compressed.first(), Some(&0x78));
+        let result =
+            decompress_payload(Some("deflate"), compressed, 1024, TEST_CHUNK_SIZE_KB).await;
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn decompress_deflate_raw_starting_with_0x78_treated_as_zlib() {
+        // Pin the known tradeoff: a raw deflate stream whose first byte is
+        // 0x78 gets misrouted to ZlibDecoder and fails. Same strategy as nginx.
+        let raw = compress_deflate(b"test payload");
+        let mut patched = raw.clone();
+        patched[0] = 0x78;
+        let compressed = Bytes::from(patched);
+
+        let result =
+            decompress_payload(Some("deflate"), compressed, 4096, TEST_CHUNK_SIZE_KB).await;
+        assert!(
+            result.is_err(),
+            "raw deflate starting with 0x78 is misrouted to ZlibDecoder (accepted tradeoff)"
+        );
     }
 
     #[tokio::test]
