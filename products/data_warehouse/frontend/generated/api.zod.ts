@@ -93,7 +93,7 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -184,7 +184,7 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -275,7 +275,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -366,7 +366,7 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -457,7 +457,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -548,7 +548,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -639,7 +639,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.object({
                 column: zod.string(),
-                operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                 value: zod
                     .unknown()
                     .describe(
@@ -1029,7 +1029,7 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .array(
                         zod.object({
                             column: zod.string(),
-                            operator: zod.enum(['>', '>=', '<', '<=', '=', '!=', 'IN', 'NOT IN']),
+                            operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
                             value: zod
                                 .unknown()
                                 .describe(
