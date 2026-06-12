@@ -376,7 +376,7 @@ def build_initial_research_prompt(
         "separate message. For each one, investigate it thoroughly then respond with a `SignalFinding` JSON object."
     )
 
-    bk_block = f"\n\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""
+    bk_block = f"\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""
 
     return f"""{_RESEARCH_PREAMBLE}
 

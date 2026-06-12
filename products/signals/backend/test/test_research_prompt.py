@@ -72,13 +72,16 @@ class TestRenderSignalForResearch:
 
 
 class TestBuildInitialResearchPrompt:
-    def test_includes_business_knowledge_block_when_enabled(self):
+    @pytest.mark.parametrize(
+        "has_bk, expected_present, extra_checks",
+        [
+            (True, True, ["business-knowledge-documents-search"]),
+            (False, False, []),
+        ],
+    )
+    def test_business_knowledge_block_presence(self, has_bk, expected_present, extra_checks):
         signal = _make_signal({})
-        prompt = build_initial_research_prompt(signal, 1, has_business_knowledge=True)
-        assert "business-knowledge-documents-search" in prompt
-        assert "## Business knowledge" in prompt
-
-    def test_excludes_business_knowledge_block_by_default(self):
-        signal = _make_signal({})
-        prompt = build_initial_research_prompt(signal, 1)
-        assert "## Business knowledge" not in prompt
+        prompt = build_initial_research_prompt(signal, 1, has_business_knowledge=has_bk)
+        assert ("## Business knowledge" in prompt) == expected_present
+        for snippet in extra_checks:
+            assert snippet in prompt
