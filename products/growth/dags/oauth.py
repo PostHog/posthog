@@ -63,19 +63,17 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
     now = timezone.now()
     retention_cutoff = now - timedelta(seconds=settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD)
 
-    refresh_token_expiry_cutoff = now - timedelta(
-        seconds=int(str(settings.OAUTH2_PROVIDER["REFRESH_TOKEN_EXPIRE_SECONDS"]))
-        + settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD
-    )
-
     context.log.info(f"Clearing OAuth tokens expired before {retention_cutoff}")
 
+    # Refresh tokens are deleted only once revoked. A stale linked access token is NOT
+    # a liveness signal: non-rotating refresh inserts new access tokens without
+    # repointing RefreshToken.access_token, so an actively-used refresh token can sit
+    # on an access token that expired long ago.
     token_operations: list[tuple[type[Model], dict[str, Q]]] = [
         (
             OAuthRefreshToken,
             {
                 "revoked": Q(revoked__lt=retention_cutoff),
-                "expired_via_access_token": Q(access_token__expires__lt=refresh_token_expiry_cutoff),
             },
         ),
         (

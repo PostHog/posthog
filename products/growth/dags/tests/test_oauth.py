@@ -288,6 +288,25 @@ class TestBatchDeleteFunctionality(TestCase):
         )
         tokens_to_keep.append(("OAuthRefreshToken", valid_refresh.id))
 
+        # Live refresh token whose linked access token expired long ago (should both be
+        # kept): non-rotating refresh leaves this FK pointing at a stale access token,
+        # so neither row may be reaped while the refresh token is unrevoked.
+        stale_linked_access = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="stale_linked_access",
+            expires=ninety_five_days_ago,
+            scope="read",
+        )
+        live_refresh_stale_access = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="live_refresh_stale_access",
+            access_token=stale_linked_access,
+        )
+        tokens_to_keep.append(("OAuthAccessToken", stale_linked_access.id))
+        tokens_to_keep.append(("OAuthRefreshToken", live_refresh_stale_access.id))
+
         # Run cleanup
         context = dagster.build_op_context()
         clear_expired_oauth_tokens(context)
