@@ -112,6 +112,7 @@ the row lists both.
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mollie           | HTTP                        | requests                                                        | ✅                          |
+| monday           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -265,7 +266,6 @@ doesn't conflict with concurrent PRs.
 - marketo
 - matomo
 - microsoft_teams
-- monday
 - netsuite
 - onedrive
 - opsgenie
