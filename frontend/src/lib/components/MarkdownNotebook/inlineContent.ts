@@ -224,7 +224,8 @@ export function setMark(
     markType: NotebookInlineMark['type'],
     shouldApplyMark: boolean
 ): NotebookInlineMark[] | undefined {
-    if (markType === 'link') {
+    // Marks that carry an identity (link href, ref/mention ids) cannot be toggled generically.
+    if (markType === 'link' || markType === 'ref' || markType === 'mention') {
         return marks.length ? marks : undefined
     }
 
@@ -243,6 +244,68 @@ export function setLinkMark(marks: NotebookInlineMark[], href: string | null): N
     const nextMarks = href ? [...marksWithoutLink, { type: 'link' as const, href }] : marksWithoutLink
 
     return nextMarks.length ? nextMarks : undefined
+}
+
+/** Wraps the selected range in a ref mark (`<ref id="…">`), anchoring an inline chat to it. */
+export function setInlineRefMark(
+    nodes: NotebookInlineNode[],
+    range: NotebookTextSelectionRange,
+    refId: string
+): NotebookInlineNode[] {
+    const normalizedStart = Math.min(range.start, range.end)
+    const normalizedEnd = Math.max(range.start, range.end)
+    let offset = 0
+    const output: NotebookInlineNode[] = []
+
+    nodes.forEach((node) => {
+        const length = node.type === 'hardBreak' ? 1 : node.text.length
+        const nodeStart = offset
+        const nodeEnd = offset + length
+        offset = nodeEnd
+
+        if (node.type === 'hardBreak' || nodeEnd <= normalizedStart || nodeStart >= normalizedEnd) {
+            output.push(node)
+            return
+        }
+
+        const selectionStart = Math.max(normalizedStart - nodeStart, 0)
+        const selectionEnd = Math.min(normalizedEnd - nodeStart, node.text.length)
+
+        if (selectionStart > 0) {
+            output.push({ ...node, text: node.text.slice(0, selectionStart) })
+        }
+
+        output.push({
+            ...node,
+            text: node.text.slice(selectionStart, selectionEnd),
+            marks: [...(node.marks ?? []).filter((mark) => mark.type !== 'ref'), { type: 'ref', id: refId }],
+        })
+
+        if (selectionEnd < node.text.length) {
+            output.push({ ...node, text: node.text.slice(selectionEnd) })
+        }
+    })
+
+    return normalizeInlineNodes(output)
+}
+
+/** Removes ref marks with the given id, keeping the text — used when the paired chat is deleted. */
+export function removeInlineRefMark(nodes: NotebookInlineNode[], refId: string): NotebookInlineNode[] {
+    let didChange = false
+    const output = nodes.map((node) => {
+        if (node.type === 'hardBreak') {
+            return node
+        }
+        const marks = node.marks ?? []
+        const nextMarks = marks.filter((mark) => !(mark.type === 'ref' && mark.id === refId))
+        if (nextMarks.length === marks.length) {
+            return node
+        }
+        didChange = true
+        return { ...node, marks: nextMarks.length ? nextMarks : undefined }
+    })
+
+    return didChange ? normalizeInlineNodes(output) : nodes
 }
 
 export function splitInlineNodesAt(

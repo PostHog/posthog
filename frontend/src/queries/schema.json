@@ -20479,6 +20479,11 @@
                 "SapSuccessFactors",
                 "OracleEbs",
                 "OracleFusion",
+                "AmazonSNS",
+                "AmazonEventBridge",
+                "AmazonSQS",
+                "AmazonKinesis",
+                "AmazonCloudWatch",
                 "Custom"
             ],
             "type": "string"

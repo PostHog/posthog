@@ -226,6 +226,13 @@ function getInlineMarkOrder(mark: NotebookInlineMark): number {
     if (mark.type === 'strike') {
         return 4
     }
+    if (mark.type === 'mention') {
+        return 6
+    }
+    if (mark.type === 'ref') {
+        // Outermost, so the ref tag wraps the fully formatted text.
+        return 7
+    }
     return 5
 }
 
