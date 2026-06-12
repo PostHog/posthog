@@ -58,6 +58,28 @@ function getDisplayedColumnTitle(
     return label || title || columnName
 }
 
+// Compares two cells from the same column so the table can be sorted by clicking a
+// header, the way trends tables and the SQL editor results tab already can. Numbers
+// sort numerically, everything else falls back to a numeric-aware string compare, and
+// empty cells sort to the bottom of an ascending sort.
+function compareTableCells(a: TableDataCell<any> | undefined, b: TableDataCell<any> | undefined): number {
+    const aValue = a?.value
+    const bValue = b?.value
+    if (aValue == null && bValue == null) {
+        return 0
+    }
+    if (aValue == null) {
+        return -1
+    }
+    if (bValue == null) {
+        return 1
+    }
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return aValue - bValue
+    }
+    return String(aValue).localeCompare(String(bValue), undefined, { numeric: true })
+}
+
 // Plain-text representation of a cell, used as the hover title so clipped content is
 // still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
 // selecting and copying a cell copies the whole value, not just the clipped portion.
@@ -86,6 +108,7 @@ export const Table = (props: TableProps): JSX.Element => {
         pinnedColumns,
         isColumnPinned,
         isPinningEnabled,
+        isTransposed,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
@@ -100,6 +123,9 @@ export const Table = (props: TableProps): JSX.Element => {
             return {
                 ...columnMeta,
                 key: column.name,
+                // Sorting reorders rows, which doesn't make sense once the table is transposed
+                // (rows become the original columns), so only offer it in the normal orientation.
+                sorter: isTransposed ? undefined : (a, b) => compareTableCells(a[index], b[index]),
                 title: (
                     <div className="flex items-center gap-1">
                         <span>{formattedTitle}</span>
