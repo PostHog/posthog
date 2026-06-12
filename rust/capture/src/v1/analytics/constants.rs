@@ -110,3 +110,12 @@ pub(super) const ILLEGAL_DISTINCT_IDS: &[&str] = &[
 /// Events whose skew-adjusted timestamp is more than 23 hours in the future
 /// (in milliseconds) are clamped to server `now`.
 pub(super) const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
+
+/// Counter for events whose far-future timestamps were clamped to server now.
+pub(super) const CAPTURE_V1_EVENTS_TIMESTAMP_CLAMPED: &str = "capture_v1_events_timestamp_clamped";
+
+/// Counter for non-drop event-restriction actions applied (label: action).
+pub(super) const CAPTURE_V1_EVENTS_RESTRICTED: &str = "capture_v1_events_restricted";
+
+/// Counter for per-request batch outcome mix (labels: outcome, path).
+pub(super) const CAPTURE_V1_BATCH_OUTCOMES: &str = "capture_v1_batch_outcomes";

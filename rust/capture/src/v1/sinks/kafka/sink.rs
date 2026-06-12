@@ -85,15 +85,23 @@ fn reject_publishable(
 ) -> Vec<Box<dyn SinkResult>> {
     let enqueued_at = Utc::now();
     let publishable: Vec<_> = events.iter().filter(|e| e.should_publish()).collect();
-    counter!(
-        "capture_v1_kafka_publish_total",
-        "mode" => labels.mode,
-        "cluster" => labels.sink,
-        "outcome" => Outcome::RetriableError.as_tag(),
-        "path" => labels.path,
-        "attempt" => labels.attempt.clone(),
-    )
-    .increment(publishable.len() as u64);
+    let mut by_dest: std::collections::HashMap<&'static str, u64> =
+        std::collections::HashMap::new();
+    for e in &publishable {
+        *by_dest.entry(e.destination().as_tag()).or_default() += 1;
+    }
+    for (dest_tag, count) in &by_dest {
+        counter!(
+            "capture_v1_kafka_publish_total",
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "outcome" => Outcome::RetriableError.as_tag(),
+            "path" => labels.path,
+            "attempt" => labels.attempt.clone(),
+            "destination" => *dest_tag,
+        )
+        .increment(*count);
+    }
     publishable
         .into_iter()
         .map(|e| -> Box<dyn SinkResult> {
@@ -111,6 +119,7 @@ type AckFuture = Pin<
         dyn Future<
                 Output = (
                     Uuid,
+                    &'static str,
                     DateTime<Utc>,
                     Result<(), super::producer::ProduceError>,
                 ),
@@ -132,7 +141,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         enqueued_at: DateTime<Utc>,
         results: &mut Vec<Box<dyn SinkResult>>,
         pending: &mut FuturesUnordered<AckFuture>,
-        enqueued_keys: &mut Vec<Uuid>,
+        enqueued_keys: &mut Vec<(Uuid, &'static str)>,
     ) {
         let mut payload_buf = String::with_capacity(4096);
         let mut key_buf = String::with_capacity(128);
@@ -143,6 +152,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             }
 
             let uuid = event.uuid();
+            let dest_tag = event.destination().as_tag();
 
             let topic = match self.config.kafka.topic_for(event.destination()) {
                 Some(t) => t,
@@ -166,6 +176,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     "outcome" => Outcome::FatalError.as_tag(),
                     "path" => labels.path,
                     "attempt" => labels.attempt.clone(),
+                    "destination" => dest_tag,
                 )
                 .increment(1);
                 results.push(Box::new(KafkaResult::err(
@@ -217,10 +228,10 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             )
                             .increment(1);
                         }
-                        enqueued_keys.push(uuid);
+                        enqueued_keys.push((uuid, dest_tag));
                         pending.push(Box::pin(async move {
                             let result = ack_future.await;
-                            (uuid, Utc::now(), result)
+                            (uuid, dest_tag, Utc::now(), result)
                         }));
                         break;
                     }
@@ -250,6 +261,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "outcome" => outcome.as_tag(),
                             "path" => labels.path,
                             "attempt" => labels.attempt.clone(),
+                            "destination" => dest_tag,
                         )
                         .increment(1);
                         results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
@@ -277,7 +289,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
         loop {
             match tokio::time::timeout_at(deadline, pending.next()).await {
-                Ok(Some((uuid, completed_at, ack))) => {
+                Ok(Some((uuid, dest_tag, completed_at, ack))) => {
                     resolved_keys.insert(uuid);
 
                     let outcome_tag = match &ack {
@@ -298,6 +310,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                         "outcome" => outcome_tag,
                         "path" => labels.path,
                         "attempt" => labels.attempt.clone(),
+                        "destination" => dest_tag,
                     )
                     .increment(1);
 
@@ -310,6 +323,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "outcome" => outcome_tag,
                             "path" => labels.path,
                             "attempt" => labels.attempt.clone(),
+                            "destination" => dest_tag,
                         )
                         .record(secs.as_secs_f64());
                     }
@@ -336,28 +350,36 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     fn collect_timeouts(
         labels: &MetricLabels,
         enqueued_at: DateTime<Utc>,
-        enqueued_keys: Vec<Uuid>,
+        enqueued_keys: Vec<(Uuid, &'static str)>,
         resolved_keys: &HashSet<Uuid>,
         results: &mut Vec<Box<dyn SinkResult>>,
     ) {
-        let timed_out_keys: Vec<_> = enqueued_keys
+        let timed_out: Vec<_> = enqueued_keys
             .into_iter()
-            .filter(|k| !resolved_keys.contains(k))
+            .filter(|(k, _)| !resolved_keys.contains(k))
             .collect();
-        if timed_out_keys.is_empty() {
+        if timed_out.is_empty() {
             return;
         }
-        counter!(
-            "capture_v1_kafka_publish_total",
-            "mode" => labels.mode,
-            "cluster" => labels.sink,
-            "outcome" => Outcome::Timeout.as_tag(),
-            "path" => labels.path,
-            "attempt" => labels.attempt.clone(),
-        )
-        .increment(timed_out_keys.len() as u64);
+        let mut by_dest: std::collections::HashMap<&'static str, u64> =
+            std::collections::HashMap::new();
+        for (_, dest_tag) in &timed_out {
+            *by_dest.entry(dest_tag).or_default() += 1;
+        }
+        for (dest_tag, count) in &by_dest {
+            counter!(
+                "capture_v1_kafka_publish_total",
+                "mode" => labels.mode,
+                "cluster" => labels.sink,
+                "outcome" => Outcome::Timeout.as_tag(),
+                "path" => labels.path,
+                "attempt" => labels.attempt.clone(),
+                "destination" => *dest_tag,
+            )
+            .increment(*count);
+        }
         let gave_up_at = Utc::now();
-        for uuid in timed_out_keys {
+        for (uuid, _) in timed_out {
             results.push(Box::new(
                 KafkaResult::err(uuid, KafkaSinkError::Timeout, enqueued_at)
                     .with_completed_at(gave_up_at),
@@ -381,7 +403,11 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             sink: self.name.as_str(),
             mode: self.capture_mode.as_tag(),
             path: ctx.path,
-            attempt: ctx.attempt.to_string().into(),
+            attempt: if ctx.attempt > 5 {
+                "5+".into()
+            } else {
+                ctx.attempt.to_string().into()
+            },
         };
 
         if !self.producer.is_ready() {
@@ -398,7 +424,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let enqueued_at = Utc::now();
         let mut results: Vec<Box<dyn SinkResult>> = Vec::new();
         let mut pending: FuturesUnordered<AckFuture> = FuturesUnordered::new();
-        let mut enqueued_keys: Vec<Uuid> = Vec::new();
+        let mut enqueued_keys: Vec<(Uuid, &'static str)> = Vec::new();
 
         self.enqueue_events(
             ctx,

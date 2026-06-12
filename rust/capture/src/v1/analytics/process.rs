@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
-    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_ILLEGAL_DISTINCT_ID,
+    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
+    CAPTURE_V1_EVENTS_TIMESTAMP_CLAMPED, CAPTURE_V1_ILLEGAL_DISTINCT_ID,
     CAPTURE_V1_MAX_EVENT_NAME_LENGTH, CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
     FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
@@ -316,6 +317,7 @@ fn normalize_timestamp(
     let adjusted = raw_event_ts - context.clock_skew();
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
+        metrics::counter!(CAPTURE_V1_EVENTS_TIMESTAMP_CLAMPED).increment(1);
         return now;
     }
     adjusted
@@ -434,16 +436,24 @@ async fn apply_restrictions(
         // the explicit guard makes the invariant ordering-independent.
         if applied.force_overflow() && event.destination == Destination::AnalyticsMain {
             event.destination = Destination::Overflow;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "force_overflow")
+                .increment(1);
         }
         if let Some(topic) = applied.redirect_to_topic() {
             event.destination = Destination::Custom(topic.to_string());
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_topic")
+                .increment(1);
         }
         if applied.redirect_to_dlq() {
             event.destination = Destination::Dlq;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_dlq")
+                .increment(1);
         }
 
         if applied.skip_person_processing() {
             event.force_disable_person_processing = true;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
+                .increment(1);
         }
     }
 }

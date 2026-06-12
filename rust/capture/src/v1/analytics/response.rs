@@ -4,7 +4,7 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::constants::DEFAULT_RETRY_AFTER_SECS;
+use super::constants::{CAPTURE_V1_BATCH_OUTCOMES, DEFAULT_RETRY_AFTER_SECS};
 use super::types::{EventResult, WrappedEvent};
 use crate::v1::context::Context;
 
@@ -49,7 +49,6 @@ impl BatchResponse {
     /// Build the response from a processed batch of WrappedEvents.
     /// Call this after sink publishing and result merging are complete.
     pub fn build(ctx: &Context, events: &[WrappedEvent]) -> Self {
-        let _ = ctx; // Context reserved for future per-response metadata
         let mut has_retry = false;
         let entries: Vec<(Uuid, BatchEntryStatus)> = events
             .iter()
@@ -66,6 +65,27 @@ impl BatchResponse {
                 )
             })
             .collect();
+
+        if !events.is_empty() {
+            let all_ok_or_warn = events
+                .iter()
+                .all(|e| matches!(e.result, EventResult::Ok | EventResult::Warning));
+            let all_drop = events.iter().all(|e| e.result == EventResult::Drop);
+            let all_retry = events.iter().all(|e| e.result == EventResult::Retry);
+
+            let outcome = if all_ok_or_warn {
+                "all_ok"
+            } else if all_drop {
+                "all_drop"
+            } else if all_retry {
+                "all_retry"
+            } else {
+                "partial_failure"
+            };
+
+            metrics::counter!(CAPTURE_V1_BATCH_OUTCOMES, "outcome" => outcome, "path" => ctx.path)
+                .increment(1);
+        }
 
         Self { has_retry, entries }
     }

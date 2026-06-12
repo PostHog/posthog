@@ -27,6 +27,22 @@ impl Destination {
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
+
+    /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
+    /// so admin-configured topic names never become label values.
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            Self::AnalyticsMain => "analytics_main",
+            Self::AnalyticsHistorical => "analytics_historical",
+            Self::Overflow => "overflow",
+            Self::Dlq => "dlq",
+            Self::Custom(_) => "custom",
+            Self::Drop => "drop",
+            Self::ExceptionErrorTracking => "exception_error_tracking",
+            Self::HeatmapMain => "heatmap_main",
+            Self::ClientIngestionWarning => "client_ingestion_warning",
+        }
+    }
 }
 
 #[cfg(test)]

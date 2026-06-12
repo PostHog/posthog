@@ -68,7 +68,7 @@ pub async fn handle_request(
         err
     })?;
 
-    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "compressed")
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "compressed", "encoding" => context.content_encoding.as_deref().unwrap_or("identity").to_string())
         .record(raw_bytes.len() as f64);
 
     let payload = v1::util::decompress_payload(
@@ -83,7 +83,7 @@ pub async fn handle_request(
         err
     })?;
 
-    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed")
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => context.content_encoding.as_deref().unwrap_or("identity").to_string())
         .record(payload.len() as f64);
 
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {

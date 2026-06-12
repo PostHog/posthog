@@ -6,7 +6,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
-use crate::v1::constants::CAPTURE_V1_BODY_READ_TIMEOUT;
+use crate::v1::constants::{CAPTURE_V1_BODY_READ_TIMEOUT, CAPTURE_V1_DECOMPRESSION_ERRORS};
 use crate::v1::Error;
 
 /// Extract body bytes from a streaming Body with a per-chunk timeout.
@@ -171,6 +171,8 @@ async fn read_decompressed(
         let to_read = std::cmp::min(remaining, chunk_size);
         buf.reserve(to_read);
         let n = reader.read_buf(&mut buf).await.map_err(|e| {
+            metrics::counter!(CAPTURE_V1_DECOMPRESSION_ERRORS, "encoding" => encoding.to_string())
+                .increment(1);
             Error::RequestDecodingError(format!("{encoding} decompression failed: {e:#}"))
         })?;
         if n == 0 {
