@@ -53,7 +53,7 @@ const buttonVariants = cva('inline-flex items-center ...', {
     variant: {
       default: 'bg-secondary ...',
       outline: 'border-foreground/10 ...',
-      ghost: 'hover:bg-accent/40 ...',
+      destructive: 'bg-destructive ...',
     },
     size: {
       default: 'h-7 px-2 text-xs',
@@ -97,7 +97,7 @@ Components that need `forwardRef`:
 ```text
 Button
 ├── Chip (default size=sm, variant=outline)
-├── ChipClose (variant=ghost, size=icon-xs)
+├── ChipClose (size=icon-xs)
 ├── InputGroupButton
 ├── TabsTrigger (render prop)
 ├── CollapsibleTrigger (render prop)
@@ -110,7 +110,7 @@ Input
 
 InputGroup
 ├── ComboboxInput (with anchor context)
-└── CommandInput
+└── AutocompleteInput (with anchor context)
 
 Chip + ChipClose
 └── ComboboxChip (via render prop)
@@ -197,10 +197,7 @@ function Parent({ children }) {
 | `class-variance-authority` | Type-safe variant class maps                      |
 | `clsx` + `tailwind-merge`  | Class merging without conflicts                   |
 | `lucide-react`             | Icons                                             |
-| `vaul`                     | Drawer primitive                                  |
 | `react-resizable-panels`   | Resizable panel layout                            |
-| `cmdk`                     | Command palette                                   |
-| `sonner`                   | Toast notifications                               |
 
 ## Token system
 

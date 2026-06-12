@@ -5,18 +5,22 @@ Quick-reference for AI agents using `@posthog/quill-primitives`. Show compositio
 ## Setup
 
 ```tsx
-import { ThemeProvider, TooltipProvider } from '@posthog/quill-primitives'
+import { ThemeProvider, ToastProvider, TooltipProvider } from '@posthog/quill-primitives'
 
 function App() {
   return (
     <ThemeProvider defaultTheme="system">
-      <TooltipProvider>
-        <YourApp />
-      </TooltipProvider>
+      <ToastProvider>
+        <TooltipProvider>
+          <YourApp />
+        </TooltipProvider>
+      </ToastProvider>
     </ThemeProvider>
   )
 }
 ```
+
+For RTL apps, wrap with `DirectionProvider` (re-exported from Base UI) — directional pieces (Collapsible chevrons, menu alignment) read it via `useDirection`.
 
 ---
 
@@ -59,9 +63,8 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 | Select       | Pick one value from a short, static list (< ~15 options), no search needed                                | Long or async lists — use Combobox          |
 | Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
 | Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
-| Command      | Keyboard-first command palette (cmdk), usually in a CommandDialog                                         | Inline form fields                          |
 
-For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows.
+For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
 
 ### Disclosure
 
@@ -84,7 +87,7 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 | Drawer      | Mobile-first slide-up sheet; touch contexts                                                                                             |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
-| Toast       | Async outcome notification (`toast.success(...)`) — fire and forget                                                                     |
+| Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
 ### Status and labels
 
@@ -105,6 +108,7 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 | Select      | One-of-many where options can hide behind a trigger                               |
 | Toggle      | Pressed/unpressed tool state (e.g. bold); ToggleGroup for exclusive or multi sets |
 | NumberField | Numeric input with increment/decrement; Slider when the range matters visually    |
+| Textarea    | Multi-line free text — a styled `<textarea>`, same conventions as Input           |
 
 Always wrap form controls in `Field` (see Composition Patterns below).
 
@@ -365,6 +369,28 @@ Multi-select with chips:
 </Combobox>
 ```
 
+### Autocomplete (search-first input)
+
+The typed text is the value; items are suggestions. Pass `items` to the root and render via function-as-children so Base UI owns the filter pipeline. For a sticky-footer "Create new" action, use Combobox (`ComboboxListFooter`) instead.
+
+```tsx
+<Autocomplete items={FRAMEWORKS} value={value} onValueChange={setValue}>
+  <AutocompleteInput placeholder="Search…" />
+  <AutocompleteContent>
+    <AutocompleteEmpty>No matches</AutocompleteEmpty>
+    <AutocompleteList>
+      {(item: string) => (
+        <AutocompleteItem key={item} value={item}>
+          {item}
+        </AutocompleteItem>
+      )}
+    </AutocompleteList>
+  </AutocompleteContent>
+</Autocomplete>
+```
+
+Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To anchor the popup to an external trigger, pass `anchor={triggerRef}` to `AutocompleteContent`.
+
 ### Dialog
 
 ```tsx
@@ -560,39 +586,6 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
 </Tooltip>
 ```
 
-### Command Palette
-
-```tsx
-<Command>
-  <CommandInput placeholder="Search commands..." />
-  <CommandList>
-    <CommandEmpty>No results found.</CommandEmpty>
-    <CommandGroup heading="Actions">
-      <CommandItem>
-        New file
-        <CommandShortcut>Cmd+N</CommandShortcut>
-      </CommandItem>
-      <CommandItem>Search</CommandItem>
-    </CommandGroup>
-    <CommandSeparator />
-    <CommandGroup heading="Settings">
-      <CommandItem>Preferences</CommandItem>
-    </CommandGroup>
-  </CommandList>
-</Command>
-```
-
-As a dialog:
-
-```tsx
-<CommandDialog open={open} onOpenChange={setOpen}>
-  <CommandInput placeholder="Type a command..." />
-  <CommandList>
-    <CommandItem>...</CommandItem>
-  </CommandList>
-</CommandDialog>
-```
-
 ### Radio Group
 
 ```tsx
@@ -650,7 +643,7 @@ Vertical: `<ButtonGroup orientation="vertical">`
       <ItemDescription>john@example.com</ItemDescription>
     </ItemContent>
     <ItemActions>
-      <Button variant="ghost" size="icon-xs">
+      <Button variant="outline" size="icon-xs">
         <MoreIcon />
       </Button>
     </ItemActions>
@@ -763,21 +756,24 @@ Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableC
 
 MenubarItem wraps DropdownMenuItem, so the same item API applies — including `variant="destructive"` (red text, red-tinted highlight, transparent at rest).
 
-### Toast (Sonner)
+### Toast
 
-Add `<Toaster />` once at app root, then use sonner's `toast()`:
+Add `<ToastProvider />` once at app root (see Setup), then call `toast` with an options object — not a string:
 
 ```tsx
-import { Toaster } from '@posthog/quill-primitives'
-import { toast } from 'sonner'
+import { toast } from '@posthog/quill-primitives'
 
-// In app root:
-;<Toaster />
+toast({ title: 'Hello world' })
+toast.success({ title: 'Saved successfully' })
+toast.error({ title: 'Something went wrong', description: 'Try again later' })
 
-// Anywhere:
-toast.success('Saved successfully')
-toast.error('Something went wrong')
-toast('Hello world')
+// Loading → resolve by id
+const id = toast.loading({ title: 'Processing...' })
+toast.update(id, { type: 'success', title: 'Done' })
+toast.dismiss(id)
+
+// With an action button
+toast({ title: 'Item archived', action: { label: 'Undo', onClick: () => restore() } })
 ```
 
 ### Theme Toggle
@@ -867,7 +863,7 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 ## Rules
 
 1. **Use Field for forms** — don't compose raw Label + Input, use Field > FieldLabel + Input + FieldDescription/FieldError
-2. **Wrap app with providers** — ThemeProvider at root, TooltipProvider if using tooltips, Toaster if using toasts
+2. **Wrap app with providers** — ThemeProvider at root, TooltipProvider if using tooltips, ToastProvider if using toasts
 3. **Badge variants are semantic** — info (blue), warning (yellow), success (green), destructive (red), default (neutral)
 4. **Use `render` on triggers** — DialogTrigger, PopoverTrigger, TooltipTrigger, DrawerTrigger accept `render` to render as the child element
 5. **DropdownMenuItem has variants** — use `variant="destructive"` for dangerous actions; default is `"default"`
