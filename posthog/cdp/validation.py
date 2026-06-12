@@ -44,6 +44,10 @@ register_supported_function("postHogUpdateTicket")
 # (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
 TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
 
+# Globals available to log transformations, which run per log record in the logs
+# ingestion pipeline and see a log record instead of an event.
+TRANSFORMATION_LOG_AVAILABLE_GLOBALS = {"project", "record", "inputs"}
+
 # Helper functions that the transformer exposes via getTransformationFunctions
 # (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
 # via GET_GLOBAL when referenced as a closure rather than called inline.
@@ -79,9 +83,19 @@ class TransformationGlobalsValidator(TraversingVisitor):
 
     invalid_globals: set[str]
 
-    def __init__(self):
+    def __init__(
+        self,
+        available_globals: Optional[set[str]] = None,
+        runtime_functions: Optional[set[str]] = None,
+    ):
         super().__init__()
         self.invalid_globals = set()
+        self._available_globals = (
+            available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
+        )
+        self._runtime_functions = (
+            runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
+        )
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -89,8 +103,8 @@ class TransformationGlobalsValidator(TraversingVisitor):
             return
         root = str(node.chain[0])
         if (
-            root in TRANSFORMATION_AVAILABLE_GLOBALS
-            or root in TRANSFORMATION_RUNTIME_FUNCTIONS
+            root in self._available_globals
+            or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
             or root in STL
@@ -168,6 +182,18 @@ def generate_template_bytecode(
                 raise Exception(
                     f"Variable not available in transformations: {names}. "
                     f"Transformations only have access to project, event, and inputs."
+                )
+        elif function_type == "transformation_log":
+            log_validator = TransformationGlobalsValidator(
+                available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
+                runtime_functions=set(),
+            )
+            log_validator.visit(node)
+            if log_validator.invalid_globals:
+                names = ", ".join(sorted(log_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in log transformations: {names}. "
+                    f"Log transformations only have access to project, record, and inputs."
                 )
         return create_bytecode(node).bytecode
     else:
@@ -477,6 +503,21 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if function_type == "transformation_log":
+            # Filter bytecode is compiled against event-shaped globals, which log records
+            # don't have — silently accepting filters would mis-evaluate at ingestion time.
+            # Log transformations express conditions in Hog code instead.
+            disallowed = [
+                key
+                for key in ("events", "actions", "properties", "data_warehouse", "filter_test_accounts")
+                if data.get(key)
+            ]
+            if disallowed:
+                raise serializers.ValidationError(
+                    f"Filters are not supported for log transformations (got: {', '.join(disallowed)}). "
+                    "Use conditions in the Hog code instead."
+                )
+
         if data.get("source") == "events":
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
@@ -577,6 +618,11 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         elif hog_type == "tagger":
             # Taggers classify; they must not perform side effects, so we deliberately exclude
             # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
+            # Stated explicitly so a future refactor can't silently widen the surface.
+            supported_functions = set()
+        elif hog_type == "transformation_log":
+            # Log transformations run synchronously per log record in the logs ingestion
+            # hot path — no async functions (fetch, postHogCapture) can ever be allowed.
             # Stated explicitly so a future refactor can't silently widen the surface.
             supported_functions = set()
 

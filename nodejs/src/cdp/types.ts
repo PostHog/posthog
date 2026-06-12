@@ -401,6 +401,7 @@ export type HogFunctionInputSchemaType = {
 export type HogFunctionTypeType =
     | 'destination'
     | 'transformation'
+    | 'transformation_log'
     | 'internal_destination'
     | 'source_webhook'
     | 'warehouse_source_webhook'
