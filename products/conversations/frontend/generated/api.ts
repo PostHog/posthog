@@ -28,6 +28,8 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    PermissionResponseApi,
+    PermissionResponseResultApi,
     SandboxMessageApi,
     SandboxMessageResponseApi,
     SuggestReplyResponseApi,
@@ -175,6 +177,27 @@ export const conversationsCancelPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedConversationApi),
+    })
+}
+
+export const getConversationsPermissionCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/permission/`
+}
+
+/**
+ * Forward a sandbox-runtime approval reply to the backing products/tasks run.
+ */
+export const conversationsPermissionCreate = async (
+    projectId: string,
+    conversation: string,
+    permissionResponseApi: PermissionResponseApi,
+    options?: RequestInit
+): Promise<PermissionResponseResultApi> => {
+    return apiMutator<PermissionResponseResultApi>(getConversationsPermissionCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(permissionResponseApi),
     })
 }
 
