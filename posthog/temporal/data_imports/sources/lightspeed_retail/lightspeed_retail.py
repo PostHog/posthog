@@ -60,8 +60,8 @@ def _to_version(value: Any) -> Optional[int]:
         return None
 
 
-def _build_url(domain_prefix: str, path: str, after: Optional[int]) -> str:
-    params: dict[str, Any] = {"page_size": PAGE_SIZE}
+def _build_url(domain_prefix: str, path: str, after: Optional[int], page_size: int = PAGE_SIZE) -> str:
+    params: dict[str, Any] = {"page_size": page_size}
     if after is not None:
         params["after"] = after
     return f"{_base_url(domain_prefix)}{path}?{urlencode(params)}"
@@ -71,7 +71,7 @@ def validate_credentials(domain_prefix: str, api_token: str) -> bool:
     """Confirm the token and store subdomain are valid with a cheap outlets probe."""
     try:
         response = _get_session(api_token).get(
-            _build_url(domain_prefix, "/outlets", None),
+            _build_url(domain_prefix, "/outlets", None, page_size=1),
             timeout=10,
         )
         return response.status_code == 200
