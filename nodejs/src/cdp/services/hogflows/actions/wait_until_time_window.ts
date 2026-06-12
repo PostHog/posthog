@@ -90,7 +90,9 @@ export const getWaitUntilTime = (
     const config = action.config
 
     if (config.time === 'any') {
-        return getNextValidDay(now, config.day)
+        // Any time on a valid day: if today is valid the window is already open, so return null to
+        // advance now. Returning null is the only signal to advance — the handler re-parks otherwise.
+        return isValidDay(now, config.day) ? null : getNextValidDay(now, config.day)
     }
 
     const [startTime, endTime] = config.time

@@ -52,10 +52,18 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             )
         })
 
-        it('should handle "any" time', () => {
+        it('should advance immediately for "any" time on a valid day', () => {
+            action.config.time = 'any' // day is 'any', so today is always valid -> window is open now
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('should wait for the next valid day for "any" time when today is not valid', () => {
+            jest.setSystemTime(new Date('2025-01-01T10:00:00.000Z')) // a Wednesday
             action.config.time = 'any'
+            action.config.day = 'weekend'
             const result = getWaitUntilTime(action)
-            expect(result).toEqual(DateTime.utc().plus({ days: 1 }).startOf('day'))
+            expect(result).not.toBeNull()
+            expect([6, 7]).toContain(result!.weekday) // Saturday or Sunday
         })
 
         it('should handle time window spanning midnight', () => {

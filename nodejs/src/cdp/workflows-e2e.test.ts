@@ -840,7 +840,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                     delay: { type: 'delay', config: { delay_duration: '5m' } },
                     wait_condition: {
                         type: 'wait_until_condition',
-                        config: { events: [eventNameFilter('wakeup_event')], max_wait_duration: '5m' },
+                        config: {
+                            events: [eventNameFilter('wakeup_event')],
+                            condition: { filters: null },
+                            max_wait_duration: '5m',
+                        },
                     },
                     function_matched: fetchAction('https://example.com/matched'),
                     exit: exitAction(),
@@ -910,6 +914,36 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             }, 10000)
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('wait_until_time_window: window currently open', () => {
+        it('advances through the window and runs the next step', async () => {
+            // day: 'any', time: 'any' is always open, so the step must advance and run the next action
+            // instead of parking forever.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_window: {
+                        type: 'wait_until_time_window',
+                        config: { timezone: 'UTC', day: 'any', time: 'any' },
+                    },
+                    function_1: fetchAction('https://example.com/window-open'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_window', type: 'continue' },
+                    { from: 'wait_window', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            await triggerWorkflow(createGlobals())
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/window-open', expect.anything())
         })
     })
 
