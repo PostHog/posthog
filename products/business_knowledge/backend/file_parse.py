@@ -152,6 +152,8 @@ def _check_zip_bomb(zf: zipfile.ZipFile) -> None:
                         raise ZipBombError(
                             f"Decompressed size exceeds the {MAX_FILE_DECOMPRESSED_BYTES // (1024 * 1024)} MB cap."
                         )
+    except zipfile.BadZipFile:
+        raise FileParseError("File appears corrupt — cannot read ZIP contents.")
     except (RuntimeError, NotImplementedError):
         raise FileParseError("File is encrypted or uses an unsupported compression method.")
 

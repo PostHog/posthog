@@ -226,8 +226,7 @@ class TestParseFileHappyPaths:
     def test_parse_docx_with_table(self) -> None:
         data = _make_docx_with_table()
         result = parse_file(data, "report.docx")
-        assert "Alice" in result.content
-        assert "Engineer" in result.content
+        assert "Alice | Engineer" in result.content
         assert "Intro paragraph" in result.content
         assert "Closing paragraph" in result.content
 
