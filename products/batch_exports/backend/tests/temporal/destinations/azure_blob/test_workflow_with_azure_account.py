@@ -20,9 +20,9 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from azure.storage.blob.aio import BlobServiceClient
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.integration import Integration
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (

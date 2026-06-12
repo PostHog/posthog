@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.main import http_exception_handler
+from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
     UserCostBurstThrottle,
@@ -17,6 +18,13 @@ from llm_gateway.rate_limiting.cost_throttles import (
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 from llm_gateway.services.plan_resolver import PlanInfo
+from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+
+def _make_fake_quota_resolver() -> AsyncMock:
+    resolver = AsyncMock()
+    resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=False))
+    return resolver
 
 
 def create_test_app(
@@ -26,20 +34,24 @@ def create_test_app(
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
 
+    quota_resolver = _make_fake_quota_resolver()
     default_throttles: list[Throttle] = [
+        BillableCreditThrottle(),
         ProductCostThrottle(redis=None),
         UserCostBurstThrottle(redis=None),
         UserCostSustainedThrottle(redis=None),
     ]
 
     @asynccontextmanager
-    async def test_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    async def test_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.db_pool = mock_db_pool
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
         app.state.http_client = MagicMock()
         app.state.plan_resolver = AsyncMock()
         app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        app.state.anthropic_circuit_breaker = None
+        app.state.quota_resolver = quota_resolver
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
@@ -73,25 +85,25 @@ def authenticated_user() -> AuthenticatedUser:
 
 
 @pytest.fixture
-def app(mock_db_pool: MagicMock) -> Generator[FastAPI, None, None]:
+def app(mock_db_pool: MagicMock) -> Generator[FastAPI]:
     application = create_test_app(mock_db_pool)
     yield application
 
 
 @pytest.fixture
-def client(app: FastAPI) -> Generator[TestClient, None, None]:
+def client(app: FastAPI) -> Generator[TestClient]:
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
-async def async_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def async_client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
 @pytest.fixture
-def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None, None]:
+def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient]:
     app = create_test_app(mock_db_pool)
 
     conn = AsyncMock()

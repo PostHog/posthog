@@ -7,6 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,12 +32,35 @@ export const scene: SceneExport = {
 
 type SlotColumn = LemonTableColumn<MaterializedColumnSlot, keyof MaterializedColumnSlot | undefined>
 
+// DMAT uses a single string-only column pool; HogQL casts to the property's
+// logical type at read time (typed dmat_* columns were removed).
+function dmatColumnName(slotIndex: number): string {
+    return `dmat_string_${slotIndex}`
+}
+
+const STATE_TAG_TYPE: Record<MaterializedColumnSlotState, LemonTagType> = {
+    [MaterializedColumnSlotState.PENDING]: 'default',
+    [MaterializedColumnSlotState.BACKFILL]: 'warning',
+    [MaterializedColumnSlotState.READY]: 'success',
+    [MaterializedColumnSlotState.ERROR]: 'danger',
+}
+
+const STATE_TOOLTIP: Record<MaterializedColumnSlotState, string> = {
+    [MaterializedColumnSlotState.PENDING]:
+        'Queued. The next weekly backfill cycle will assign a column and start the historical backfill.',
+    [MaterializedColumnSlotState.BACKFILL]:
+        'New events are populating the column; historical events are being backfilled. Queries still use JSON until READY.',
+    [MaterializedColumnSlotState.READY]: 'Active — HogQL reads from the materialized column.',
+    [MaterializedColumnSlotState.ERROR]:
+        'Backfill failed. Click "Retry" to put it back in the queue for the next cycle.',
+}
+
 export function MaterializedColumns(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { slots, slotsLoading, slotUsage, showCreateModal, autoMaterializedColumns, autoMaterializedColumnsLoading } =
         useValues(materializedColumnsLogic)
-    const { loadSlots, setShowCreateModal, deleteSlot } = useActions(materializedColumnsLogic)
+    const { loadSlots, setShowCreateModal, deleteSlot, retrySlot } = useActions(materializedColumnsLogic)
 
     const propertyColumn: SlotColumn = {
         title: 'Property',
@@ -50,66 +74,41 @@ export function MaterializedColumns(): JSX.Element {
         },
     }
 
-    const typeColumn: SlotColumn = {
-        title: 'Type',
-        render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            return <LemonTag>{slot.property_type}</LemonTag>
-        },
-    }
-
     const slotIndexColumn: SlotColumn = {
-        title: 'Slot Index',
+        title: 'Column',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            // Map property types to their column name prefixes
-            const typeToColumnName: Record<string, string> = {
-                String: 'string',
-                Numeric: 'numeric',
-                Boolean: 'bool',
-                DateTime: 'datetime',
+            // PENDING slots have no column assigned yet — the weekly cron picks one.
+            if (slot.slot_index === null || slot.slot_index === undefined) {
+                return <span className="text-muted text-xs italic">awaiting next weekly cycle</span>
             }
-            const columnType = typeToColumnName[slot.property_type]
-            if (!columnType) {
-                throw new Error(
-                    `Unsupported property type '${slot.property_type}' for materialized column. ` +
-                        `Supported types: ${Object.keys(typeToColumnName).join(', ')}`
-                )
-            }
-            return (
-                <div className="font-mono">
-                    dmat_{columnType}_{slot.slot_index}
-                </div>
-            )
+            return <span className="font-mono">{dmatColumnName(slot.slot_index)}</span>
         },
     }
 
     const stateColumn: SlotColumn = {
         title: 'State',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            const type: LemonTagType =
-                slot.state === MaterializedColumnSlotState.READY
-                    ? 'success'
-                    : slot.state === MaterializedColumnSlotState.ERROR
-                      ? 'danger'
-                      : 'warning'
+            const state = slot.state as MaterializedColumnSlotState
             return (
-                <LemonTag type={type} className="uppercase">
-                    {slot.state}
-                </LemonTag>
+                <Tooltip title={STATE_TOOLTIP[state] ?? ''}>
+                    <LemonTag type={STATE_TAG_TYPE[state] ?? 'default'} className="uppercase">
+                        {slot.state}
+                    </LemonTag>
+                </Tooltip>
             )
         },
     }
 
-    const backfillColumn: SlotColumn = {
-        title: 'Backfill UUID',
+    const errorColumn: SlotColumn = {
+        title: 'Error',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
+            if (!slot.error_message) {
+                return <span className="text-muted">—</span>
+            }
             return (
-                <div className="text-xs text-muted">
-                    {slot.backfill_temporal_uuid ? (
-                        <span className="font-mono">{slot.backfill_temporal_uuid}</span>
-                    ) : (
-                        <span>—</span>
-                    )}
-                </div>
+                <Tooltip title={slot.error_message}>
+                    <span className="text-xs text-danger truncate block max-w-xs">{slot.error_message}</span>
+                </Tooltip>
             )
         },
     }
@@ -125,29 +124,35 @@ export function MaterializedColumns(): JSX.Element {
         title: '',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
             return (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    status="danger"
-                    onClick={() => deleteSlot(slot.id)}
-                    disabledReason={
-                        slot.state === MaterializedColumnSlotState.BACKFILL
-                            ? 'Cannot delete slot while backfill is in progress'
-                            : undefined
-                    }
-                >
-                    Delete
-                </LemonButton>
+                <div className="flex gap-2">
+                    {slot.state === MaterializedColumnSlotState.ERROR && (
+                        <LemonButton type="secondary" size="small" onClick={() => retrySlot(slot.id)}>
+                            Retry
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        status="danger"
+                        onClick={() => deleteSlot(slot.id)}
+                        disabledReason={
+                            slot.state === MaterializedColumnSlotState.BACKFILL
+                                ? 'Cannot delete while the backfill mutation is in flight — wait for it to complete or fail'
+                                : undefined
+                        }
+                    >
+                        Delete
+                    </LemonButton>
+                </div>
             )
         },
     }
 
     const columns: SlotColumn[] = [
         propertyColumn,
-        typeColumn,
         slotIndexColumn,
         stateColumn,
-        backfillColumn,
+        errorColumn,
         createdAtColumn,
         actionsColumn,
     ]
@@ -189,30 +194,29 @@ export function MaterializedColumns(): JSX.Element {
                 {currentTeam && slotUsage && (
                     <>
                         <div className="bg-bg-light rounded p-4">
-                            <h3 className="text-lg font-semibold mb-2">Slot Usage Summary</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                {Object.entries(slotUsage.usage).map(([type, usage]) => {
-                                    const typedUsage = usage as { used: number; total: number; available: number }
-                                    return (
-                                        <div key={type} className="space-y-1">
-                                            <div className="font-semibold">{type}</div>
-                                            <div className="text-2xl">
-                                                {typedUsage.used} / {typedUsage.total}
-                                            </div>
-                                            <div className="text-xs text-muted">
-                                                {typedUsage.available} slot{typedUsage.available !== 1 ? 's' : ''}{' '}
-                                                available
-                                            </div>
-                                        </div>
-                                    )
-                                })}
+                            <h3 className="text-lg font-semibold mb-2">Slot usage</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                    <div className="font-semibold">Used</div>
+                                    <div className="text-2xl">
+                                        {slotUsage.used_total} / {slotUsage.max_slots_per_team}
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="font-semibold">Available</div>
+                                    <div className="text-2xl">{slotUsage.available}</div>
+                                </div>
+                            </div>
+                            <div className="text-xs text-muted mt-2">
+                                Cap is team-wide. Newly assigned properties stay PENDING until the next weekly backfill
+                                cycle.
                             </div>
                         </div>
 
                         <LemonDivider />
 
                         <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-semibold">Materialized Slots</h3>
+                            <h3 className="text-lg font-semibold">Materialized slots</h3>
                             <div className="flex gap-2">
                                 <LemonButton
                                     icon={slotsLoading ? <Spinner /> : <IconRefresh />}
@@ -227,8 +231,13 @@ export function MaterializedColumns(): JSX.Element {
                                     onClick={() => setShowCreateModal(true)}
                                     type="primary"
                                     size="small"
+                                    disabledReason={
+                                        slotUsage.available <= 0
+                                            ? `Team is at the cap of ${slotUsage.max_slots_per_team} slots`
+                                            : undefined
+                                    }
                                 >
-                                    Assign Slot
+                                    Assign slot
                                 </LemonButton>
                             </div>
                         </div>
@@ -238,13 +247,13 @@ export function MaterializedColumns(): JSX.Element {
                             columns={columns}
                             dataSource={slots}
                             pagination={{ pageSize: 20 }}
-                            emptyState="No materialized slots assigned yet. Click 'Assign Slot' to get started."
+                            emptyState="No materialized slots assigned yet. Click 'Assign slot' to get started."
                         />
 
                         <LemonDivider />
 
                         <div>
-                            <h3 className="text-lg font-semibold mb-2">Auto-Materialized Properties</h3>
+                            <h3 className="text-lg font-semibold mb-2">Auto-materialized properties</h3>
                             <p className="text-sm text-muted mb-4">
                                 These properties are already automatically materialized by PostHog. You're already
                                 getting all the performance gains we can provide!

@@ -23,7 +23,6 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
-    AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionActionsNode,
     AssistantRetentionEventsNode,
@@ -34,8 +33,10 @@ from posthog.schema import (
     AssistantTrendsQuery,
     ContextMessage,
     DashboardFilter,
+    DataVisualizationNode,
     EventTaxonomyItem,
     FailureMessage,
+    HogQLQuery,
     HumanMessage,
     MaxAddonInfo,
     MaxBillingContext,
@@ -49,7 +50,8 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
+from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.graph import AssistantGraph
@@ -65,7 +67,6 @@ from ee.hogai.test.base import BaseAssistantTest
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
-from ee.models.assistant import Conversation, CoreMemory
 
 title_generator_mock = patch(
     "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
@@ -645,7 +646,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         )
         root_mock.side_effect = cycle([res1, res2])
 
-        query = AssistantHogQLQuery(query="SELECT 1")
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT 1"))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True, agent_mode=AgentMode.SQL)

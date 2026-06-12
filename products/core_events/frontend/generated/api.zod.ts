@@ -11,9 +11,9 @@ import * as zod from 'zod'
 
 /**
  * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
  */
 export const coreEventsCreateBodyNameMax = 255
 
@@ -32,19 +32,19 @@ export const CoreEventsCreateBody = /* @__PURE__ */ zod.object({
             'reactivation',
         ])
         .describe(
-            '* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            '\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         )
         .describe(
-            'Lifecycle category for this core event\n\n* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            'Lifecycle category for this core event\n\n\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         ),
     filter: zod.unknown().describe('Filter configuration - event, action, or data warehouse node'),
 })
 
 /**
  * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
  */
 export const coreEventsUpdateBodyNameMax = 255
 
@@ -63,19 +63,19 @@ export const CoreEventsUpdateBody = /* @__PURE__ */ zod.object({
             'reactivation',
         ])
         .describe(
-            '* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            '\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         )
         .describe(
-            'Lifecycle category for this core event\n\n* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            'Lifecycle category for this core event\n\n\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         ),
     filter: zod.unknown().describe('Filter configuration - event, action, or data warehouse node'),
 })
 
 /**
  * CRUD operations for Core Events.
-
-Core events are reusable event definitions that can be shared across
-Marketing analytics, Customer analytics, and Revenue analytics.
+ *
+ * Core events are reusable event definitions that can be shared across
+ * Marketing analytics, Customer analytics, and Revenue analytics.
  */
 export const coreEventsPartialUpdateBodyNameMax = 255
 
@@ -94,11 +94,11 @@ export const CoreEventsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'reactivation',
         ])
         .describe(
-            '* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            '\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         )
         .optional()
         .describe(
-            'Lifecycle category for this core event\n\n* `acquisition` - Acquisition\n* `activation` - Activation\n* `monetization` - Monetization\n* `expansion` - Expansion\n* `referral` - Referral\n* `retention` - Retention\n* `churn` - Churn\n* `reactivation` - Reactivation'
+            'Lifecycle category for this core event\n\n\* `acquisition` - Acquisition\n\* `activation` - Activation\n\* `monetization` - Monetization\n\* `expansion` - Expansion\n\* `referral` - Referral\n\* `retention` - Retention\n\* `churn` - Churn\n\* `reactivation` - Reactivation'
         ),
     filter: zod.unknown().optional().describe('Filter configuration - event, action, or data warehouse node'),
 })

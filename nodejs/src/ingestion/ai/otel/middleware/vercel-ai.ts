@@ -45,6 +45,18 @@ const STRIP_KEYS = [
     'gen_ai.response.id',
 ]
 
+// Metadata properties to promote to event properties
+const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
+const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0
+}
+
+function isPromptVersion(value: unknown): value is string | number {
+    return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -146,7 +158,33 @@ function process(event: PluginEvent, next: () => void): void {
         delete props['ai.toolCall.result']
     }
 
-    // Strip Vercel-specific telemetry metadata and request headers
+    const functionId = props['ai.telemetry.functionId']
+    if (props['functionId'] === undefined && typeof functionId === 'string' && functionId) {
+        props['functionId'] = functionId
+    }
+
+    const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
+    if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
+        if (props['posthog_distinct_id'] === undefined) {
+            props['posthog_distinct_id'] = posthogDistinctId
+        }
+        event.distinct_id = posthogDistinctId
+    }
+
+    for (const aiKey of STRING_AI_METADATA_KEYS) {
+        const value = props[`ai.telemetry.metadata.${aiKey}`]
+        if (props[aiKey] === undefined && isNonEmptyString(value)) {
+            props[aiKey] = value
+        }
+    }
+
+    const promptVersion = props[`ai.telemetry.metadata.${AI_PROMPT_VERSION_KEY}`]
+    if (props[AI_PROMPT_VERSION_KEY] === undefined && isPromptVersion(promptVersion)) {
+        props[AI_PROMPT_VERSION_KEY] = promptVersion
+    }
+
+    // Strip Vercel-specific telemetry metadata and request headers after preserving
+    // the PostHog identifiers we rely on for event linkage and session grouping.
     for (const key of Object.keys(props)) {
         if (key.startsWith('ai.telemetry.metadata.')) {
             delete props[key]

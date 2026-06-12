@@ -268,7 +268,7 @@
         "chromium": 2.181,
         "webkit": 2.152
     },
-    "frontend/src/lib/hog-charts/ReferenceLine.stories.tsx": {
+    "frontend/src/lib/hog-charts/overlays/ReferenceLine.stories.tsx": {
         "chromium": 20.109,
         "webkit": 3.433
     },
@@ -1234,19 +1234,19 @@
         "chromium": 18.949,
         "webkit": 5.295
     },
-    "products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay.stories.tsx": {
+    "products/ai_observability/frontend/ConversationDisplay/ConversationDisplay.stories.tsx": {
         "chromium": 20.73,
         "webkit": 5.229
     },
-    "products/llm_analytics/frontend/LLMAnalyticsTraceScene.stories.tsx": {
+    "products/ai_observability/frontend/AIObservabilityTraceScene.stories.tsx": {
         "chromium": 19.139,
         "webkit": 4.13
     },
-    "products/llm_analytics/frontend/components/SentimentTag.stories.tsx": {
+    "products/ai_observability/frontend/components/SentimentTag.stories.tsx": {
         "chromium": 48.501,
         "webkit": 5.731
     },
-    "products/llm_analytics/mcp/apps/LLMAnalytics.stories.tsx": {
+    "products/ai_observability/mcp/apps/AIObservability.stories.tsx": {
         "chromium": 8.714,
         "webkit": 3.396
     },

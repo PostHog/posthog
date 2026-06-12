@@ -188,6 +188,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([
@@ -203,6 +204,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([
@@ -228,6 +230,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-2'])]]),
@@ -239,6 +242,7 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-3'])]]),
@@ -263,6 +267,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([
@@ -291,6 +296,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -306,6 +312,7 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -338,6 +345,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -397,6 +405,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -408,6 +417,7 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -722,6 +732,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 10,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -747,6 +758,49 @@ describe('LiveMetricsSlidingWindow', () => {
             window.prune()
 
             expect(window.getTotalPageviews()).toBe(10)
+        })
+    })
+
+    describe('incremental totalBotEligibleEvents', () => {
+        it('tracks botEligibleEvents incrementally via addDataPoint', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { botEligibleEvents: 1 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-2', { botEligibleEvents: 4 })
+            expect(window.getTotalBotEligibleEvents()).toBe(5)
+        })
+
+        it('tracks botEligibleEvents via extendBucketData', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 0,
+                botEligibleEvents: 12,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                browsers: new Map(),
+                paths: new Map(),
+                referrers: new Map(),
+                uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            expect(window.getTotalBotEligibleEvents()).toBe(12)
+        })
+
+        it('decrements totalBotEligibleEvents when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-old', { botEligibleEvents: 8 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-2 * MINUTE)), 'user-new', { botEligibleEvents: 3 })
+
+            expect(window.getTotalBotEligibleEvents()).toBe(11)
+
+            tickMinute()
+            window.prune()
+
+            expect(window.getTotalBotEligibleEvents()).toBe(3)
         })
     })
 
@@ -800,6 +854,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -863,6 +918,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -875,6 +931,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -988,6 +1045,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -1061,6 +1119,7 @@ describe('LiveMetricsSlidingWindow', () => {
             const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),

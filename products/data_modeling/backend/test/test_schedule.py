@@ -2,9 +2,22 @@ import uuid
 from collections import Counter
 from datetime import timedelta
 
+import pytest
+from posthog.test.base import BaseTest
+from unittest import mock
+
 from temporalio.client import ScheduleCalendarSpec
 
-from products.data_modeling.backend.schedule import _deterministic_int, build_schedule_spec
+from products.data_modeling.backend.models import Node
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import NodeType
+from products.data_modeling.backend.schedule import (
+    _deterministic_int,
+    build_schedule_spec,
+    get_v2_saved_query_ids,
+    partition_saved_queries_by_v2_schedule,
+)
 
 
 class TestDeterministicInt:
@@ -236,3 +249,61 @@ class TestBuildScheduleSpecEdgeCases:
     def test_boundary_30d_is_monthly(self):
         spec = build_schedule_spec(uuid.uuid4(), timedelta(days=30))
         assert len(spec.calendars[0].day_of_month) == 1
+
+
+@pytest.mark.django_db
+class TestV2ScheduleGuard(BaseTest):
+    def _saved_query_on_dag(self, name: str, dag: DAG) -> DataWarehouseSavedQuery:
+        sq = DataWarehouseSavedQuery.objects.create(
+            name=name,
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=sq, type=NodeType.VIEW)
+        return sq
+
+    def setUp(self):
+        super().setUp()
+        self.v2_dag = DAG.objects.create(team=self.team, name="v2")
+        self.v1_dag = DAG.objects.create(team=self.team, name="v1")
+        self.sq_on_v2 = self._saved_query_on_dag("on_v2", self.v2_dag)
+        self.sq_on_v1 = self._saved_query_on_dag("on_v1", self.v1_dag)
+
+    def test_get_v2_saved_query_ids_returns_only_migrated_dag_queries(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(self.v2_dag.id)},
+        ):
+            result = get_v2_saved_query_ids([self.sq_on_v2.id, self.sq_on_v1.id])
+        assert result == {self.sq_on_v2.id}
+
+    def test_get_v2_saved_query_ids_empty_when_no_v2_schedules(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value=set(),
+        ):
+            result = get_v2_saved_query_ids([self.sq_on_v2.id, self.sq_on_v1.id])
+        assert result == set()
+
+    def test_partition_splits_v1_eligible_from_v2(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(self.v2_dag.id)},
+        ):
+            eligible, on_v2 = partition_saved_queries_by_v2_schedule([self.sq_on_v2, self.sq_on_v1])
+        assert [sq.id for sq in eligible] == [self.sq_on_v1.id]
+        assert [sq.id for sq in on_v2] == [self.sq_on_v2.id]
+
+    def test_partition_keeps_all_when_no_v2_schedules(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value=set(),
+        ):
+            eligible, on_v2 = partition_saved_queries_by_v2_schedule([self.sq_on_v2, self.sq_on_v1])
+        assert {sq.id for sq in eligible} == {self.sq_on_v2.id, self.sq_on_v1.id}
+        assert on_v2 == []
+
+    def test_partition_empty_input(self):
+        eligible, on_v2 = partition_saved_queries_by_v2_schedule([])
+        assert eligible == []
+        assert on_v2 == []

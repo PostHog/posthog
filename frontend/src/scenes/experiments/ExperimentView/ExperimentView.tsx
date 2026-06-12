@@ -17,7 +17,6 @@ import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionRep
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
@@ -26,19 +25,19 @@ import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
-import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment } from '../utils'
-import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
+import { EditConclusionModal } from './ExperimentModals'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
+import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
-import { Overview } from './Overview'
+import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
@@ -72,16 +71,8 @@ const AiAnalysisTab = (): JSX.Element => {
 }
 
 const MetricsTab = (): JSX.Element => {
-    const {
-        firstPrimaryMetric,
-        primaryMetricsLengthWithSharedMetrics,
-        hasMinimumExposureForResults,
-        orderedPrimaryMetricsWithResults,
-        orderedSecondaryMetricsWithResults,
-        isExperimentLaunched,
-    } = useValues(experimentLogic)
-
-    const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
+    const { orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
+        useValues(experimentLogic)
 
     return (
         <>
@@ -91,13 +82,6 @@ const MetricsTab = (): JSX.Element => {
                 <Exposures />
                 <MultiVariantBiasWarning />
             </div>
-
-            {/* Show overview if there's only a single primary metric */}
-            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
-                <div className="mb-4 mt-2">
-                    <Overview metricUuid={firstPrimaryMetric?.uuid || ''} />
-                </div>
-            )}
 
             {/* Modern metrics view */}
             {orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
@@ -135,7 +119,7 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
-export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
+export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
         useValues(experimentLogic)
     const {
@@ -145,21 +129,18 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         updateExperimentMetrics,
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
+        removeMetric,
     } = useActions(experimentLogic)
 
-    if (!tabId) {
-        throw new Error('<ExperimentView /> must receive a tabId prop')
-    }
-
-    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
-    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
+    const { activeTabKey } = useValues(experimentSceneLogic)
+    const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
-        return <LegacyExperimentView tabId={tabId} />
+        return <LegacyExperimentView />
     }
 
     return (
@@ -184,7 +165,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             context="experiment"
                         />
                     )}
-                    <Info tabId={tabId} />
+                    <Info />
                     <ExperimentHeader />
                     <LemonTabs
                         activeKey={activeTabKey}
@@ -265,11 +246,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 return
                             }
 
-                            setExperiment({
-                                [context.field]: experiment[context.field].filter((m) => m.uuid !== metric.uuid),
-                            })
-
-                            updateExperimentMetrics()
+                            removeMetric(metric.uuid, context.type)
                             closeExperimentMetricModal()
                         }}
                     />
@@ -294,8 +271,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             updateExposureCriteria()
                         }}
                     />
-                    <RunningTimeCalculatorModal />
-
                     <DistributionModal />
                     <ReleaseConditionsModal />
 

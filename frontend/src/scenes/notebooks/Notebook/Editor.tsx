@@ -65,6 +65,7 @@ import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 import { notebookLogic } from './notebookLogic'
 import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
+import { RangeSelectedNodes } from './RangeSelectedNodes'
 import { RemotePresenceExtension } from './RemotePresenceExtension'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
@@ -74,11 +75,11 @@ const CustomDocument = ExtensionDocument.extend({
 })
 
 export function Editor(): JSX.Element {
-    const { shortId, mode, isEditable, content, collabEnabled, notebook } = useValues(notebookLogic)
+    const { shortId, mode, isEditable, content, collabEnabled, notebook, previewContent } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
-    const { bindEditor } = useActions(notebookCollabLogic({ shortId }))
+    const { bindEditor, unbindEditor } = useActions(notebookCollabLogic({ shortId }))
     const { clientID } = useValues(notebookCollabLogic({ shortId }))
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -95,7 +96,9 @@ export function Editor(): JSX.Element {
         trailingNode: false,
     }
 
-    const useCollab = collabEnabled && !!notebook
+    const useCollab = collabEnabled && !!notebook && !previewContent
+    // Collab suffix forces editor to re-initialize so the collab plugin is present
+    const editorKey = `Notebook.${shortId}${useCollab ? '-collab' : ''}`
 
     const extensions = [
         mode === 'notebook' ? CustomDocument : ExtensionDocument,
@@ -173,6 +176,7 @@ export function Editor(): JSX.Element {
         NotebookNodeCustomerJourney,
         NotebookTrailingParagraph,
         NotebookDefaultBlockOnEnter,
+        RangeSelectedNodes,
     ]
 
     if (useCollab) {
@@ -193,8 +197,8 @@ export function Editor(): JSX.Element {
 
     return (
         <RichContentEditor
-            // Collab suffix forces editor to re-initialize so the collab plugin is present
-            logicKey={`Notebook.${shortId}${useCollab ? '-collab' : ''}`}
+            key={editorKey}
+            logicKey={editorKey}
             extensions={extensions}
             disabled={!isEditable}
             className="NotebookEditor flex flex-col flex-1"
@@ -205,6 +209,7 @@ export function Editor(): JSX.Element {
                 const notebookEditor: NotebookEditor = {
                     ...createEditor(editor),
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
+                    getAllCommentTexts: () => getAllCommentTexts(editor),
                     removeComment: (pos: number) => removeCommentMark(editor, pos),
                     getText: () => textContent(editor.state.doc),
                 }
@@ -213,6 +218,8 @@ export function Editor(): JSX.Element {
 
                 if (useCollab) {
                     bindEditor(editor)
+                } else {
+                    unbindEditor()
                 }
             }}
         >
@@ -255,6 +262,21 @@ function findCommentPosition(editor: TTEditor, markId: string): number | null {
             // Same id can appear on multiple text nodes; use the start of the marked run.
             if (result === null || pos < result) {
                 result = pos
+            }
+        }
+    })
+    return result
+}
+
+function getAllCommentTexts(editor: TTEditor): Record<string, string> {
+    const result: Record<string, string> = {}
+    editor.state.doc.descendants((node) => {
+        if (!node.isText) {
+            return
+        }
+        for (const m of node.marks) {
+            if (m.type.name === 'comment' && m.attrs.id) {
+                result[m.attrs.id] = (result[m.attrs.id] ?? '') + (node.text ?? '')
             }
         }
     })

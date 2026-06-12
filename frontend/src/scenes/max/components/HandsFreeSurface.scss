@@ -1,0 +1,185 @@
+.hands-free-surface {
+    display: grid;
+    grid-template-rows: minmax(2.5rem, auto) auto minmax(1.5rem, auto);
+    gap: 1rem;
+    place-items: center center;
+    width: 100%;
+    min-height: 11rem;
+    padding: 1.25rem 1rem;
+    text-align: center;
+}
+
+.hands-free-surface__top {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2.5rem;
+}
+
+.hands-free-surface__partial {
+    max-width: 32rem;
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.4;
+    color: var(--color-text-primary);
+    word-wrap: break-word;
+}
+
+.hands-free-surface__hint {
+    max-width: 32rem;
+    margin: 0;
+    font-size: 0.8125rem;
+    font-style: italic;
+    color: var(--color-text-secondary);
+}
+
+.hands-free-surface__error {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-danger);
+}
+
+.hands-free-surface__mic {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    color: var(--color-text-primary);
+    appearance: none;
+    cursor: pointer;
+    background: var(--color-bg-fill-secondary);
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+    transition:
+        transform 120ms ease,
+        background 120ms ease;
+
+    svg {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+
+    &:hover {
+        transform: scale(1.04);
+    }
+
+    &:active {
+        transform: scale(0.97);
+    }
+}
+
+.hands-free-surface__mic--listening {
+    color: var(--color-text-on-fill);
+    background: var(--color-success);
+}
+
+.hands-free-surface__mic--speaking {
+    color: var(--color-text-on-fill);
+    background: var(--color-ai);
+}
+
+.hands-free-surface__mic--thinking,
+.hands-free-surface__mic--starting,
+.hands-free-surface__mic--reconnecting {
+    color: var(--color-text-on-fill);
+    background: var(--color-warning);
+}
+
+.hands-free-surface__mic--error {
+    color: var(--color-text-on-fill);
+    background: var(--color-danger);
+}
+
+// Larger tap target on phones — the primary affordance of a hands-free product,
+// and gym/walking users need more than the 48px desktop default.
+@media (max-width: 480px) {
+    .hands-free-surface__mic {
+        width: 4rem;
+        height: 4rem;
+
+        svg {
+            width: 1.75rem;
+            height: 1.75rem;
+        }
+    }
+}
+
+// Pulse applied only when status === 'listening' (your turn to talk).
+.hands-free-surface__mic--pulsing {
+    animation: HandsFreeSurface__micPulse 1.6s ease-in-out infinite;
+}
+
+// Spinner ring around the mic when thinking/starting/reconnecting — keeps the mic icon
+// visible so the user still knows the button is tappable to exit.
+.hands-free-surface__mic--thinking::after,
+.hands-free-surface__mic--starting::after,
+.hands-free-surface__mic--reconnecting::after {
+    position: absolute;
+    inset: -4px;
+    content: '';
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: HandsFreeSurface__micSpin 1s linear infinite;
+}
+
+@keyframes HandsFreeSurface__micSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes HandsFreeSurface__micPulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgb(0 0 0 / 0%);
+    }
+
+    50% {
+        box-shadow: 0 0 0 0.75rem rgb(255 255 255 / 8%);
+    }
+}
+
+.hands-free-surface__bottom {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.hands-free-surface__emoji {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.125rem;
+    line-height: 1;
+}
+
+.hands-free-surface__emoji--pulsing {
+    animation: HandsFreeSurface__pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes HandsFreeSurface__pulse {
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
+}
+
+.hands-free-surface__label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}

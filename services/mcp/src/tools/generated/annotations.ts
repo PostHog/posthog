@@ -10,6 +10,7 @@ import {
     AnnotationsPartialUpdateParams,
     AnnotationsRetrieveParams,
 } from '@/generated/annotations/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -34,6 +35,9 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
+        }
+        if (params.emoji !== undefined) {
+            body['emoji'] = params.emoji
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'POST',
@@ -60,7 +64,9 @@ const annotationDelete = (): ToolBase<typeof AnnotationDeleteSchema, Schemas.Ann
     },
 })
 
-const AnnotationRetrieveSchema = AnnotationsRetrieveParams.omit({ project_id: true })
+const AnnotationRetrieveSchema = AnnotationsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, AnnotationsRetrieveParams.shape['id']),
+})
 
 const annotationRetrieve = (): ToolBase<typeof AnnotationRetrieveSchema, Schemas.Annotation> => ({
     name: 'annotation-retrieve',
@@ -117,6 +123,9 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
+        }
+        if (params.emoji !== undefined) {
+            body['emoji'] = params.emoji
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'PATCH',

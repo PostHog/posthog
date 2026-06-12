@@ -8,6 +8,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.resend.settings import RESEND_ENDPOINTS, ResendEndpointConfig
 
@@ -40,7 +41,7 @@ def validate_credentials(api_key: str) -> bool:
     # least read scope — Resend returns 401 for bad keys and 200 for good ones.
     url = f"{RESEND_BASE_URL}/domains"
     try:
-        response = requests.get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(headers=_get_headers(api_key)).get(url, timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -52,8 +53,13 @@ def validate_credentials(api_key: str) -> bool:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(url: str, headers: dict[str, str], params: Optional[dict[str, Any]], logger: FilteringBoundLogger) -> dict:
-    response = requests.get(url, headers=headers, params=params, timeout=60)
+def _fetch(
+    session: requests.Session,
+    url: str,
+    params: Optional[dict[str, Any]],
+    logger: FilteringBoundLogger,
+) -> dict:
+    response = session.get(url, params=params, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise ResendRetryableError(f"Resend API error (retryable): status={response.status_code}, url={url}")
@@ -66,27 +72,26 @@ def _fetch(url: str, headers: dict[str, str], params: Optional[dict[str, Any]], 
 
 
 def _iter_flat_endpoint(
-    api_key: str,
+    session: requests.Session,
     config: ResendEndpointConfig,
     logger: FilteringBoundLogger,
     path: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Fetch a non-paginated list endpoint that returns {"data": [...]} once."""
     url = f"{RESEND_BASE_URL}{path or config.path}"
-    data = _fetch(url, _get_headers(api_key), None, logger)
+    data = _fetch(session, url, None, logger)
     items = data.get("data") or []
     if items:
         yield items
 
 
 def _iter_emails(
-    api_key: str,
+    session: requests.Session,
     config: ResendEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ResendResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     """Iterate the /emails endpoint using Resend's cursor pagination (limit + after)."""
-    headers = _get_headers(api_key)
     url = f"{RESEND_BASE_URL}{config.path}"
     page_size = config.page_size or _EMAILS_DEFAULT_PAGE_SIZE
 
@@ -100,7 +105,7 @@ def _iter_emails(
         if cursor:
             params["after"] = cursor
 
-        data = _fetch(url, headers, params, logger)
+        data = _fetch(session, url, params, logger)
         items = data.get("data") or []
         has_more = bool(data.get("has_more"))
 
@@ -122,7 +127,7 @@ def _iter_emails(
 
 
 def _iter_contacts_fanout(
-    api_key: str,
+    session: requests.Session,
     config: ResendEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ResendResumeConfig],
@@ -135,7 +140,7 @@ def _iter_contacts_fanout(
     if audiences_config is None:
         raise ValueError(f"Resend endpoint {config.name} has no parent configured")
 
-    audiences_data = _fetch(f"{RESEND_BASE_URL}{audiences_config.path}", _get_headers(api_key), None, logger)
+    audiences_data = _fetch(session, f"{RESEND_BASE_URL}{audiences_config.path}", None, logger)
     audiences = audiences_data.get("data") or []
 
     # Resume at the audience after the last completed one. If the last completed audience
@@ -156,7 +161,7 @@ def _iter_contacts_fanout(
         audience_id = audience["id"]
 
         path = config.path.replace("{audience_id}", audience_id)
-        for batch in _iter_flat_endpoint(api_key, config, logger, path=path):
+        for batch in _iter_flat_endpoint(session, config, logger, path=path):
             for row in batch:
                 row["_audience_id"] = audience_id
             yield batch
@@ -173,12 +178,16 @@ def get_rows(
     config = RESEND_ENDPOINTS[endpoint]
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
+    # One tracked session for the whole sync — keeps urllib3's TLS connection
+    # warm across pages, and every request inherits the auth headers.
+    session = make_tracked_session(headers=_get_headers(api_key))
+
     if endpoint == "emails":
-        source_iter = _iter_emails(api_key, config, logger, resumable_source_manager)
+        source_iter = _iter_emails(session, config, logger, resumable_source_manager)
     elif config.parent is not None:
-        source_iter = _iter_contacts_fanout(api_key, config, logger, resumable_source_manager)
+        source_iter = _iter_contacts_fanout(session, config, logger, resumable_source_manager)
     else:
-        source_iter = _iter_flat_endpoint(api_key, config, logger)
+        source_iter = _iter_flat_endpoint(session, config, logger)
 
     for batch in source_iter:
         batcher.batch(batch)

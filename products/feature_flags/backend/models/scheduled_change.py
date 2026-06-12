@@ -1,0 +1,110 @@
+import json
+
+from django.db import models
+
+from posthog.models.utils import RootTeamMixin
+
+
+class ScheduledChange(RootTeamMixin, models.Model):
+    class AllowedModels(models.TextChoices):
+        FEATURE_FLAG = "FeatureFlag", "feature flag"
+
+    # Keep in sync with frontend/src/types.ts RecurrenceInterval enum
+    class RecurrenceInterval(models.TextChoices):
+        DAILY = "daily", "daily"
+        WEEKLY = "weekly", "weekly"
+        MONTHLY = "monthly", "monthly"
+        YEARLY = "yearly", "yearly"
+
+    # Keep in sync with frontend/src/types.ts ScheduledChangeOperationType enum
+    class OperationType(models.TextChoices):
+        UPDATE_STATUS = "update_status", "update_status"
+        ADD_RELEASE_CONDITION = "add_release_condition", "add_release_condition"
+        UPDATE_VARIANTS = "update_variants", "update_variants"
+
+    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    record_id = models.CharField(max_length=200)
+    model_name = models.CharField(max_length=100, choices=AllowedModels)
+    payload = models.JSONField(default=dict)
+    scheduled_at = models.DateTimeField()
+    executed_at = models.DateTimeField(null=True, blank=True)
+    failure_reason = models.TextField(null=True, blank=True)
+    failure_count = models.IntegerField(default=0)
+    is_recurring = models.BooleanField(default=False)
+    recurrence_interval = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=RecurrenceInterval,
+    )
+    # Tracks when a recurring schedule last executed successfully (for audit/debugging)
+    last_executed_at = models.DateTimeField(null=True, blank=True)
+    # Cron expression for flexible recurring schedules (e.g., "0 9 * * 1-5" for weekdays at 9am).
+    # Mutually exclusive with recurrence_interval — validation enforced at the API layer.
+    cron_expression = models.CharField(max_length=100, null=True, blank=True)
+    # Optional end date for recurring schedules - stops recurring after this date
+    end_date = models.DateTimeField(null=True, blank=True)
+    # IANA timezone name captured from the team at creation time. Cron recurrence resolves its
+    # wall-clock fields in this timezone so that "0 9 * * 1-5" keeps firing at 9am local time
+    # across DST transitions, rather than drifting by the project's UTC offset on each run.
+    # NULL on rows created before this column existed; those rows keep their historical
+    # UTC-wall-clock interpretation to avoid retroactively shifting any live schedule.
+    timezone = models.CharField(max_length=240, null=True, blank=True)
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["scheduled_at", "executed_at"]),
+        ]
+        db_table = "posthog_scheduledchange"
+
+    @property
+    def formatted_failure_reason(self) -> str:
+        """
+        Return a user-friendly, safe failure message that excludes sensitive information.
+        """
+        if not self.failure_reason:
+            return "Unknown error"
+
+        # Try to parse as JSON (new format)
+        try:
+            failure_context = json.loads(self.failure_reason)
+
+            if isinstance(failure_context, dict) and "error" in failure_context:
+                error = failure_context.get("error", "Unknown error")
+                will_retry = failure_context.get("will_retry")
+                retry_exhausted = failure_context.get("retry_exhausted", False)
+                error_classification = failure_context.get("error_classification")
+                retry_count = failure_context.get("retry_count", 0)
+                max_retries = failure_context.get("max_retries")
+
+                # Only include the basic error message, not sensitive context
+                message = str(error)
+
+                # Add retry status info if available
+                if will_retry is False and retry_exhausted:
+                    if max_retries is not None:
+                        message += f" (failed after {retry_count} out of {max_retries} attempts)"
+                    else:
+                        message += f" (failed after {retry_count} attempts)"
+                elif will_retry is False and error_classification == "unrecoverable":
+                    message += " (permanent error)"
+                elif will_retry:
+                    if max_retries is not None:
+                        remaining_retries = max_retries - retry_count
+                        attempt_word = "attempt" if remaining_retries == 1 else "attempts"
+                        message += f" (will retry automatically, {remaining_retries} {attempt_word} remaining)"
+                    else:
+                        message += " (will retry automatically)"
+
+                return message
+        except (json.JSONDecodeError, TypeError):
+            # Not JSON or invalid format, treat as plain string
+            pass
+
+        # Legacy format - return as-is (assume it's already sanitized)
+        return str(self.failure_reason)

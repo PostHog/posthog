@@ -1,6 +1,6 @@
 ---
 name: configuring-experiment-analytics
-description: "Guides experiment analytics configuration: exposure criteria, metric types, metric setup, and interpreting results. Covers who is included in the analysis, how to measure impact, and how to read experiment results.\nTRIGGER when: user asks about experiment metrics, exposure criteria, multivariate handling, interpreting experiment results, or asks 'who is included in the analysis?' or 'how to measure impact?'\nDO NOT TRIGGER when: user is asking about variant splits, rollout percentages, or lifecycle actions."
+description: Configures the analytics side of a PostHog experiment — exposure criteria (default `$feature_flag_called` vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude" vs "First seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
 ---
 
 # Configuring experiment analytics
@@ -23,7 +23,23 @@ Two options:
 When a user is exposed to multiple variants (e.g., due to flag changes or race conditions):
 
 - **Exclude multivariate users** — removes these users from the analysis entirely. Cleaner data, smaller sample.
-- **First seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis.
+- **First seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis. Note that "first seen" can introduce other biases as
+  behavior cannot be clearly attributed to a single variant and is not recommended unless necessary.
+
+**Bias risk on uneven splits.** "Exclude multivariate users" combined with an uneven variant split can
+introduce bias — multi-variant users are dropped asymmetrically and the smaller variant loses a larger
+fraction of its assignments. If those users behave differently from the rest, the smaller variant's
+metrics will be skewed.
+
+The right mitigation depends on experiment state:
+
+- **Not yet launched, or only exposed to a few users so far** — switch to an even variant split and
+  use the overall rollout percentage to limit test-variant exposure. This removes the bias and
+  preserves statistical power. See `configuring-experiment-rollout`.
+- **Live experiment with significant exposures** — changing the split mid-run reassigns users across
+  variants, which is bad for user experience and data quality. Switch this setting to "First seen
+  variant" instead — it keeps already-assigned users in their original variant (no reassignment) and
+  removes the asymmetric exclusion.
 
 ### Filter test accounts
 
@@ -78,12 +94,12 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
 
 There are four metric types. Each has `kind: "ExperimentMetric"`:
 
-| metric_type   | When to use                                                                            | Key fields                                         |
-| ------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `"mean"`      | Average of a numeric property per user (revenue, session duration, pageviews per user) | `source` EventsNode                                |
-| `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` array of EventsNode steps (**1 or more**) |
-| `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` EventsNode              |
-| `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, window config   |
+| metric_type   | When to use                                                                            | Required fields                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `"mean"`      | Average of a numeric property per user (revenue, session duration, pageviews per user) | `source`                                                                                                                       |
+| `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` (1 or more steps)                                                                                                     |
+| `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` — set `math: "sum"` + `math_property` on a side to aggregate a property; filters never aggregate    |
+| `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, `retention_window_start`, `retention_window_end`, `retention_window_unit`, `start_handling` |
 
 **Funnel metrics and the implicit exposure step**
 
@@ -104,7 +120,7 @@ Examples:
 
 Both can reference the same event — the difference is whether you care about count/magnitude (mean) or yes/no conversion (funnel).
 
-See `references/metric-configuration.md` for detailed JSON examples of each type.
+See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
 ### Step 3: Primary vs secondary
 

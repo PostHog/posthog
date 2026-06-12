@@ -12,14 +12,15 @@ from parameterized import parameterized
 
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.helpers import mock_transpile
-from posthog.models.action.action import Action
-from posthog.models.cohort import Cohort
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization
-from posthog.models.plugin import TranspilerError
 from posthog.models.project import Project
 from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import TranspilerError
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -253,7 +254,7 @@ class TestSiteFunctions(TestCase):
         )
 
         self.team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": cohort.id, "negation": True},
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
         ]
         self.team.save()
 
@@ -322,7 +323,7 @@ class TestSiteFunctions(TestCase):
         )
 
         self.team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": cohort.id, "negation": True},
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
         ]
         self.team.save()
 

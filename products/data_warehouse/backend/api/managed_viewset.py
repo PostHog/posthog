@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
@@ -17,7 +17,9 @@ class DataWarehouseManagedViewSetSerializer(serializers.Serializer):
 
 
 class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+    # warehouse_view inherits from warehouse_objects; `update` (enable/disable) creates or
+    # deletes saved queries project-wide, so it must require warehouse editor rights.
+    scope_object = "warehouse_view"
     serializer_class = _FallbackSerializer
     lookup_field = "kind"
     lookup_url_kwarg = "kind"

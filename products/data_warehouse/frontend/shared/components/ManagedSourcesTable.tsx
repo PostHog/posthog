@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import {
@@ -21,7 +22,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
 
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
@@ -31,6 +32,14 @@ import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
 import { SourceIcon } from './SourceIcon'
+
+const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
+    ExternalDataSchemaStatus.Failed,
+    ExternalDataSchemaStatus.Paused,
+    ExternalDataSchemaStatus.Cancelled,
+    ExternalDataSchemaStatus.Running,
+    ExternalDataSchemaStatus.Completed,
+]
 
 export function ManagedSourcesTable(): JSX.Element {
     const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
@@ -126,6 +135,8 @@ export function ManagedSourcesTable(): JSX.Element {
                                           <AppMetricsSparkline
                                               logicKey={`dwh-source-sparkline-${source.id}`}
                                               loadOnChanges
+                                              successMetricNames={['rows_synced']}
+                                              metricLabels={{ rows_synced: 'Rows synced' }}
                                               forceParams={{
                                                   appSource: DATA_WAREHOUSE_APP_SOURCE,
                                                   appSourceId: source.id,
@@ -147,15 +158,57 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const tagContent = (
-                                <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
-                            )
-                            return source.latest_error && source.status === 'Failed' ? (
-                                <Tooltip title={source.latest_error} interactive>
-                                    {tagContent}
-                                </Tooltip>
-                            ) : (
-                                tagContent
+                            const syncingSchemas = source.schemas.filter((s) => s.should_sync)
+                            const counts = SCHEMA_STATUS_ORDER.map((status) => ({
+                                status,
+                                schemas: syncingSchemas.filter((s) => s.status === status),
+                            })).filter(({ schemas }) => schemas.length > 0)
+
+                            if (counts.length === 0) {
+                                // Source has schemas but none are enabled — source.status can be stale
+                                // ("Running" from before they were disabled), so show a neutral tag instead.
+                                if (source.schemas.length > 0) {
+                                    return <LemonTag type="muted">Not syncing</LemonTag>
+                                }
+                                const tagContent = (
+                                    <LemonTag type={StatusTagSetting[source.status] || 'default'}>
+                                        {source.status}
+                                    </LemonTag>
+                                )
+                                return source.latest_error && source.status === 'Failed' ? (
+                                    <Tooltip title={source.latest_error} interactive>
+                                        {tagContent}
+                                    </Tooltip>
+                                ) : (
+                                    tagContent
+                                )
+                            }
+
+                            const sourceUrl = urls.dataWarehouseSource(`managed-${source.id}`)
+                            return (
+                                <div className="flex flex-wrap gap-1">
+                                    {counts.map(({ status, schemas }) => (
+                                        <Tooltip
+                                            key={status}
+                                            interactive
+                                            title={
+                                                <ul className="list-disc pl-4 m-0">
+                                                    {schemas.map((s) => (
+                                                        <li key={s.id}>{s.label ?? s.name}</li>
+                                                    ))}
+                                                </ul>
+                                            }
+                                        >
+                                            <LemonTag
+                                                type={StatusTagSetting[status] || 'default'}
+                                                forceClickable
+                                                onClick={() => router.actions.push(sourceUrl)}
+                                            >
+                                                {schemas.length} {status.toLowerCase()}
+                                            </LemonTag>
+                                        </Tooltip>
+                                    ))}
+                                </div>
                             )
                         },
                     },

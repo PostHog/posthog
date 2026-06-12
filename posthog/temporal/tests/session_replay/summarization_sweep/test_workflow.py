@@ -1,7 +1,6 @@
 import uuid
 
 import pytest
-from unittest.mock import AsyncMock
 
 import temporalio.worker
 from temporalio import activity
@@ -9,8 +8,8 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from posthog.temporal.session_replay.summarization_sweep.constants import WORKFLOW_NAME
-from posthog.temporal.session_replay.summarization_sweep.models import (
-    DeleteTeamScheduleInput,
+from posthog.temporal.session_replay.summarization_sweep.types import (
+    ConsumeSummaryQuotaInput,
     FindSessionsInput,
     FindSessionsResult,
     SummarizeTeamSessionsInputs,
@@ -19,62 +18,18 @@ from posthog.temporal.session_replay.summarization_sweep.workflow import Summari
 
 
 @pytest.mark.asyncio
-async def test_workflow_self_deletes_schedule_when_team_disabled():
-    delete_calls: list[int] = []
-
-    @activity.defn(name="find_sessions_for_team_activity")
-    async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
-        return FindSessionsResult(team_id=inputs.team_id, team_disabled=True)
-
-    @activity.defn(name="delete_team_schedule_activity")
-    async def delete_schedule_mocked(inputs: DeleteTeamScheduleInput) -> None:
-        delete_calls.append(inputs.team_id)
-
-    task_queue = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[SummarizeTeamSessionsWorkflow],
-            activities=[find_sessions_mocked, delete_schedule_mocked],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            result = await env.client.execute_workflow(
-                WORKFLOW_NAME,
-                SummarizeTeamSessionsInputs(team_id=42),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
-
-    assert delete_calls == [42]
-    assert result == {
-        "team_id": 42,
-        "team_disabled": True,
-        "workflows_started": 0,
-        "workflows_skipped_already_running": 0,
-        "dry_run": False,
-    }
-
-
-@pytest.mark.asyncio
 async def test_workflow_noop_when_no_sessions():
-    delete_mock = AsyncMock()
-
     @activity.defn(name="find_sessions_for_team_activity")
     async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
         return FindSessionsResult(team_id=inputs.team_id, session_ids=[], user_id=None)
 
-    @activity.defn(name="delete_team_schedule_activity")
-    async def delete_schedule_mocked(inputs: DeleteTeamScheduleInput) -> None:
-        await delete_mock(inputs)
-
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
             workflows=[SummarizeTeamSessionsWorkflow],
-            activities=[find_sessions_mocked, delete_schedule_mocked],
+            activities=[find_sessions_mocked],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
@@ -84,25 +39,45 @@ async def test_workflow_noop_when_no_sessions():
                 task_queue=task_queue,
             )
 
-    delete_mock.assert_not_awaited()
     assert result == {
         "team_id": 42,
-        "team_disabled": False,
         "workflows_started": 0,
         "workflows_skipped_already_running": 0,
-        "dry_run": False,
     }
 
 
+async def _fake_start_child(
+    self: SummarizeTeamSessionsWorkflow,
+    team_id: int,
+    session_id: str,
+    user_id: int,
+    user_distinct_id: str | None,
+) -> bool:
+    """Replacement for `_start_child` in tests so we don't have to register a
+    real child workflow + worker. With ABANDON parent-close + time skipping,
+    pending children keep the test env alive until their execution_timeout
+    (~45 minutes), which deadlocks the test."""
+    return True
+
+
 @pytest.mark.asyncio
-async def test_workflow_dry_run_skips_child_start():
+async def test_workflow_consumes_quota_after_dispatching_children(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(SummarizeTeamSessionsWorkflow, "_start_child", _fake_start_child)
+
     @activity.defn(name="find_sessions_for_team_activity")
     async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
-        return FindSessionsResult(team_id=inputs.team_id, session_ids=["s1", "s2"], user_id=7)
+        return FindSessionsResult(
+            team_id=inputs.team_id,
+            session_ids=["s1"],
+            user_id=7,
+            user_distinct_id="distinct",
+        )
 
-    @activity.defn(name="delete_team_schedule_activity")
-    async def delete_schedule_mocked(inputs: DeleteTeamScheduleInput) -> None:
-        pass
+    consume_calls: list[ConsumeSummaryQuotaInput] = []
+
+    @activity.defn(name="consume_summary_quota_activity")
+    async def consume_mocked(inputs: ConsumeSummaryQuotaInput) -> None:
+        consume_calls.append(inputs)
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -110,36 +85,41 @@ async def test_workflow_dry_run_skips_child_start():
             env.client,
             task_queue=task_queue,
             workflows=[SummarizeTeamSessionsWorkflow],
-            activities=[find_sessions_mocked, delete_schedule_mocked],
+            activities=[find_sessions_mocked, consume_mocked],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
                 WORKFLOW_NAME,
-                SummarizeTeamSessionsInputs(team_id=42, dry_run=True),
+                SummarizeTeamSessionsInputs(team_id=42),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
 
-    assert result == {
-        "team_id": 42,
-        "team_disabled": False,
-        "workflows_started": 0,
-        "workflows_skipped_already_running": 0,
-        "dry_run": True,
-    }
+    assert result["workflows_started"] == 1
+    assert len(consume_calls) == 1
+    assert consume_calls[0].team_id == 42
+    assert consume_calls[0].n == 1
 
 
 @pytest.mark.asyncio
-async def test_workflow_dry_run_propagates_to_delete_activity():
-    delete_inputs: list[DeleteTeamScheduleInput] = []
+async def test_workflow_does_not_fail_when_consume_quota_activity_fails(monkeypatch: pytest.MonkeyPatch):
+    """A transient Redis blip in the bookkeeping activity must not roll up as
+    a workflow failure — the children were dispatched successfully, and the
+    next sweep tick refills the increment naturally."""
+    monkeypatch.setattr(SummarizeTeamSessionsWorkflow, "_start_child", _fake_start_child)
 
     @activity.defn(name="find_sessions_for_team_activity")
     async def find_sessions_mocked(inputs: FindSessionsInput) -> FindSessionsResult:
-        return FindSessionsResult(team_id=inputs.team_id, team_disabled=True)
+        return FindSessionsResult(
+            team_id=inputs.team_id,
+            session_ids=["s1"],
+            user_id=7,
+            user_distinct_id="distinct",
+        )
 
-    @activity.defn(name="delete_team_schedule_activity")
-    async def delete_schedule_mocked(inputs: DeleteTeamScheduleInput) -> None:
-        delete_inputs.append(inputs)
+    @activity.defn(name="consume_summary_quota_activity")
+    async def consume_failing(inputs: ConsumeSummaryQuotaInput) -> None:
+        raise RuntimeError("redis is on fire")
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -147,15 +127,18 @@ async def test_workflow_dry_run_propagates_to_delete_activity():
             env.client,
             task_queue=task_queue,
             workflows=[SummarizeTeamSessionsWorkflow],
-            activities=[find_sessions_mocked, delete_schedule_mocked],
+            activities=[find_sessions_mocked, consume_failing],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             result = await env.client.execute_workflow(
                 WORKFLOW_NAME,
-                SummarizeTeamSessionsInputs(team_id=42, dry_run=True),
+                SummarizeTeamSessionsInputs(team_id=42),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
 
-    assert delete_inputs == [DeleteTeamScheduleInput(team_id=42, dry_run=True)]
-    assert result["dry_run"] is True
+    assert result == {
+        "team_id": 42,
+        "workflows_started": 1,
+        "workflows_skipped_already_running": 0,
+    }

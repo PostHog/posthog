@@ -18,6 +18,11 @@ CANCEL_TIMEOUT_SECONDS = 10
 # Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
 # agent-server, so we need more headroom than a plain command.
 REFRESH_TIMEOUT_SECONDS = 45
+# Follow-up delivery blocks until the agent has fully ingested the new turn,
+# which can take a while. Must stay below the activity's start_to_close_timeout
+# so a hung socket doesn't keep a worker thread blocked after Temporal has
+# already abandoned the activity.
+FOLLOWUP_TIMEOUT_SECONDS = 30 * 60  # 30 min
 
 REFRESH_SESSION_METHOD = "_posthog/refresh_session"
 
@@ -278,6 +283,8 @@ def send_refresh_session(
     mcp_servers: list[dict[str, Any]],
     auth_token: str | None = None,
     timeout: int = REFRESH_TIMEOUT_SECONDS,
+    refreshed_credentials: list[str] | None = None,
+    authorship: str | None = None,
 ) -> CommandResult:
     """Push updated MCP server configs into a live sandbox agent-server.
 
@@ -285,11 +292,23 @@ def send_refresh_session(
     resuming with the new ``mcpServers`` list (preserving conversation
     history). Must be dispatched between turns — the agent-server will reply
     with JSON-RPC error -32002 if a prompt is currently in flight.
+
+    ``refreshed_credentials`` piggybacks on this channel to notify the
+    agent-server which in-sandbox credentials (e.g. ``["github"]``) were just
+    re-injected, purely so it can surface a debug log. A credentials-only
+    notification (empty ``mcp_servers``) is logged and returns immediately on
+    the agent-server side without rebuilding the session, so it is safe to send
+    mid-turn.
     """
+    params: dict[str, Any] = {"mcpServers": mcp_servers}
+    if refreshed_credentials:
+        params["refreshedCredentials"] = refreshed_credentials
+    if authorship:
+        params["authorship"] = authorship
     return send_agent_command(
         task_run,
         method=REFRESH_SESSION_METHOD,
-        params={"mcpServers": mcp_servers},
+        params=params,
         auth_token=auth_token,
         timeout=timeout,
     )

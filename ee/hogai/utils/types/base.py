@@ -31,6 +31,7 @@ from posthog.schema import (
     AssistantUpdateEvent,
     BaseAssistantMessage,
     ContextMessage,
+    DataVisualizationNode,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
@@ -44,7 +45,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ee.models import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 
 class ArtifactRefMessage(BaseAssistantMessage):
@@ -99,6 +100,7 @@ AnyAssistantGeneratedQuery = (
     | AssistantLifecycleQuery
     | AssistantRetentionQuery
     | AssistantHogQLQuery
+    | DataVisualizationNode
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 
@@ -256,7 +258,9 @@ class InsightArtifact(TaskArtifact):
     An insight artifact created by a task.
     """
 
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    query: Union[
+        AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery, DataVisualizationNode
+    ]
 
 
 class TaskResult(BaseModel):
@@ -611,6 +615,7 @@ class UpdateAction(BaseModel):
 class ConversationTitleAction(BaseModel):
     type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
     title: str
+    topic: str | None = None
 
 
 AssistantActionUnion = (

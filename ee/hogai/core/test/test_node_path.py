@@ -2,12 +2,13 @@ from posthog.test.base import BaseTest
 
 from langchain_core.runnables import RunnableConfig
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.context import get_node_path
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantGraphName, NodePath
-from ee.models import Conversation
 
 
 class TestNodePath(BaseTest):

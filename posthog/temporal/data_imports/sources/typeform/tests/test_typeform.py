@@ -102,6 +102,40 @@ class TestTypeformTransport:
         assert "before" not in request_b.params
         assert request_b.params["since"] == "2026-03-01"
 
+    @parameterized.expand(
+        [
+            # Whole page predates the watermark — everything further back is already synced.
+            ("entire_page_older", "2026-03-01T00:00:00Z", "2026-02-27T10:00:00Z", "2026-02-20T10:00:00Z", False),
+            # Newest row in the page is still at/after the watermark — keep walking back.
+            ("page_straddles_watermark", "2026-03-01T00:00:00Z", "2026-03-02T10:00:00Z", "2026-02-20T10:00:00Z", True),
+            # No watermark (first sync) — full history walk continues.
+            (None, None, "2026-02-27T10:00:00Z", "2026-02-20T10:00:00Z", True),
+        ]
+    )
+    def test_responses_paginator_stops_once_page_is_older_than_watermark(
+        self, _name, watermark, newest_submitted_at, oldest_submitted_at, expected_has_next
+    ) -> None:
+        paginator = TypeformResponsesPaginator(stop_when_older_than=watermark)
+        response = Mock()
+
+        paginator.update_state(
+            response,
+            data=[
+                {"token": "tok_1", "submitted_at": newest_submitted_at},
+                {"token": "tok_2", "submitted_at": oldest_submitted_at},
+            ],
+        )
+
+        assert paginator.has_next_page is expected_has_next
+
+    def test_responses_paginator_watermark_ignores_rows_without_submitted_at(self) -> None:
+        paginator = TypeformResponsesPaginator(stop_when_older_than="2026-03-01T00:00:00Z")
+        response = Mock()
+
+        paginator.update_state(response, data=[{"token": "tok_1"}, {"token": "tok_2", "submitted_at": None}])
+
+        assert paginator.has_next_page is False
+
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
             ValueError,
@@ -109,65 +143,65 @@ class TestTypeformTransport:
         ):
             _validated_api_base_url("https://invalid.typeform.com")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_handles_request_exception(self, mock_get) -> None:
-        mock_get.side_effect = requests.exceptions.RequestException("boom")
+        mock_get.return_value.get.side_effect = requests.exceptions.RequestException("boom")
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
         assert result == (False, "/forms request failed: boom")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_checks_forms_and_responses_endpoints(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
         responses_response = Mock(status_code=200, text="ok")
         responses_response.json.return_value = {"items": []}
-        mock_get.side_effect = [forms_response, responses_response]
+        mock_get.return_value.get.side_effect = [forms_response, responses_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (True, None)
-        assert mock_get.call_count == 2
-        assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
-        assert mock_get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
+        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_returns_error_when_forms_endpoint_fails(self, mock_get) -> None:
         forms_response = Mock(status_code=403, text="forbidden")
         forms_response.json.return_value = {"description": "forbidden"}
-        mock_get.side_effect = [forms_response]
+        mock_get.return_value.get.side_effect = [forms_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (False, "Typeform token is missing required scope for forms endpoint: forms:read")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_returns_error_when_responses_endpoint_fails(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
         responses_response = Mock(status_code=403, text="forbidden")
         responses_response.json.return_value = {"description": "forbidden"}
-        mock_get.side_effect = [forms_response, responses_response]
+        mock_get.return_value.get.side_effect = [forms_response, responses_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (False, "Typeform token is missing required scope for responses endpoint: responses:read")
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_returns_success_when_no_forms_exist(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": []}
-        mock_get.side_effect = [forms_response]
+        mock_get.return_value.get.side_effect = [forms_response]
 
         result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
 
         assert result == (True, None)
-        assert mock_get.call_count == 1
+        assert mock_get.return_value.get.call_count == 1
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_for_forms_schema_only_skips_responses_probe(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
-        mock_get.side_effect = [forms_response]
+        mock_get.return_value.get.side_effect = [forms_response]
 
         result = validate_credentials(
             auth_token="token",
@@ -176,16 +210,16 @@ class TestTypeformTransport:
         )
 
         assert result == (True, None)
-        assert mock_get.call_count == 1
-        assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert mock_get.return_value.get.call_count == 1
+        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.make_tracked_session")
     def test_validate_credentials_for_responses_schema_only_skips_me_probe(self, mock_get) -> None:
         forms_response = Mock(status_code=200, text="ok")
         forms_response.json.return_value = {"items": [{"id": "form_1"}]}
         responses_response = Mock(status_code=200, text="ok")
         responses_response.json.return_value = {"items": []}
-        mock_get.side_effect = [forms_response, responses_response]
+        mock_get.return_value.get.side_effect = [forms_response, responses_response]
 
         result = validate_credentials(
             auth_token="token",
@@ -194,9 +228,9 @@ class TestTypeformTransport:
         )
 
         assert result == (True, None)
-        assert mock_get.call_count == 2
-        assert mock_get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
-        assert mock_get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
+        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.get.call_args_list[0].args[0] == "https://api.typeform.com/forms"
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://api.typeform.com/forms/form_1/responses"
 
     def test_get_resource_forms_non_incremental(self) -> None:
         resource = cast(
@@ -266,6 +300,9 @@ class TestTypeformTransport:
         rows = list(cast(Any, response.items()))
         assert rows == [{"response_id": "resp_1", "form_id": "form_1"}]
         assert response.partition_mode == "datetime"
+        # Tokens are only unique within a form, and the API returns responses newest-first.
+        assert response.primary_keys == ["form_id", "token"]
+        assert response.sort_mode == "desc"
 
     @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
     def test_typeform_source_responses_passes_items_data_selector_to_fanout(
@@ -287,6 +324,35 @@ class TestTypeformTransport:
         assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], TypeformFormsPaginator)
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], TypeformResponsesPaginator)
+
+    @parameterized.expand(
+        [
+            # Incremental sync with a watermark — paginator gets the stop floor.
+            ("incremental_with_watermark", True, datetime(2026, 3, 1, tzinfo=UTC), "2026-03-01T00:00:00Z"),
+            # First sync (no watermark) — full history walk.
+            ("first_sync", True, None, None),
+            # Non-incremental sync — no floor even if a stale value exists.
+            ("not_incremental", False, datetime(2026, 3, 1, tzinfo=UTC), None),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
+    def test_typeform_source_responses_watermark_wiring(
+        self, _name, should_use_incremental_field, last_value, expected_floor, mock_build_dependent_resource
+    ) -> None:
+        mock_build_dependent_resource.return_value = iter([])
+
+        typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        paginator = mock_build_dependent_resource.call_args.kwargs["child_endpoint_extra"]["paginator"]
+        assert paginator._stop_when_older_than == expected_floor
 
     def test_typeform_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(

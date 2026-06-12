@@ -15,7 +15,7 @@ from pydantic_avro import AvroBase
 
 from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
 
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
@@ -116,7 +116,7 @@ class SnapshotLoader:
         content = await response["Body"].read()
         return BytesIO(content)
 
-    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
+    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T]:
         for record in reader(buffer):
             yield schema.model_validate(record)
 
@@ -141,7 +141,9 @@ class SnapshotLoader:
         group_type_mappings = GroupTypeMappingSnapshot.deserialize_for_team(
             snapshot, team_id=team.id, project_id=project.id
         )
-        return await GroupTypeMapping.objects.abulk_create(group_type_mappings, batch_size=500)
+        return await GroupTypeMapping.objects.abulk_create(  # nosemgrep: no-direct-persons-db-orm
+            group_type_mappings, batch_size=500
+        )  # nosemgrep: no-direct-persons-db-orm
 
     async def _load_data_warehouse_tables(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSnapshot, buffer))

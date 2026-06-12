@@ -15,7 +15,7 @@ import {
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
+import { VariantTag } from './VariantTag'
 
 export function VariantScreenshot({
     variantKey,
@@ -250,5 +250,3 @@ export function VariantScreenshot({
         </div>
     )
 }
-
-export default VariantScreenshot

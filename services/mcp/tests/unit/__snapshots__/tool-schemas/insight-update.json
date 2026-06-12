@@ -1,0 +1,450 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dashboards": {
+            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "favorited": {
+            "type": "boolean"
+        },
+        "id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "string"
+                }
+            ],
+            "description": "Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "query": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "kind": {
+                            "const": "InsightVizNode",
+                            "default": "InsightVizNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "chartSettings": {
+                            "description": "Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.",
+                            "properties": {
+                                "goalLines": {
+                                    "description": "Horizontal goal lines drawn across the chart.",
+                                    "items": {
+                                        "properties": {
+                                            "label": {
+                                                "description": "Label rendered next to the goal line.",
+                                                "type": "string"
+                                            },
+                                            "value": {
+                                                "description": "Y-axis value at which the goal line is drawn.",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "required": ["label", "value"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "leftYAxisSettings": {
+                                    "description": "Settings for the left Y axis.",
+                                    "properties": {
+                                        "label": {
+                                            "description": "Label rendered beside this Y axis.",
+                                            "type": "string"
+                                        },
+                                        "scale": {
+                                            "description": "Scale used for this Y axis.",
+                                            "enum": ["linear", "logarithmic"],
+                                            "type": "string"
+                                        },
+                                        "showGridLines": {
+                                            "description": "Show grid lines for this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "showTicks": {
+                                            "description": "Show tick labels on this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "startAtZero": {
+                                            "description": "Whether this Y axis should start at zero.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "rightYAxisSettings": {
+                                    "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`.",
+                                    "properties": {
+                                        "label": {
+                                            "description": "Label rendered beside this Y axis.",
+                                            "type": "string"
+                                        },
+                                        "scale": {
+                                            "description": "Scale used for this Y axis.",
+                                            "enum": ["linear", "logarithmic"],
+                                            "type": "string"
+                                        },
+                                        "showGridLines": {
+                                            "description": "Show grid lines for this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "showTicks": {
+                                            "description": "Show tick labels on this Y axis.",
+                                            "type": "boolean"
+                                        },
+                                        "startAtZero": {
+                                            "description": "Whether this Y axis should start at zero.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "seriesBreakdownColumn": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable."
+                                },
+                                "showLegend": {
+                                    "description": "Show the chart legend.",
+                                    "type": "boolean"
+                                },
+                                "showNullsAsZero": {
+                                    "description": "Replace null aggregation results with zero.",
+                                    "type": "boolean"
+                                },
+                                "showValuesOnSeries": {
+                                    "description": "Render each data point's value as a label directly on the series.",
+                                    "type": "boolean"
+                                },
+                                "stackBars100": {
+                                    "description": "Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.",
+                                    "type": "boolean"
+                                },
+                                "xAxis": {
+                                    "description": "Column used as the X axis. Typically a time bucket or categorical column.",
+                                    "properties": {
+                                        "column": {
+                                            "description": "Name of a column returned by the SQL query to map onto this axis.",
+                                            "type": "string"
+                                        },
+                                        "settings": {
+                                            "description": "Optional series settings. Only applies to Y-axis series.",
+                                            "properties": {
+                                                "display": {
+                                                    "description": "Display settings for a plotted Y series.",
+                                                    "properties": {
+                                                        "color": {
+                                                            "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
+                                                            "type": "string"
+                                                        },
+                                                        "displayType": {
+                                                            "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                            "enum": ["auto", "line", "bar", "area"],
+                                                            "type": "string"
+                                                        },
+                                                        "label": {
+                                                            "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                                                            "type": "string"
+                                                        },
+                                                        "trendLine": {
+                                                            "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
+                                                            "type": "boolean"
+                                                        },
+                                                        "yAxisPosition": {
+                                                            "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                                                            "enum": ["left", "right"],
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "formatting": {
+                                                    "description": "Number-formatting settings for the values on this axis or series.",
+                                                    "properties": {
+                                                        "decimalPlaces": {
+                                                            "description": "Number of decimal places to display.",
+                                                            "type": "number"
+                                                        },
+                                                        "prefix": {
+                                                            "description": "Text prepended to each value (e.g. `$`).",
+                                                            "type": "string"
+                                                        },
+                                                        "style": {
+                                                            "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                                                            "enum": ["none", "number", "short", "percent"],
+                                                            "type": "string"
+                                                        },
+                                                        "suffix": {
+                                                            "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "required": ["column"],
+                                    "type": "object"
+                                },
+                                "xAxisLabel": {
+                                    "description": "Label rendered under the X axis.",
+                                    "type": "string"
+                                },
+                                "yAxis": {
+                                    "description": "One or more numeric columns plotted as Y series.",
+                                    "items": {
+                                        "properties": {
+                                            "column": {
+                                                "description": "Name of a column returned by the SQL query to map onto this axis.",
+                                                "type": "string"
+                                            },
+                                            "settings": {
+                                                "description": "Optional series settings. Only applies to Y-axis series.",
+                                                "properties": {
+                                                    "display": {
+                                                        "description": "Display settings for a plotted Y series.",
+                                                        "properties": {
+                                                            "color": {
+                                                                "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
+                                                                "type": "string"
+                                                            },
+                                                            "displayType": {
+                                                                "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                                "enum": ["auto", "line", "bar", "area"],
+                                                                "type": "string"
+                                                            },
+                                                            "label": {
+                                                                "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                                                                "type": "string"
+                                                            },
+                                                            "trendLine": {
+                                                                "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
+                                                                "type": "boolean"
+                                                            },
+                                                            "yAxisPosition": {
+                                                                "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                                                                "enum": ["left", "right"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "formatting": {
+                                                        "description": "Number-formatting settings for the values on this axis or series.",
+                                                        "properties": {
+                                                            "decimalPlaces": {
+                                                                "description": "Number of decimal places to display.",
+                                                                "type": "number"
+                                                            },
+                                                            "prefix": {
+                                                                "description": "Text prepended to each value (e.g. `$`).",
+                                                                "type": "string"
+                                                            },
+                                                            "style": {
+                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                                                                "enum": ["none", "number", "short", "percent"],
+                                                                "type": "string"
+                                                            },
+                                                            "suffix": {
+                                                                "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "required": ["column"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "display": {
+                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.",
+                            "enum": [
+                                "ActionsTable",
+                                "BoldNumber",
+                                "ActionsLineGraph",
+                                "ActionsBar",
+                                "ActionsPie",
+                                "ActionsStackedBar",
+                                "ActionsAreaGraph",
+                                "TwoDimensionalHeatmap"
+                            ],
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "DataVisualizationNode",
+                            "default": "DataVisualizationNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "description": "HogQL query object that produces the rows to visualize.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "tableSettings": {
+                            "description": "Table configuration. Only applies when `display` is `ActionsTable` or omitted.",
+                            "properties": {
+                                "columns": {
+                                    "description": "Columns to display and their order. Omit to show every column returned by the query.",
+                                    "items": {
+                                        "properties": {
+                                            "column": {
+                                                "description": "Name of a column returned by the SQL query to map onto this axis.",
+                                                "type": "string"
+                                            },
+                                            "settings": {
+                                                "description": "Optional series settings. Only applies to Y-axis series.",
+                                                "properties": {
+                                                    "display": {
+                                                        "description": "Display settings for a plotted Y series.",
+                                                        "properties": {
+                                                            "color": {
+                                                                "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
+                                                                "type": "string"
+                                                            },
+                                                            "displayType": {
+                                                                "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                                "enum": ["auto", "line", "bar", "area"],
+                                                                "type": "string"
+                                                            },
+                                                            "label": {
+                                                                "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                                                                "type": "string"
+                                                            },
+                                                            "trendLine": {
+                                                                "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
+                                                                "type": "boolean"
+                                                            },
+                                                            "yAxisPosition": {
+                                                                "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                                                                "enum": ["left", "right"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "formatting": {
+                                                        "description": "Number-formatting settings for the values on this axis or series.",
+                                                        "properties": {
+                                                            "decimalPlaces": {
+                                                                "description": "Number of decimal places to display.",
+                                                                "type": "number"
+                                                            },
+                                                            "prefix": {
+                                                                "description": "Text prepended to each value (e.g. `$`).",
+                                                                "type": "string"
+                                                            },
+                                                            "style": {
+                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                                                                "enum": ["none", "number", "short", "percent"],
+                                                                "type": "string"
+                                                            },
+                                                            "suffix": {
+                                                                "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "required": ["column"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "pinnedColumns": {
+                                    "description": "Column names to pin to the left of the table.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "showTotalRow": {
+                                    "description": "Show a total row at the bottom of the table.",
+                                    "type": "boolean"
+                                },
+                                "transpose": {
+                                    "description": "Transpose rows and columns.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                }
+            ]
+        },
+        "tags": {
+            "items": {},
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

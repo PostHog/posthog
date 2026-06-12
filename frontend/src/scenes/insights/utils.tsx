@@ -323,7 +323,7 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
-// Keep in sync with NOT_IN_COHORT_ID in posthog/queries/breakdown_props.py
+// Keep in sync with NOT_IN_COHORT_ID in posthog/hogql_queries/insights/utils/breakdowns.py
 export const NOT_IN_COHORT_ID = 2 ** 52
 
 export function getCohortNameFromId(
@@ -348,11 +348,22 @@ export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex?: number,
-    itemLabel?: string
+    itemLabel?: string,
+    truncateLabel: boolean = true
 ): string {
     if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
+            .map((v, index) =>
+                formatBreakdownLabel(
+                    v,
+                    breakdownFilter,
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    index,
+                    undefined,
+                    truncateLabel
+                )
+            )
             .join('::')
     }
 
@@ -365,14 +376,18 @@ export function formatBreakdownLabel(
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         const formattedBucketEnd = formatBreakdownLabel(
             bucketEnd,
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
@@ -437,7 +452,7 @@ export function formatBreakdownLabel(
                   ? BREAKDOWN_NULL_DISPLAY
                   : breakdown_value
 
-        if (label.length > 200) {
+        if (truncateLabel && label.length > 200) {
             return label.slice(0, 200) + '…'
         }
         return label
@@ -829,7 +844,7 @@ export const getOverrideWarningPropsForButton = (
 }
 
 /** Checks for breakdown features that are unsupported by trend insights with a
- * data warehouse series. */
+ * data warehouse series. Mirrors backend `ValidateDataWarehouseBreakdown`. */
 export const hasUnsupportedBreakdownForDataWarehouseTrends = (
     filtersOverride: DashboardFilter | TileFilters | null | undefined
 ): boolean => {
@@ -839,10 +854,16 @@ export const hasUnsupportedBreakdownForDataWarehouseTrends = (
         return false
     }
 
+    const supportedTypes = new Set(['data_warehouse', 'hogql'])
+
+    if (breakdownFilter.breakdowns?.length) {
+        return breakdownFilter.breakdowns.some((b) => !b.type || !supportedTypes.has(b.type))
+    }
+
     return !!(
-        breakdownFilter.breakdowns?.length ||
-        breakdownFilter.breakdown_type !== 'data_warehouse' ||
         !breakdownFilter.breakdown ||
-        Array.isArray(breakdownFilter.breakdown)
+        Array.isArray(breakdownFilter.breakdown) ||
+        !breakdownFilter.breakdown_type ||
+        !supportedTypes.has(breakdownFilter.breakdown_type)
     )
 }

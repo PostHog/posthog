@@ -6,12 +6,52 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplicaDiscoveryMode {
+    /// DNS mode: static channels to ClusterIP URL.
+    Dns,
+    /// K8s mode: EndpointSlice watcher with client-side p2c balancing.
+    K8s,
+}
+
+impl fmt::Display for ReplicaDiscoveryMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReplicaDiscoveryMode::Dns => write!(f, "dns"),
+            ReplicaDiscoveryMode::K8s => write!(f, "k8s"),
+        }
+    }
+}
+
+impl FromStr for ReplicaDiscoveryMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "dns" => Ok(ReplicaDiscoveryMode::Dns),
+            "k8s" => Ok(ReplicaDiscoveryMode::K8s),
+            other => Err(format!(
+                "unknown replica discovery mode '{other}', expected 'dns' or 'k8s'"
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RouterMode {
     /// Replica-only mode: all requests go to personhog-replica.
     Replica,
     /// Leader mode: person writes and strong reads go to leader pods
     /// via etcd-coordinated partition routing. Everything else goes to replica.
     Leader,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProxyMode {
+    /// Typed mode: deserialize/serialize every request through the PersonHogService trait.
+    Typed,
+    /// Raw mode: proxy raw bytes to replica for most methods, only deserialize
+    /// for GetPerson (STRONG) and UpdatePersonProperties which need leader routing.
+    Raw,
 }
 
 impl fmt::Display for RouterMode {
@@ -37,6 +77,29 @@ impl FromStr for RouterMode {
     }
 }
 
+impl fmt::Display for ProxyMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProxyMode::Typed => write!(f, "typed"),
+            ProxyMode::Raw => write!(f, "raw"),
+        }
+    }
+}
+
+impl FromStr for ProxyMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "typed" => Ok(ProxyMode::Typed),
+            "raw" => Ok(ProxyMode::Raw),
+            other => Err(format!(
+                "unknown proxy mode '{other}', expected 'typed' or 'raw'"
+            )),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50052")]
@@ -46,18 +109,46 @@ pub struct Config {
     #[envconfig(default = "replica")]
     pub router_mode: RouterMode,
 
-    /// URL of the personhog-replica backend
+    /// Proxy mode: "typed" (default) or "raw"
+    /// Typed: full deserialization through PersonHogService trait
+    /// Raw: byte-level proxying for most methods, only typed for leader paths
+    #[envconfig(default = "typed")]
+    pub proxy_mode: ProxyMode,
+
+    /// URL of the personhog-replica backend (DNS mode only)
     #[envconfig(default = "http://127.0.0.1:50051")]
     pub replica_url: String,
 
-    /// Number of gRPC channels (HTTP/2 connections) to open to the replica backend.
+    /// Number of gRPC channels to open to the replica service (DNS mode only).
     /// Multiple channels distribute requests across K8s service endpoints.
     #[envconfig(default = "4")]
     pub replica_channels: usize,
 
+    /// Discovery mode for replica endpoints: "dns" (default)
+    /// or "k8s" (EndpointSlice watcher with client-side balancing)
+    #[envconfig(default = "dns")]
+    pub replica_discovery_mode: ReplicaDiscoveryMode,
+
+    /// Kubernetes service name to watch for replica endpoints (k8s mode only)
+    #[envconfig(default = "personhog-replica")]
+    pub replica_service_name: String,
+
+    /// Kubernetes namespace for replica endpoint discovery (k8s mode only).
+    /// If empty, reads from the service account mount.
+    #[envconfig(default = "")]
+    pub replica_service_namespace: String,
+
+    /// gRPC port on replica pods (k8s mode only)
+    #[envconfig(default = "50051")]
+    pub replica_port: u16,
+
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
     pub backend_timeout_ms: u64,
+
+    /// Connect timeout for backend connections in milliseconds (k8s mode only)
+    #[envconfig(default = "2000")]
+    pub backend_connect_timeout_ms: u64,
 
     #[envconfig(default = "9101")]
     pub metrics_port: u16,
@@ -101,6 +192,11 @@ pub struct Config {
     #[envconfig(default = "134217728")]
     pub grpc_max_recv_message_size: usize,
 
+    /// Log a warning when a gRPC response exceeds this size in bytes.
+    /// Set to 0 to disable. Default: 10 MiB.
+    #[envconfig(default = "10485760")]
+    pub response_size_warn_bytes: usize,
+
     // ── etcd coordination (leader mode only) ─────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,
@@ -121,6 +217,39 @@ pub struct Config {
     /// Leader gRPC port used when resolving pod names to addresses
     #[envconfig(default = "50053")]
     pub leader_port: u16,
+
+    /// Maximum number of stashed write requests held per partition while
+    /// a handoff is in progress. Excess requests return UNAVAILABLE and
+    /// rely on caller-side retries.
+    #[envconfig(default = "5000")]
+    pub stash_max_messages_per_partition: usize,
+
+    /// Maximum total payload bytes held in the stash per partition. Bounds
+    /// memory pressure independent of message count, which matters when
+    /// payload sizes vary widely (typical for person properties). Default
+    /// is 50 MiB.
+    #[envconfig(default = "52428800")]
+    pub stash_max_bytes_per_partition: usize,
+
+    /// Per-request deadline for stashed writes, in milliseconds. When
+    /// drain dequeues a request whose `enqueued_at` is older than this,
+    /// it returns `UNAVAILABLE` to the original caller without
+    /// forwarding to the leader. This bounds individual request
+    /// latency under sustained drain load and gives clients a
+    /// definitive retryable error instead of an ambiguous gRPC timeout.
+    /// Should be smaller than typical client gRPC timeouts (often
+    /// 30+ seconds). Default 10 seconds.
+    #[envconfig(default = "10000")]
+    pub stash_max_wait_ms: u64,
+
+    /// Maximum number of stashed requests to forward concurrently
+    /// during a drain, grouped by `(team_id, person_id)`. Within each
+    /// key the requests are forwarded sequentially to preserve per-key
+    /// ordering at the leader; across keys the drain fans out to
+    /// shrink wall-clock drain duration. Set to 1 to force fully
+    /// sequential drain.
+    #[envconfig(default = "32")]
+    pub stash_drain_concurrency: usize,
 
     // ── coordinator (leader election among router-leader pods) ───
     /// Lease TTL for the coordinator leader election
@@ -151,9 +280,166 @@ pub struct Config {
     pub k8s_namespace: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
+
+    #[test]
+    fn replica_discovery_mode_from_str_valid_variants() {
+        let cases = [
+            ("dns", ReplicaDiscoveryMode::Dns),
+            ("k8s", ReplicaDiscoveryMode::K8s),
+            // case-insensitive
+            ("DNS", ReplicaDiscoveryMode::Dns),
+            ("K8S", ReplicaDiscoveryMode::K8s),
+            ("Dns", ReplicaDiscoveryMode::Dns),
+        ];
+        for (input, expected) in cases {
+            let result: Result<ReplicaDiscoveryMode, _> = input.parse();
+            assert_eq!(
+                result.unwrap(),
+                expected,
+                "'{input}' should parse to {expected:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn replica_discovery_mode_from_str_invalid_returns_error() {
+        let invalid_inputs = ["endpoint", "", "replica", "kubernetes", "k8s1"];
+        for input in invalid_inputs {
+            let result: Result<ReplicaDiscoveryMode, _> = input.parse();
+            assert!(result.is_err(), "'{input}' should be an error");
+            let msg = result.unwrap_err();
+            assert!(
+                msg.contains(input) || msg.contains("expected"),
+                "error message should mention the bad input or expected values, got: {msg}",
+            );
+        }
+    }
+
+    #[test]
+    fn replica_discovery_mode_display() {
+        assert_eq!(ReplicaDiscoveryMode::Dns.to_string(), "dns");
+        assert_eq!(ReplicaDiscoveryMode::K8s.to_string(), "k8s");
+    }
+
+    #[test]
+    fn replica_discovery_mode_roundtrips() {
+        for mode in [ReplicaDiscoveryMode::Dns, ReplicaDiscoveryMode::K8s] {
+            let s = mode.to_string();
+            let parsed: ReplicaDiscoveryMode = s.parse().unwrap();
+            assert_eq!(
+                parsed, mode,
+                "Display → FromStr roundtrip failed for {mode:?}"
+            );
+        }
+    }
+
+    // ── RouterMode ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn router_mode_from_str_valid_variants() {
+        let cases = [
+            ("replica", RouterMode::Replica),
+            ("leader", RouterMode::Leader),
+            ("REPLICA", RouterMode::Replica),
+            ("LEADER", RouterMode::Leader),
+        ];
+        for (input, expected) in cases {
+            let result: Result<RouterMode, _> = input.parse();
+            assert_eq!(
+                result.unwrap(),
+                expected,
+                "'{input}' should parse to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn router_mode_from_str_invalid_returns_error() {
+        let invalid_inputs = ["dns", "", "follow", "primary"];
+        for input in invalid_inputs {
+            let result: Result<RouterMode, _> = input.parse();
+            assert!(result.is_err(), "'{input}' should be an error");
+        }
+    }
+
+    #[test]
+    fn router_mode_display() {
+        assert_eq!(RouterMode::Replica.to_string(), "replica");
+        assert_eq!(RouterMode::Leader.to_string(), "leader");
+    }
+
+    #[test]
+    fn router_mode_roundtrips() {
+        for mode in [RouterMode::Replica, RouterMode::Leader] {
+            let s = mode.to_string();
+            let parsed: RouterMode = s.parse().unwrap();
+            assert_eq!(
+                parsed, mode,
+                "Display → FromStr roundtrip failed for {mode:?}"
+            );
+        }
+    }
+
+    // ── ProxyMode ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn proxy_mode_from_str_valid_variants() {
+        let cases = [
+            ("typed", ProxyMode::Typed),
+            ("raw", ProxyMode::Raw),
+            ("TYPED", ProxyMode::Typed),
+            ("RAW", ProxyMode::Raw),
+        ];
+        for (input, expected) in cases {
+            let result: Result<ProxyMode, _> = input.parse();
+            assert_eq!(
+                result.unwrap(),
+                expected,
+                "'{input}' should parse to {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn proxy_mode_from_str_invalid_returns_error() {
+        let invalid_inputs = ["byte", "", "proxy", "passthrough"];
+        for input in invalid_inputs {
+            let result: Result<ProxyMode, _> = input.parse();
+            assert!(result.is_err(), "'{input}' should be an error");
+        }
+    }
+
+    #[test]
+    fn proxy_mode_display() {
+        assert_eq!(ProxyMode::Typed.to_string(), "typed");
+        assert_eq!(ProxyMode::Raw.to_string(), "raw");
+    }
+
+    #[test]
+    fn proxy_mode_roundtrips() {
+        for mode in [ProxyMode::Typed, ProxyMode::Raw] {
+            let s = mode.to_string();
+            let parsed: ProxyMode = s.parse().unwrap();
+            assert_eq!(
+                parsed, mode,
+                "Display → FromStr roundtrip failed for {mode:?}"
+            );
+        }
+    }
+}
+
 impl Config {
     pub fn backend_timeout(&self) -> Duration {
         Duration::from_millis(self.backend_timeout_ms)
+    }
+
+    pub fn backend_connect_timeout(&self) -> Duration {
+        Duration::from_millis(self.backend_connect_timeout_ms)
     }
 
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
@@ -218,6 +504,24 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn stash_max_wait(&self) -> Duration {
+        Duration::from_millis(self.stash_max_wait_ms)
+    }
+
+    /// Resolve the replica service namespace from config or the service account mount.
+    pub fn resolve_replica_namespace(&self) -> Result<String, String> {
+        if !self.replica_service_namespace.is_empty() {
+            return Ok(self.replica_service_namespace.clone());
+        }
+        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!(
+                    "replica_service_namespace not set and failed to read from service account: {e}"
+                )
+            })
     }
 
     /// Resolve the K8s namespace from config or the service account mount.

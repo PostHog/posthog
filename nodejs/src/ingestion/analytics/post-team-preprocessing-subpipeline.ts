@@ -8,7 +8,7 @@ import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { EventFilterManager } from '../common/event-filters'
 import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
 import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
@@ -16,8 +16,8 @@ import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
+    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
-    createRateLimitToOverflowStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
@@ -33,6 +33,7 @@ export interface PostTeamPreprocessingSubpipelineInput {
     event: PluginEvent
     team: Team
     eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
+    personsStoreForBatch: PersonsStoreForBatch
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
@@ -44,7 +45,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
-    personsStore: PersonsStore
     personsPrefetchEnabled: boolean
     hogTransformer: HogTransformerService
     cdpHogWatcherSampleRate: number
@@ -63,7 +63,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -90,14 +89,25 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Any steps that depend on the final distinct ID must run after this step.
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
-            // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
-            .pipeBatch(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Rate-limit only cookieless events using the hashed distinct_id assigned by the
+            // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
+            // pipeline via createSkipCookielessRateLimitToOverflowStep.
+            .pipeBatch(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-            // Prefetch must run after cookieless, as cookieless changes distinct IDs
-            .pipeBatch(prefetchPersonsStep(personsStore, personsPrefetchEnabled))
-            // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
-            .pipeBatch(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled))
+            // Prefetch must run after cookieless, as cookieless changes distinct IDs.
+            // Prefetch is fire-and-forget (best-effort cache warming), so retry here would be a
+            // no-op — transient persons-Postgres failures are swallowed inside prefetchPersons so
+            // they can't surface as an unhandled rejection and crash the worker.
+            .pipeBatch(prefetchPersonsStep(personsPrefetchEnabled))
+            // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
+            // This step awaits its DB write, so retry transient persons-Postgres failures
+            // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
+            .pipeBatchWithRetry(processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled), {
+                tries: 5,
+                sleepMs: 100,
+                name: 'personless_distinct_ids',
+            })
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )

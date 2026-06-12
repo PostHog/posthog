@@ -19,19 +19,19 @@ export const DesktopRecordingsCreateBody = /* @__PURE__ */ zod
         platform: zod
             .enum(['zoom', 'teams', 'meet', 'desktop_audio', 'slack'])
             .describe(
-                '* `zoom` - zoom\n* `teams` - teams\n* `meet` - meet\n* `desktop_audio` - desktop_audio\n* `slack` - slack'
+                '\* `zoom` - zoom\n\* `teams` - teams\n\* `meet` - meet\n\* `desktop_audio` - desktop_audio\n\* `slack` - slack'
             )
             .default(desktopRecordingsCreateBodyPlatformDefault)
             .describe(
-                'Meeting platform being recorded\n\n* `zoom` - zoom\n* `teams` - teams\n* `meet` - meet\n* `desktop_audio` - desktop_audio\n* `slack` - slack'
+                'Meeting platform being recorded\n\n\* `zoom` - zoom\n\* `teams` - teams\n\* `meet` - meet\n\* `desktop_audio` - desktop_audio\n\* `slack` - slack'
             ),
     })
     .describe('Request body for creating a new recording')
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsUpdateBodyMeetingTitleMax = 255
 
@@ -50,7 +50,7 @@ export const DesktopRecordingsUpdateBody = /* @__PURE__ */ zod.object({
     platform: zod
         .enum(['zoom', 'teams', 'meet', 'desktop_audio', 'slack'])
         .describe(
-            '* `zoom` - Zoom\n* `teams` - Microsoft Teams\n* `meet` - Google Meet\n* `desktop_audio` - Desktop audio\n* `slack` - Slack huddle'
+            '\* `zoom` - Zoom\n\* `teams` - Microsoft Teams\n\* `meet` - Google Meet\n\* `desktop_audio` - Desktop audio\n\* `slack` - Slack huddle'
         ),
     meeting_title: zod.string().max(desktopRecordingsUpdateBodyMeetingTitleMax).nullish(),
     meeting_url: zod.url().max(desktopRecordingsUpdateBodyMeetingUrlMax).nullish(),
@@ -63,7 +63,7 @@ export const DesktopRecordingsUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['recording', 'uploading', 'processing', 'ready', 'error'])
         .optional()
         .describe(
-            '* `recording` - Recording\n* `uploading` - Uploading\n* `processing` - Processing\n* `ready` - Ready\n* `error` - Error'
+            '\* `recording` - Recording\n\* `uploading` - Uploading\n\* `processing` - Processing\n\* `ready` - Ready\n\* `error` - Error'
         ),
     notes: zod.string().nullish(),
     error_message: zod.string().nullish(),
@@ -101,16 +101,16 @@ export const DesktopRecordingsUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('AI-extracted tasks from transcript'),
-    tasks_generated_at: zod.iso.datetime({}).nullish(),
-    summary_generated_at: zod.iso.datetime({}).nullish(),
-    started_at: zod.iso.datetime({}).optional(),
-    completed_at: zod.iso.datetime({}).nullish(),
+    tasks_generated_at: zod.iso.datetime({ offset: true }).nullish(),
+    summary_generated_at: zod.iso.datetime({ offset: true }).nullish(),
+    started_at: zod.iso.datetime({ offset: true }).optional(),
+    completed_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsPartialUpdateBodyMeetingTitleMax = 255
 
@@ -130,7 +130,7 @@ export const DesktopRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['zoom', 'teams', 'meet', 'desktop_audio', 'slack'])
         .optional()
         .describe(
-            '* `zoom` - Zoom\n* `teams` - Microsoft Teams\n* `meet` - Google Meet\n* `desktop_audio` - Desktop audio\n* `slack` - Slack huddle'
+            '\* `zoom` - Zoom\n\* `teams` - Microsoft Teams\n\* `meet` - Google Meet\n\* `desktop_audio` - Desktop audio\n\* `slack` - Slack huddle'
         ),
     meeting_title: zod.string().max(desktopRecordingsPartialUpdateBodyMeetingTitleMax).nullish(),
     meeting_url: zod.url().max(desktopRecordingsPartialUpdateBodyMeetingUrlMax).nullish(),
@@ -143,7 +143,7 @@ export const DesktopRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['recording', 'uploading', 'processing', 'ready', 'error'])
         .optional()
         .describe(
-            '* `recording` - Recording\n* `uploading` - Uploading\n* `processing` - Processing\n* `ready` - Ready\n* `error` - Error'
+            '\* `recording` - Recording\n\* `uploading` - Uploading\n\* `processing` - Processing\n\* `ready` - Ready\n\* `error` - Error'
         ),
     notes: zod.string().nullish(),
     error_message: zod.string().nullish(),
@@ -181,10 +181,10 @@ export const DesktopRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('AI-extracted tasks from transcript'),
-    tasks_generated_at: zod.iso.datetime({}).nullish(),
-    summary_generated_at: zod.iso.datetime({}).nullish(),
-    started_at: zod.iso.datetime({}).optional(),
-    completed_at: zod.iso.datetime({}).nullish(),
+    tasks_generated_at: zod.iso.datetime({ offset: true }).nullish(),
+    summary_generated_at: zod.iso.datetime({ offset: true }).nullish(),
+    started_at: zod.iso.datetime({ offset: true }).optional(),
+    completed_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**

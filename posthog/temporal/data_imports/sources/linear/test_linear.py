@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.linear.linear import (
     LinearResumeConfig,
+    LinearRetryableError,
     _make_paginated_request,
     linear_source,
 )
@@ -26,6 +27,17 @@ def _make_response(nodes: list[dict[str, Any]], has_next_page: bool, end_cursor:
             }
         }
     }
+    return response
+
+
+def _make_rate_limited_response() -> MagicMock:
+    """Mimic Linear's HTTP-level 429: an HTML body that fails JSON parsing."""
+    response = MagicMock()
+    response.status_code = 429
+    response.ok = False
+    response.reason = "Too Many Requests"
+    response.text = "<!DOCTYPE html><html><head><title>Rate limited</title></head></html>"
+    response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
     return response
 
 
@@ -78,7 +90,7 @@ class TestMakePaginatedRequest:
             ),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_pagination_state(
         self,
         _name: str,
@@ -123,7 +135,7 @@ class TestMakePaginatedRequest:
                 assert variables["filter"] == {"updatedAt": {"gt": filter_gte}}
 
     @parameterized.expand([("null_end_cursor", None), ("empty_end_cursor", "")])
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_raises_when_has_next_page_but_cursor_missing(
         self,
         _name: str,
@@ -150,6 +162,57 @@ class TestMakePaginatedRequest:
         manager.save_state.assert_not_called()
         assert session.post.call_count == 1
 
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_http_429_is_retried_then_succeeds(self, mock_session_cls: MagicMock, _mock_sleep: MagicMock) -> None:
+        # Linear returns an HTML 429 page that fails JSON parsing. It must be retried with backoff,
+        # not surfaced as a non-retryable JSONDecodeError/Exception.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_rate_limited_response(),
+            _make_response([{"id": "a"}], False, None),
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
+
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_persistent_http_429_raises_retryable_error(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        session = MagicMock()
+        session.post.side_effect = [_make_rate_limited_response() for _ in range(5)]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError):
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == 5
+
 
 class TestLinearSource:
     def test_source_response_wires_primary_key_and_items(self) -> None:
@@ -167,7 +230,7 @@ class TestLinearSource:
         assert response.primary_keys == ["id"]
         assert callable(response.items)
 
-    @patch("posthog.temporal.data_imports.sources.linear.linear.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_get_rows_threads_manager_through(self, mock_session_cls: MagicMock) -> None:
         session = MagicMock()
         session.post.side_effect = [

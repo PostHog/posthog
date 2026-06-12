@@ -29,10 +29,10 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
     },
     sdk: {
         docsUrl: 'https://posthog.com/docs/libraries',
-        deepDiveUrl: urls.sdkDoctor(),
-        deepDiveLabel: 'Open SDK doctor',
+        deepDiveUrl: urls.sdkHealth(),
+        deepDiveLabel: 'Open SDK health',
         guidance: 'Outdated SDKs miss bug fixes and new features. Update to the latest version for best results.',
-        redirectUrl: urls.sdkDoctor(),
+        redirectUrl: urls.sdkHealth(),
     },
     web_analytics: {
         docsUrl: 'https://posthog.com/docs/web-analytics',
@@ -42,10 +42,10 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
     },
     pipelines: {
         docsUrl: 'https://posthog.com/docs/cdp',
-        deepDiveUrl: urls.pipelineStatus(),
-        deepDiveLabel: 'Open pipeline status',
+        deepDiveUrl: urls.sources(),
+        deepDiveLabel: 'Open sources',
         guidance: 'Pipeline failures mean data may not be flowing to your destinations correctly.',
-        redirectUrl: urls.pipelineStatus(),
+        redirectUrl: urls.sources(),
         tableComponent: PipelineHealthTable,
     },
     data_modeling: {

@@ -1,0 +1,662 @@
+.PostHogHostedSurvey {
+    --ph-survey-page-background: #fff;
+    --ph-survey-page-text: #111;
+    --ph-survey-page-text-subtle: #6b6b6b;
+    --ph-survey-page-progress-track: rgb(17 17 17 / 8%);
+    --ph-survey-page-progress-bar: #111;
+    --ph-survey-progress-value: 0%;
+    --ph-survey-page-font:
+        -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', helvetica, arial, sans-serif;
+    --ph-survey-card-shadow: 0 1px 2px rgb(17 17 17 / 4%), 0 2px 8px rgb(17 17 17 / 4%);
+    --ph-survey-pill-background: rgb(255 255 255 / 70%);
+
+    box-sizing: border-box;
+    font-family: var(--ph-survey-page-font);
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--ph-survey-page-text);
+    background: var(--ph-survey-page-background);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+body.PostHogHostedSurvey {
+    min-height: 100vh;
+    padding: 0;
+    margin: 0;
+}
+
+.PostHogHostedSurvey *,
+.PostHogHostedSurvey *::before,
+.PostHogHostedSurvey *::after {
+    box-sizing: border-box;
+}
+
+.PostHogHostedSurvey button,
+.PostHogHostedSurvey input,
+.PostHogHostedSurvey textarea,
+.PostHogHostedSurvey a {
+    touch-action: manipulation;
+}
+
+.PostHogHostedSurvey .main-container,
+.PostHogHostedSurvey.main-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.25rem, 4vw, 2.5rem);
+}
+
+.PostHogHostedSurvey.HostedSurveyPreviewFrame {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 520px;
+    padding: clamp(1.5rem, 4vw, 2.5rem);
+    border: 1px solid var(--border, rgb(17 17 17 / 10%));
+    border-radius: 8px;
+}
+
+.PostHogHostedSurvey.HostedSurveyPreviewFrame--mobile {
+    max-width: 390px;
+    min-height: 560px;
+    padding: 1.25rem;
+    margin: 0 auto;
+}
+
+.PostHogHostedSurvey .survey-progress-wrap {
+    width: 100%;
+    max-width: 44rem;
+    margin: 0 auto;
+}
+
+.PostHogHostedSurvey .survey-progress-track {
+    width: 100%;
+    height: 3px;
+    overflow: hidden;
+    background: var(--ph-survey-page-progress-track);
+    border-radius: 999px;
+}
+
+.PostHogHostedSurvey .survey-progress-bar {
+    display: block;
+    width: var(--ph-survey-progress-value);
+    height: 100%;
+    background: var(--ph-survey-page-progress-bar);
+    transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.PostHogHostedSurvey .survey-stage {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 44rem;
+    margin: auto;
+}
+
+.PostHogHostedSurvey #posthog-survey-container,
+.PostHogHostedSurvey .posthog-survey-container {
+    display: flex;
+    flex-direction: column;
+    font-family: inherit;
+    color: var(--ph-survey-text-primary-color, #111);
+}
+
+.PostHogHostedSurvey .question-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.PostHogHostedSurvey .thank-you-message {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+    text-align: center;
+}
+
+.PostHogHostedSurvey .survey-question,
+.PostHogHostedSurvey .thank-you-message-header {
+    margin: 0;
+    font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--ph-survey-text-primary-color, #111);
+    text-wrap: balance;
+    letter-spacing: -0.015em;
+}
+
+.PostHogHostedSurvey .survey-question-description,
+.PostHogHostedSurvey .thank-you-message-body {
+    margin: 0;
+    font-size: 0.975rem;
+    line-height: 1.6;
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+}
+
+.PostHogHostedSurvey .survey-question-description strong,
+.PostHogHostedSurvey .thank-you-message strong {
+    color: var(--ph-survey-text-primary-color, #111);
+}
+
+.PostHogHostedSurvey fieldset {
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+}
+
+.PostHogHostedSurvey legend {
+    padding: 0;
+}
+
+.PostHogHostedSurvey .response-choice {
+    display: flex;
+    flex: 1;
+    gap: 0.75rem;
+    align-items: center;
+    min-width: 0;
+}
+
+.PostHogHostedSurvey textarea,
+.PostHogHostedSurvey input[type='text'] {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    font: inherit;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--ph-survey-input-text-color, #111);
+    background: var(--ph-survey-input-background, #fff);
+    border: 1px solid var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    border-radius: var(--ph-survey-border-radius, 10px);
+    box-shadow: var(--ph-survey-card-shadow);
+    transition:
+        border-color 160ms ease,
+        box-shadow 160ms ease;
+}
+
+.PostHogHostedSurvey textarea {
+    min-height: 8rem;
+    resize: vertical;
+}
+
+.PostHogHostedSurvey textarea::placeholder,
+.PostHogHostedSurvey input[type='text']::placeholder {
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+    opacity: 0.65;
+}
+
+.PostHogHostedSurvey textarea:focus-visible,
+.PostHogHostedSurvey input[type='text']:focus-visible {
+    border-color: var(--ph-survey-rating-active-bg-color, #111);
+    outline: none;
+    box-shadow:
+        0 0 0 3px rgb(17 17 17 / 10%),
+        var(--ph-survey-card-shadow);
+}
+
+.PostHogHostedSurvey .validation-hint {
+    margin-top: 0.5rem;
+    font-size: 0.825rem;
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+}
+
+.PostHogHostedSurvey .multiple-choice-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0;
+    margin: 0;
+}
+
+.PostHogHostedSurvey .multiple-choice-options label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    min-height: 3rem;
+    padding: 0.875rem 1rem;
+    font-size: 0.975rem;
+    color: var(--ph-survey-input-text-color, #111);
+    cursor: pointer;
+    background: var(--ph-survey-input-background, #fff);
+    border: 1px solid var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    border-radius: var(--ph-survey-border-radius, 10px);
+    box-shadow: var(--ph-survey-card-shadow);
+    transition:
+        border-color 140ms ease,
+        background-color 140ms ease,
+        transform 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.PostHogHostedSurvey .multiple-choice-options label:has(input:checked) {
+    border-color: var(--ph-survey-rating-active-bg-color, #111);
+    box-shadow:
+        inset 0 0 0 1px var(--ph-survey-rating-active-bg-color, #111),
+        var(--ph-survey-card-shadow);
+}
+
+.PostHogHostedSurvey .multiple-choice-options label:has(input:focus-visible) {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(17 17 17 / 12%);
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='checkbox'],
+.PostHogHostedSurvey .multiple-choice-options input[type='radio'] {
+    position: relative;
+    flex-shrink: 0;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0;
+    /* stylelint-disable-next-line property-no-vendor-prefix */
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    background: #fff;
+    border: 1.5px solid rgb(17 17 17 / 28%);
+    transition:
+        border-color 140ms ease,
+        background-color 140ms ease;
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='checkbox'] {
+    border-radius: 4px;
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='radio'] {
+    border-radius: 999px;
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='checkbox']:focus-visible,
+.PostHogHostedSurvey .multiple-choice-options input[type='radio']:focus-visible,
+.PostHogHostedSurvey button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(17 17 17 / 12%);
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='checkbox']:checked,
+.PostHogHostedSurvey .multiple-choice-options input[type='radio']:checked {
+    background: var(--ph-survey-rating-active-bg-color, #111);
+    border-color: var(--ph-survey-rating-active-bg-color, #111);
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='checkbox']:checked::after,
+.PostHogHostedSurvey .multiple-choice-options input[type='radio']:checked::after {
+    position: absolute;
+    box-sizing: content-box;
+    content: '';
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='checkbox']:checked::after {
+    top: 0.05rem;
+    left: 0.3rem;
+    width: 0.22rem;
+    height: 0.5rem;
+    border: solid var(--ph-survey-rating-active-text-color, #fff);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.PostHogHostedSurvey .multiple-choice-options input[type='radio']:checked::after {
+    top: 0.27rem;
+    left: 0.27rem;
+    width: 0.32rem;
+    height: 0.32rem;
+    background: var(--ph-survey-rating-active-text-color, #fff);
+    border-radius: 999px;
+}
+
+.PostHogHostedSurvey .choice-option-open input[type='text'] {
+    width: calc(100% - 1.85rem);
+    margin-left: calc(1.1rem + 0.75rem);
+}
+
+.PostHogHostedSurvey .rating-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+}
+
+.PostHogHostedSurvey .rating-options-number {
+    display: grid;
+    grid-auto-columns: 1fr;
+    grid-auto-flow: column;
+    gap: 0.4rem;
+}
+
+.PostHogHostedSurvey .ratings-number {
+    min-height: 3rem;
+    padding: 0.75rem 0;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ph-survey-rating-text-color, #111);
+    cursor: pointer;
+    background: var(--ph-survey-rating-bg-color, #f1efea);
+    border: 1px solid var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    border-radius: var(--ph-survey-border-radius, 10px);
+    box-shadow: var(--ph-survey-card-shadow);
+    transition:
+        background-color 140ms ease,
+        color 140ms ease,
+        border-color 140ms ease,
+        transform 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.PostHogHostedSurvey .ratings-number.rating-active {
+    color: var(--ph-survey-rating-active-text-color, #fff);
+    background: var(--ph-survey-rating-active-bg-color, #111);
+    border-color: var(--ph-survey-rating-active-bg-color, #111);
+}
+
+.PostHogHostedSurvey .rating-options-emoji {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+}
+
+.PostHogHostedSurvey .ratings-emoji {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    opacity: 0.5;
+    transition:
+        opacity 140ms ease,
+        background-color 140ms ease;
+}
+
+.PostHogHostedSurvey .ratings-emoji.rating-active {
+    background: rgb(17 17 17 / 6%);
+    opacity: 1;
+}
+
+.PostHogHostedSurvey .ratings-emoji svg {
+    fill: var(--ph-survey-text-primary-color, #111);
+}
+
+.PostHogHostedSurvey .rating-text {
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    font-size: 0.825rem;
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+}
+
+.PostHogHostedSurvey .bottom-section {
+    display: flex;
+    flex-flow: row wrap;
+    gap: 0.875rem 1rem;
+    align-items: center;
+    margin-top: 2rem;
+}
+
+.PostHogHostedSurvey .form-submit {
+    min-width: 10rem;
+    min-height: 3rem;
+    padding: 0.75rem 1.75rem;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ph-survey-submit-button-text-color, #fff);
+    cursor: pointer;
+    user-select: none;
+    background: var(--ph-survey-submit-button-color, #111);
+    border: 0;
+    border-radius: var(--ph-survey-border-radius, 10px);
+    box-shadow: none;
+    transition:
+        opacity 140ms ease,
+        transform 140ms ease,
+        background-color 140ms ease,
+        color 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.PostHogHostedSurvey .form-submit[disabled] {
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+    cursor: not-allowed;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    opacity: 1;
+}
+
+.PostHogHostedSurvey .form-buttons {
+    display: flex;
+    flex-flow: row wrap;
+    gap: 0.875rem 1rem;
+    align-items: center;
+}
+
+.PostHogHostedSurvey .form-back {
+    min-width: 7rem;
+    min-height: 3rem;
+    padding: 0.75rem 1.5rem;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+
+    /* Question text color so the label stays readable on any background. */
+    color: var(--ph-survey-text-primary-color, #111);
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
+    border: 1.5px solid var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    border-radius: var(--ph-survey-border-radius, 10px);
+    transition:
+        opacity 140ms ease,
+        transform 140ms ease,
+        color 140ms ease;
+}
+
+.PostHogHostedSurvey .form-back:hover {
+    opacity: 0.92;
+    transform: translateY(-1px);
+}
+
+.PostHogHostedSurvey .form-back:active {
+    transform: scale(0.98);
+}
+
+.PostHogHostedSurvey .footer-branding {
+    z-index: 10;
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    align-self: flex-end;
+    padding: 0.4rem 0.7rem;
+    margin-top: 1rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ph-survey-page-text-subtle, #6b6b6b);
+    text-decoration: none;
+    background: var(--ph-survey-pill-background);
+    /* stylelint-disable-next-line property-no-vendor-prefix */
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border-radius: 999px;
+    box-shadow:
+        0 1px 2px rgb(17 17 17 / 4%),
+        0 4px 14px rgb(17 17 17 / 6%);
+    opacity: 0.75;
+    transition: opacity 140ms ease;
+}
+
+.PostHogHostedSurvey #posthog-survey-container .footer-branding {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    margin-top: 0;
+}
+
+.PostHogHostedSurvey .footer-branding:hover {
+    opacity: 1;
+}
+
+.PostHogHostedSurvey .footer-branding svg {
+    width: auto;
+    height: 0.85rem;
+}
+
+.PostHogHostedSurvey .loading {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 16rem;
+    color: var(--ph-survey-page-text-subtle);
+    text-align: center;
+}
+
+.PostHogHostedSurvey .loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid rgb(17 17 17 / 10%);
+    border-top-color: var(--ph-survey-page-text);
+    border-radius: 999px;
+    animation: PostHogHostedSurvey__spin 800ms linear infinite;
+}
+
+.PostHogHostedSurvey .loading-text {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.PostHogHostedSurvey #posthog-survey-container:has(.question-container) .loading,
+.PostHogHostedSurvey #posthog-survey-container:has(.thank-you-message) .loading {
+    display: none;
+}
+
+.PostHogHostedSurvey .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.PostHogHostedSurvey .survey-keyhint {
+    display: none;
+    gap: 1rem;
+    align-items: center;
+    font-size: 0.84rem;
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+    pointer-events: none;
+    user-select: none;
+}
+
+.PostHogHostedSurvey .survey-keyhint-row {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.PostHogHostedSurvey .survey-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.7rem;
+    height: 1.7rem;
+    padding: 0 0.45rem;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: var(--ph-survey-text-primary-color, #111);
+    background: var(--ph-survey-rating-bg-color, var(--ph-survey-input-background, rgb(17 17 17 / 6%)));
+    border: 1px solid var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    border-radius: 6px;
+    box-shadow:
+        inset 0 0 0 1px rgb(255 255 255 / 5%),
+        0 1px 2px rgb(17 17 17 / 12%);
+}
+
+.PostHogHostedSurvey .survey-keyhint-label {
+    font-weight: 400;
+    color: var(--ph-survey-text-subtle-color, #6b6b6b);
+    letter-spacing: 0.01em;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .PostHogHostedSurvey .survey-keyhint {
+        display: inline-flex;
+    }
+
+    .PostHogHostedSurvey .multiple-choice-options label:hover:not(:has(input:checked)),
+    .PostHogHostedSurvey .ratings-number:hover:not(.rating-active) {
+        border-color: rgb(17 17 17 / 22%);
+        transform: translateY(-1px);
+    }
+
+    .PostHogHostedSurvey .form-submit:hover:not([disabled]) {
+        opacity: 0.92;
+        transform: translateY(-1px);
+    }
+}
+
+@media (max-width: 640px) {
+    .PostHogHostedSurvey .main-container,
+    .PostHogHostedSurvey.main-container {
+        padding: 1.25rem;
+        padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+    }
+
+    .PostHogHostedSurvey .form-submit {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .PostHogHostedSurvey .survey-question,
+    .PostHogHostedSurvey .thank-you-message-header {
+        font-size: 1.5rem;
+    }
+
+    .PostHogHostedSurvey #posthog-survey-container .footer-branding {
+        right: 0.75rem;
+        bottom: 0.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .PostHogHostedSurvey *,
+    .PostHogHostedSurvey *::before,
+    .PostHogHostedSurvey *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+@keyframes PostHogHostedSurvey__spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+html.embed-mode body.PostHogHostedSurvey {
+    min-height: auto;
+    background: transparent;
+}
+
+html.embed-mode .PostHogHostedSurvey .main-container,
+html.embed-mode .PostHogHostedSurvey.main-container {
+    min-height: auto;
+    padding: 0;
+}
+
+html.embed-mode .PostHogHostedSurvey .survey-progress-track {
+    margin-bottom: 1.5rem;
+}

@@ -2,6 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
@@ -11,8 +12,15 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.account_aggregates import (
+    _account_resource_notebooks,
+    _account_tagged_items,
+    account_notebooks_lazy_join,
+    account_tags_lazy_join,
+)
 from posthog.hogql.parser import parse_expr
 
 
@@ -113,6 +121,63 @@ cohort_calculation_history: PostgresTable = PostgresTable(
     },
 )
 
+accounts: PostgresTable = PostgresTable(
+    name="accounts",
+    postgres_table_name="customer_analytics_account",
+    # Object-level access control filters out ids directly off access_scope, so we use
+    # `account` here (where the per-object grants are stored) instead of the
+    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
+    access_scope="account",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_id": StringDatabaseField(name="external_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "properties": StringJSONDatabaseField(name="properties"),
+        "stripe_customer_id": ExpressionField(
+            name="stripe_customer_id",
+            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
+        ),
+        "hubspot_deal_id": ExpressionField(
+            name="hubspot_deal_id",
+            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
+        ),
+        "billing_id": ExpressionField(
+            name="billing_id",
+            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
+        ),
+        "sfdc_id": ExpressionField(
+            name="sfdc_id",
+            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
+        ),
+        "zendesk_id": ExpressionField(
+            name="zendesk_id",
+            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
+        ),
+        "csm": ExpressionField(
+            name="csm",
+            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
+        ),
+        "account_executive": ExpressionField(
+            name="account_executive",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "account_owner": ExpressionField(
+            name="account_owner",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "tags": account_tags_lazy_join,
+        "notebooks": account_notebooks_lazy_join,
+    },
+)
+
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -151,6 +216,30 @@ dashboards: PostgresTable = PostgresTable(
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
         "variables": StringJSONDatabaseField(name="variables"),
+    },
+)
+
+dashboard_tiles: PostgresTable = PostgresTable(
+    name="dashboard_tiles",
+    postgres_table_name="posthog_dashboardtile",
+    access_scope="dashboard",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id"),
+        "insight_id": IntegerDatabaseField(name="insight_id", nullable=True),
+        "text_id": IntegerDatabaseField(name="text_id", nullable=True),
+        "button_tile_id": StringDatabaseField(name="button_tile_id", nullable=True),
+        "layouts": StringJSONDatabaseField(name="layouts"),
+        "color": StringDatabaseField(name="color", nullable=True),
+        "show_description": BooleanDatabaseField(name="show_description", nullable=True),
+        "transparent_background": BooleanDatabaseField(name="transparent_background", nullable=True),
+        "filters_overrides": StringJSONDatabaseField(name="filters_overrides", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True, nullable=True),
+        "deleted": ExpressionField(
+            name="deleted",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_deleted"]), ast.Constant(value=False)]),
+        ),
     },
 )
 
@@ -405,6 +494,30 @@ integrations: PostgresTable = PostgresTable(
         "errors": StringDatabaseField(name="errors"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "created_by_id": IntegerDatabaseField(name="created_by_id"),
+    },
+)
+
+integration_repository_cache: PostgresTable = PostgresTable(
+    name="integration_repository_cache",
+    postgres_table_name="posthog_integrationrepositorycacheentry",
+    access_scope="integration",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "integration_id": IntegerDatabaseField(name="integration_id", nullable=True),
+        "user_integration_id": IntegerDatabaseField(name="user_integration_id", nullable=True),
+        "full_name": StringDatabaseField(name="full_name"),
+        "description": StringDatabaseField(name="description", nullable=True),
+        "topics": StringJSONDatabaseField(name="topics"),
+        "archived": BooleanDatabaseField(name="archived"),
+        "fork": BooleanDatabaseField(name="fork"),
+        "primary_language": StringDatabaseField(name="primary_language", nullable=True),
+        "default_branch": StringDatabaseField(name="default_branch"),
+        "default_branch_sha": StringDatabaseField(name="default_branch_sha"),
+        "readme": StringDatabaseField(name="readme"),
+        "tree_paths": StringDatabaseField(name="tree_paths"),
+        "tree_truncated": BooleanDatabaseField(name="tree_truncated"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
 
@@ -743,6 +856,21 @@ error_tracking_releases: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_symbol_sets: PostgresTable = PostgresTable(
+    name="error_tracking_symbol_sets",
+    postgres_table_name="posthog_errortrackingsymbolset",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ref": StringDatabaseField(name="ref"),
+        "release_id": StringDatabaseField(name="release_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_used": DateTimeDatabaseField(name="last_used", nullable=True),
+        "failure_reason": StringDatabaseField(name="failure_reason", nullable=True),
+    },
+)
+
 logs_views: PostgresTable = PostgresTable(
     name="logs_views",
     postgres_table_name="logs_logsview",
@@ -821,6 +949,99 @@ support_tickets: PostgresTable = PostgresTable(
         "sla_due_at": DateTimeDatabaseField(name="sla_due_at", nullable=True),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+review_queues: PostgresTable = PostgresTable(
+    name="review_queues",
+    postgres_table_name="llm_analytics_reviewqueue",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+review_queue_items: PostgresTable = PostgresTable(
+    name="review_queue_items",
+    postgres_table_name="llm_analytics_reviewqueueitem",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "queue_id": UUIDDatabaseField(name="queue_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_reviews: PostgresTable = PostgresTable(
+    name="trace_reviews",
+    postgres_table_name="llm_analytics_tracereview",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "reviewed_by_id": IntegerDatabaseField(name="reviewed_by_id", nullable=True),
+        "comment": StringDatabaseField(name="comment", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_review_scores: PostgresTable = PostgresTable(
+    name="trace_review_scores",
+    postgres_table_name="llm_analytics_tracereviewscore",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "review_id": UUIDDatabaseField(name="review_id"),
+        "definition_id": UUIDDatabaseField(name="definition_id"),
+        "definition_version": UUIDDatabaseField(name="definition_version"),
+        "definition_version_number": IntegerDatabaseField(name="definition_version_number"),
+        "definition_config": StringJSONDatabaseField(name="definition_config"),
+        "categorical_values": StringArrayDatabaseField(name="categorical_values", nullable=True),
+        "numeric_value": DecimalDatabaseField(name="numeric_value", nullable=True),
+        "boolean_value": BooleanDatabaseField(name="boolean_value", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
+score_definitions: PostgresTable = PostgresTable(
+    name="score_definitions",
+    postgres_table_name="llm_analytics_scoredefinition",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "kind": StringDatabaseField(name="kind"),
+        "archived": BooleanDatabaseField(name="archived"),
+        "current_version_id": UUIDDatabaseField(name="current_version_id", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
     },
 )
 
@@ -947,19 +1168,96 @@ sandbox_environments: PostgresTable = PostgresTable(
     },
 )
 
+business_knowledge_sources: PostgresTable = PostgresTable(
+    name="business_knowledge_sources",
+    postgres_table_name="posthog_business_knowledge_knowledgesource",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_type": StringDatabaseField(name="source_type"),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message"),
+        "source_url": StringDatabaseField(name="source_url"),
+        "crawl_mode": StringDatabaseField(name="crawl_mode"),
+        "original_filename": StringDatabaseField(name="original_filename"),
+        "file_content_type": StringDatabaseField(name="file_content_type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_documents: PostgresTable = PostgresTable(
+    name="business_knowledge_documents",
+    postgres_table_name="posthog_business_knowledge_knowledgedocument",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "stable_id": StringDatabaseField(name="stable_id"),
+        "title": StringDatabaseField(name="title"),
+        "url": StringDatabaseField(name="url"),
+        "content_hash": StringDatabaseField(name="content_hash"),
+        "tombstoned_at": DateTimeDatabaseField(name="tombstoned_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_chunks: PostgresTable = PostgresTable(
+    name="business_knowledge_chunks",
+    postgres_table_name="posthog_business_knowledge_knowledgechunk",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "document_id": StringDatabaseField(name="document_id"),
+        "heading_path": StringDatabaseField(name="heading_path"),
+        "ordinal": IntegerDatabaseField(name="ordinal"),
+        "content": StringDatabaseField(name="content"),
+        "char_count": IntegerDatabaseField(name="char_count"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
+
+tags: PostgresTable = PostgresTable(
+    name="tags",
+    postgres_table_name="posthog_tag",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "accounts": TableNode(name="accounts", table=accounts),
+        "_account_tagged_items": TableNode(name="_account_tagged_items", table=_account_tagged_items, hidden=True),
+        "_account_resource_notebooks": TableNode(
+            name="_account_resource_notebooks", table=_account_resource_notebooks, hidden=True
+        ),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
+        "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
+        "business_knowledge_documents": TableNode(
+            name="business_knowledge_documents", table=business_knowledge_documents
+        ),
+        "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "dashboard_tiles": TableNode(name="dashboard_tiles", table=dashboard_tiles),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
         "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_modeling_endpoint_versions": TableNode(name="data_modeling_endpoint_versions", table=endpoint_versions),
@@ -977,6 +1275,7 @@ class SystemTables(TableNode):
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_symbol_sets": TableNode(name="error_tracking_symbol_sets", table=error_tracking_symbol_sets),
         "error_tracking_suppression_rules": TableNode(
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
         ),
@@ -990,12 +1289,18 @@ class SystemTables(TableNode):
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "integrations": TableNode(name="integrations", table=integrations),
+        "integration_repository_cache": TableNode(
+            name="integration_repository_cache", table=integration_repository_cache
+        ),
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "logs_alerts": TableNode(name="logs_alerts", table=logs_alerts),
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
+        "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
+        "review_queues": TableNode(name="review_queues", table=review_queues),
+        "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
@@ -1003,7 +1308,10 @@ class SystemTables(TableNode):
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),
+        "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
+        "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
+        "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
     }

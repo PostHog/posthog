@@ -35,22 +35,25 @@ public:
     UNBOUNDED = 120, UNION = 121, UNPIVOT = 122, USING = 123, VALUES = 124, 
     WEEK = 125, WHEN = 126, WHERE = 127, WHILE = 128, WINDOW = 129, WITH = 130, 
     WITHIN = 131, YEAR = 132, ESCAPE_CHAR_COMMON = 133, IDENTIFIER = 134, 
-    QUOTED_IDENTIFIER = 135, FLOATING_LITERAL = 136, OCTAL_LITERAL = 137, 
-    DECIMAL_LITERAL = 138, HEXADECIMAL_LITERAL = 139, STRING_LITERAL = 140, 
-    ARROW = 141, ASTERISK = 142, BACKQUOTE = 143, BACKSLASH = 144, DOUBLECOLON = 145, 
-    COLONEQUALS = 146, COLON = 147, COMMA = 148, CONCAT = 149, DASH = 150, 
-    DOLLAR = 151, DOT = 152, EQ_DOUBLE = 153, EQ_SINGLE = 154, GT_EQ = 155, 
-    GT = 156, HASH = 157, IREGEX_SINGLE = 158, IREGEX_DOUBLE = 159, LBRACE = 160, 
-    LBRACKET = 161, LPAREN = 162, LT_EQ = 163, LT = 164, LT_SLASH = 165, 
-    NOT_EQ = 166, NOT_IREGEX = 167, NOT_REGEX = 168, NULL_PROPERTY = 169, 
-    NULLISH = 170, PERCENT = 171, PLUS = 172, QUERY = 173, QUOTE_DOUBLE = 174, 
-    QUOTE_SINGLE_TEMPLATE = 175, QUOTE_SINGLE_TEMPLATE_FULL = 176, QUOTE_SINGLE = 177, 
-    REGEX_SINGLE = 178, REGEX_DOUBLE = 179, RBRACE = 180, RBRACKET = 181, 
-    RPAREN = 182, SEMICOLON = 183, SLASH = 184, SLASH_GT = 185, UNDERSCORE = 186, 
-    MULTI_LINE_COMMENT = 187, SINGLE_LINE_COMMENT = 188, WHITESPACE = 189, 
-    STRING_TEXT = 190, STRING_ESCAPE_TRIGGER = 191, FULL_STRING_TEXT = 192, 
-    FULL_STRING_ESCAPE_TRIGGER = 193, TAG_WS = 194, TAGC_WS = 195, HOGQLX_TEXT_TEXT = 196, 
-    HOGQLX_TEXT_WS = 197
+    QUOTED_IDENTIFIER = 135, FLOATING_LITERAL = 136, BINARY_LITERAL = 137, 
+    OCTAL_LITERAL = 138, DECIMAL_LITERAL = 139, HEXADECIMAL_LITERAL = 140, 
+    OCTAL_PREFIX_LITERAL = 141, MALFORMED_BINARY_LITERAL = 142, STRING_LITERAL = 143, 
+    ARROW = 144, ASTERISK = 145, BACKQUOTE = 146, BACKSLASH = 147, DOUBLECOLON = 148, 
+    COLONEQUALS = 149, COLON = 150, COMMA = 151, CONCAT = 152, DASH = 153, 
+    DOLLAR = 154, DOT = 155, EQ_DOUBLE = 156, EQ_SINGLE = 157, GT_EQ = 158, 
+    GT = 159, HASH = 160, IREGEX_SINGLE = 161, IREGEX_DOUBLE = 162, LBRACE = 163, 
+    LBRACKET = 164, LPAREN = 165, LT_EQ = 166, LT = 167, LT_SLASH = 168, 
+    NOT_EQ = 169, NOT_IREGEX = 170, NOT_REGEX = 171, NULL_PROPERTY = 172, 
+    NULLISH = 173, PERCENT = 174, PLUS = 175, QUERY = 176, QUOTE_DOUBLE = 177, 
+    QUOTE_SINGLE_TEMPLATE = 178, QUOTE_SINGLE_TEMPLATE_FULL = 179, QUOTE_SINGLE = 180, 
+    REGEX_SINGLE = 181, REGEX_DOUBLE = 182, RBRACE = 183, RBRACKET = 184, 
+    RPAREN = 185, SEMICOLON = 186, SLASH = 187, SLASH_GT = 188, UNDERSCORE = 189, 
+    MULTI_LINE_COMMENT = 190, SINGLE_LINE_COMMENT = 191, WHITESPACE = 192, 
+    UNEXPECTED_CHARACTER = 193, STRING_TEXT = 194, STRING_ESCAPE_TRIGGER = 195, 
+    FULL_STRING_TEXT = 196, FULL_STRING_ESCAPE_TRIGGER = 197, TAG_MULTI_LINE_COMMENT = 198, 
+    TAG_SINGLE_LINE_COMMENT = 199, TAG_WS = 200, TAGC_MULTI_LINE_COMMENT = 201, 
+    TAGC_SINGLE_LINE_COMMENT = 202, TAGC_WS = 203, HOGQLX_TEXT_TEXT = 204, 
+    HOGQLX_TEXT_WS = 205
   };
 
   enum {
@@ -315,7 +318,6 @@ public:
     ForInStmtContext *forInStmt();
     ForStmtContext *forStmt();
     FuncStmtContext *funcStmt();
-    VarAssignmentContext *varAssignment();
     BlockContext *block();
     ExprStmtContext *exprStmt();
     EmptyStmtContext *emptyStmt();
@@ -528,7 +530,9 @@ public:
   public:
     ExprStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    ExpressionContext *expression();
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
+    antlr4::tree::TerminalNode *COLONEQUALS();
     antlr4::tree::TerminalNode *SEMICOLON();
 
 
@@ -3325,7 +3329,9 @@ public:
     NumberLiteralContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     FloatingLiteralContext *floatingLiteral();
+    antlr4::tree::TerminalNode *BINARY_LITERAL();
     antlr4::tree::TerminalNode *OCTAL_LITERAL();
+    antlr4::tree::TerminalNode *OCTAL_PREFIX_LITERAL();
     antlr4::tree::TerminalNode *DECIMAL_LITERAL();
     antlr4::tree::TerminalNode *HEXADECIMAL_LITERAL();
     antlr4::tree::TerminalNode *INF();

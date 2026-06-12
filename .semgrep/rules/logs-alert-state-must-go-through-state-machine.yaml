@@ -43,10 +43,10 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - 'products/logs/backend/**/*.py'
+              - '/products/logs/backend/**/*.py'
           exclude:
               # The state machine itself — apply_outcome is the one legal mutator.
-              - 'products/logs/backend/alert_state_machine.py'
+              - '/products/logs/backend/alert_state_machine.py'
               # Test files — fixtures and parametrized snapshots set state directly.
-              - 'products/logs/backend/test/**'
-              - 'products/logs/backend/**/test_*.py'
+              - '/products/logs/backend/test/**'
+              - '/products/logs/backend/**/test_*.py'

@@ -92,6 +92,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
+    const isPlatformProduct = product.type === 'platform_and_support'
+    const addonSectionLabel = isPlatformProduct ? 'Packages' : 'Add-ons'
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -127,7 +129,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
-                            <div>{getProductIcon(product.icon_key, { className: 'text-2xl shrink-0' })}</div>
+                            <div>
+                                {getProductIcon(product.icon_key, {
+                                    className: 'text-2xl shrink-0',
+                                    productType: product.type,
+                                })}
+                            </div>
                             <div>
                                 <h3 className="font-bold mb-0 flex items-center gap-x-2">
                                     {displayProductName}{' '}
@@ -531,12 +538,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
                             {/* Add-ons title */}
-                            <h4 className="my-4">Add-ons</h4>
+                            <h4 className="my-4">{addonSectionLabel}</h4>
                             {billing?.subscription_level == 'free' && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            Add-ons are only available on paid plans. Upgrade to access these features.
+                                            {addonSectionLabel} are only available on paid plans. Upgrade to access
+                                            these features.
                                         </div>
                                         <BillingUpgradeCTA
                                             type="primary"

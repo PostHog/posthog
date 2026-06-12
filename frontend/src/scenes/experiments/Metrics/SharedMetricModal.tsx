@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -13,7 +13,6 @@ import { Experiment } from '~/types'
 import { InlineTagEditor } from '../SharedMetrics/InlineTagEditor'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
-import { matchesSharedMetricSearch } from '../utils'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
@@ -24,12 +23,31 @@ export function SharedMetricModal({
     experiment: Experiment
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
 }): JSX.Element | null {
-    const { isModalOpen, context, compatibleSharedMetrics, searchTerm } = useValues(sharedMetricModalLogic)
-    const { closeSharedMetricModal, setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricModalLogic)
+    const {
+        isModalOpen,
+        context,
+        compatibleSharedMetrics,
+        displayedMetrics,
+        availableTags,
+        filterTags,
+        searchTerm,
+        sharedMetricsResponseLoading,
+        isLoadingAllSharedMetrics,
+        hasAnyCompatibleSharedMetrics,
+        selectedMetricIds,
+    } = useValues(sharedMetricModalLogic)
+    const {
+        closeSharedMetricModal,
+        setSearchTerm,
+        toggleSelectedMetricId,
+        setSelectedMetricIds,
+        clearSelectedMetricIds,
+        selectByTag,
+        clearFilterTags,
+    } = useActions(sharedMetricModalLogic)
     const { savingTagsMetricId } = useValues(sharedMetricsLogic)
+    const { updateSharedMetricTags } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
-
-    const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
 
     if (!compatibleSharedMetrics) {
         return null
@@ -42,23 +60,17 @@ export function SharedMetricModal({
     }
 
     const closeModal = (): void => {
-        setSelectedMetricIds([])
+        clearSelectedMetricIds()
         closeSharedMetricModal()
     }
 
-    const availableSharedMetrics = compatibleSharedMetrics.filter(
-        (metric: SharedMetric) =>
-            !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
-    )
+    const alreadyAddedIdsList = experiment.saved_metrics.map((savedMetric) => savedMetric.saved_metric)
+    const alreadyAddedIds = new Set(alreadyAddedIdsList)
 
-    const searchLower = searchTerm.toLowerCase()
-    const filteredMetrics = searchTerm
-        ? availableSharedMetrics.filter((metric) => matchesSharedMetricSearch(metric, searchLower))
-        : availableSharedMetrics
-
-    const availableTags = Array.from(
-        new Set(filteredMetrics.flatMap((metric: SharedMetric) => metric.tags ?? []).filter(Boolean))
-    ).sort()
+    // Ids of the currently displayed metrics (after tag filtering) that can still be added.
+    const displayedSelectableIds = displayedMetrics
+        .filter((metric: SharedMetric) => !alreadyAddedIds.has(metric.id))
+        .map((metric: SharedMetric) => metric.id)
 
     return (
         <LemonModal
@@ -81,7 +93,7 @@ export function SharedMetricModal({
                                     .filter((metric): metric is SharedMetric => metric !== undefined)
 
                                 onSave(metrics, context)
-                                setSelectedMetricIds([])
+                                clearSelectedMetricIds()
                             }}
                             type="primary"
                             disabledReason={addSharedMetricDisabledReason()}
@@ -93,13 +105,13 @@ export function SharedMetricModal({
             }
         >
             <div className="deprecated-space-y-2">
-                {availableSharedMetrics.length > 0 ? (
+                {hasAnyCompatibleSharedMetrics || sharedMetricsResponseLoading ? (
                     <>
                         {experiment.saved_metrics.length > 0 && (
                             <LemonBanner type="info">
-                                {`Hiding ${experiment.saved_metrics.length} shared ${
-                                    experiment.saved_metrics.length > 1 ? 'metrics' : 'metric'
-                                } already in use with this experiment.`}
+                                {`${pluralize(experiment.saved_metrics.length, 'shared metric')} ${
+                                    experiment.saved_metrics.length > 1 ? 'are' : 'is'
+                                } already in the experiment.`}
                             </LemonBanner>
                         )}
                         <LemonInput
@@ -109,13 +121,20 @@ export function SharedMetricModal({
                             onChange={setSearchTerm}
                             fullWidth
                         />
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 items-center">
                             <LemonLabel>Quick select:</LemonLabel>
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
+                                loading={isLoadingAllSharedMetrics}
+                                disabledReason={
+                                    displayedSelectableIds.length === 0 ? 'No metrics to select' : undefined
+                                }
                                 onClick={() => {
-                                    setSelectedMetricIds(filteredMetrics.map((metric: SharedMetric) => metric.id))
+                                    // Add every currently displayed (tag-filtered) metric to the selection.
+                                    setSelectedMetricIds(
+                                        Array.from(new Set([...selectedMetricIds, ...displayedSelectableIds]))
+                                    )
                                 }}
                             >
                                 All
@@ -125,31 +144,50 @@ export function SharedMetricModal({
                                     size="xsmall"
                                     type="secondary"
                                     onClick={() => {
-                                        setSelectedMetricIds([])
+                                        clearSelectedMetricIds()
                                     }}
                                 >
                                     Clear
                                 </LemonButton>
                             )}
-                            {availableTags.map((tag: string, index: number) => (
-                                <LemonButton
-                                    key={index}
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={() => {
-                                        setSelectedMetricIds(
-                                            filteredMetrics
-                                                .filter((metric: SharedMetric) => metric.tags?.includes(tag))
-                                                .map((metric: SharedMetric) => metric.id)
-                                        )
-                                    }}
-                                >
-                                    {tag}
-                                </LemonButton>
-                            ))}
                         </div>
+                        {availableTags.length > 0 && (
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <LemonLabel>Select by tag:</LemonLabel>
+                                {availableTags.map((tag: string) => (
+                                    <LemonButton
+                                        key={tag}
+                                        size="xsmall"
+                                        type="secondary"
+                                        active={filterTags.includes(tag)}
+                                        // Wait for every page so clicking a tag selects all of its metrics.
+                                        disabledReason={isLoadingAllSharedMetrics ? 'Loading all metrics…' : undefined}
+                                        onClick={() => {
+                                            // Toggle this tag: selects (and shows) every metric carrying it, across
+                                            // all pages — or deselects them if it was already active.
+                                            selectByTag(tag, alreadyAddedIdsList)
+                                        }}
+                                    >
+                                        {tag}
+                                    </LemonButton>
+                                ))}
+                                {filterTags.length > 0 && (
+                                    <LemonButton size="xsmall" type="tertiary" onClick={() => clearFilterTags()}>
+                                        Show all
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )}
                         <LemonTable
-                            dataSource={filteredMetrics}
+                            dataSource={displayedMetrics}
+                            loading={sharedMetricsResponseLoading && displayedMetrics.length === 0}
+                            emptyState={
+                                filterTags.length > 0 ? (
+                                    <div>No shared metrics match the selected tags.</div>
+                                ) : (
+                                    <div>No shared metrics match your search.</div>
+                                )
+                            }
                             columns={[
                                 {
                                     title: '',
@@ -157,23 +195,25 @@ export function SharedMetricModal({
                                     render: (_, metric: SharedMetric) => (
                                         <input
                                             type="checkbox"
+                                            disabled={alreadyAddedIds.has(metric.id)}
                                             checked={selectedMetricIds.includes(metric.id)}
-                                            onChange={(e) => {
-                                                if (e.target.checked) {
-                                                    setSelectedMetricIds([...selectedMetricIds, metric.id])
-                                                } else {
-                                                    setSelectedMetricIds(
-                                                        selectedMetricIds.filter((id) => id !== metric.id)
-                                                    )
-                                                }
+                                            onChange={() => {
+                                                toggleSelectedMetricId(metric.id)
                                             }}
                                         />
                                     ),
                                 },
                                 {
                                     title: 'Name',
-                                    dataIndex: 'name',
                                     key: 'name',
+                                    render: (_, metric: SharedMetric) => (
+                                        <span>
+                                            {metric.name}
+                                            {alreadyAddedIds.has(metric.id) && (
+                                                <span className="text-secondary ml-2">(already added)</span>
+                                            )}
+                                        </span>
+                                    ),
                                 },
                                 {
                                     title: 'Description',
@@ -205,7 +245,10 @@ export function SharedMetricModal({
                                 },
                             ]}
                             footer={
-                                <div className="flex items-center justify-center m-2">
+                                <div className="flex flex-col items-center gap-2 m-2">
+                                    {isLoadingAllSharedMetrics && displayedMetrics.length > 0 && (
+                                        <span className="text-secondary text-xs">Loading all metrics…</span>
+                                    )}
                                     <Link to={`${urls.experiments()}?tab=shared-metrics`} target="_blank">
                                         See all shared metrics
                                     </Link>
@@ -216,9 +259,8 @@ export function SharedMetricModal({
                 ) : (
                     <LemonBanner className="w-full" type="info">
                         <div className="mb-2">
-                            {compatibleSharedMetrics.length > 0
-                                ? 'All of your shared metrics are already in this experiment.'
-                                : "You don't have any shared metrics that match the experiment type. Shared metrics let you create reusable metrics that you can quickly add to any experiment."}
+                            You don't have any shared metrics that match the experiment type. Shared metrics let you
+                            create reusable metrics that you can quickly add to any experiment.
                         </div>
                         <Link to={urls.experimentsSharedMetric('new')} target="_blank">
                             New shared metric

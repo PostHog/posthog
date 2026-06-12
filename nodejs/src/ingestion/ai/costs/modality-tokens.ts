@@ -6,10 +6,44 @@ export interface EventWithProperties extends PluginEvent {
     properties: Properties
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> => {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Look up a metadata key under either the camelCase or snake_case form. Gemini
+ * arrives camelCased through the Vercel AI SDK (Node.js, raw API JSON) and
+ * snake_cased through posthog-python (protobuf to_dict / vars). Both shapes are
+ * routinely seen in production.
+ */
+const pick = (metadata: Record<string, unknown>, ...keys: string[]): unknown => {
+    for (const key of keys) {
+        const value = metadata[key]
+        if (value !== undefined && value !== null) {
+            return value
+        }
+    }
+    return undefined
+}
+
+const tokenCountOf = (detail: Record<string, unknown>): number | null => {
+    const tokenCount = detail['tokenCount'] ?? detail['token_count']
+    return typeof tokenCount === 'number' ? tokenCount : null
+}
+
+const modalityOf = (detail: Record<string, unknown>): string | null => {
+    const modality = detail['modality']
+    return typeof modality === 'string' ? modality.toLowerCase() : null
+}
+
+type ExtractionSource = 'gemini_input' | 'gemini_output' | 'gemini_cache' | 'openai_input' | 'openai_cache'
+
 /**
  * Extract modality-specific token counts from raw provider usage metadata.
- * Currently supports Gemini's candidatesTokensDetails for image token breakdown.
- * Removes $ai_usage from properties after extraction.
+ * Supports Gemini's promptTokensDetails (input modality), candidatesTokensDetails
+ * (output modality), and cacheTokensDetails (cache modality), plus the OpenAI
+ * equivalents under prompt_tokens_details. Removes $ai_usage from properties
+ * after extraction so it does not get persisted to ClickHouse.
  */
 export const extractModalityTokens = (event: EventWithProperties): EventWithProperties => {
     const usage = event.properties['$ai_usage']
@@ -20,140 +54,219 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
     }
 
     try {
-        let extractedTokens = false
+        const extractedSources = new Set<ExtractionSource>()
 
-        // Helper function to extract tokens from either array or object format
-        const extractTokensFromDetails = (tokenDetails: unknown): void => {
+        // Gemini's promptTokensDetails / prompt_tokens_details shape (input modality).
+        // Array form: [{ modality: "AUDIO", tokenCount: 750 }, { modality: "TEXT", tokenCount: 598 }]
+        // (token_count snake_case also accepted via tokenCountOf).
+        // Object form: { audioTokens: 750, textTokens: 598 } (defensive fallback).
+        const extractInputModality = (tokenDetails: unknown): void => {
             if (!tokenDetails) {
                 return
             }
 
-            // Array format: [{ modality: "TEXT", tokenCount: 10 }, { modality: "IMAGE", tokenCount: 1290 }]
-            // Gemini returns uppercase modality values (TEXT, IMAGE, AUDIO)
             if (Array.isArray(tokenDetails)) {
                 for (const detail of tokenDetails) {
-                    if (detail && typeof detail === 'object') {
-                        const modality = (detail as Record<string, unknown>)['modality']
-                        const tokenCount = (detail as Record<string, unknown>)['tokenCount']
-
-                        if (typeof modality === 'string' && typeof tokenCount === 'number') {
-                            const modalityLower = modality.toLowerCase()
-
-                            if (modalityLower === 'image' && tokenCount > 0) {
-                                event.properties['$ai_image_output_tokens'] = tokenCount
-                                extractedTokens = true
-                            }
-                            if (modalityLower === 'text') {
-                                event.properties['$ai_text_output_tokens'] = tokenCount
-                                extractedTokens = true
-                            }
-                        }
+                    if (!isObject(detail)) {
+                        continue
+                    }
+                    const modality = modalityOf(detail)
+                    const tokenCount = tokenCountOf(detail)
+                    if (modality === null || tokenCount === null) {
+                        continue
+                    }
+                    if (modality === 'audio' && tokenCount > 0) {
+                        event.properties['$ai_audio_input_tokens'] = tokenCount
+                        extractedSources.add('gemini_input')
+                    }
+                    if (modality === 'image' && tokenCount > 0) {
+                        event.properties['$ai_image_input_tokens'] = tokenCount
+                        extractedSources.add('gemini_input')
+                    }
+                    if (modality === 'text') {
+                        event.properties['$ai_text_input_tokens'] = tokenCount
+                        extractedSources.add('gemini_input')
                     }
                 }
-            }
-            // Object format fallback: { textTokens: number, imageTokens: number }
-            // Defensive handling in case format changes or for testing
-            else if (typeof tokenDetails === 'object') {
-                const details = tokenDetails as Record<string, unknown>
-
-                if (typeof details['imageTokens'] === 'number' && details['imageTokens'] > 0) {
-                    event.properties['$ai_image_output_tokens'] = details['imageTokens']
-                    extractedTokens = true
+            } else if (isObject(tokenDetails)) {
+                if (typeof tokenDetails['audioTokens'] === 'number' && tokenDetails['audioTokens'] > 0) {
+                    event.properties['$ai_audio_input_tokens'] = tokenDetails['audioTokens']
+                    extractedSources.add('gemini_input')
                 }
-
-                if (typeof details['textTokens'] === 'number') {
-                    event.properties['$ai_text_output_tokens'] = details['textTokens']
-                    extractedTokens = true
+                if (typeof tokenDetails['imageTokens'] === 'number' && tokenDetails['imageTokens'] > 0) {
+                    event.properties['$ai_image_input_tokens'] = tokenDetails['imageTokens']
+                    extractedSources.add('gemini_input')
+                }
+                if (typeof tokenDetails['textTokens'] === 'number') {
+                    event.properties['$ai_text_input_tokens'] = tokenDetails['textTokens']
+                    extractedSources.add('gemini_input')
                 }
             }
         }
 
-        // Handle Gemini's candidatesTokensDetails (or outputTokenDetails in some versions)
-        // Gemini returns: [{ modality: "TEXT", tokenCount: 10 }, { modality: "IMAGE", tokenCount: 1290 }]
-        // Also supports object format as defensive fallback: { textTokens: 10, imageTokens: 1290 }
-        const tokenDetails =
-            (usage as Record<string, unknown>)['candidatesTokensDetails'] ??
-            (usage as Record<string, unknown>)['outputTokenDetails']
+        // Gemini's candidatesTokensDetails / candidates_tokens_details shape (output modality).
+        const extractOutputModality = (tokenDetails: unknown): void => {
+            if (!tokenDetails) {
+                return
+            }
 
-        extractTokensFromDetails(tokenDetails)
+            if (Array.isArray(tokenDetails)) {
+                for (const detail of tokenDetails) {
+                    if (!isObject(detail)) {
+                        continue
+                    }
+                    const modality = modalityOf(detail)
+                    const tokenCount = tokenCountOf(detail)
+                    if (modality === null || tokenCount === null) {
+                        continue
+                    }
+                    if (modality === 'image' && tokenCount > 0) {
+                        event.properties['$ai_image_output_tokens'] = tokenCount
+                        extractedSources.add('gemini_output')
+                    }
+                    if (modality === 'text') {
+                        event.properties['$ai_text_output_tokens'] = tokenCount
+                        extractedSources.add('gemini_output')
+                    }
+                }
+            } else if (isObject(tokenDetails)) {
+                if (typeof tokenDetails['imageTokens'] === 'number' && tokenDetails['imageTokens'] > 0) {
+                    event.properties['$ai_image_output_tokens'] = tokenDetails['imageTokens']
+                    extractedSources.add('gemini_output')
+                }
+                if (typeof tokenDetails['textTokens'] === 'number') {
+                    event.properties['$ai_text_output_tokens'] = tokenDetails['textTokens']
+                    extractedSources.add('gemini_output')
+                }
+            }
+        }
 
-        // Check for Vercel AI SDK with rawResponse at top level: { rawResponse: { usageMetadata: {...} } }
-        // This is the current path when using Vercel AI SDK with Google provider
+        // Gemini's cacheTokensDetails / cache_tokens_details shape (cache modality).
+        const extractCacheModality = (tokenDetails: unknown): void => {
+            if (!tokenDetails) {
+                return
+            }
+
+            if (Array.isArray(tokenDetails)) {
+                for (const detail of tokenDetails) {
+                    if (!isObject(detail)) {
+                        continue
+                    }
+                    const modality = modalityOf(detail)
+                    const tokenCount = tokenCountOf(detail)
+                    if (modality === null || tokenCount === null) {
+                        continue
+                    }
+                    if (modality === 'audio' && tokenCount > 0) {
+                        event.properties['$ai_cache_read_audio_tokens'] = tokenCount
+                        extractedSources.add('gemini_cache')
+                    }
+                }
+            } else if (
+                isObject(tokenDetails) &&
+                typeof tokenDetails['audioTokens'] === 'number' &&
+                tokenDetails['audioTokens'] > 0
+            ) {
+                event.properties['$ai_cache_read_audio_tokens'] = tokenDetails['audioTokens']
+                extractedSources.add('gemini_cache')
+            }
+        }
+
+        // OpenAI shape: { prompt_tokens_details: { audio_tokens: 200, cached_tokens_details: { audio_tokens: 50 } } }
+        // gpt-audio / gpt-realtime expose total prompt audio at audio_tokens, and
+        // cached audio inside cached_tokens_details.audio_tokens.
+        const extractOpenAIInputModality = (metadata: Record<string, unknown>): void => {
+            const promptDetails = metadata['prompt_tokens_details']
+            if (!isObject(promptDetails)) {
+                return
+            }
+            const audioTokens = promptDetails['audio_tokens']
+            if (typeof audioTokens === 'number' && audioTokens > 0) {
+                event.properties['$ai_audio_input_tokens'] = audioTokens
+                extractedSources.add('openai_input')
+            }
+        }
+
+        const extractOpenAICacheModality = (metadata: Record<string, unknown>): void => {
+            const promptDetails = metadata['prompt_tokens_details']
+            if (!isObject(promptDetails)) {
+                return
+            }
+            const cachedDetails = promptDetails['cached_tokens_details']
+            if (!isObject(cachedDetails)) {
+                return
+            }
+            const audioTokens = cachedDetails['audio_tokens']
+            if (typeof audioTokens === 'number' && audioTokens > 0) {
+                event.properties['$ai_cache_read_audio_tokens'] = audioTokens
+                extractedSources.add('openai_cache')
+            }
+        }
+
+        // Walk each `usage`-shaped metadata object encountered across the SDK
+        // wrapper variants and pull every modality breakdown it exposes.
+        // Gemini metadata arrives camelCased through the Vercel AI SDK and
+        // snake_cased through posthog-python; check both forms for each key.
+        const extractFromMetadata = (metadata: unknown): void => {
+            if (!isObject(metadata)) {
+                return
+            }
+            extractInputModality(pick(metadata, 'promptTokensDetails', 'prompt_tokens_details'))
+            extractOutputModality(
+                pick(metadata, 'candidatesTokensDetails', 'candidates_tokens_details', 'outputTokenDetails')
+            )
+            extractCacheModality(pick(metadata, 'cacheTokensDetails', 'cache_tokens_details'))
+            extractOpenAIInputModality(metadata)
+            extractOpenAICacheModality(metadata)
+        }
+
+        extractFromMetadata(usage)
+
+        // Vercel AI SDK with rawResponse at top level: { rawResponse: { usageMetadata: {...} } }
         const topLevelRawResponse = (usage as Record<string, unknown>)['rawResponse']
-        if (topLevelRawResponse && typeof topLevelRawResponse === 'object') {
-            const topLevelUsageMetadata = (topLevelRawResponse as Record<string, unknown>)['usageMetadata']
-            if (topLevelUsageMetadata && typeof topLevelUsageMetadata === 'object') {
-                const topLevelTokenDetails =
-                    (topLevelUsageMetadata as Record<string, unknown>)['candidatesTokensDetails'] ??
-                    (topLevelUsageMetadata as Record<string, unknown>)['outputTokenDetails']
-
-                extractTokensFromDetails(topLevelTokenDetails)
-            }
+        if (isObject(topLevelRawResponse)) {
+            extractFromMetadata(topLevelRawResponse['usageMetadata'])
         }
 
-        // Check for Vercel AI SDK structure: { usage: {...}, providerMetadata: { google: {...} } }
+        // Vercel AI SDK V2 structure: { providerMetadata: { google: {...} } }
         const providerMetadata = (usage as Record<string, unknown>)['providerMetadata']
-        if (providerMetadata && typeof providerMetadata === 'object') {
-            const googleMetadata = (providerMetadata as Record<string, unknown>)['google']
-            if (googleMetadata && typeof googleMetadata === 'object') {
-                const googleTokenDetails =
-                    (googleMetadata as Record<string, unknown>)['candidatesTokensDetails'] ??
-                    (googleMetadata as Record<string, unknown>)['outputTokenDetails']
-
-                extractTokensFromDetails(googleTokenDetails)
-            }
+        if (isObject(providerMetadata)) {
+            extractFromMetadata(providerMetadata['google'])
         }
 
-        // Check for nested rawUsage structure: { rawUsage: { providerMetadata: { google: {...} } } }
-        // This happens when the SDK wraps the raw provider response
+        // Vercel AI SDK V3 / nested rawUsage variants:
+        //   { rawUsage: { providerMetadata: { google: {...} } } }
+        //   { rawUsage: { usage: { raw: {...} } } }
+        //   { rawUsage: { rawResponse: { usageMetadata: {...} } } }
         const rawUsage = (usage as Record<string, unknown>)['rawUsage']
-        if (rawUsage && typeof rawUsage === 'object') {
-            const rawProviderMetadata = (rawUsage as Record<string, unknown>)['providerMetadata']
-            if (rawProviderMetadata && typeof rawProviderMetadata === 'object') {
-                const rawGoogleMetadata = (rawProviderMetadata as Record<string, unknown>)['google']
-                if (rawGoogleMetadata && typeof rawGoogleMetadata === 'object') {
-                    const rawGoogleTokenDetails =
-                        (rawGoogleMetadata as Record<string, unknown>)['candidatesTokensDetails'] ??
-                        (rawGoogleMetadata as Record<string, unknown>)['outputTokenDetails']
-
-                    extractTokensFromDetails(rawGoogleTokenDetails)
-                }
+        if (isObject(rawUsage)) {
+            const rawProviderMetadata = rawUsage['providerMetadata']
+            if (isObject(rawProviderMetadata)) {
+                extractFromMetadata(rawProviderMetadata['google'])
             }
 
-            // Check for Vercel AI SDK V3 structure: { rawUsage: { usage: { raw: {...} } } }
-            // In Vercel AI SDK, Gemini's raw response is at usage.raw.candidatesTokensDetails
-            const rawUsageUsage = (rawUsage as Record<string, unknown>)['usage']
-            if (rawUsageUsage && typeof rawUsageUsage === 'object') {
-                const rawUsageRaw = (rawUsageUsage as Record<string, unknown>)['raw']
-                if (rawUsageRaw && typeof rawUsageRaw === 'object') {
-                    const vercelRawTokenDetails =
-                        (rawUsageRaw as Record<string, unknown>)['candidatesTokensDetails'] ??
-                        (rawUsageRaw as Record<string, unknown>)['outputTokenDetails']
-
-                    extractTokensFromDetails(vercelRawTokenDetails)
-                }
+            const rawUsageUsage = rawUsage['usage']
+            if (isObject(rawUsageUsage)) {
+                extractFromMetadata(rawUsageUsage['raw'])
             }
 
-            // Check for Vercel AI SDK with rawResponse: { rawUsage: { rawResponse: { usageMetadata: {...} } } }
-            // This is the path when using Vercel AI SDK with Google provider
-            const rawResponse = (rawUsage as Record<string, unknown>)['rawResponse']
-            if (rawResponse && typeof rawResponse === 'object') {
-                const usageMetadata = (rawResponse as Record<string, unknown>)['usageMetadata']
-                if (usageMetadata && typeof usageMetadata === 'object') {
-                    const rawResponseTokenDetails =
-                        (usageMetadata as Record<string, unknown>)['candidatesTokensDetails'] ??
-                        (usageMetadata as Record<string, unknown>)['outputTokenDetails']
-
-                    extractTokensFromDetails(rawResponseTokenDetails)
-                }
+            const rawResponse = rawUsage['rawResponse']
+            if (isObject(rawResponse)) {
+                extractFromMetadata(rawResponse['usageMetadata'])
             }
         }
 
-        // Track extraction outcomes for monitoring
-        if (extractedTokens) {
-            aiCostModalityExtractionCounter.labels({ status: 'extracted' }).inc()
+        // Emit one counter increment per source that found something. An event
+        // with both Gemini output and Gemini cache extraction increments twice
+        // (once with source=gemini_output, once with source=gemini_cache). Sort
+        // for deterministic ordering across runs — useful for tests and for
+        // anyone reasoning about the metric stream.
+        if (extractedSources.size === 0) {
+            aiCostModalityExtractionCounter.labels({ status: 'no_details', source: 'none' }).inc()
         } else {
-            aiCostModalityExtractionCounter.labels({ status: 'no_details' }).inc()
+            for (const source of [...extractedSources].sort()) {
+                aiCostModalityExtractionCounter.labels({ status: 'extracted', source }).inc()
+            }
         }
     } finally {
         // CRITICAL: Always delete $ai_usage to prevent it from being stored in ClickHouse

@@ -61,6 +61,43 @@ describe('migrate()', () => {
     const contentToExpected: [string, JSONContent[], JSONContent[]][] = [
         ['migrates node without changes', [{ type: 'paragraph' }], [{ type: 'paragraph' }]],
         [
+            'recovers a flattened markdown table from a literal paragraph',
+            [{ type: 'paragraph', content: [{ type: 'text', text: '| a | b | |---|---| | 1 | 2 |' }] }],
+            [
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a' }] }],
+                                },
+                                {
+                                    type: 'tableHeader',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'b' }] }],
+                                },
+                            ],
+                        },
+                        {
+                            type: 'tableRow',
+                            content: [
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: '1' }] }],
+                                },
+                                {
+                                    type: 'tableCell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: '2' }] }],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        ],
+        [
             'migrates query node with string content to object content',
             [
                 {

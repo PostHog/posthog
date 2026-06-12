@@ -39,11 +39,31 @@ const ALL_APPS = discoverApps()
 export default defineConfig({
     plugins: [react()],
     resolve: {
-        alias: {
-            products: resolve(__dirname, '../../products'),
-            '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
-            '@common': resolve(__dirname, '../../common'),
-        },
+        alias: [
+            { find: 'products', replacement: resolve(__dirname, '../../products') },
+            { find: '@posthog/mcp-ui', replacement: resolve(__dirname, 'src/ui-apps/lib') },
+            // Resolve Quill explicitly so files imported via the `products` alias
+            // (which live outside this package's node_modules tree) can find it.
+            // Match exact import (`@posthog/quill`) -> dist/index.js, but leave
+            // subpath imports (`@posthog/quill/tokens.css`, etc.) to fall through
+            // to the package's exports map.
+            {
+                find: /^@posthog\/quill$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
+            },
+            // quill-charts is consumed as source (its package main is src/index.ts); resolve it
+            // explicitly so files reached via the `products` alias — and the local chart wrappers —
+            // can find it without a node_modules symlink.
+            {
+                find: /^@posthog\/quill-charts$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/charts/src/index.ts'),
+            },
+            // lucide-react isn't a workspace dep at the products/ level, so files
+            // resolved via the `products` alias can't find it. Pin to this
+            // package's installed copy (matches the version Quill expects).
+            { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            { find: '@common', replacement: resolve(__dirname, '../../common') },
+        ],
     },
     define: {
         // Inject PostHog configuration at build time

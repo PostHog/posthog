@@ -17,6 +17,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
@@ -38,7 +39,7 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, creatingAlert } = useValues(logsAlertingLogic)
     const {
         setEditingAlert,
         deleteAlert,
@@ -47,6 +48,7 @@ export function LogsAlertList(): JSX.Element {
         setViewingHistoryAlert,
         snoozeAlert,
         unsnoozeAlert,
+        createAlertAndOpen,
     } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
@@ -66,6 +68,7 @@ export function LogsAlertList(): JSX.Element {
                 <LogsAlertStateIndicator
                     state={alert.state}
                     enabled={alert.enabled ?? true}
+                    firstEnabledAt={alert.first_enabled_at}
                     lastErrorMessage={alert.last_error_message}
                     snoozeUntil={alert.snooze_until}
                 />
@@ -83,6 +86,20 @@ export function LogsAlertList(): JSX.Element {
                     <TZLabel time={alert.last_checked_at} />
                 ) : (
                     <span className="text-muted text-xs">Never</span>
+                ),
+        },
+        {
+            title: (
+                <Tooltip title="When this alert is next scheduled to be evaluated. Alerts of the same cadence are spread across the cadence period to smooth load on the database.">
+                    <span className="cursor-help">Next check</span>
+                </Tooltip>
+            ),
+            dataIndex: 'next_check_at',
+            render: (_, alert) =>
+                alert.next_check_at ? (
+                    <TZLabel time={alert.next_check_at} />
+                ) : (
+                    <span className="text-muted text-xs">Pending</span>
                 ),
         },
         {
@@ -135,6 +152,12 @@ export function LogsAlertList(): JSX.Element {
                                     Webhook
                                 </LemonTag>
                             )}
+                            {types.includes(NotificationDestinationTypeEnumApi.Teams) && (
+                                <LemonTag>
+                                    <img src={IconMicrosoftTeams} alt="" className="h-3 w-3 object-contain" />
+                                    Teams
+                                </LemonTag>
+                            )}
                         </div>
                         <LemonButton
                             size="small"
@@ -168,6 +191,7 @@ export function LogsAlertList(): JSX.Element {
                             ? 'Reset this alert to re-enable checks'
                             : undefined
                     }
+                    data-attr="logs-alert-row-toggle"
                 />
             ),
         },
@@ -210,6 +234,7 @@ export function LogsAlertList(): JSX.Element {
                                       ]
                                     : []),
                                 {
+                                    'data-attr': 'logs-alert-row-delete',
                                     label: 'Delete',
                                     status: 'danger',
                                     onClick: () => {
@@ -222,6 +247,7 @@ export function LogsAlertList(): JSX.Element {
                                                 type: 'primary',
                                                 status: 'danger',
                                                 onClick: () => deleteAlert(alert.id),
+                                                'data-attr': 'logs-alert-delete-confirm',
                                             },
                                             secondaryButton: {
                                                 children: 'Cancel',
@@ -244,7 +270,13 @@ export function LogsAlertList(): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex justify-end">
-                <LemonButton type="primary" size="small" to={urls.logsAlertNew()}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => createAlertAndOpen()}
+                    loading={creatingAlert}
+                    data-attr="logs-alerts-new"
+                >
                     New alert
                 </LemonButton>
             </div>
@@ -255,6 +287,8 @@ export function LogsAlertList(): JSX.Element {
                 loading={alertsLoading}
                 emptyState="No alerts configured yet."
                 size="small"
+                pagination={{ pageSize: 30 }}
+                nouns={['alert', 'alerts']}
             />
         </div>
     )

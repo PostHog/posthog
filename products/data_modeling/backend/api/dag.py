@@ -1,11 +1,12 @@
 from django.db.models import Count
 
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.models import DAG
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
@@ -54,6 +55,11 @@ class DAGSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid sync frequency: {value}")
         return value
 
+    def validate_name(self, value: str) -> str:
+        if self.instance is not None and self.instance.is_default and value != self.instance.name:
+            raise serializers.ValidationError("The default DAG cannot be renamed.")
+        return value
+
     def create(self, validated_data: dict) -> DAG:
         validated_data["team_id"] = self.context["team_id"]
         sync_frequency = validated_data.pop("sync_frequency", None)
@@ -72,7 +78,12 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DAG.objects.all()
     serializer_class = DAGSerializer
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id).annotate(node_count=Count("node")).order_by("name")
+
+    def perform_destroy(self, instance: DAG) -> None:
+        if instance.is_default:
+            raise ValidationError("The default DAG cannot be deleted.")
+        instance.delete()

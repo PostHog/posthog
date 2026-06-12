@@ -5,7 +5,8 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.api.site_app import get_site_config_from_schema
-from posthog.models import Plugin, PluginConfig, PluginSourceFile
+
+from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 
 
 class TestSiteApp(BaseTest):

@@ -16,6 +16,8 @@ import {
     ExternalDataSchemasResyncCreateBody,
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
+    ExternalDataSourcesConnectLinkRetrieveQueryParams,
+    ExternalDataSourcesConnectionsListQueryParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
     ExternalDataSourcesCreateWebhookCreateParams,
@@ -30,6 +32,8 @@ import {
     ExternalDataSourcesReloadCreateBody,
     ExternalDataSourcesReloadCreateParams,
     ExternalDataSourcesRetrieveParams,
+    ExternalDataSourcesSetupCreateBody,
+    ExternalDataSourcesStoredCredentialsListQueryParams,
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
@@ -74,6 +78,82 @@ const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
     },
 })
 
+const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const dataWarehouseSourceConnectLink = (): ToolBase<
+    typeof DataWarehouseSourceConnectLinkSchema,
+    Schemas.SourceConnectLink
+> => ({
+    name: 'data-warehouse-source-connect-link',
+    schema: DataWarehouseSourceConnectLinkSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceConnectLinkSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceConnectLink>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connect_link/`,
+            query: {
+                source_type: params.source_type,
+            },
+        })
+        return result
+    },
+})
+
+const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSchema, Schemas.SourceSetupResponse> => ({
+    name: 'data-warehouse-source-setup',
+    schema: DataWarehouseSourceSetupSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.SourceSetupResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataWarehouseStoredCredentialsListSchema = ExternalDataSourcesStoredCredentialsListQueryParams
+
+const dataWarehouseStoredCredentialsList = (): ToolBase<
+    typeof DataWarehouseStoredCredentialsListSchema,
+    WithPostHogUrl<Schemas.SourceCredential[]>
+> => ({
+    name: 'data-warehouse-stored-credentials-list',
+    schema: DataWarehouseStoredCredentialsListSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseStoredCredentialsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceCredential[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/stored_credentials/`,
+            query: {
+                search: params.search,
+                source_type: params.source_type,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
+    },
+})
+
 const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true }).extend(
     ExternalDataSchemasCancelCreateBody.shape
 )
@@ -107,6 +187,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -168,6 +251,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -238,6 +324,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
@@ -281,6 +370,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -323,6 +415,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -376,6 +471,29 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     },
 })
 
+const ExternalDataSourcesConnectionsListSchema = ExternalDataSourcesConnectionsListQueryParams
+
+const externalDataSourcesConnectionsList = (): ToolBase<
+    typeof ExternalDataSourcesConnectionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExternalDataSourceConnectionOptionList>
+> => ({
+    name: 'external-data-sources-connections-list',
+    schema: ExternalDataSourcesConnectionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExternalDataSourceConnectionOptionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connections/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
+    },
+})
+
 const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
     source_type: ExternalDataSourceTypeSchema,
     payload: ExternalDataSourcePayloadSchema,
@@ -405,6 +523,7 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.access_method !== undefined) {
             body['access_method'] = params.access_method
         }
+        body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
@@ -427,6 +546,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateWebhookCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -464,6 +586,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDeleteWebhookCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -539,6 +664,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -572,9 +700,14 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
     schema: ExternalDataSourcesRefreshSchemasSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRefreshSchemasSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
+            body,
         })
         return result
     },
@@ -589,9 +722,14 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     schema: ExternalDataSourcesReloadSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesReloadSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/reload/`,
+            body,
         })
         return result
     },
@@ -628,6 +766,9 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -774,9 +915,6 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
 const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
     name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
         'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-    ),
-    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
-        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
     ),
 })
 
@@ -1028,9 +1166,6 @@ const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project
         name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
             'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
         ),
-        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
-            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-        ),
         edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
             'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
         ),
@@ -1071,6 +1206,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
+    'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
+    'data-warehouse-source-setup': dataWarehouseSourceSetup,
+    'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
@@ -1080,6 +1218,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
+    'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,

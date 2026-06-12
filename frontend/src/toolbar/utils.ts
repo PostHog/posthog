@@ -15,6 +15,10 @@ import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 
+// Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
+// load-bearing at runtime — verify before storing strings that flow into auth headers.
+export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
@@ -66,12 +70,26 @@ export function cleanToolbarAuthHash(): void {
         return
     }
 
-    const cleanHash = hash
-        .replace(/__posthog_toolbar=[^&]*/g, '')
+    // When the toolbar param was the first hash-query on a SPA route
+    // (e.g. `#/login?__posthog_toolbar=X&foo=bar`), removing it leaves
+    // `#/login&foo=bar` where the `&` should be `?`. Detect that case so we
+    // can restore the `?` after stripping. Only fires when the original hash
+    // contained `?__posthog_toolbar=` literally — fragments that join the
+    // toolbar param with `&` (e.g. `#/dashboard&tab=1&__posthog_toolbar=X`)
+    // are left untouched because that `&` was the customer's separator.
+    const toolbarWasFirstHashQuery = hash.includes('?__posthog_toolbar=')
+
+    let cleanHash = hash
+        .replace(/[?&]?__posthog_toolbar=[^&]*/g, '')
         .replace(/&&+/g, '&')
-        .replace(/&$/, '')
+        .replace(/[?&]$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
+
+    if (toolbarWasFirstHashQuery) {
+        cleanHash = cleanHash.replace(/(^#\/[^?]*)&/, '$1?')
+    }
+
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 

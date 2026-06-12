@@ -1,0 +1,850 @@
+from datetime import UTC, datetime, timedelta
+
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    FuzzyInt,
+    QueryMatchingTest,
+    snapshot_postgres_queries_context,
+)
+from unittest.mock import ANY, patch
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models import Tag, User
+
+from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
+from products.product_analytics.backend.models.insight import Insight
+
+
+class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @patch("products.actions.backend.api.action.report_user_action")
+    def test_create_action(self, patch_capture, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                    }
+                ],
+                "description": "Test description",
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json() == {
+            "id": ANY,
+            "name": "user signed up",
+            "description": "Test description",
+            "post_to_slack": False,
+            "slack_message_format": "",
+            "steps": [
+                {
+                    "event": None,
+                    "properties": None,
+                    "selector": "div > button",
+                    "selector_regex": ANY,
+                    "tag_name": None,
+                    "text": "sign up",
+                    "text_matching": None,
+                    "href": None,
+                    "href_matching": None,
+                    "url": "/signup",
+                    "url_matching": "contains",
+                }
+            ],
+            "created_at": ANY,
+            "created_by": ANY,
+            "pinned_at": None,
+            "deleted": False,
+            "creation_context": None,
+            "is_calculating": False,
+            "last_calculated_at": ANY,
+            "team_id": self.team.id,
+            "is_action": True,
+            "bytecode_error": None,
+            "tags": [],
+            "user_access_level": "manager",
+        }
+
+        # Assert analytics are sent
+        patch_capture.assert_called_once_with(
+            ANY,
+            "action created",
+            {
+                "post_to_slack": False,
+                "name_length": 14,
+                "custom_slack_message_format": False,
+                "event_count_precalc": 0,
+                "step_count": 1,
+                "match_text_count": 1,
+                "match_href_count": 0,
+                "match_selector_count": 1,
+                "match_url_count": 1,
+                "has_properties": False,
+                "deleted": False,
+                "pinned": False,
+                "pinned_at": None,
+                "creation_context": None,
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    def test_create_action_generates_bytecode(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                    }
+                ],
+                "description": "Test description",
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        action = Action.objects.get(pk=response.json()["id"])
+        assert action.bytecode == ["_H", 1, 32, "%/signup%", 32, "$current_url", 32, "properties", 1, 2, 17]
+
+    def test_cant_create_action_with_the_same_name(self, *args):
+        original_action = Action.objects.create(name="user signed up", team=self.team)
+        user2 = self._create_user("tim2")
+        self.client.force_login(user2)
+
+        count = Action.objects.count()
+
+        # Make sure the endpoint works with and without the trailing slash
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "user signed up"},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "unique",
+                "detail": f"This project already has an action with this name, ID {original_action.id}",
+                "attr": "name",
+            },
+        )
+
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_empty_name(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": ""},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "blank",
+                "detail": "This field may not be blank.",
+                "attr": "name",
+            },
+        )
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_whitespace_only_name(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "   "},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "blank",
+                "detail": "This field may not be blank.",
+                "attr": "name",
+            },
+        )
+        self.assertEqual(Action.objects.count(), count)
+
+    @freeze_time("2021-12-12")
+    @patch("products.actions.backend.api.action.report_user_action")
+    def test_update_action(self, patch_capture, *args):
+        user = self._create_user("test_user_update")
+        self.client.force_login(user)
+
+        action = Action.objects.create(
+            name="user signed up", team=self.team, steps_json=[{"event": "$autocapture", "text": "sign me up!"}]
+        )
+        action.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.pk}/",
+            data={
+                "name": "user signed up 2",
+                "steps": [
+                    {
+                        "event": "$autocapture",
+                        "text": "sign up NOW",
+                        "selector": "div > button",
+                        "properties": [{"key": "$browser", "value": "Chrome"}],
+                        "url": None,
+                    },
+                    {"event": "$pageview", "href": "/a-new-link"},
+                ],
+                "description": "updated description",
+                "created_by": {
+                    "id": 1,
+                    "distinct_id": "BLKJzxHq4z2d8P1icfpg5wo4eIHaSrMtnotkwdtD8Ok",
+                    "first_name": "person",
+                    "email": "person@email.com",
+                },
+                "pinned_at": "2021-12-11T00:00:00Z",
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "user signed up 2"
+        assert response.json()["description"] == "updated description"
+        assert not response.json()["created_by"]
+        assert response.json()["steps"] == [
+            {
+                "event": "$autocapture",
+                "properties": [{"key": "$browser", "value": "Chrome"}],
+                "selector": "div > button",
+                "selector_regex": ANY,
+                "tag_name": None,
+                "text": "sign up NOW",
+                "text_matching": None,
+                "href": None,
+                "href_matching": None,
+                "url": None,
+                "url_matching": "contains",
+            },
+            {
+                "event": "$pageview",
+                "properties": None,
+                "selector": None,
+                "selector_regex": None,
+                "tag_name": None,
+                "text": None,
+                "text_matching": None,
+                "href": "/a-new-link",
+                "href_matching": None,
+                "url": None,
+                "url_matching": "contains",
+            },
+        ]
+
+        action.refresh_from_db()
+        assert action.name == "user signed up 2"
+
+        # Assert analytics are sent
+        patch_capture.assert_called_with(
+            user,
+            "action updated",
+            {
+                "post_to_slack": False,
+                "name_length": 16,
+                "custom_slack_message_format": False,
+                "event_count_precalc": 0,
+                "step_count": 2,
+                "match_text_count": 1,
+                "match_href_count": 1,
+                "match_selector_count": 1,
+                "match_url_count": 0,
+                "has_properties": True,
+                "updated_by_creator": False,
+                "deleted": False,
+                "pinned": True,
+                "pinned_at": "2021-12-12T00:00:00+00:00",
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+        # test queries
+        with self.assertNumQueries(FuzzyInt(9, 11)):
+            # Django session,  user,  team,  org membership, instance setting,  org,
+            # count, action
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+    def test_update_action_remove_all_steps(self, *args):
+        action = Action.objects.create(name="user signed up", team=self.team, steps_json=[{"text": "sign me up!"}])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.pk}/",
+            data={"name": "user signed up 2", "steps": []},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["steps"]), 0)
+
+    # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
+    def test_http_to_https(self, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "user signed up again"},
+            headers={"origin": "https://testserver/"},
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+
+    @patch("posthoganalytics.capture")
+    def test_create_action_event_with_space(self, patch_capture, *args):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "test event", "steps": [{"event": "test_event "}]},
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        action = Action.objects.get(pk=response.json()["id"])
+        assert action.steps[0].event == "test_event "
+
+    @freeze_time("2021-12-12")
+    def test_listing_actions_is_not_nplus1(self) -> None:
+        # Pre-query to cache things like instance settings
+        self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+        # No actions yet, so no tags prefetch query
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+        Action.objects.create(
+            team=self.team,
+            name="first",
+            created_by=User.objects.create_and_join(self.organization, "a", ""),
+        )
+
+        # With actions, there's an extra tags prefetch query
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+        Action.objects.create(
+            team=self.team,
+            name="second",
+            created_by=User.objects.create_and_join(self.organization, "b", ""),
+        )
+
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+    @parameterized.expand(
+        [
+            # No params returns every action (the unchanged default the actions page relies on).
+            ("no_params", "", ["alpha", "beta", "gamma", "delta"]),
+            ("limit", "?limit=2", ["alpha", "beta"]),
+            # offset pages past earlier results without overlapping the first page.
+            ("limit_and_offset", "?limit=2&offset=2", ["gamma", "delta"]),
+            # search filters by case-insensitive name substring.
+            ("search", "?search=ALph", ["alpha"]),
+        ]
+    )
+    def test_listing_actions_supports_limit_offset_and_search(
+        self, _name: str, params: str, expected_names: list[str]
+    ) -> None:
+        # Results are ordered by -last_calculated_at, so pin it (descending with creation
+        # order) to make the display order match the alphabetical names deterministically.
+        base = datetime(2021, 1, 1, tzinfo=UTC)
+        for index, name in enumerate(["alpha", "beta", "gamma", "delta"]):
+            Action.objects.create(team=self.team, name=name, last_calculated_at=base - timedelta(minutes=index))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{params}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([action["name"] for action in response.json()["results"]], expected_names)
+
+    def test_get_tags_returns_list(self):
+        action = Action.objects.create(team=self.team, name="bla")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], ["random"])
+        self.assertEqual(Action.objects.all().count(), 1)
+
+    def test_create_action_with_tags(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "Default", "tags": ["random", "hello"]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
+        self.assertEqual(Tag.objects.all().count(), 2)
+
+    def test_update_action_tags(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {
+                "name": "action new name",
+                "tags": ["random", "hello"],
+                "description": "Internal system metrics.",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
+
+    def test_undefined_tags_allows_other_props_to_update(self):
+        action = Action.objects.create(team_id=self.team.id, name="private action")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "description": "Internal system metrics."},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "action new name")
+        self.assertEqual(response.json()["description"], "Internal system metrics.")
+
+    def test_empty_tags_clears_all_tags(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        self.assertEqual(Action.objects.all().count(), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {
+                "name": "action new name",
+                "description": "Internal system metrics.",
+                "tags": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 0)
+
+    def test_hard_deletion_is_forbidden(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                        "isNew": "asdf",
+                    }
+                ],
+                "description": "Test description",
+            },
+            headers={"origin": "http://testserver"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
+        self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_create_action_in_specific_folder(self):
+        """
+        Verify that creating an Action with '_create_in_folder' stores its FileSystem entry
+        under the specified folder.
+        """
+        # 1. Create an Action, passing `_create_in_folder`
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up in folder",
+                "_create_in_folder": "Special Folder/Actions",
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        action_id = response.json()["id"]
+        assert action_id is not None
+
+        # 2. Verify the FileSystem entry
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Action."
+        assert "Special Folder/Actions" in fs_entry.path, (
+            f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."
+        )
+
+    def test_references_returns_insight_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        insight = Insight.objects.create(
+            team=self.team,
+            name="My insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "My insight"
+        assert data[0]["id"] == str(insight.short_id)
+        assert data[0]["url"] == f"/insights/{insight.short_id}"
+
+    def test_references_returns_insight_with_legacy_filters(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Legacy insight",
+            filters={"actions": [{"id": action.id, "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "insight"
+        assert data[0]["name"] == "Legacy insight"
+
+    def test_references_returns_experiment_using_action(self):
+        from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.user)
+        exp = Experiment.objects.create(
+            team=self.team,
+            name="My experiment",
+            created_by=self.user,
+            feature_flag=flag,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "experiment"
+        assert data[0]["name"] == "My experiment"
+        assert data[0]["url"] == f"/experiments/{exp.id}"
+
+    def test_references_returns_cohort_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="My cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "cohort"
+        assert data[0]["name"] == "My cohort"
+        assert data[0]["url"] == f"/cohorts/{cohort.id}"
+
+    def test_references_returns_hog_function_using_action(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        hf = HogFunction.objects.create(
+            team=self.team,
+            name="My destination",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "hog_function"
+        assert data[0]["name"] == "My destination"
+        assert data[0]["url"] == f"/functions/{hf.id}"
+
+    def test_references_returns_empty_list_when_no_references(self):
+        action = Action.objects.create(team=self.team, name="orphan action", steps_json=[{"event": "$pageview"}])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_insights(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Deleted insight",
+            deleted=True,
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_experiments(self):
+        from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        flag = FeatureFlag.objects.create(team=self.team, key="deleted-exp-flag", created_by=self.user)
+        Experiment.objects.create(
+            team=self.team,
+            name="Deleted experiment",
+            created_by=self.user,
+            feature_flag=flag,
+            deleted=True,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_cohorts(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        Cohort.objects.create(
+            team=self.team,
+            name="Deleted cohort",
+            deleted=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_does_not_return_deleted_hog_functions(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        HogFunction.objects.create(
+            team=self.team,
+            name="Deleted destination",
+            deleted=True,
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_references_matches_action_id_stored_as_string(self):
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        hf = HogFunction.objects.create(
+            team=self.team,
+            name="String ID destination",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["type"] == "hog_function"
+        assert data[0]["id"] == str(hf.id)
+
+    def test_references_does_not_return_other_team_resources(self):
+        from posthog.models import Team
+
+        action = Action.objects.create(team=self.team, name="test action", steps_json=[{"event": "$pageview"}])
+        other_team = Team.objects.create(organization=self.organization)
+        Insight.objects.create(
+            team=other_team,
+            name="Other team insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/references/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_include_reference_count_param_adds_count_to_list(self):
+        action = Action.objects.create(team=self.team, name="action with refs", steps_json=[{"event": "$pageview"}])
+        Insight.objects.create(
+            team=self.team,
+            name="Referencing insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        action_result = next(r for r in results if r["id"] == action.id)
+        assert action_result["reference_count"] == 1
+
+    def test_list_without_include_reference_count_omits_count(self):
+        Action.objects.create(team=self.team, name="some action", steps_json=[{"event": "$pageview"}])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) > 0
+        for result in results:
+            assert "reference_count" not in result
+
+    def test_include_reference_count_returns_correct_counts_for_multiple_actions(self):
+        action_with_refs = Action.objects.create(
+            team=self.team, name="action with refs", steps_json=[{"event": "$pageview"}]
+        )
+        action_without_refs = Action.objects.create(
+            team=self.team, name="action without refs", steps_json=[{"event": "$pageleave"}]
+        )
+        Insight.objects.create(
+            team=self.team,
+            name="Referencing insight",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action_with_refs.id}],
+                },
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        counts = {r["id"]: r["reference_count"] for r in results}
+        assert counts[action_with_refs.id] == 1
+        assert counts[action_without_refs.id] == 0
+
+    def test_include_reference_count_counts_across_all_resource_types(self):
+        from products.experiments.backend.models.experiment import Experiment
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        action = Action.objects.create(team=self.team, name="widely used action", steps_json=[{"event": "$pageview"}])
+
+        Insight.objects.create(
+            team=self.team,
+            name="Insight ref",
+            query={
+                "kind": "DataTableNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "ActionsNode", "id": action.id}],
+                },
+            },
+        )
+
+        flag = FeatureFlag.objects.create(team=self.team, key="bulk-count-flag", created_by=self.user)
+        Experiment.objects.create(
+            team=self.team,
+            name="Experiment ref",
+            created_by=self.user,
+            feature_flag=flag,
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": action.id}],
+                    },
+                }
+            ],
+        )
+
+        Cohort.objects.create(
+            team=self.team,
+            name="Cohort ref",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "event_type": "actions",
+                                    "key": action.id,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        HogFunction.objects.create(
+            team=self.team,
+            name="Hog function ref",
+            filters={"actions": [{"id": str(action.id), "type": "actions"}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?include_reference_count=1")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        action_result = next(r for r in results if r["id"] == action.id)
+        assert action_result["reference_count"] == 4

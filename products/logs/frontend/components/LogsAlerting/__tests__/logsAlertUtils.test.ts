@@ -1,6 +1,30 @@
-import { HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { buildLogsAlertFilterConfig, groupLogsAlertDestinations } from '../logsAlertUtils'
+import { LogsAlertConfigurationApi, ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+
+import { LogsAlertFormType } from '../logsAlertFormLogic'
+import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
+
+const baseAlert = (overrides: Partial<LogsAlertConfigurationApi> = {}): LogsAlertConfigurationApi =>
+    ({
+        id: 'a',
+        destination_types: ['slack'],
+        ...overrides,
+    }) as LogsAlertConfigurationApi
+
+const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType => ({
+    name: 'A',
+    severityLevels: ['error'],
+    serviceNames: [],
+    filterGroup: { type: FilterLogicalOperator.And, values: [] },
+    thresholdOperator: ThresholdOperatorEnumApi.Above,
+    thresholdCount: 1,
+    windowMinutes: 5,
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    cooldownMinutes: 0,
+    ...overrides,
+})
 
 describe('logsAlertUtils', () => {
     describe('buildLogsAlertFilterConfig', () => {
@@ -39,6 +63,16 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
+        // The Microsoft Teams template stores its URL under `webhookUrl`, not `url`.
+        const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
+            ({
+                id,
+                name: `teams-${id}`,
+                enabled,
+                inputs: { webhookUrl: { value: url } },
+                filters: {},
+            }) as unknown as HogFunctionType
+
         const resolveSlack = (channelValue: string): string | null => `channel-for-${channelValue}`
 
         it('collapses multiple HogFunctions for the same slack channel into one group', () => {
@@ -68,6 +102,22 @@ describe('logsAlertUtils', () => {
                 key: 'webhook:https://example.com/hook',
                 type: 'webhook',
                 label: 'Webhook https://example.com/hook',
+            })
+            expect(groups[0].hogFunctions).toHaveLength(2)
+        })
+
+        it('collapses multiple HogFunctions for the same teams url into one group', () => {
+            const teamsUrl = 'https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke'
+            const a = teamsHf('hf-1', teamsUrl)
+            const b = teamsHf('hf-2', teamsUrl)
+
+            const groups = groupLogsAlertDestinations([a, b], resolveSlack)
+
+            expect(groups).toHaveLength(1)
+            expect(groups[0]).toMatchObject({
+                key: `teams:${teamsUrl}`,
+                type: 'teams',
+                label: `Microsoft Teams ${teamsUrl}`,
             })
             expect(groups[0].hogFunctions).toHaveLength(2)
         })
@@ -123,6 +173,41 @@ describe('logsAlertUtils', () => {
             expect(groups).toHaveLength(1)
             expect(groups[0].key).toBe('unknown:hf-x')
             expect(groups[0].label).toBe('Weird destination')
+        })
+    })
+
+    describe('runPreEnableChecks', () => {
+        it('returns ok when filters and destinations are present', () => {
+            expect(runPreEnableChecks(baseAlert(), baseForm())).toEqual({ ok: true })
+        })
+
+        it('blocks when no filters', () => {
+            const result = runPreEnableChecks(
+                baseAlert(),
+                baseForm({
+                    severityLevels: [],
+                    serviceNames: [],
+                    filterGroup: { type: FilterLogicalOperator.And, values: [] },
+                })
+            )
+            expect(result).toEqual({ blocked: true, reason: 'Add at least one filter to enable' })
+        })
+
+        it('warns when no destinations', () => {
+            const result = runPreEnableChecks(baseAlert({ destination_types: [] }), baseForm())
+            expect(result).toMatchObject({ warning: { title: 'No notifications configured' } })
+        })
+
+        it('blocks before warning when both apply', () => {
+            const result = runPreEnableChecks(
+                baseAlert({ destination_types: [] }),
+                baseForm({
+                    severityLevels: [],
+                    serviceNames: [],
+                    filterGroup: { type: FilterLogicalOperator.And, values: [] },
+                })
+            )
+            expect(result).toEqual({ blocked: true, reason: 'Add at least one filter to enable' })
         })
     })
 })

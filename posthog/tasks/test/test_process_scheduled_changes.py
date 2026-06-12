@@ -7,10 +7,13 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 
 from parameterized import parameterized
 
-from posthog.models import FeatureFlag, Organization, ScheduledChange
+from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 
 class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):

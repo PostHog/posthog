@@ -51,6 +51,16 @@ const STATUS_CODE_OPTIONS: { key: number; label: string }[] = [
     { key: 2, label: 'Error' },
 ]
 
+// OTel severity level (https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber).
+const SEVERITY_LEVEL_OPTIONS: { key: string; label: string }[] = [
+    { key: 'trace', label: 'trace' },
+    { key: 'debug', label: 'debug' },
+    { key: 'info', label: 'info' },
+    { key: 'warn', label: 'warn' },
+    { key: 'error', label: 'error' },
+    { key: 'fatal', label: 'fatal' },
+]
+
 function SpanEnumValueSelect({
     options,
     value,
@@ -58,7 +68,7 @@ function SpanEnumValueSelect({
     isMultiSelect,
     size,
 }: {
-    options: { key: number; label: string }[]
+    options: { key: string | number; label: string }[]
     value?: PropertyFilterValue
     onChange: (value: PropertyFilterValue) => void
     isMultiSelect: boolean
@@ -112,10 +122,17 @@ export interface OperatorValueSelectProps {
     size?: 'xsmall' | 'small' | 'medium'
     startVisible?: LemonDropdownProps['startVisible']
     /**
-     * in some contexts you want to externally limit the available operators
-     * this won't add an operator if it isn't valid
-     * i.e. it limits the options shown from the options that would have been shown
-     * **/
+     * Narrows the *operator dropdown options* shown for the active filter.
+     * Flat list — applies to whichever filter type is currently active in this
+     * `OperatorValueSelect`. Won't add operators that wouldn't otherwise be valid.
+     *
+     * Different concern from `excludedOperators` on the picker / `PropertyFilters`:
+     * - `operatorAllowlist` (here) governs which entries appear inside the operator
+     *   dropdown next to a filter value.
+     * - `excludedOperators` governs which *recent property filters* surface in the
+     *   picker's Recent tab (and whether the operator dropdown is shown at all),
+     *   keyed per source group type.
+     */
     operatorAllowlist?: Array<PropertyOperator>
     /**
      * Force single-select mode regardless of operator type
@@ -249,8 +266,21 @@ export function OperatorValueSelect({
             )
         }
 
-        // Restrict trace_id and span_id to only equals/not equals
-        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Span) {
+        // Restrict trace_id, span_id, kind, and status_code to only equals/not equals
+        if (
+            propertyKey &&
+            ['trace_id', 'span_id', 'kind', 'status_code'].includes(propertyKey) &&
+            type === PropertyFilterType.Span
+        ) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
+        // Restrict log trace_id, span_id and severity_level to only equals/not equals
+        if (
+            propertyKey &&
+            ['trace_id', 'span_id', 'severity_level'].includes(propertyKey) &&
+            type === PropertyFilterType.Log
+        ) {
             operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
@@ -280,11 +310,6 @@ export function OperatorValueSelect({
                     PropertyOperator.NotRegex,
                 ].includes(op)
             )
-        }
-
-        // Restrict span kind and status_code (fixed int enums) to equality operators
-        if ((propertyKey === 'kind' || propertyKey === 'status_code') && type === PropertyFilterType.Span) {
-            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
         setOperators(operators)
@@ -355,10 +380,17 @@ export function OperatorValueSelect({
                     className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
-                    {type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code') ? (
+                    {(type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code')) ||
+                    (type === PropertyFilterType.Log && propertyKey === 'severity_level') ? (
                         editable ? (
                             <SpanEnumValueSelect
-                                options={propertyKey === 'kind' ? SPAN_KIND_OPTIONS : STATUS_CODE_OPTIONS}
+                                options={
+                                    propertyKey === 'kind'
+                                        ? SPAN_KIND_OPTIONS
+                                        : propertyKey === 'status_code'
+                                          ? STATUS_CODE_OPTIONS
+                                          : SEVERITY_LEVEL_OPTIONS
+                                }
                                 value={value}
                                 isMultiSelect={
                                     forceSingleSelect

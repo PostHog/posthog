@@ -12,6 +12,31 @@ type LowercaseEnum<T> = {
  * refactoring scenes though. */
 export type Identifier = LowercaseEnum<typeof Scene>
 
+const IDENTIFIER_URL_FALLBACKS: Record<string, string> = {
+    projecthomepage: urls.projectHomepage(),
+    activity: urls.activity(),
+    datamanagement: urls.eventDefinitions(),
+    'event-definitions': urls.eventDefinitions(),
+    annotations: urls.annotations(),
+    toolbar: urls.toolbarLaunch(),
+    'sql-editor': urls.sqlEditor(),
+    settings: urls.settings(),
+    surveys: '/surveys',
+    cohorts: '/cohorts',
+    dashboards: '/dashboard',
+    people: '/persons',
+    persons: '/persons',
+    action: '/data-management/actions',
+    'product-analytics': '/insights',
+    insight: '/insights/new',
+    insights: '/insights',
+}
+
+function teamIdFromPath(pathname: string): number | null {
+    const match = pathname.match(/^\/project\/(\d+)(?:\/|$)/)
+    return match ? Number(match[1]) : null
+}
+
 export class Navigation {
     readonly page: Page
 
@@ -24,13 +49,26 @@ export class Navigation {
     }
 
     async openMenuItem(name: string): Promise<void> {
-        // Use navbar-specific selector for items that have duplicates in LemonTree
-        const navbarSelector = this.page.getByTestId(`navbar-${name}`)
-        const menuSelector = this.page.getByTestId(`menu-item-${name}`)
-
-        // Prefer navbar selector if it exists, fall back to menu-item
-        const element = (await navbarSelector.count()) > 0 ? navbarSelector : menuSelector
-        await element.click()
+        // The legacy PanelLayoutNavBar exposed every scene as `menu-item-<name>` /
+        // `navbar-<name>`. The AI-first navbar only renders a few `nav-item-*` test-ids
+        // (and only when the parent collapsible section is expanded), so for known scenes
+        // we navigate by URL — that's the most reliable cross-layout behavior.
+        if (IDENTIFIER_URL_FALLBACKS[name]) {
+            // Caddy proxies the literal paths `/surveys`, `/surveys/`, `/api/surveys`
+            // to the SDK's hypercache-server, and going through `/project/<teamId>/...`
+            // avoids that matcher and lets the app load normally.
+            await this.page.waitForURL(/\/project\/\d+(?:\/|$)/, { timeout: 10_000 }).catch(() => {})
+            const teamId = teamIdFromPath(new URL(this.page.url()).pathname)
+            const path = IDENTIFIER_URL_FALLBACKS[name]
+            const target = teamId !== null ? `/project/${teamId}${path}` : path
+            await this.page.goto(target)
+        } else {
+            // Fall back to legacy selectors for scenes we haven't mapped yet.
+            const navbarSelector = this.page.getByTestId(`navbar-${name}`)
+            const menuSelector = this.page.getByTestId(`menu-item-${name}`)
+            const element = (await navbarSelector.count()) > 0 ? navbarSelector : menuSelector
+            await element.click()
+        }
         // Wait for navigation to complete and page to be ready
         await this.page.waitForLoadState('domcontentloaded')
         // Additional wait with timeout for network to settle (catches lazy-loaded components)

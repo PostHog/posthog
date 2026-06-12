@@ -1,4 +1,5 @@
 import sys
+import math
 import uuid
 import socket
 import typing
@@ -42,6 +43,7 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportModel,
     BatchExportSchema,
+    afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -70,8 +72,19 @@ from products.batch_exports.backend.temporal.utils import set_status_to_running_
 LOGGER = get_write_only_logger()
 
 
-def _is_local_or_test() -> bool:
+class DataIntervalEndInFutureError(Exception):
+    """Raised when a batch export's 'data_interval_end' is after now."""
+
+    def __init__(self, data_interval_end: dt.datetime) -> None:
+        super().__init__(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
+
+
+def _is_local_dev_or_test() -> bool:
     return settings.DEBUG or settings.TEST
+
+
+def _uses_object_storage_endpoint() -> bool:
+    return _is_local_dev_or_test() or not settings.CLOUD_DEPLOYMENT
 
 
 def _get_s3_endpoint_url() -> str:
@@ -80,7 +93,7 @@ def _get_s3_endpoint_url() -> str:
     When running the stack locally, MinIO runs in Docker but the Temporal workers run outside, so we need to pass in
     localhost URL rather than the hostname of the container.
     """
-    if _is_local_or_test():
+    if _is_local_dev_or_test():
         return "http://localhost:19000"
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
@@ -91,7 +104,7 @@ def _get_s3_credentials() -> tuple[str | None, str | None]:
     If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
     Otherwise, we use the credentials from the object storage settings.
     """
-    use_keyless_s3_auth = not _is_local_or_test()
+    use_keyless_s3_auth = not _uses_object_storage_endpoint()
     if use_keyless_s3_auth:
         aws_access_key_id = None
         aws_secret_access_key = None
@@ -187,7 +200,6 @@ class BatchExportInsertIntoInternalStageInputs:
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
-    num_partitions: int | None = None
     is_workflows: bool = False
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
@@ -204,7 +216,6 @@ class BatchExportInsertIntoInternalStageInputs:
             "exclude_events": self.exclude_events,
             "include_events": self.include_events,
             "run_id": self.run_id,
-            "num_partitions": self.num_partitions,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
             "batch_export_schema": self.batch_export_schema,
@@ -249,6 +260,13 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             attempt_number=attempt_number,
         )
 
+        num_partitions = await compute_num_partitions(
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+        )
+        logger.info("Computed staging partitions", num_partitions=num_partitions)
+
         if record_batch_model is not None:
             query_or_model = record_batch_model
             query_parameters = {}
@@ -268,7 +286,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
-                num_partitions=inputs.num_partitions,
+                num_partitions=num_partitions,
                 is_workflows=inputs.is_workflows,
             )
             query_or_model = query
@@ -282,10 +300,63 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             s3_staging_folder_url=s3_staging_folder.url,
-            num_partitions=inputs.num_partitions,
+            num_partitions=num_partitions,
         )
     logger.info("Staging data completed successfully")
     return s3_staging_folder.folder
+
+
+async def compute_num_partitions(
+    batch_export_id: str, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+) -> int:
+    """Choose how many staging files (partitions) to write for this run.
+
+    We estimate the export size from the most recent completed run at or before the interval being
+    processed, then pick a partition count targeting a roughly-constant number of rows per staging
+    Arrow file, clamped to [MIN, MAX].
+
+    Sizing relative to the current interval keeps backfills of old intervals from being sized off
+    today's (potentially much larger) live runs. We size off the most recent run only if its interval
+    length matches this one's, so a change in export frequency doesn't size off a differently-sized
+    interval (we fall back and let the next run, which has a same-frequency predecessor, re-adjust).
+
+    We fall back to the static default when there is no usable estimate (first run, frequency
+    change, or a run with no recorded count), if the fetch fails, or if dynamic partitioning is
+    disabled entirely via BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED.
+    """
+    logger = LOGGER.bind()
+    static_default = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
+
+    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED:
+        return static_default
+
+    # Without the current interval's bounds we can't match the previous run's frequency, so don't risk
+    # sizing off a differently-sized interval (e.g. an unbounded backfill) -> fall back to the default.
+    if data_interval_start is None:
+        return static_default
+    interval_duration = data_interval_end - data_interval_start
+
+    estimate_rows: int | None = None
+    try:
+        estimate_rows = await afetch_last_run_records_completed(
+            uuid.UUID(batch_export_id),
+            before_or_at_interval_end=data_interval_end,
+            # ignore stale runs from a long-paused export
+            not_older_than=data_interval_end - dt.timedelta(days=365),
+            matching_interval_duration=interval_duration,
+        )
+    except Exception:
+        logger.warning("Failed to fetch last run records completed; falling back to static default", exc_info=True)
+    if not estimate_rows or estimate_rows <= 0:
+        return static_default
+
+    min_partitions = settings.BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS
+    # guard against misconfiguration where max is set below min
+    max_partitions = max(settings.BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS, min_partitions)
+    # guard against misconfiguration where the target is set to 0
+    target_rows = max(settings.BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION, 1)
+    n = math.ceil(estimate_rows / target_rows)
+    return max(min_partitions, min(n, max_partitions))
 
 
 async def _get_query(
@@ -453,7 +524,7 @@ def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
     # in these environments this will be a URL for MinIO
-    if _is_local_or_test():
+    if _uses_object_storage_endpoint():
         base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
@@ -488,6 +559,11 @@ async def _write_batch_export_record_batches_to_internal_stage(
     else:
         delta = dt.timedelta(minutes=1)
     end_at = full_range[1]
+
+    if _is_local_dev_or_test() is False and end_at > dt.datetime.now(dt.UTC):
+        # Some tests create data in the future, so we do not check this.
+        raise DataIntervalEndInFutureError(end_at)
+
     await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []

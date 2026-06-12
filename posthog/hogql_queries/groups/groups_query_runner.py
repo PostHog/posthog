@@ -140,6 +140,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
             query_type="GroupsQuery",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             # :HACKY: posthog/hogql/transforms/property_types.py needs access to the group_id in order to know the property type

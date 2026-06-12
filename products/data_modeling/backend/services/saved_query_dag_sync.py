@@ -9,14 +9,14 @@ from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.data_warehouse.backend.models.modeling import UnknownParentError, get_parents_from_model_query
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -45,7 +45,7 @@ def resolve_dependency_to_node(
 
     Raises UnknownParentError if the dependency cannot be resolved.
     """
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     # get hogql's understanding of this table
     try:
@@ -119,7 +119,7 @@ def sync_saved_query_to_dag(
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
     """
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     extra_properties = extra_properties or {}
     team = saved_query.team

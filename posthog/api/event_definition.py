@@ -30,7 +30,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_EVENTS
+from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -89,12 +89,12 @@ def create_event_definitions_sql(
         """
 
 
-class PromotedPropertiesResponseSerializer(serializers.Serializer):
-    promoted_properties = serializers.DictField(
+class PrimaryPropertiesResponseSerializer(serializers.Serializer):
+    primary_properties = serializers.DictField(
         child=serializers.CharField(),
         help_text=(
-            "Mapping from event name to the team-configured promoted property for that event. "
-            "Names without a configured promoted property are omitted; callers should fall back "
+            "Mapping from event name to the team-configured primary property for that event. "
+            "Names without a configured primary property are omitted; callers should fall back "
             "to the core taxonomy defaults for those."
         ),
     )
@@ -109,7 +109,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
-    promoted_property = serializers.CharField(
+    primary_property = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=False,
@@ -131,7 +131,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_updated_at",
             "tags",
             "enforcement_mode",
-            "promoted_property",
+            "primary_property",
             # Action fields
             "is_action",
             "action_id",
@@ -218,7 +218,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 
-@extend_schema(tags=["core"])
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -265,6 +264,19 @@ class EventDefinitionViewSet(
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+
+        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
+        if exclude_stale:
+            # `last_seen_at` is not indexed: the predicate runs after the project-scoped
+            # pre-filter in `create_event_definitions_sql` has already narrowed the row
+            # set per tenant, and the response is paginated. Worth re-checking with
+            # EXPLAIN if the largest tenants start showing this in slow-query logs.
+            search_query = (
+                search_query
+                + " AND (posthog_eventdefinition.last_seen_at IS NULL"
+                + " OR posthog_eventdefinition.last_seen_at > NOW() - %(stale_interval)s::interval)"
+            )
+            params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
         verified_param = self.request.GET.get("verified")
         if verified_param is not None and EE_AVAILABLE:
@@ -343,6 +355,29 @@ class EventDefinitionViewSet(
 
         return results
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "exclude_stale",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    f"When true, omit events whose last ingested occurrence is older than {STALE_EVENT_DAYS} days. "
+                    "Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events "
+                    "remain discoverable. Default false. If a search returns zero results with this filter on, "
+                    "retry with `exclude_stale=false` and tell the user the matches are stale."
+                ),
+            ),
+            OpenApiParameter(
+                "exclude_hidden",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, omit events that have been explicitly hidden by a team admin (Enterprise only).",
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -582,31 +617,31 @@ class EventDefinitionViewSet(
                 description=(
                     "Optional: restrict the response to these event names. "
                     "Repeat the parameter for multiple names (e.g. `?names=a&names=b`). "
-                    "When omitted, returns every team-configured promoted property."
+                    "When omitted, returns every team-configured primary property."
                 ),
             ),
         ],
-        responses={200: PromotedPropertiesResponseSerializer},
+        responses={200: PrimaryPropertiesResponseSerializer},
     )
-    @action(detail=False, methods=["GET"], url_path="promoted_properties", required_scopes=["event_definition:read"])
-    def promoted_properties(self, request, *args, **kwargs):
-        """Resolve team-configured promoted properties for event definitions.
+    @action(detail=False, methods=["GET"], url_path="primary_properties", required_scopes=["event_definition:read"])
+    def primary_properties(self, request, *args, **kwargs):
+        """Resolve team-configured primary properties for event definitions.
 
-        The response only contains entries where a non-null promoted_property is set on the
+        The response only contains entries where a non-null primary_property is set on the
         EventDefinition. Callers should fall back to the core taxonomy defaults client-side
         for names not present in the response.
         """
         queryset = EventDefinition.objects.filter(
             team__project_id=self.project_id,
-            promoted_property__isnull=False,
-        ).exclude(promoted_property="")
+            primary_property__isnull=False,
+        ).exclude(primary_property="")
 
         names = [name for name in request.query_params.getlist("names") if name]
         if names:
             queryset = queryset.filter(name__in=list(set(names)))
 
-        rows = queryset.values_list("name", "promoted_property")
-        return response.Response({"promoted_properties": dict(rows)})
+        rows = queryset.values_list("name", "primary_property")
+        return response.Response({"primary_properties": dict(rows)})
 
 
 def fetch_30day_event_queries(

@@ -3,6 +3,8 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { IconRewind } from '@posthog/icons'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -14,6 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
@@ -32,30 +35,58 @@ export const scene: SceneExport = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        // TODO: sometimes when opening a property filter on a scene, the tabId is suddently empty.
-        // If I remove the "{closable && !disabledReason && ...}" block from within
-        // "frontend/src/lib/components/PropertyFilters/components/PropertyFilterButton.tsx"
-        // ... then the issue goes away. We should still figure out why this happens.
-        // Throwing seems to make it go away.
-        throw new Error('PersonsScene rendered with no tabId')
-    }
-
+export function PersonsScene(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
-    const queryUniqueKey = `persons-query-${tabId}`
+    const queryUniqueKey = 'persons-query'
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
 
     useOnMountEffect(() => {
         loadConfigs()
     })
 
+    const onResetDeletedPerson = (): void => {
+        LemonDialog.openForm({
+            width: '30rem',
+            title: 'Reset deleted person',
+            description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
+                You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
+            initialValues: { distinct_id: '' },
+            content: (
+                <LemonField name="distinct_id" label="Distinct ID to reset">
+                    <LemonInput type="text" autoFocus />
+                </LemonField>
+            ),
+            errors: {
+                distinct_id: (distinct_id) => (!distinct_id ? 'This is required' : undefined),
+            },
+            onSubmit: async ({ distinct_id }) => await resetDeletedDistinctId(distinct_id),
+        })
+    }
+
     return (
         <SceneContent>
             <PersonsManagementSceneTabs tabKey="persons" />
+
+            {sceneMenuBarEnabled && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="persons-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="persons" />
+                        <SceneMenuBarItem
+                            variant="destructive"
+                            opensFloatingUi
+                            onClick={onResetDeletedPerson}
+                            data-attr="persons-menubar-reset-deleted"
+                        >
+                            <IconRewind />
+                            Reset a deleted person
+                        </SceneMenuBarItem>
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
 
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Persons].name}
@@ -106,7 +137,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
             <Query
                 uniqueKey={queryUniqueKey}
-                attachTo={personsSceneLogic({ tabId })}
+                attachTo={personsSceneLogic()}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{

@@ -8,6 +8,7 @@ import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionApiServer } from '~/servers/ingestion-api-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
+import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
 import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
@@ -16,7 +17,6 @@ import { initSuperProperties } from '~/utils/posthog'
 function createServer(): NodeServer {
     switch (defaultConfig.PLUGIN_SERVER_MODE) {
         case PluginServerMode.ingestion_v2:
-        case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             return new IngestionGeneralServer()
 
@@ -35,6 +35,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ingestion_logs:
             return new IngestionLogsServer()
+
+        case PluginServerMode.ingestion_metrics:
+            return new IngestionMetricsServer()
 
         case PluginServerMode.ingestion_traces:
             return new IngestionTracesServer()

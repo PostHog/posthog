@@ -18,7 +18,7 @@ class TestParseOutput:
             (
                 "double_ampersand",
                 "if (a && b) { print(a) }",
-                "no viable alternative at input",
+                "unexpected character '&' (U+0026)",
             ),
         ]
     )

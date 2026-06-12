@@ -6,6 +6,7 @@ import { PostHog } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import {
+    IconApp,
     IconBolt,
     IconCamera,
     IconCheck,
@@ -43,6 +44,9 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
+import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
+import { FieldNotesOverlay } from '~/toolbar/field-notes/FieldNotesOverlay'
+import { FieldNotesToolbarMenu } from '~/toolbar/field-notes/FieldNotesToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ProductToursSidebar } from '~/toolbar/product-tours/ProductToursSidebar'
@@ -50,6 +54,8 @@ import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToo
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
+import { SurveySidebar } from '~/toolbar/surveys/SurveySidebar'
+import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -317,14 +323,14 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
     const { isAuthenticated } = useValues(toolbarConfigLogic)
 
-    const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
-    const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
-
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
+
+    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
+    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -336,10 +342,12 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <EventDebugMenu />
     ) : visibleMenu === 'web-vitals' ? (
         <WebVitalsToolbarMenu />
-    ) : visibleMenu === 'experiments' && showExperiments ? (
+    ) : visibleMenu === 'experiments' ? (
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
+    ) : visibleMenu === 'field-notes' && showFieldNotes ? (
+        <FieldNotesToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
     ) : null
@@ -392,15 +400,17 @@ export function Toolbar(): JSX.Element | null {
     const { authenticate, openUiHostConfigModal, closeUiHostConfigModal, closeAuthConfirmModal } =
         useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
-
-    const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
-    const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
+    const { isCreating: isSurveyCreating } = useValues(surveysToolbarLogic)
 
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
+
+    const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
+    const showFieldNotes = inStorybook() || inStorybookTestRunner() || fieldNotesFlag
+    const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
 
     useEffect(() => {
         setElement(ref.current)
@@ -436,11 +446,13 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
-    const showSidebar = selectedTourId !== null && !isPreviewing
+    const showToursSidebar = selectedTourId !== null && !isPreviewing
 
     return (
         <>
-            {showSidebar && <ProductToursSidebar />}
+            {showToursSidebar && <ProductToursSidebar />}
+            {showFieldNotes && <FieldNotesOverlay />}
+            {isSurveyCreating && <SurveySidebar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -449,11 +461,13 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
                     'Toolbar--extra-buttons-1':
-                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
                     'Toolbar--extra-buttons-2':
-                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
                     'Toolbar--extra-buttons-3':
-                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-4':
+                        1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) + (showSurveys ? 1 : 0) === 4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -482,9 +496,27 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="inspect">
                             <IconSearch />
                         </ToolbarButton>
-                        <ToolbarButton menuId="heatmap">
-                            <IconCursorClick />
-                        </ToolbarButton>
+                        {/* When the field notes flag is on, field notes takes the heatmap slot + cursor icon */}
+                        {showFieldNotes ? (
+                            <ToolbarButton menuId="field-notes" title="Field notes">
+                                {/* Inline font-size because the wrapper breaks the `button > svg` size rule */}
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <span className="relative flex" style={{ fontSize: '1.5rem' }}>
+                                    <IconCursorClick />
+                                    {!hasOpenedFieldNotes && (
+                                        <span
+                                            className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ backgroundColor: 'var(--primary-3000)' }}
+                                        />
+                                    )}
+                                </span>
+                            </ToolbarButton>
+                        ) : (
+                            <ToolbarButton menuId="heatmap">
+                                <IconCursorClick />
+                            </ToolbarButton>
+                        )}
                         <ToolbarButton menuId="actions">
                             <IconBolt />
                         </ToolbarButton>
@@ -497,14 +529,18 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="web-vitals" title="Web vitals">
                             <IconPieChart />
                         </ToolbarButton>
-                        {showExperiments && (
-                            <ToolbarButton menuId="experiments" title="Experiments">
-                                <IconFlask />
-                            </ToolbarButton>
-                        )}
+                        <ToolbarButton menuId="experiments" title="Experiments">
+                            <IconFlask />
+                        </ToolbarButton>
                         {showProductTours && (
                             <ToolbarButton menuId="product-tours" title="Product tours">
                                 <IconSpotlight />
+                            </ToolbarButton>
+                        )}
+                        {/* Heatmaps moves here and takes the app icon when field notes is enabled */}
+                        {showFieldNotes && (
+                            <ToolbarButton menuId="heatmap" title="Heatmaps">
+                                <IconApp />
                             </ToolbarButton>
                         )}
                         {showSurveys && (

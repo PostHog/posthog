@@ -97,7 +97,8 @@ class PostgresPrinter(BasePrinter):
         return self.visit(node.type)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # Allowlist gate against `setattr`-bypass — the printer returns `name.upper()` verbatim.
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name.upper()
 
@@ -452,6 +453,11 @@ class PostgresPrinter(BasePrinter):
 
             if isinstance(column, ast.Field) and isinstance(column.type, ast.PropertyType):
                 alias_name = ".".join(map(str, column.chain))
+                column = ast.Alias(alias=alias_name, expr=column)
+            elif isinstance(column, ast.PropertyAccess) and isinstance(column.expr, ast.Field):
+                # A lowered property read: reconstruct the same `properties.X` column name the un-lowered Field above
+                # would get (source chain + keys), so logical lowering doesn't change the result column name.
+                alias_name = ".".join(map(str, [*column.expr.chain, *column.keys]))
                 column = ast.Alias(alias=alias_name, expr=column)
 
             columns_sql.append(self.visit(column))

@@ -16,20 +16,28 @@ import { urls } from 'scenes/urls'
 import { saveActionFromEvent } from '~/models/saveAsActionDialog'
 import { EventType, SurveyEventName } from '~/types'
 
-export function EventRowActions({ event }: { event: EventType }): JSX.Element {
+export function EventRowActions({
+    event,
+    hideRecordingButton,
+}: {
+    event: EventType
+    hideRecordingButton?: boolean
+}): JSX.Element {
     return (
         <div className="flex items-center justify-end gap-1">
-            <ViewRecordingButton
-                iconOnly
-                sessionId={event.properties.$session_id}
-                recordingStatus={event.properties.$recording_status}
-                timestamp={event.timestamp}
-                hasRecording={event.properties.$has_recording as boolean | undefined}
-                openPlayerIn={RecordingPlayerType.NewTab}
-                size="xsmall"
-                type="secondary"
-                data-attr="events-table-inline-recording-button"
-            />
+            {!hideRecordingButton && (
+                <ViewRecordingButton
+                    iconOnly
+                    sessionId={event.properties.$session_id}
+                    recordingStatus={event.properties.$recording_status}
+                    timestamp={event.timestamp}
+                    hasRecording={event.properties.$has_recording as boolean | undefined}
+                    openPlayerIn={RecordingPlayerType.NewTab}
+                    size="xsmall"
+                    type="secondary"
+                    data-attr="events-table-inline-recording-button"
+                />
+            )}
             <More overlay={<EventRowActionsDropdown event={event} />} />
         </div>
     )
@@ -73,7 +81,7 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                     fullWidth
                     sideIcon={<IconLlmAnalytics />}
                     data-attr="events-table-trace-link"
-                    to={urls.llmAnalyticsTrace(
+                    to={urls.aiObservabilityTrace(
                         event.properties.$ai_trace_id,
                         event.event === '$ai_trace'
                             ? { event: event.id, exception_ts: event.timestamp }

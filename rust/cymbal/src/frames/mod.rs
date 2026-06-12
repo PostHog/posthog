@@ -6,25 +6,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    error::{FrameError, UnhandledError},
+    error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        apple::{AppleDebugImage, RawAppleFrame},
-        custom::CustomFrame,
-        dart::RawDartFrame,
-        go::RawGoFrame,
-        hermes::RawHermesFrame,
-        java::RawJavaFrame,
-        js::RawJSFrame,
-        node::RawNodeFrame,
-        php::RawPHPFrame,
-        python::RawPythonFrame,
-        ruby::RawRubyFrame,
+        apple::RawAppleFrame, custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame,
+        hermes::RawHermesFrame, java::RawJavaFrame, js::RawJSFrame, native::DebugImage,
+        node::RawNodeFrame, php::RawPHPFrame, python::RawPythonFrame, ruby::RawRubyFrame,
+        rust::RawRustFrame,
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_source_line,
     symbol_store::Catalog,
 };
+
+/// Records the metric and tracing line for a single failed-frame construction. Each
+/// language-specific `From<(&RawFrame, Err, ...)> for Frame` impl calls this with the
+/// typed error in scope, so we don't have to round-trip the typed error through the
+/// `Frame` struct just to recover the metric reason later.
+pub(crate) fn record_frame_resolution_failure(
+    lang: &'static str,
+    reason: &'static str,
+    err: &dyn std::fmt::Display,
+) {
+    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang, "reason" => reason).increment(1);
+    match reason {
+        "network_error" | "invalid_data" | "symbol_not_found" => {
+            tracing::warn!(lang = lang, reason = reason, error = %err, "frame resolution failed");
+        }
+        _ => {
+            tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
+        }
+    }
+}
 
 pub mod records;
 pub mod releases;
@@ -54,6 +67,8 @@ pub enum RawFrame {
     Dart(RawDartFrame),
     #[serde(rename = "apple")]
     Apple(RawAppleFrame),
+    #[serde(rename = "rust")]
+    Rust(RawRustFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
@@ -66,7 +81,7 @@ impl RawFrame {
         &self,
         team_id: i32,
         catalog: &Catalog,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
@@ -89,6 +104,7 @@ impl RawFrame {
             RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
+            RawFrame::Rust(frame) => (to_vec(Ok(frame.into())), "rust"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
             RawFrame::Go(frame) => (to_vec(Ok(frame.into())), "go"),
             RawFrame::Hermes(frame) => (to_vec(frame.resolve(team_id, catalog).await), "hermes"),
@@ -99,7 +115,7 @@ impl RawFrame {
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
-                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index));
+                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index, debug_images));
             fs
         });
 
@@ -115,22 +131,13 @@ impl RawFrame {
             for frame in frames {
                 if frame.resolved {
                     metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
-                } else if let Some(err) = &frame.resolve_failure {
-                    let reason = err.metric_reason();
-                    match reason {
-                        "network_error" | "invalid_data" | "symbol_not_found" => {
-                            tracing::warn!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
-                        }
-                        _ => {
-                            tracing::debug!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
-                        }
-                    }
-                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => reason)
-                        .increment(1);
-                } else {
-                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => "unknown")
-                        .increment(1);
                 }
+                // Failure metrics are emitted by the language-specific `From` impls in
+                // `langs/*.rs` at the moment of frame construction, where the typed error
+                // is in scope (so we can call `metric_reason()` directly). This avoids
+                // having to carry the typed error on the `Frame` struct just to recover
+                // the metric label, which previously required a custom serializer plus
+                // `skip_deserializing` and silently dropped failure reasons on PG round-trip.
             }
         }
 
@@ -150,11 +157,12 @@ impl RawFrame {
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
             | RawFrame::Apple(_)
+            | RawFrame::Rust(_)
             | RawFrame::Custom(_) => None,
         }
     }
 
-    pub fn raw_id(&self, team_id: i32) -> RawFrameId {
+    pub fn raw_id(&self, team_id: i32, debug_images: &[DebugImage]) -> RawFrameId {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
@@ -162,18 +170,19 @@ impl RawFrame {
             RawFrame::Python(raw) => raw.frame_id(),
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
+            RawFrame::Rust(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
             RawFrame::Dart(raw) => raw.frame_id(),
-            RawFrame::Apple(raw) => raw.frame_id(),
+            RawFrame::Apple(raw) => raw.frame_id(debug_images),
         };
 
         RawFrameId::new(hash_id, team_id)
     }
 
-    pub fn frame_id(&self, team_id: i32, index: usize) -> FrameId {
-        self.raw_id(team_id).to_full(index as i32)
+    pub fn frame_id(&self, team_id: i32, index: usize, debug_images: &[DebugImage]) -> FrameId {
+        self.raw_id(team_id, debug_images).to_full(index as i32)
     }
 
     pub fn is_suspicious(&self) -> bool {
@@ -204,13 +213,8 @@ pub struct Frame {
     pub resolved_name: Option<String>, // The name of the function, after symbolification
     pub lang: String, // The language of the frame. Always known (I guess?)
     pub resolved: bool, // Did we manage to resolve the frame?
-    #[serde(
-        serialize_with = "frame_error_serde::serialize",
-        skip_deserializing,
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub resolve_failure: Option<FrameError>, // If we failed to resolve the frame, why?
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub resolve_failure: Option<String>, // If we failed to resolve the frame, why? Plain string so it round-trips cleanly through PG/JSON; the typed metric label is emitted at construction time via `record_frame_resolution_failure`.
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
@@ -380,11 +384,7 @@ impl std::fmt::Display for Frame {
         writeln!(
             f,
             "  resolve_failure: {}",
-            self.resolve_failure
-                .as_ref()
-                .map(|e| e.to_string())
-                .as_deref()
-                .unwrap_or("no failure")
+            self.resolve_failure.as_deref().unwrap_or("no failure")
         )?;
 
         // Context
@@ -437,32 +437,13 @@ impl From<Frame> for FrameData {
     }
 }
 
-mod frame_error_serde {
-    use super::FrameError;
-    use serde::Serializer;
-
-    pub fn serialize<S>(value: &Option<FrameError>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // skip_serializing_if = "Option::is_none" guarantees value is Some here,
-        // but we match exhaustively to satisfy the type checker.
-        match value {
-            Some(err) => serializer.serialize_str(&err.to_string()),
-            None => {
-                unreachable!("skip_serializing_if = Option::is_none prevents None reaching here")
-            }
-        }
-    }
-}
-
 fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
     item.map(|t| vec![t])
 }
 
 #[cfg(test)]
 mod test {
-    use crate::frames::RawFrame;
+    use crate::frames::{Frame, RawFrame};
 
     #[test]
     fn ensure_custom_frames_work() {
@@ -483,6 +464,62 @@ mod test {
         match frame {
             RawFrame::Custom(_) => {}
             _ => panic!("Expected a custom frame"),
+        }
+    }
+
+    #[test]
+    fn ensure_rust_frames_work() {
+        let data = r#"
+            {
+            "function": "checkout::payment::charge",
+            "module": "checkout::payment",
+            "filename": "src/main.rs",
+            "resolved": true,
+            "in_app": true,
+            "lineno": 42,
+            "platform": "rust"
+            }
+            "#;
+
+        let frame: RawFrame = serde_json::from_str(data).unwrap();
+        match frame {
+            RawFrame::Rust(frame) => {
+                let resolved: Frame = (&frame).into();
+                let resolved_frame_id = frame.frame_id();
+                assert_eq!(resolved.lang, "rust");
+                assert_eq!(resolved.mangled_name, "checkout::payment::charge");
+                assert_eq!(
+                    resolved.resolved_name.as_deref(),
+                    Some("checkout::payment::charge")
+                );
+                assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
+                assert_eq!(resolved.module.as_deref(), Some("checkout::payment"));
+                assert_eq!(resolved.line, Some(42));
+                assert_eq!(resolved.context, None);
+
+                let unresolved_data = data.replace("\"resolved\": true,", "\"resolved\": false,");
+                let unresolved_frame: RawFrame = serde_json::from_str(&unresolved_data).unwrap();
+                match unresolved_frame {
+                    RawFrame::Rust(frame) => assert_eq!(frame.frame_id(), resolved_frame_id),
+                    _ => panic!("Expected a rust frame"),
+                }
+
+                let missing_function_data =
+                    data.replace("\"function\": \"checkout::payment::charge\",\n", "");
+                let missing_function_frame: RawFrame =
+                    serde_json::from_str(&missing_function_data).unwrap();
+                match missing_function_frame {
+                    RawFrame::Rust(frame) => {
+                        let resolved: Frame = (&frame).into();
+                        assert_eq!(resolved.mangled_name, "");
+                        assert_eq!(resolved.resolved_name, None);
+                        assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
+                        assert_eq!(resolved.line, Some(42));
+                    }
+                    _ => panic!("Expected a rust frame"),
+                }
+            }
+            _ => panic!("Expected a rust frame"),
         }
     }
 }

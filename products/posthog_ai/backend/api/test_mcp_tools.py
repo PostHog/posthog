@@ -98,3 +98,55 @@ class TestMCPToolsAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["success"])
         self.assertIn("internal error", data["content"].lower())
+
+
+class TestDocsSearchAction(APIBaseTest):
+    URL: str
+
+    def setUp(self):
+        super().setUp()
+        self.URL = f"/api/environments/{self.team.id}/mcp_tools/docs_search/"
+
+    def test_unauthenticated_request(self):
+        self.client.logout()
+        response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_missing_query_field_returns_validation_error(self):
+        response = self.client.post(self.URL, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
+    def test_docs_search_returns_formatted_content(self, mock_run):
+        from django.test import override_settings
+
+        mock_run.return_value = "Found 1 relevant documentation page(s):\n\n# Feature Flags\nURL: …\n\nDocs."
+
+        with override_settings(INKEEP_API_KEY="test-key"):
+            response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIn("Feature Flags", body["content"])
+        self.assertNotIn("<system_reminder>", body["content"])
+        mock_run.assert_called_once()
+
+    def test_docs_search_unavailable_when_key_missing(self):
+        from django.test import override_settings
+
+        with override_settings(INKEEP_API_KEY=""):
+            response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
+    def test_docs_search_unexpected_error_returns_500(self, mock_run):
+        from django.test import override_settings
+
+        mock_run.side_effect = RuntimeError("boom")
+
+        with override_settings(INKEEP_API_KEY="test-key"):
+            response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn("internal error", response.json()["content"].lower())

@@ -2,18 +2,27 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from posthog.schema import HogQLNotice, HogQLQueryModifiers
-
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
+    from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
+
     from posthog.hogql.database.database import Database
+    from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.models import Team, User
+
+
+def _default_modifiers() -> "HogQLQueryModifiers":
+    # Deferred: posthog.schema (the pydantic models) stays off django.setup(); this module
+    # loads there via the legacy filter classes and the warehouse models.
+    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
+    return HogQLQueryModifiers()
 
 
 @dataclass
@@ -65,16 +74,31 @@ class HogQLContext:
     # Errors returned with the metadata query
     errors: list["HogQLNotice"] = field(default_factory=list)
 
+    # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
+    # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
+    data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
-    modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
+    modifiers: "HogQLQueryModifiers" = field(default_factory=_default_modifiers)
     # Enables more verbose output for debugging
     debug: bool = False
+    # Internal optimizer flag. Keep disabled until typed rewrites have broader compatibility coverage.
+    enable_type_aware_cast_simplification: bool = False
+
+    # Optional per-query HogQL type-system observability accumulator.
+    type_observability: Optional["HogQLTypeObservability"] = None
+    # Bounded source/surface label for type-system observability metrics.
+    observability_source: str = "unknown"
 
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # that the current user is denied access to. Populated before type resolution so that
+    # FieldType.get_child() can raise QueryError for restricted properties.
+    restricted_properties: Optional[set[tuple[str, int]]] = None
 
     def __post_init__(self):
         if self.team:
@@ -98,6 +122,8 @@ class HogQLContext:
         fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.notices):
+            from posthog.schema import HogQLNotice  # noqa: PLC0415
+
             self.notices.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
 
     def add_warning(
@@ -108,6 +134,8 @@ class HogQLContext:
         fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.warnings):
+            from posthog.schema import HogQLNotice  # noqa: PLC0415
+
             self.warnings.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
 
     def add_error(
@@ -118,7 +146,12 @@ class HogQLContext:
         fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
+            from posthog.schema import HogQLNotice  # noqa: PLC0415
+
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
+        self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning
 
     @cached_property
     def project_id(self) -> int:

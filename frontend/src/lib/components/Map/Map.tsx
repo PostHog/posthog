@@ -1,10 +1,10 @@
 import './Maplibre.scss'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
+import { DARK, LIGHT, layers } from '@protomaps/basemaps'
 import { useValues } from 'kea'
 import maplibregl, { Marker, Map as RawMap } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
-import layers from 'protomaps-themes-base'
 import { useEffect, useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
@@ -65,7 +65,7 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
                             '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
                     },
                 },
-                layers: layers('protomaps', isDarkModeOn ? 'dark' : 'light'),
+                layers: layers('protomaps', isDarkModeOn ? DARK : LIGHT),
             },
             center,
             zoom: 4,
@@ -75,6 +75,10 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
             for (const marker of markers) {
                 marker.addTo(map.current)
             }
+        }
+        return () => {
+            map.current?.remove()
+            map.current = null
         }
     }, [isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
 

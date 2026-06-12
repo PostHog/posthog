@@ -1,3 +1,5 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
+
 import { HogFlow } from '~/schema/hogflow'
 import { UUIDT } from '~/utils/utils'
 
@@ -8,7 +10,6 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { BatchHogFlowRequest, CdpBatchHogFlowRequestsConsumer } from './cdp-batch-hogflow.consumer'
 
 jest.setTimeout(1000)
@@ -17,7 +18,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
     let processor: CdpBatchHogFlowRequestsConsumer
     let hub: Hub
     let team: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFlow = async (hogFlow: HogFlow) => {
         const teamId = hogFlow.team_id ?? team.id
@@ -35,7 +36,9 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpBatchHogFlowRequestsConsumer(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new CdpBatchHogFlowRequestsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -44,13 +47,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             isHealthy: jest.fn(),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })
@@ -488,6 +485,122 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 customVar2: 42,
                 customVar3: null,
             })
+        })
+
+        it('should record a workflow failure and not throw when audience query rejects', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .build()
+            )
+
+            const queueAppMetricSpy = jest.spyOn(processor.hogFunctionMonitoringService, 'queueAppMetric')
+            const queueLogsSpy = jest.spyOn(processor.hogFunctionMonitoringService, 'queueLogs')
+
+            // Simulate the Django endpoint failing (e.g. unsupported flag-typed property).
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = jest
+                .fn()
+                .mockRejectedValue(new Error('Failed to fetch blast radius persons: 500 Internal server error'))
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'flag-key', value: ['true'], operator: 'exact', type: 'flag' as any }],
+                },
+            }
+
+            // Must resolve, not reject — the consumer should swallow the failure and continue.
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            expect(result).toHaveLength(0)
+
+            expect(queueAppMetricSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    instance_id: batchRequest.parentRunId,
+                    metric_kind: 'failure',
+                    metric_name: 'trigger_failed',
+                    count: 1,
+                }),
+                'hog_flow'
+            )
+
+            expect(queueLogsSpy).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        team_id: hogFlow.team_id,
+                        log_source: 'hog_flow',
+                        log_source_id: batchRequest.parentRunId,
+                        instance_id: batchRequest.parentRunId,
+                        level: 'error',
+                        message: expect.stringContaining('Failed to resolve batch audience'),
+                    }),
+                ],
+                'hog_flow'
+            )
+        })
+
+        it('should record a missing_filters failure when filters.properties is empty', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: {} as any,
+                        },
+                    })
+                    .build()
+            )
+
+            const queueAppMetricSpy = jest.spyOn(processor.hogFunctionMonitoringService, 'queueAppMetric')
+            const queueLogsSpy = jest.spyOn(processor.hogFunctionMonitoringService, 'queueLogs')
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {},
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            expect(result).toHaveLength(0)
+            expect(queueAppMetricSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    metric_kind: 'failure',
+                    metric_name: 'trigger_failed',
+                    instance_id: batchRequest.parentRunId,
+                }),
+                'hog_flow'
+            )
+            expect(queueLogsSpy).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        log_source_id: batchRequest.parentRunId,
+                        level: 'error',
+                        message: expect.stringContaining('no property filters'),
+                    }),
+                ],
+                'hog_flow'
+            )
         })
     })
 

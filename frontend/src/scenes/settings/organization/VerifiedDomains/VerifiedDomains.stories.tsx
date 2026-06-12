@@ -56,6 +56,10 @@ const VERIFIED_DOMAIN_WITH_SAML_SCIM: OrganizationDomainType = {
     saml_x509_cert: 'cert',
     scim_enabled: true,
     scim_base_url: 'https://posthog.com/scim/v2',
+    has_id_jag: true,
+    id_jag_issuer_url: 'https://idp.posthog.com',
+    id_jag_jwks_url: null,
+    id_jag_allowed_clients: ['posthog-mcp'],
 }
 
 const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
@@ -71,6 +75,10 @@ const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
     saml_acs_url: '',
     saml_x509_cert: '',
     scim_enabled: false,
+    has_id_jag: false,
+    id_jag_issuer_url: null,
+    id_jag_jwks_url: null,
+    id_jag_allowed_clients: [],
 }
 
 const UNVERIFIED_DOMAIN: OrganizationDomainType = {
@@ -86,6 +94,7 @@ const UNVERIFIED_DOMAIN: OrganizationDomainType = {
     saml_acs_url: '',
     saml_x509_cert: '',
     scim_enabled: false,
+    has_id_jag: false,
 }
 
 const ALL_FEATURES = [
@@ -93,6 +102,7 @@ const ALL_FEATURES = [
     AvailableFeature.SSO_ENFORCEMENT,
     AvailableFeature.SAML,
     AvailableFeature.SCIM,
+    AvailableFeature.XAA_AUTHENTICATION,
 ]
 
 type Story = StoryObj<typeof App>

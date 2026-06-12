@@ -92,6 +92,15 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("company_address", response.json()["attr"])
 
+    def test_create_msa_is_rejected_from_public_api(self) -> None:
+        # MSAs only exist via Django admin upload — the public serializer's
+        # ChoiceField does not list MSA, so a POST should 400 on document_type.
+        payload = {**DPA_PAYLOAD, "document_type": "MSA"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("document_type", response.json()["attr"])
+        self.assertFalse(LegalDocument.objects.exists())
+
     def test_list_is_scoped_to_current_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
         LegalDocument.objects.create(
@@ -306,6 +315,158 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_staff_user_without_membership_can_download(self) -> None:
+        # PostHog staff need to fetch signed PDFs from the Django admin without
+        # joining the customer's org first. Drop the membership entirely and
+        # flip is_staff — the request should still 302 to the presigned URL.
+        self.organization_membership.delete()
+        self.user.is_staff = True
+        self.user.save()
+        with patch(
+            "products.legal_documents.backend.logic.object_storage.get_presigned_url",
+            return_value="https://s3.example/signed-url?token=abc",
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestLegalDocumentDeleteEndpoint(APIBaseTest):
+    """
+    Self-serve DELETE for an unsigned legal document. Voids the underlying
+    PandaDoc envelope, removes the row, and frees the
+    unique-per-org-per-type constraint so a fresh document can be generated
+    (e.g., with a different signer). Signed documents stay admin-only.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            pandadoc_document_id="doc_123",
+            created_by=self.user,
+        )
+        self.url = f"/api/organizations/{self.organization.id}/legal_documents/{self.document.id}/"
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_unsigned_document_deletes_and_voids_pandadoc(self, mock_pandadoc_cls) -> None:
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(LegalDocument.objects.filter(id=self.document.id).exists())
+        mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_delete_frees_unique_constraint_so_new_dpa_can_be_created(self, _mock_pandadoc_cls) -> None:
+        # The whole point of the feature: after deleting an unsigned DPA, a
+        # second POST with a corrected signer should succeed.
+        list_url = f"/api/organizations/{self.organization.id}/legal_documents/"
+        blocked = self.client.post(list_url, DPA_PAYLOAD, format="json")
+        self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
+
+        deleted = self.client.delete(self.url)
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT, deleted.content)
+
+        replacement = self.client.post(
+            list_url,
+            {**DPA_PAYLOAD, "representative_email": "joakim@hubexo.example"},
+            format="json",
+        )
+        self.assertEqual(replacement.status_code, status.HTTP_201_CREATED, replacement.content)
+        new_row = LegalDocument.objects.get(id=replacement.json()["id"])
+        self.assertEqual(new_row.representative_email, "joakim@hubexo.example")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_signed_document_cannot_be_deleted_via_api(self, mock_pandadoc_cls) -> None:
+        # The facade re-reads the row under select_for_update inside the
+        # delete transaction, so a webhook that flips status to signed
+        # between request start and lock acquisition lands here too — the
+        # gate is enforced on the locked row, not on a stale read.
+        self.document.status = LegalDocument.Status.SIGNED
+        self.document.save()
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        mock_pandadoc_cls.return_value.void_document.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unknown_uuid", "00000000-0000-0000-0000-000000000000"),
+            ("invalid_uuid", "not-a-uuid"),
+        ]
+    )
+    def test_nonexistent_or_invalid_pk_returns_404(self, _name: str, pk: str) -> None:
+        url = f"/api/organizations/{self.organization.id}/legal_documents/{pk}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_cross_organization_delete_is_blocked(self, mock_pandadoc_cls) -> None:
+        # Same document id, accessed from another org the user happens to
+        # also admin. The lookup is org-scoped so the row should look 404 from
+        # that path — and the actual row stays put.
+        other_org = Organization.objects.create(name="Other Co")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
+        url = f"/api/organizations/{other_org.id}/legal_documents/{self.document.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        mock_pandadoc_cls.return_value.void_document.assert_not_called()
+
+    def test_regular_member_cannot_delete(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_pandadoc_void_failure_returns_503_and_keeps_row(self, mock_pandadoc_cls) -> None:
+        # Self-serve delete runs PandaDoc void in strict mode: if void fails,
+        # the facade's transaction rolls back and the row stays. The
+        # alternative (deleting the row anyway) would mean telling the user
+        # the envelope was cancelled when it wasn't, leaving the original
+        # signer with a still-completable document.
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        mock_pandadoc_cls.return_value.void_document.side_effect = pandadoc_module.PandaDocError("boom")
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "legal_document_void_failed")
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_activity_log_row_is_written_on_delete(self, _mock_pandadoc_cls) -> None:
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        log = ActivityLog.objects.filter(scope="LegalDocument", activity="deleted").first()
+        self.assertIsNotNone(log, "expected a deleted-activity log entry from ModelActivityMixin")
+        assert log is not None  # mypy
+        self.assertEqual(str(log.organization_id), str(self.organization.id))
+
+    def test_anonymous_user_cannot_delete(self) -> None:
+        self.client.logout()
+        response = self.client.delete(self.url)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+
 
 @override_settings(CLOUD_DEPLOYMENT="US")
 class TestLegalDocumentPandaDocWebhook(APIBaseTest):
@@ -453,20 +614,18 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 
-    def test_draft_event_dispatches_send_and_fires_slack(self) -> None:
+    def test_draft_event_dispatches_send(self) -> None:
         body = json.dumps(self._draft_payload()).encode("utf-8")
         with (
             self._override(),
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
-        slack_mock.assert_called_once()
 
-    def test_draft_event_skips_slack_if_pandadoc_send_fails(self) -> None:
+    def test_draft_event_swallows_pandadoc_send_failure(self) -> None:
         from products.legal_documents.backend.logic import pandadoc as pandadoc_client
 
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -476,12 +635,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document",
                 side_effect=pandadoc_client.PandaDocError("boom"),
             ),
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
-        # Endpoint still 2xx (we don't want PandaDoc to retry) but Slack is skipped.
+        # Endpoint still 2xx — we don't want PandaDoc to retry.
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        slack_mock.assert_not_called()
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"
@@ -491,12 +648,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         with (
             self._override(),
             patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
-            patch("products.legal_documents.backend.logic.notify_slack_on_submit") as slack_mock,
         ):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         send_mock.assert_not_called()
-        slack_mock.assert_not_called()
 
     def test_template_mismatch_does_not_flip_row(self) -> None:
         # Completed event with BAA template id for what's actually a DPA row in the DB
@@ -534,8 +689,8 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
 
-        # Replay: must not re-stream the PDF, re-upload, or re-fire Slack /
-        # analytics. PandaDoc retries / cross-instance fan-out both land here.
+        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
+        # PandaDoc retries / cross-instance fan-out both land here.
         replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
@@ -543,22 +698,113 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
             ) as stream_spy,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
-            patch("products.legal_documents.backend.logic.notify_slack_on_signed") as slack_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
-        slack_spy.assert_not_called()
         event_spy.assert_not_called()
+
+    def _swap_to_baa_document(self) -> None:
+        """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""
+        self.document.document_type = "BAA"
+        self.document.save(update_fields=["document_type"])
+
+    @contextmanager
+    def _fake_pdf_pipeline(self):
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
+            yield
+
+    def test_signed_baa_opts_organization_out_of_ai_data_processing(self) -> None:
+        self._swap_to_baa_document()
+        # New orgs default to True now — explicitly set so this isn't accidentally testing the default.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_dpa_does_not_change_ai_flag(self) -> None:
+        # Default fixture is a DPA, so don't swap.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_baa_emails_org_owners(self) -> None:
+        self._swap_to_baa_document()
+        # Promote the test user to OWNER so the email path has a recipient.
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.OWNER
+        membership.save(update_fields=["level"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_called_once()
+        kwargs = email_cls.call_args.kwargs
+        self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
+        self.assertTrue(kwargs["use_http"])
+        self.assertEqual(kwargs["template_context"]["organization_name"], self.organization.name)
+        self.assertIn("organization-ai-consent", kwargs["template_context"]["ai_settings_url"])
+        instance = email_cls.return_value
+        instance.add_user_recipient.assert_called_once_with(self.user)
+        instance.send.assert_called_once_with(send_async=True)
+
+    def test_signed_baa_skips_email_when_no_owner(self) -> None:
+        self._swap_to_baa_document()
+        # Default APIBaseTest membership is MEMBER, not OWNER — so no recipients.
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_not_called()
+        self.organization.refresh_from_db()
+        # Opt-out still happens even when there are no owners to notify.
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
 
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
 class TestLegalDocumentsSelfHostedGate(APIBaseTest):
     """
-    Self-hosted instances must never hit the PandaDoc / Slack integrations. The
-    API should 404 regardless of auth, and the PandaDoc webhook should 404 even
+    Self-hosted instances must never hit the PandaDoc integration. The API
+    should 404 regardless of auth, and the PandaDoc webhook should 404 even
     with a valid signature.
     """
 
@@ -577,6 +823,20 @@ class TestLegalDocumentsSelfHostedGate(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(LegalDocument.objects.exists())
+
+    def test_delete_404s_on_self_hosted(self) -> None:
+        # Rows shouldn't exist on self-hosted but we still want the gate to
+        # respond 404 regardless of what's in the DB — never reach PandaDoc.
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+        )
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/legal_documents/{document.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(LegalDocument.objects.filter(id=document.id).exists())
 
     def test_pandadoc_webhook_404s_on_self_hosted_even_with_valid_signature(self) -> None:
         self.client.logout()

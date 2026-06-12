@@ -323,11 +323,27 @@ def tiptap_doc_to_text(doc: dict | None) -> str:
     return "\n\n".join(parts)
 
 
-def _tiptap_node_to_text(node: dict) -> str:
+def _coerce_to_dict(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _tiptap_node_to_text(node: Any) -> str:
+    if not isinstance(node, dict):
+        return ""
+
     node_type = node.get("type", "")
+    attrs = _coerce_to_dict(node.get("attrs"))
 
     if node_type == "heading":
-        level = node.get("attrs", {}).get("level", 1)
+        level = attrs.get("level", 1)
         inline = _tiptap_inline_to_text(node.get("content", []))
         return f"{'#' * level} {inline}"
 
@@ -335,7 +351,7 @@ def _tiptap_node_to_text(node: dict) -> str:
         return _tiptap_inline_to_text(node.get("content", []))
 
     if node_type == "codeBlock":
-        lang = node.get("attrs", {}).get("language", "")
+        lang = attrs.get("language", "")
         code = _tiptap_inline_to_text(node.get("content", []))
         return f"```{lang}\n{code}\n```"
 
@@ -354,12 +370,13 @@ def _tiptap_node_to_text(node: dict) -> str:
         return "\n".join(items)
 
     if node_type == "ph-query":
-        attrs = node.get("attrs", {})
         title = attrs.get("title", "Untitled")
-        query = attrs.get("query", {})
+        # `attrs.query` is sometimes persisted as a JSON-encoded string rather than a dict,
+        # which used to crash the LangGraph root node when the agent surfaced a notebook.
+        query = _coerce_to_dict(attrs.get("query"))
         query_kind = query.get("kind", "unknown")
-        source = query.get("source", {})
-        source_kind = source.get("kind", "") if isinstance(source, dict) else ""
+        source = _coerce_to_dict(query.get("source"))
+        source_kind = source.get("kind", "")
         parts = [f'<insight title="{title}" query_kind="{query_kind}"']
         if source_kind:
             parts[0] += f' source_kind="{source_kind}"'
@@ -369,9 +386,12 @@ def _tiptap_node_to_text(node: dict) -> str:
         return "\n".join(parts)
 
     if node_type == "ph-recording":
-        attrs = node.get("attrs", {})
         session_id = attrs.get("id", "unknown")
         return f'<session_replay id="{session_id}" />'
+
+    if node_type == "ph-markdown-notebook":
+        markdown = attrs.get("markdown")
+        return markdown if isinstance(markdown, str) else ""
 
     # Fallback: try to extract text from children
     children = node.get("content", [])
@@ -380,7 +400,9 @@ def _tiptap_node_to_text(node: dict) -> str:
     return ""
 
 
-def _tiptap_list_item_to_text(item: dict) -> str:
+def _tiptap_list_item_to_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
     children = item.get("content", [])
     parts = []
     for child in children:
@@ -388,9 +410,13 @@ def _tiptap_list_item_to_text(item: dict) -> str:
     return " ".join(p for p in parts if p)
 
 
-def _tiptap_inline_to_text(nodes: list[dict]) -> str:
+def _tiptap_inline_to_text(nodes: Any) -> str:
+    if not isinstance(nodes, list):
+        return ""
     parts: list[str] = []
     for node in nodes:
+        if not isinstance(node, dict):
+            continue
         if node.get("type") == "text":
             text = node.get("text", "")
             marks = node.get("marks", [])

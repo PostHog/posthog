@@ -34,11 +34,13 @@ type EventPropertyTabKey =
     | 'raw'
     | 'conversation'
     | 'evaluation'
+    | 'tag'
     | 'exception_properties'
     | 'error_display'
     | 'debug_properties'
     | 'metadata'
     | 'survey_response'
+    | 'mcp'
 
 export const EventPropertyTabs = ({
     event,
@@ -54,9 +56,12 @@ export const EventPropertyTabs = ({
     const isAIGenerationEvent = event.event === '$ai_generation'
     const isAIConversationEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
     const isAIEvaluationEvent = event.event === '$ai_evaluation'
+    const isAITagEvent = event.event === '$ai_tag'
 
     const isErrorEvent = event.event === '$exception'
     const isSurveyResponseEvent = event.event === 'survey sent'
+    const isMcpEvent =
+        typeof event.event === 'string' && (event.event.startsWith('mcp_') || event.event.startsWith('mcp '))
 
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
@@ -65,11 +70,15 @@ export const EventPropertyTabs = ({
             ? 'conversation'
             : isAIEvaluationEvent
               ? 'evaluation'
-              : isErrorEvent
-                ? 'error_display'
-                : isSurveyResponseEvent
-                  ? 'survey_response'
-                  : 'properties'
+              : isAITagEvent
+                ? 'tag'
+                : isErrorEvent
+                  ? 'error_display'
+                  : isSurveyResponseEvent
+                    ? 'survey_response'
+                    : isMcpEvent
+                      ? 'mcp'
+                      : 'properties'
     )
 
     const promotedKeys = isKeyOf(event.event, POSTHOG_EVENT_PROMOTED_PROPERTIES)
@@ -116,6 +125,11 @@ export const EventPropertyTabs = ({
             label: 'Survey response',
             content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'survey_response' }),
         },
+        isMcpEvent && {
+            key: 'mcp',
+            label: 'MCP analytics',
+            content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'mcp' }),
+        },
         isAIConversationEvent
             ? {
                   key: 'conversation',
@@ -128,6 +142,13 @@ export const EventPropertyTabs = ({
                   key: 'evaluation',
                   label: 'Evaluation',
                   content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'evaluation' }),
+              }
+            : null,
+        isAITagEvent
+            ? {
+                  key: 'tag',
+                  label: 'Tag',
+                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'tag' }),
               }
             : null,
         {

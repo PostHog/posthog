@@ -273,6 +273,35 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
         })
 
+        it('discards a stale search response that resolves after a newer one', async () => {
+            api.get.mockClear()
+
+            const staleExperiment = createMockExperiment({ id: 10, name: 'wat' })
+            const freshExperiment = createMockExperiment({ id: 20, name: 'watermark' })
+
+            let resolveStale: (value: unknown) => void = () => {}
+            api.get.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveStale = resolve
+                    })
+            )
+            api.get.mockResolvedValueOnce({ results: [freshExperiment], count: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperiments() // slow request, e.g. search for "wat"
+                logic.actions.loadExperiments() // fast request, e.g. search for "watermark"
+            }).toDispatchActions(['loadExperimentsSuccess'])
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+
+            // The slow, stale response arrives after the newer one — it must be discarded
+            resolveStale({ results: [staleExperiment], count: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+        })
+
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',
@@ -516,18 +545,18 @@ describe('utility functions', () => {
     })
 
     describe('isExperimentPaused', () => {
-        it('returns true when a running experiment has an inactive feature flag', () => {
+        it('returns true when the API status is paused', () => {
             const pausedExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
-                status: ExperimentStatus.Running,
+                status: ExperimentStatus.Paused,
                 feature_flag: { active: false },
             })
 
             expect(isExperimentPaused(pausedExperiment)).toBe(true)
         })
 
-        it('returns false when a running experiment has an active feature flag', () => {
+        it('returns false when the experiment is running', () => {
             const runningExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
@@ -543,7 +572,7 @@ describe('utility functions', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
-            expect(getExperimentStatusColor(ExperimentStatus.Running, true)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.Paused)).toBe('warning')
             expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
         })
     })

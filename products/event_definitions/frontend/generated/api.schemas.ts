@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,12 +59,12 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
  * * `allow` - Allow
- * `reject` - Reject
+ * * `reject` - Reject
  */
 export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
 
@@ -108,7 +104,7 @@ export interface EnterpriseEventDefinitionApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -159,7 +155,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action?: boolean
     readonly action_id?: number
     readonly is_calculating?: boolean
@@ -172,8 +168,8 @@ export interface PatchedEnterpriseEventDefinitionApi {
 
 /**
  * * `add` - add
- * `remove` - remove
- * `set` - set
+ * * `remove` - remove
+ * * `set` - set
  */
 export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
 
@@ -190,10 +186,10 @@ export interface BulkUpdateTagsRequestApi {
      */
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
-
-* `add` - add
-* `remove` - remove
-* `set` - set */
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -233,7 +229,7 @@ export interface EventDefinitionRecordApi {
      * @maxLength 400
      * @nullable
      */
-    promoted_property?: string | null
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -243,16 +239,24 @@ export interface EventDefinitionRecordApi {
 }
 
 /**
- * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+ * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
  */
-export type PromotedPropertiesResponseApiPromotedProperties = { [key: string]: string }
+export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: string }
 
-export interface PromotedPropertiesResponseApi {
-    /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
-    promoted_properties: PromotedPropertiesResponseApiPromotedProperties
+export interface PrimaryPropertiesResponseApi {
+    /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
+    primary_properties: PrimaryPropertiesResponseApiPrimaryProperties
 }
 
 export type EventDefinitionsListParams = {
+    /**
+     * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
+     */
+    exclude_hidden?: boolean
+    /**
+     * When true, omit events whose last ingested occurrence is older than 30 days. Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events remain discoverable. Default false. If a search returns zero results with this filter on, retry with `exclude_stale=false` and tell the user the matches are stale.
+     */
+    exclude_stale?: boolean
     /**
      * Number of results to return per page.
      */
@@ -270,9 +274,9 @@ export type EventDefinitionsByNameRetrieveParams = {
     name: string
 }
 
-export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
     /**
-     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
      */
     names?: string[]
 }

@@ -1,7 +1,31 @@
 import type { ReactElement } from 'react'
 
-import { BigNumber, DataTable, LineChart, type Series } from './charts'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+
+import { formatNumber } from './utils'
+import { BigNumber, LineChart, type Series } from './charts'
 import type { TableVisualizerProps } from './types'
+
+// Query results are truncated client-side; sorting a truncated view would
+// mislead, so columns are non-sortable.
+const MAX_ROWS = 20
+
+function formatCellValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+    if (typeof value === 'number') {
+        return formatNumber(value)
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false'
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
 
 const DATE_PATTERNS = [
     /^\d{4}-\d{2}-\d{2}/, // 2024-01-15 or 2024-01-15T...
@@ -117,5 +141,37 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         return <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
     }
 
-    return <DataTable columns={columns} rows={rows} />
+    if (rows.length === 0) {
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                    <EmptyDescription>
+                        {columns.length === 0 ? 'No rows to display' : 'Query returned no rows'}
+                    </EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
+    }
+
+    const displayRows = rows.slice(0, MAX_ROWS)
+    const hasMore = displayRows.length < rows.length
+    const tableColumns: DataTableProps<unknown[], unknown>['columns'] = columns.map((col, colIndex) => ({
+        id: String(colIndex),
+        header: col,
+        accessorFn: (row: unknown[]) => row[colIndex],
+        enableSorting: false,
+        cell: (info: { getValue: () => unknown }) => formatCellValue(info.getValue()),
+    }))
+
+    return (
+        <div className="flex flex-col gap-2">
+            <DataTable columns={tableColumns} data={displayRows} />
+            {hasMore && (
+                <span className="text-center text-xs text-muted-foreground">
+                    Showing {displayRows.length} of {rows.length}+ rows
+                </span>
+            )}
+        </div>
+    )
 }

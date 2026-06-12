@@ -1,10 +1,11 @@
 import {
+    ResourceTypeEnumApi,
     SubscriptionDeliveryStatusEnumApi,
     SubscriptionFrequencyEnumApi,
     TargetTypeEnumApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 export const MOCK_SUBSCRIPTION_USER = {
     id: 1,
@@ -17,6 +18,7 @@ export const MOCK_SUBSCRIPTION_USER = {
 
 export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     id: 1,
+    resource_type: ResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',
@@ -33,6 +35,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     summary: 'sent every week',
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
+    enabled: true,
 }
 
 /** Insight subscription with several email recipients so Resource shows the type label, not the long name. */
@@ -46,6 +49,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT_MANY_DESTINATIONS: SubscriptionApi = {
 
 export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     id: 2,
+    resource_type: ResourceTypeEnumApi.Dashboard,
     insight: null,
     dashboard: 501,
     insight_short_id: null,
@@ -62,6 +66,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     summary: 'sent every day',
     next_delivery_date: '2026-04-08T09:00:00Z',
     deleted: false,
+    enabled: true,
     integration_id: 1,
 }
 

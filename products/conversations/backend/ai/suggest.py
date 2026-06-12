@@ -17,8 +17,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from products.conversations.backend.ai.runner import SupportAgentRunner
-
-from ee.models import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -212,7 +211,8 @@ MAX_PERSON_PROPERTIES = 30
 
 def _load_person_properties(team: Team, distinct_id: str) -> dict:
     try:
-        persons = get_persons_by_distinct_ids(team_id=team.pk, distinct_ids=[distinct_id])
+        # Only properties are read here, so skip the per-person distinct-id fetch entirely.
+        persons = get_persons_by_distinct_ids(team_id=team.pk, distinct_ids=[distinct_id], distinct_id_limit=0)
         if persons:
             return persons[0].properties or {}
     except Exception:

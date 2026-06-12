@@ -5,11 +5,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ToolbarProps } from '~/types'
+import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import {
+    asNonEmptyString,
     cleanToolbarAuthHash,
     generatePKCE,
     LOCALSTORAGE_KEY,
@@ -17,6 +18,15 @@ import {
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
 } from './utils'
+
+export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
+
+const VALID_USER_INTENTS: ReadonlySet<ToolbarUserIntent> = new Set(TOOLBAR_USER_INTENTS)
+
+const asUserIntent = (v: unknown): ToolbarUserIntent | null => {
+    const s = asNonEmptyString(v)
+    return s && VALID_USER_INTENTS.has(s as ToolbarUserIntent) ? (s as ToolbarUserIntent) : null
+}
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -48,33 +58,33 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
         accessToken: [
-            props.accessToken || null,
+            asNonEmptyString(props.accessToken),
             {
-                setOAuthTokens: (_, { accessToken }) => accessToken,
+                setOAuthTokens: (_, { accessToken }) => asNonEmptyString(accessToken),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         refreshToken: [
-            props.refreshToken || null,
+            asNonEmptyString(props.refreshToken),
             {
-                setOAuthTokens: (_, { refreshToken }) => refreshToken,
+                setOAuthTokens: (_, { refreshToken }) => asNonEmptyString(refreshToken),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         clientId: [
-            props.clientId || null,
+            asNonEmptyString(props.clientId),
             {
-                setOAuthTokens: (_, { clientId }) => clientId,
+                setOAuthTokens: (_, { clientId }) => asNonEmptyString(clientId),
                 logout: () => null,
                 tokenExpired: () => null,
             },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
-        productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
-        userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
+        productTourId: [asNonEmptyString(props.productTourId), { logout: () => null, clearUserIntent: () => null }],
+        userIntent: [asUserIntent(props.userIntent), { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         authStatus: [
             'idle' as 'idle' | 'checking' | 'authenticating' | 'error',
@@ -129,23 +139,51 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return window.location.origin
             },
         ],
-        // API host for JS and static assets (CSS)
-        // Uses posthog.config.api_host if available, otherwise falls back to props.apiURL for backwards compatibility
-        apiHost: [
+        // Host for static assets (the toolbar CSS `<link href>`) and for the
+        // `api_host` property emitted on toolbar telemetry. NEVER use for
+        // authenticated API calls — uiHost is token-bound via restoreOAuthTokens,
+        // apiHost is not, so sending bearer tokens here would let an attacker
+        // redirect them via the apiURL hash param.
+        //
+        // Candidates are run through canonicalizeApiHost which rejects
+        // non-http(s) schemes and userinfo URLs (blocks `javascript:` reaching
+        // a <link href>), while preserving the URL path so reverse-proxy
+        // deployments like `https://proxy/ingest` keep working.
+        //
+        // apiHostResolution carries the same value plus a `source` label so
+        // telemetry can distinguish "fell back to origin because nothing was
+        // supplied" (normal) from "fell back because supplied value was
+        // rejected" (misconfiguration) without re-running the sanitizer.
+        apiHostResolution: [
             (s) => [s.props],
-            (props: ToolbarProps): string => {
-                if (props.posthog?.config?.api_host) {
-                    return props.posthog.config.api_host.replace(/\/+$/, '')
+            (props: ToolbarProps): { host: string; source: ApiHostSource } => {
+                const rawConfig = props.posthog?.config?.api_host
+                const fromConfig = canonicalizeApiHost(rawConfig)
+                if (fromConfig) {
+                    return { host: fromConfig, source: 'posthog_api_host' }
                 }
-
-                // Fallback: if apiURL prop is set, use it (backwards compatibility)
-                if (props.apiURL) {
-                    return props.apiURL.replace(/\/+$/, '')
+                if (rawConfig) {
+                    toolbarLogger.warn('config', 'Invalid posthog.config.api_host, rejected', {
+                        api_host: rawConfig,
+                    })
                 }
-
-                // Final fallback: current origin
-                return window.location.origin
+                const rawApi = props.apiURL
+                const fromApi = canonicalizeApiHost(rawApi)
+                if (fromApi) {
+                    return { host: fromApi, source: 'api_url' }
+                }
+                if (rawApi) {
+                    toolbarLogger.warn('config', 'Invalid apiURL, rejected', { apiURL: rawApi })
+                }
+                return {
+                    host: window.location.origin,
+                    source: rawConfig || rawApi ? 'fallback_rejected' : 'fallback_absent',
+                }
             },
+        ],
+        apiHost: [
+            (s) => [s.apiHostResolution],
+            (resolution: { host: string; source: ApiHostSource }): string => resolution.host,
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.accessToken], (accessToken) => !!accessToken],
@@ -222,9 +260,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // posthog-js reads these at load time but never cleans them from the URL.
             // Including them would cause a re-initialization loop after OAuth callback.
             const hash = window.location.hash
-                .replace(/[#&]__posthog=[^&]*/g, '')
-                .replace(/[#&]__posthog_toolbar=[^&]*/g, '')
-                .replace(/^&/, '#')
+                .replace(/[#?&]__posthog=[^&]*/g, '')
+                .replace(/[#?&]__posthog_toolbar=[^&]*/g, '')
+                .replace(/^[?&]/, '#')
                 .replace(/^#$/, '')
             const redirect = encodeURIComponent(
                 window.location.origin + window.location.pathname + window.location.search + hash
@@ -390,6 +428,31 @@ export function canonicalizeUiHost(candidate: string | undefined | null): string
     }
 }
 
+/**
+ * Sanitize an apiHost candidate. Like canonicalizeUiHost, but preserves the URL
+ * path so reverse-proxy deployments (e.g. `https://proxy/ingest`) keep working
+ * — apiHost is concatenated with `/static/toolbar.css` and `/i/v1/logs`, so the
+ * path prefix must survive. Query and fragment are still dropped.
+ */
+export function canonicalizeApiHost(candidate: string | undefined | null): string | null {
+    if (!candidate) {
+        return null
+    }
+    try {
+        const parsed = new URL(candidate)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return null
+        }
+        if (parsed.username || parsed.password) {
+            return null
+        }
+        const pathname = parsed.pathname.replace(/\/+$/, '')
+        return parsed.origin + pathname
+    } catch {
+        return null
+    }
+}
+
 // ---------------------------------------------------------------------------
 // afterMount helpers — extracted to keep the mount handler readable
 // ---------------------------------------------------------------------------
@@ -501,7 +564,12 @@ function maybeMigrateTemporaryToken(
 /** Set up PostHog instrumentation and capture the "toolbar loaded" event. */
 function initInstrumentation(
     props: ToolbarProps,
-    values: { isAuthenticated: boolean; uiHost: string; apiHost: string }
+    values: {
+        isAuthenticated: boolean
+        uiHost: string
+        apiHost: string
+        apiHostResolution: { host: string; source: ApiHostSource }
+    }
 ): void {
     if (props.instrument) {
         toolbarPosthogJS.opt_in_capturing()
@@ -519,6 +587,8 @@ function initInstrumentation(
         source: props.source || 'unknown',
         ui_host: values.uiHost,
         api_host: values.apiHost,
+        api_host_source: values.apiHostResolution.source,
+        api_host_fallback: values.apiHostResolution.source.startsWith('fallback_'),
         ui_host_explicit: !!props.uiHost,
         ui_host_matches_api_host: values.uiHost === values.apiHost,
         load_duration_ms: loadDurationMs,
@@ -678,21 +748,24 @@ async function exchangeCodeForTokens(
             body: body.toString(),
         })
         const data = await res.json()
-        if (data.access_token && data.refresh_token) {
+        const access = asNonEmptyString(data?.access_token)
+        const refresh = asNonEmptyString(data?.refresh_token)
+        if (access && refresh) {
             toolbarPosthogJS.capture('toolbar oauth exchange', {
                 status: 'success',
                 duration_ms: Math.round(performance.now() - startTime),
             })
-            actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
+            actions.setOAuthTokens(access, refresh, clientId)
             return true
         }
+        const errorString = asNonEmptyString(data?.error) ?? 'unknown'
         toolbarPosthogJS.capture('toolbar oauth exchange', {
             status: 'error',
-            error: data.error || 'unknown',
+            error: errorString,
             duration_ms: Math.round(performance.now() - startTime),
         })
-        toolbarLogger.error('auth', 'Token exchange failed', { error: data.error || data })
-        captureToolbarException(new Error(`Token exchange failed: ${data.error || 'unknown'}`), 'token_exchange')
+        toolbarLogger.error('auth', 'Token exchange failed', { error: errorString })
+        captureToolbarException(new Error(`Token exchange failed: ${errorString}`), 'token_exchange')
         lemonToast.error('Authentication failed. Please try again.')
         return false
     } catch (err) {
@@ -712,7 +785,7 @@ async function exchangeCodeForTokens(
 export async function toolbarFetch(
     url: string,
     method: string = 'GET',
-    payload?: Record<string, any>,
+    payload?: Record<string, any> | FormData,
     /*
      allows caller to control how the provided URL is altered before use
      if "full" then the payload and URL are taken apart and reconstructed
@@ -731,36 +804,74 @@ export async function toolbarFetch(
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
+        // Pagination URLs come from response bodies — pin to uiHost (or apiHost, which
+        // is where Django's build_absolute_uri() sources its host) so they cannot
+        // redirect the Authorization header off-origin. Stub body matches the 401
+        // shape above so paginating callers fail gracefully on `results: []`.
+        const apiHost = logic?.values.apiHost
+        const allowedOrigins = [host, apiHost].filter(Boolean).map((h) => {
+            try {
+                return new URL(h as string).origin
+            } catch {
+                return null
+            }
+        })
+        if (allowedOrigins.length === 0) {
+            return new Response(JSON.stringify({ results: [], detail: 'no_uihost' }), { status: 400 })
+        }
+        let got: string
+        try {
+            got = new URL(url).origin
+        } catch {
+            return new Response(JSON.stringify({ results: [], detail: 'invalid_url' }), { status: 400 })
+        }
+        if (!allowedOrigins.includes(got)) {
+            toolbarLogger.warn('fetch', 'use-as-provided URL origin not in allowlist', {
+                allowed: allowedOrigins,
+                got,
+            })
+            return new Response(JSON.stringify({ results: [], detail: 'origin_mismatch' }), { status: 400 })
+        }
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)
         fullUrl = `${host}${pathname}${encodeParams(searchParams, '?')}`
     }
 
-    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` }
-    if (payload) {
-        headers['Content-Type'] = 'application/json'
+    const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData
+    const buildHeaders = (token: string): Record<string, string> => {
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+        // Don't set Content-Type for FormData: the browser supplies it with a
+        // multipart boundary. Setting it manually would corrupt the body.
+        if (payload && !isFormData) {
+            headers['Content-Type'] = 'application/json'
+        }
+        return headers
     }
+    // `withTokenRefresh` may replay the same request once with a new token. We intentionally
+    // reuse the same FormData instance here: FormData is re-readable (unlike one-shot streams),
+    // so both the initial send and the retry can consume it safely.
+    const body: BodyInit | undefined = payload
+        ? isFormData
+            ? (payload as FormData)
+            : JSON.stringify(payload)
+        : undefined
 
     const startTime = performance.now()
     let didRetry = false
 
     let response = await fetch(fullUrl, {
         method,
-        headers,
-        ...(payload ? { body: JSON.stringify(payload) } : {}),
+        headers: buildHeaders(accessToken),
+        ...(body !== undefined ? { body } : {}),
     })
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
         didRetry = true
-        const retryHeaders: Record<string, string> = { Authorization: `Bearer ${newAccessToken}` }
-        if (payload) {
-            retryHeaders['Content-Type'] = 'application/json'
-        }
         return await fetch(fullUrl, {
             method,
-            headers: retryHeaders,
-            ...(payload ? { body: JSON.stringify(payload) } : {}),
+            headers: buildHeaders(newAccessToken),
+            ...(body !== undefined ? { body } : {}),
         })
     })
 
@@ -793,48 +904,30 @@ export interface ToolbarMediaUploadResponse {
 
 /** Upload media (images) from the toolbar. */
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
-    const logic = toolbarConfigLogic.findMounted()
-    const accessToken = logic?.values.accessToken
-    const apiHost = logic?.values.apiHost
-
-    if (!accessToken || !apiHost) {
+    // Fail fast when there's no session to begin with — don't route through
+    // toolbarFetch (which would return a stub 401 and trip tokenExpired
+    // telemetry / toasts for a user who was never authenticated).
+    if (!toolbarConfigLogic.findMounted()?.values.accessToken) {
         throw new Error('Toolbar not authenticated')
     }
 
+    // Route through toolbarFetch so authenticated uploads share the single
+    // auth + token-refresh implementation. toolbarFetch sends the bearer to
+    // uiHost (validated + token-bound), closing the apiHost-redirect leak.
     const formData = new FormData()
     formData.append('image', file)
 
-    const url = `${apiHost}/api/projects/@current/uploaded_media/`
-
-    let response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        headers: { Authorization: `Bearer ${accessToken}` },
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        const retryFormData = new FormData()
-        retryFormData.append('image', file)
-        return await fetch(url, {
-            method: 'POST',
-            body: retryFormData,
-            headers: { Authorization: `Bearer ${newAccessToken}` },
-        })
-    })
+    const response = await toolbarFetch('/api/projects/@current/uploaded_media/', 'POST', formData)
 
     if (response.status === 401) {
+        // Session was valid at start but expired and refresh failed.
         toolbarConfigLogic.findMounted()?.actions.tokenExpired()
         throw new Error('Authentication expired')
     }
 
-    if (response.status === 403) {
-        toolbarConfigLogic.findMounted()?.actions.tokenExpired()
-        const responseData = await response.json().catch(() => ({}))
-        throw new Error(responseData.detail || 'Access denied')
-    }
-
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
+        // toolbarFetch already calls tokenExpired() on 403, so no need to repeat it here.
         throw new Error(errorData.detail || `Upload failed: ${response.status}`)
     }
 
