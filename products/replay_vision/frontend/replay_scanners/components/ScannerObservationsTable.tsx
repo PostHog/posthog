@@ -248,7 +248,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 onClick={() => loadObservations()}
                                 loading={observationsLoading}
                                 data-attr="vision-observations-refresh"
-                            />
+                            >
+                                Refresh
+                            </LemonButton>
                         </Tooltip>
                     </div>
                     {observationStats.total > 0 && (

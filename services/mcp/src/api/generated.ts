@@ -11359,6 +11359,70 @@ export namespace Schemas {
       previous: string | null;
     }
 
+    export interface CohortUsedInCohort {
+      /** Cohort database ID */
+      id: number;
+      /** Cohort display name; falls back to 'Unnamed' when empty */
+      name: string;
+    }
+
+    export interface CohortUsedInCohortsBlock {
+      /** Cohorts that include this cohort as a criterion, capped at 100 results */
+      results: CohortUsedInCohort[];
+      /** Total number of cohorts referencing this cohort, before truncation */
+      total: number;
+      /** True when more cohorts exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInFlag {
+      /** Feature flag database ID */
+      id: number;
+      /** Feature flag key (URL slug) */
+      key: string;
+      /**
+         * Feature flag display name
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface CohortUsedInFlagsBlock {
+      /** Feature flags referencing this cohort, capped at 100 results */
+      results: CohortUsedInFlag[];
+      /** Total number of feature flags referencing this cohort, before truncation */
+      total: number;
+      /** True when more feature flags exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInInsight {
+      /** Insight database ID */
+      id: number;
+      /** Insight short ID used for routing in the frontend */
+      short_id: string;
+      /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+      name: string;
+    }
+
+    export interface CohortUsedInInsightsBlock {
+      /** Insights referencing this cohort, capped at 100 results */
+      results: CohortUsedInInsight[];
+      /** Total number of insights referencing this cohort, before truncation */
+      total: number;
+      /** True when more insights exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInResponse {
+      /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+      feature_flags: CohortUsedInFlagsBlock;
+      /** Insights referencing this cohort with truncation metadata */
+      insights: CohortUsedInInsightsBlock;
+      /** Other cohorts that include this cohort as a criterion, with truncation metadata */
+      cohorts: CohortUsedInCohortsBlock;
+    }
+
     /**
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
@@ -21212,6 +21276,8 @@ export namespace Schemas {
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
+      /** False when the recording was included in list results via a direct link despite not matching the filters. */
+      matches_filters?: boolean | null;
       /** List of matching events. * */
       matching_events?: MatchedRecording[] | null;
       /** count of all mouse activity in the recording, not just clicks */
@@ -22577,6 +22643,7 @@ export namespace Schemas {
     /**
      * * `slack` - slack
      * * `webhook` - webhook
+     * * `teams` - teams
      */
     export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
 
@@ -22584,6 +22651,7 @@ export namespace Schemas {
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
+      Teams: 'teams',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -22685,10 +22753,11 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
+      /** Destination type — slack, webhook, or teams.
        *
        * * `slack` - slack
-       * * `webhook` - webhook */
+       * * `webhook` - webhook
+       * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -22696,7 +22765,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
@@ -26074,6 +26143,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -26513,6 +26587,8 @@ export namespace Schemas {
       readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -32801,6 +32877,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -33049,6 +33130,8 @@ export namespace Schemas {
       readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters?: boolean;
     }
 
     /**
@@ -42244,6 +42327,8 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
+      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_observations: number;
     }
 
     /**

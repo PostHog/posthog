@@ -15,6 +15,7 @@ import {
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -285,11 +286,16 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             if (!teamId) {
                 return
             }
+            // Deleting an enabled scanner removes its known contribution from the fleet sum — exact, so apply it now.
+            const scanner = values.scanners.find((s) => s.id === id)
+            const delta = scanner?.enabled ? -(scanner.estimated_monthly_observations ?? 0) : 0
+            visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersDestroy(String(teamId), id)
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
             } catch (error: any) {
+                visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
@@ -322,14 +328,16 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
+        // Refetch after any mutation so the page + creator dropdown + team-wide stats + quota meter stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
             actions.loadScannerStats()
+            visionQuotaLogic.findMounted()?.actions.loadQuota()
         },
         toggleScannerEnabledDone: () => {
             actions.loadScannerStats()
+            visionQuotaLogic.findMounted()?.actions.loadQuota()
         },
 
         toggleScannerEnabled: async ({ id }) => {
@@ -343,12 +351,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 actions.revertScannerEnabled(id)
                 return
             }
+            // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
+            const estimate = scanner.estimated_monthly_observations ?? 0
+            const delta = scanner.enabled ? estimate : -estimate
+            visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
                 actions.toggleScannerEnabledDone(id)
             } catch (error: any) {
                 const verb = scanner.enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
+                visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 actions.revertScannerEnabled(id)
             }
         },
