@@ -342,10 +342,6 @@ export function getCohortNameFromId(
     return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
 }
 
-export function truncateBreakdownLabel(label: string): string {
-    return label.length > 200 ? label.slice(0, 200) + '…' : label
-}
-
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
@@ -456,7 +452,10 @@ export function formatBreakdownLabel(
                   ? BREAKDOWN_NULL_DISPLAY
                   : breakdown_value
 
-        return truncateLabel ? truncateBreakdownLabel(label) : label
+        if (truncateLabel && label.length > 200) {
+            return label.slice(0, 200) + '…'
+        }
+        return label
     }
 
     return ''

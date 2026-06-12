@@ -1,5 +1,3 @@
-import { ClipboardEvent } from 'react'
-
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -7,7 +5,7 @@ import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanF
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { formatBreakdownType, truncateBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
@@ -91,40 +89,28 @@ export function BreakdownColumnItem({
     breakdownFilter,
 }: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
-    const displayLabel = truncateBreakdownLabel(breakdownLabel)
-    const isClipped = displayLabel !== breakdownLabel
     const showPathCleaningHighlight = breakdownFilter?.breakdown_path_cleaning && typeof breakdownLabel === 'string'
     const formattedLabel = showPathCleaningHighlight
-        ? parseAliasToReadable(displayLabel)
-        : stringWithWBR(displayLabel, 20)
+        ? parseAliasToReadable(breakdownLabel)
+        : stringWithWBR(breakdownLabel, 20)
 
-    // When the copied selection reaches the clipped end ("…"), substitute the full value
-    const handleCopy = isClipped
-        ? (e: ClipboardEvent<HTMLDivElement>): void => {
-              const selection = window.getSelection()?.toString() ?? ''
-              if (selection.trimEnd().endsWith('…')) {
-                  e.clipboardData.setData('text/plain', breakdownLabel)
-                  e.preventDefault()
-              }
-          }
-        : undefined
-
+    // Clipped with CSS only, so the full value stays in the DOM — copying the cell copies everything
     return (
-        <div className="flex justify-between items-center" onCopy={handleCopy}>
+        <div className="flex justify-between items-center">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
                         <Link
                             to={breakdownLabel}
                             target="_blank"
-                            className="value-link font-medium"
+                            className="value-link font-medium line-clamp-4"
                             title={breakdownLabel}
                             targetBlankIcon
                         >
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel} className="font-medium">
+                        <div title={breakdownLabel} className="font-medium line-clamp-4">
                             {formattedLabel}
                         </div>
                     )}
