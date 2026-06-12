@@ -70,12 +70,20 @@ class GeoipDictFallback(CloningVisitor):
                 type=ast.BooleanType(),
             )
 
-        # nullIf keeps the property's "blank means NULL" semantics when the dictionary has no entry for the IP either.
+        # On a dictionary miss, fall back to the stored value rather than NULL, so blanks keep their existing
+        # representation (materialized reads scrub '' to NULL, raw JSON reads return '' for a present-but-empty key).
         recovered = ast.Call(
-            name="nullIf",
+            name="coalesce",
             args=[
-                ast.Call(name=function_name, args=[blob_read("$ip")], type=ast.StringType()),
-                ast.Constant(value=""),
+                ast.Call(
+                    name="nullIf",
+                    args=[
+                        ast.Call(name=function_name, args=[blob_read("$ip")], type=ast.StringType()),
+                        ast.Constant(value=""),
+                    ],
+                    type=ast.StringType(nullable=True),
+                ),
+                clone_expr(node),
             ],
             type=ast.StringType(nullable=True),
         )
