@@ -211,10 +211,13 @@ class TestTypeCoverageResolution(BaseTest):
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
-    def _resolved_column_type(self, query: str) -> ast.Type | None:
+    def _resolved_column_type(self, query: str, build_swapper: bool = False) -> ast.Type | None:
         node = parse_select(query)
         node = resolve_types(node, self.context, dialect="clickhouse")
         assert isinstance(node, ast.SelectQuery)
+        if build_swapper:
+            # Populates context.property_swapper, which the property metadata path reads from.
+            build_property_swapper(node, self.context)
         column_type = node.select[0].type
         # Selected columns are wrapped in a FieldAliasType; unwrap to the underlying reference.
         if isinstance(column_type, ast.FieldAliasType):
@@ -230,30 +233,21 @@ class TestTypeCoverageResolution(BaseTest):
         self.assertEqual(classify_expr_type(field_type), "partial")
 
     def test_property_with_metadata_is_precise(self):
-        property_type = self._resolved_column_type("SELECT properties.foo FROM events")
-        self.assertIsInstance(property_type, ast.PropertyType)
-
         PropertyDefinition.objects.create(
             team=self.team,
             name="foo",
             property_type=PropertyDefinitionType.Numeric,
             type=PropertyDefinition.Type.EVENT,
         )
-        node = resolve_types(parse_select("SELECT properties.foo FROM events"), self.context, dialect="clickhouse")
-        build_property_swapper(node, self.context)
+        property_type = self._resolved_column_type("SELECT properties.foo FROM events", build_swapper=True)
+        self.assertIsInstance(property_type, ast.PropertyType)
 
         self.assertEqual(classify_expr_type(property_type, self.context), "precise")
 
     def test_property_without_metadata_is_partial_not_string_fallback(self):
-        property_type = self._resolved_column_type("SELECT properties.unknown_prop FROM events")
+        property_type = self._resolved_column_type("SELECT properties.unknown_prop FROM events", build_swapper=True)
         self.assertIsInstance(property_type, ast.PropertyType)
         assert isinstance(property_type, ast.PropertyType)
-        build_property_swapper(
-            resolve_types(
-                parse_select("SELECT properties.unknown_prop FROM events"), self.context, dialect="clickhouse"
-            ),
-            self.context,
-        )
 
         # Resolution falls back to the blob's String type (classify_constant_type would call that
         # precise); the special-casing returns partial instead, since metadata is missing.

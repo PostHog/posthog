@@ -287,25 +287,23 @@ def classify_expr_type(type_: ast.Type | None, context: HogQLContext | None = No
         return classify_expr_type(type_.type, context)
     if isinstance(type_, ast.ConstantType):
         return classify_constant_type(type_)
-    # A reference type (column / property) hides a concrete scalar; resolve it if we have a context.
-    if context is not None:
+    # FieldType/PropertyType hide a concrete scalar behind a reference; resolve it if we have a
+    # context. Other catch-all types (SelectQueryType, LazyJoinType, AsteriskType, lambda types)
+    # genuinely lack a scalar, so they skip resolution and stay "partial".
+    if context is not None and isinstance(type_, (ast.FieldType, ast.PropertyType)):
         return _classify_via_resolution(type_, context)
     return "partial"
 
 
-def _classify_via_resolution(type_: ast.Type, context: HogQLContext) -> Precision:
-    """Resolve a reference type to its scalar and classify that. Only FieldType/PropertyType hide a
-    scalar; SelectQueryType, LazyJoinType, AsteriskType, lambda types etc. correctly stay "partial"."""
+def _classify_via_resolution(type_: ast.FieldType | ast.PropertyType, context: HogQLContext) -> Precision:
     try:
         if isinstance(type_, ast.PropertyType):
             return _classify_property_type(type_, context)
-        if isinstance(type_, ast.FieldType):
-            return classify_constant_type(type_.resolve_constant_type(context))
+        return classify_constant_type(type_.resolve_constant_type(context))
     except Exception:
         # Resolution can raise for genuinely unresolvable references — expected, so "partial"
         # without bumping the observability error counter.
         return "partial"
-    return "partial"
 
 
 def _classify_property_type(type_: ast.PropertyType, context: HogQLContext) -> Precision:
