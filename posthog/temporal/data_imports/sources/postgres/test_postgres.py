@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
+    TemporaryFileSizeExceedsLimitException,
 )
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
@@ -48,6 +49,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
     _get_primary_keys,
+    _get_rows_to_sync,
     _get_sslmode,
     _get_table,
     _get_table_chunk_size,
@@ -55,6 +57,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
+    _is_unsupported_function_error,
     _normalize_function_names,
     _rls_active_from_conn,
     _role_subject_to_rls,
@@ -167,6 +170,33 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Hit 30 successive SerializationFailure errors. Aborting.",
+            "Exception: Hit 30 successive SerializationFailure errors. Aborting.",
+        ],
+    )
+    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Exhausted recovery-conflict error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A single recovery conflict is retried in-process; on its own it must stay retryable.
+            "canceling statement due to conflict with recovery",
+            "could not serialize access due to conflict with recovery",
+            # The connection-dropped abort is a separate, genuinely transient condition.
+            "Hit 10 successive connection-dropped errors. Aborting.",
+        ],
+    )
+    def test_recovery_conflict_related_transients_stay_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient error should remain retryable: {error_msg}"
 
 
 class TestIsConnectionDroppedError:
@@ -1157,6 +1187,41 @@ class TestGetTableChunkSize:
 
             dj_cursor.execute("SELECT 1")
             assert dj_cursor.fetchone()[0] == 1
+
+
+class TestGetRowsToSync:
+    @pytest.mark.django_db
+    def test_failing_count_query_falls_back_to_zero_without_capturing(self):
+        logger = structlog.get_logger()
+
+        # Count query references a column that doesn't exist — mirrors a misconfigured
+        # incremental field (e.g. djstripe_updated on a table that lacks it).
+        count_query = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
+            table=sql.Identifier("information_schema", "tables"),
+            col=sql.Identifier("does_not_exist_count_col"),
+        )
+
+        with django_connection.cursor() as dj_cursor:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+                rows = _get_rows_to_sync(cast(Any, dj_cursor), count_query, logger)
+
+        # Best-effort estimate falls back to 0 and never reports the handled failure.
+        assert rows == 0
+        mock_capture.assert_not_called()
+
+    def test_temp_file_limit_error_still_raises(self):
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(TemporaryFileSizeExceedsLimitException):
+                _get_rows_to_sync(cast(Any, cursor), count_query, logger)
+
+        # The temp-file signal is actionable, so it propagates rather than being swallowed.
+        mock_capture.assert_not_called()
 
 
 class TestPartitionedTableChunkSizing:
@@ -2722,3 +2787,55 @@ class TestRlsDetectionRealDb:
             dj_cursor.execute("CREATE TABLE test_rls_noschema (id SERIAL PRIMARY KEY)")
             result = _rls_active_from_conn(cast(Any, _DjangoBackedConnection(dj_cursor)), "", None)
             assert "public.test_rls_noschema" in result
+
+
+# Message a DuckDB/Flight-SQL-backed Postgres-wire engine returns when `row_security_active` is
+# absent — the engine accepts the connection but lacks the Postgres-only catalog function.
+_FLIGHT_MISSING_FUNCTION_MSG = (
+    "flight execute: rpc error: code = InvalidArgument desc = failed to prepare query: "
+    "Catalog Error: Scalar Function with name row_security_active does not exist!"
+)
+
+
+class TestIsUnsupportedFunctionError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG), True),
+            (Exception('function "row_security_active" does not exist'), True),
+            (Exception("Unknown function: row_security_active"), True),
+            # Real Postgres raises UndefinedFunction (SQLSTATE 42883) — recognised by type alone.
+            (psycopg.errors.UndefinedFunction("function row_security_active(oid) does not exist"), True),
+            # Different function missing -> not our concern, should still be captured.
+            (Exception("function some_other_func does not exist"), False),
+            # A genuine permission error mentioning the function must NOT be swallowed.
+            (Exception("permission denied for function row_security_active"), False),
+            (Exception("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_missing_function(self, error, expected):
+        assert _is_unsupported_function_error(error, "row_security_active") is expected
+
+
+class TestRlsActiveFromConnErrorHandling:
+    @staticmethod
+    def _conn_raising(exc: Exception):
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = exc
+        return conn
+
+    def test_unsupported_function_error_is_not_captured(self):
+        # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
+        # RLS warnings without flooding error tracking.
+        conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unexpected_error_is_still_captured(self):
+        conn = self._conn_raising(Exception("connection reset by peer"))
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_called_once()

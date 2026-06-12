@@ -1,5 +1,18 @@
 import dataclasses
 
+# Shared by the workflow definition, the schedule, and the management command.
+CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
+
+OUTCOME_PASS = "pass"
+OUTCOME_DIVERGENCE = "divergence"
+OUTCOME_PATH_FLIP = "path_flip"
+OUTCOME_ERROR = "error"
+OUTCOME_SKIPPED = "skipped"
+ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERROR, OUTCOME_SKIPPED)
+
+# Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
+MAX_CANARY_DETAIL_LENGTH = 1000
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:
@@ -34,6 +47,71 @@ class MetricRecalculationResult:
     success: bool
     error_step: str | None = None
     error_message: str | None = None
+
+
+@dataclasses.dataclass
+class ExperimentPrecomputeCanaryInputs:
+    """Input to the precompute canary workflow.
+
+    Scheduled runs use the defaults (quota sampling across eligible experiments). On-demand forensics runs
+    set experiment_id to canary one specific experiment — all of its eligible metrics, quotas ignored —
+    optionally narrowed via metric_uuids. triggered_manually skips the Prometheus push (manual runs would
+    distort the scheduled-canary health signal) but still posts to Slack.
+    """
+
+    experiment_id: int | None = None
+    metric_uuids: list[str] | None = None
+    funnel_quota: int = 6
+    mean_quota: int = 3
+    ratio_quota: int = 2
+    per_experiment_cap: int = 3
+    time_budget_seconds: int = 3600
+    triggered_manually: bool = False
+
+
+@dataclasses.dataclass
+class CanaryMetricTarget:
+    """One sampled (experiment, metric) pair. Carries only the uuid — the definition is re-resolved inside
+    the run activity so a metric edited/deleted between sampling and execution is seen as it currently is."""
+
+    team_id: int
+    experiment_id: int
+    metric_uuid: str
+    metric_type: str  # "funnel" | "mean" | "ratio"
+
+
+@dataclasses.dataclass
+class CanaryVariantStats:
+    sum: float
+    number_of_samples: int
+
+
+@dataclasses.dataclass
+class CanaryRunSnapshot:
+    """Per-variant aggregates from one execution of the metric query."""
+
+    label: str  # "a" | "b" (forced precomputed) | "c" (forced direct scan)
+    query_id: str  # client_query_id, for system.query_log forensics
+    is_precomputed: bool
+    variants: dict[str, CanaryVariantStats]
+
+
+@dataclasses.dataclass
+class CanaryMetricResult:
+    """Verdict for one metric: outcome plus everything needed to investigate without re-running."""
+
+    target: CanaryMetricTarget
+    outcome: str  # "pass" | "divergence" | "path_flip" | "error" | "skipped"
+    stability_deviation: float | None = None  # max relative deviation, run a vs b
+    correctness_deviation: float | None = None  # max relative deviation, run b vs c
+    runs: list[CanaryRunSnapshot] = dataclasses.field(default_factory=list)
+    detail: str | None = None
+
+
+@dataclasses.dataclass
+class CanaryReportInputs:
+    results: list[CanaryMetricResult]
+    triggered_manually: bool = False
 
 
 @dataclasses.dataclass

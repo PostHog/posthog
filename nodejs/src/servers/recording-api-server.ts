@@ -17,7 +17,9 @@ import {
 } from '../session-replay/recording-api/types'
 import {
     KafkaDefaultProducerEnvConfig,
+    KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaDefaultProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '../session-replay/shared/outputs/producer-config'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
@@ -28,6 +30,7 @@ export type RecordingApiServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaDefaultProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
+    KafkaSessionreplayProducerEnvConfig &
     RecordingApiOutputsConfig &
     PostgresRouterConfig &
     Pick<
@@ -47,6 +50,7 @@ export class RecordingApiServer implements NodeServer {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultRecordingApiOutputsConfig()),
             ...config,
         }

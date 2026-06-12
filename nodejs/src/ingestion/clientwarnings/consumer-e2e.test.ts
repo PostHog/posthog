@@ -14,8 +14,10 @@ import { resetKafka } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
 import {
+    getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../common/config'
 import { KafkaProducerRegistryComponent } from '../common/outputs/registry'
@@ -95,6 +97,8 @@ describe('ClientWarnings consumer E2E', () => {
             ...getDefaultKafkaProducerEnvConfig(),
             ...getDefaultKafkaWarpstreamProducerEnvConfig(),
             ...getDefaultKafkaIngestionProducerEnvConfig(),
+            ...getDefaultKafkaUpstreamProducerEnvConfig(),
+            ...getDefaultKafkaDownstreamProducerEnvConfig(),
         }
         const sharedScope: ClientWarningsSharedScope = newScope('clientwarnings-e2e-shared', (b) =>
             b
