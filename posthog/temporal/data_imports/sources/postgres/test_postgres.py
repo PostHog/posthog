@@ -286,24 +286,27 @@ class TestConnectWithDroppedRetry:
 
 
 class TestStatementTimeoutAsNonRetryable:
-    def test_incremental_statement_timeout_maps_to_query_timeout(self):
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,incremental_field,expected_substr",
+        [
+            # Incremental syncs map the timeout to a non-retryable QueryTimeoutException.
+            (True, "updated_at", "updated_at"),
+            # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
+            # reorder rows; we only short-circuit incremental reads.
+            (False, None, None),
+        ],
+    )
+    def test_statement_timeout_mapping(self, should_use_incremental_field, incremental_field, expected_substr):
         result = _statement_timeout_as_non_retryable(
             psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
-            should_use_incremental_field=True,
-            incremental_field="updated_at",
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
         )
-        assert isinstance(result, QueryTimeoutException)
-        assert "updated_at" in str(result)
-
-    def test_non_incremental_statement_timeout_is_not_mapped(self):
-        # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
-        # reorder rows; we only short-circuit incremental reads.
-        result = _statement_timeout_as_non_retryable(
-            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
-            should_use_incremental_field=False,
-            incremental_field=None,
-        )
-        assert result is None
+        if expected_substr is None:
+            assert result is None
+        else:
+            assert isinstance(result, QueryTimeoutException)
+            assert expected_substr in str(result)
 
     @pytest.mark.parametrize(
         "error",
