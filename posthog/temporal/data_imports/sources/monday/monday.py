@@ -17,7 +17,7 @@ PAGE_SIZE = 100
 ITEMS_PAGE_SIZE = 500
 REQUEST_TIMEOUT_SECONDS = 120
 # Rate limiting is complexity-budget based (5-10M points/min by tier) and
-# surfaces as 429s; exponential backoff rides out the minute window.
+# surfaces as a GraphQL error (not a 429); exponential backoff rides out the minute window.
 MAX_RETRY_ATTEMPTS = 5
 
 _BOARDS_QUERY = """

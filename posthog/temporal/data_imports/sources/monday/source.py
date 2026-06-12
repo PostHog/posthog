@@ -29,9 +29,12 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
         return ExternalDataSourceType.MONDAY
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Scope GraphQL matches to auth/permission failures only — a broad "monday.com GraphQL error"
+        # key would also catch transient server-side errors and permanently disable the sync.
         return {
             "401 Client Error: Unauthorized for url: https://api.monday.com": "monday.com authentication failed. Please check your API token.",
-            "monday.com GraphQL error": "monday.com rejected the request. Please check that your API token has access to the requested data.",
+            "monday.com GraphQL error: Not authenticated": "monday.com authentication failed. Please check your API token.",
+            "monday.com GraphQL error: User unauthorized": "monday.com rejected the request. Please check that your API token has access to the requested data.",
         }
 
     @property
