@@ -461,7 +461,9 @@ class CosmosDBSourceConfig(config.Config):
 
 @config.config
 class CoupaSourceConfig(config.Config):
-    pass
+    instance_url: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -516,7 +518,7 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DeelSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -531,7 +533,7 @@ class DisplayVideo360SourceConfig(config.Config):
 
 @config.config
 class DixaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -736,7 +738,8 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HiBobSourceConfig(config.Config):
-    pass
+    service_user_id: str
+    service_user_token: str
 
 
 @config.config
@@ -1440,7 +1443,17 @@ class ZoomSourceConfig(config.Config):
 
 @config.config
 class ZuoraSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal[
+        "us_production",
+        "us_api_sandbox",
+        "us_cloud_production",
+        "us_cloud_sandbox",
+        "eu_production",
+        "eu_sandbox",
+        "central_sandbox",
+    ] = config.value(default="us_production")
 
 
 def get_config_for_source(source: ExternalDataSourceType):
