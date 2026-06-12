@@ -21,6 +21,12 @@ const groupLookupCache = new Map<string, Group | null>()
 const cacheKey = (teamId: number, groupTypeIndex: GroupTypeIndex, groupKey: string): string =>
     `${teamId}:${groupTypeIndex}:${groupKey}`
 
+// Exposed for tests — the cache is a module singleton, so it must be reset
+// between cases to keep them independent.
+export function clearGroupLookupCache(): void {
+    groupLookupCache.clear()
+}
+
 async function cachedFindGroups(
     teamId: number | null,
     groupTypeIndex: GroupTypeIndex,

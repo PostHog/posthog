@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { GroupTypeIndex } from '~/types'
 
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
+import { clearGroupLookupCache } from './groupKeyTooltipLogic'
 
 const MOCK_GROUPS = [
     {
@@ -42,6 +43,7 @@ describe('GroupKeyFilterTooltip', () => {
             },
         })
         initKeaTests()
+        clearGroupLookupCache()
     })
 
     afterEach(() => {
