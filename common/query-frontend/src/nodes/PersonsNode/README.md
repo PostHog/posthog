@@ -17,7 +17,7 @@ import { Query } from '@posthog/query-frontend/Query/Query'
         kind: 'DataTableNode',
         source: {
             kind: 'ActorsQuery',
-            select: ['person', 'id', 'created_at', 'person.$delete'],
+            select: ['person_display_name -- Person', 'id', 'created_at', 'person.$delete'],
             search: '',
             properties: [
                 { type: 'person', key: '$browser', operator: 'exact', value: 'Chrome' },

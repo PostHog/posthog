@@ -16,7 +16,7 @@ import { Query } from '@posthog/query-frontend/Query/Query'
         kind: 'DataTableNode',
         source: {
             kind: 'SessionsQuery',
-            select: ['session_id', 'timestamp', 'person', '$entry_current_url'],
+            select: ['session_id', '$start_timestamp', '$session_duration', '$entry_current_url'],
             after: '-24h',
             properties: [
                 { type: 'session', key: '$entry_utm_source', operator: 'exact', value: ['google'] },

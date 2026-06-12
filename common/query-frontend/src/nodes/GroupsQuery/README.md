@@ -17,7 +17,7 @@ import { Query } from '@posthog/query-frontend/Query/Query'
         source: {
             kind: 'GroupsQuery',
             group_type_index: 0,
-            select: ['group_name', 'key', 'created_at'],
+            select: ['group_name', 'created_at'],
             search: '',
         },
         showSearch: true, // -> GroupsSearch
