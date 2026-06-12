@@ -1,7 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
@@ -322,6 +323,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             customInput?: string
         }) => payload,
         clearPermissionRequest: true,
+        /**
+         * Internal: the reply POST failed. Resets the in-flight flag (so the surviving card's
+         * buttons re-enable for retry) without coupling that reset to unrelated stream errors.
+         */
+        permissionResponseFailed: true,
         handleTerminalStatus: (status: { status: SandboxRunStatus; errorMessage?: string | null }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
         // Internal state-folding actions emitted by ingestAcpFrame.
@@ -500,6 +506,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => new Set<string>(),
             },
         ],
+        // In-flight state for the approval reply POST — drives the input card's loading/disabled
+        // props. Cleared on resolution (success) and on the POST's own failure (the card stays
+        // pending, so the buttons must re-enable for retry).
+        respondingToPermission: [
+            false,
+            {
+                respondToPermission: () => true,
+                markPermissionRequestResolved: () => false,
+                clearPermissionRequest: () => false,
+                permissionResponseFailed: () => false,
+                reset: () => false,
+            },
+        ],
         currentMode: [
             null as string | null,
             {
@@ -529,6 +548,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 markRunStarted: () => false,
                 reset: () => false,
             },
+        ],
+    }),
+    selectors({
+        /**
+         * Whether the agent is actively working a turn — drives the thread's thinking indicator.
+         * Off once the turn completes, the run reaches a terminal status (a failed or cancelled
+         * run may never emit `_posthog/turn_complete`), or the stream errors out.
+         */
+        isThinking: [
+            (s) => [s.runStarted, s.turnComplete, s.currentRunStatus, s.sseStatus],
+            (runStarted, turnComplete, currentRunStatus, sseStatus): boolean =>
+                runStarted && !turnComplete && !isTerminalRunStatus(currentRunStatus) && sseStatus !== 'error',
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -732,8 +763,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
+                // A failed reply POST does not mean the run died — the agent is still alive and
+                // blocked on this same approval. Keep the failure local to the card (re-enable its
+                // buttons for a retry) instead of tearing down the stream, which would release the
+                // chat lock and hide the still-pending request behind the normal input.
                 posthog.captureException(error)
-                actions.handleStreamError({ errorTitle: 'Failed to send approval', retryable: true })
+                actions.permissionResponseFailed()
+                lemonToast.error('Failed to send approval. Please try again.')
             }
         },
         handleTerminalStatus: ({ status }) => {
