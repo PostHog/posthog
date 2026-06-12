@@ -895,6 +895,15 @@ AGENT_INGRESS_DOMAIN_SUFFIX = get_from_env("AGENT_INGRESS_DOMAIN_SUFFIX", "")
 # omitted from the serializer response, signalling "not externally reachable".
 AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
 
+# Teams allowed to set an agent's slug explicitly on create. Everyone else gets
+# a server-minted globally-unique slug (the slug is a single global namespace —
+# see AgentApplication). This is our escape hatch so first-party agents (e.g.
+# the concierge) keep a stable, human-readable slug across environments.
+# Comma-separated team ids; empty (default) → no team may set an explicit slug.
+AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS: set[int] = {
+    int(team_id) for team_id in get_list(get_from_env("AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS", ""))
+}
+
 # Shared HMAC signing key for trusted-service JWTs across the agent platform.
 # Django mints aud-scoped tokens for the ingress (draft previews) and janitor
 # (authoring RPC); each receiving service verifies signature + aud against
