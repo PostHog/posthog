@@ -66,20 +66,21 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
-        getPostHogClient().capture({
+        // Emits `$mcp_initialize`. The SDK maps `durationMs` → `$mcp_duration_ms`
+        // and `sessionId` → `$session_id`; everything else rides on `properties`.
+        getPostHogClient().captureInitialize({
             distinctId: state.distinctId,
-            event: 'mcp_initialize',
-            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            groups,
+            durationMs: initDurationMs ?? 0,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
             properties: {
                 ...properties,
-                $mcp_duration_ms: initDurationMs ?? 0,
                 $mcp_is_error: false,
                 tool_count: state.allTools.length,
                 has_organization_id: !!requestContext.organizationId,
                 has_project_id: !!requestContext.projectId,
                 read_only: !!requestContext.readOnly,
                 via_sse_redirect: !!requestContext.viaSseRedirect,
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
             },
         })
     } catch {
@@ -112,18 +113,21 @@ export async function trackToolCall(
         // buckets those as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
 
-        getPostHogClient().capture({
+        // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
+        // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
+        // `$mcp_is_error`, and `sessionId` → `$session_id`. `$exception` fan-out
+        // is disabled on the client, so an errored call stays a single event.
+        getPostHogClient().captureToolCall({
+            toolName,
+            durationMs,
+            isError,
             distinctId: state.distinctId,
-            event: 'mcp_tool_call',
-            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
             properties: {
                 ...properties,
-                $mcp_tool_name: toolName,
-                $mcp_duration_ms: durationMs,
-                $mcp_is_error: isError,
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 ...extraProperties,
             },
         })

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockCapture } = vi.hoisted(() => ({
-    mockCapture: vi.fn(),
+const { mockCaptureToolCall, mockCaptureInitialize } = vi.hoisted(() => ({
+    mockCaptureToolCall: vi.fn(),
+    mockCaptureInitialize: vi.fn(),
 }))
 
 vi.mock('@/lib/posthog', () => ({
     getPostHogClient: vi.fn(() => ({
-        capture: mockCapture,
+        captureToolCall: mockCaptureToolCall,
+        captureInitialize: mockCaptureInitialize,
     })),
 }))
 
@@ -62,14 +64,15 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
 
 describe('Hono MCP analytics contexts', () => {
     beforeEach(() => {
-        mockCapture.mockClear()
+        mockCaptureToolCall.mockClear()
+        mockCaptureInitialize.mockClear()
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
         await trackInitEvent(makeState())
 
-        expect(mockCapture).toHaveBeenCalledTimes(1)
-        expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
+        expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',
             $mcp_client_user_agent: 'request-agent/1.0',
@@ -92,7 +95,7 @@ describe('Hono MCP analytics contexts', () => {
     it('omits session properties when there is no MCP session context', async () => {
         await trackToolCall('user-get', 12, false, makeState({ sessionContext: null }))
 
-        const properties = mockCapture.mock.calls[0]![0].properties
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
         expect(properties.$mcp_client_name).toBe('Claude Desktop')
         expect(properties.mcp_session_client_name).toBeUndefined()
         expect(properties.mcp_session_vendor_client).toBeUndefined()
@@ -101,12 +104,12 @@ describe('Hono MCP analytics contexts', () => {
     it('stamps $mcp_tool_category from the catalogued tool definition', async () => {
         await trackToolCall('query-logs', 5, false, makeState())
 
-        expect(mockCapture.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
     })
 
     it('omits $mcp_tool_category for tools without a catalogued definition', async () => {
         await trackToolCall('exec', 5, false, makeState())
 
-        expect(mockCapture.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
     })
 })
