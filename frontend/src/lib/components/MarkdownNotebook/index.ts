@@ -8,6 +8,8 @@ export {
     mergeMarkdownNotebookRegistries,
 } from './registry'
 export { parseMarkdownNotebook, serializeMarkdownNotebook, htmlElementToInlineNodes } from './markdown'
+export { MarkdownTextDiff } from './MarkdownTextDiff'
+export type { MarkdownTextDiffProps } from './MarkdownTextDiff'
 export { reconcileNotebookDocuments } from './reconcile'
 export { markdownCrc, mergeNotebookMarkdownChanges, tryApplyTextChanges } from './collaboration'
 export type { TextChange } from './collaboration'

@@ -29,6 +29,7 @@ import { NotebookColumnRight } from './NotebookColumnRight'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
+import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { openUpgradeToMarkdownNotebookDialog } from './notebookUpgradeDialog'
 
@@ -67,6 +68,7 @@ export function Notebook({
         isTemplate,
         notebookMissing,
         content,
+        comments,
     } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -112,7 +114,7 @@ export function Notebook({
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        openUpgradeToMarkdownNotebookDialog({ content, setLocalContent })
+        openUpgradeToMarkdownNotebookDialog({ content, comments, setLocalContent })
     }
 
     return (
@@ -150,6 +152,7 @@ export function Notebook({
                     )}
                     <NotebookHistoryWarning />
                     <NotebookCollabConflictModal />
+                    <NotebookMergeConflictDetails />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
