@@ -17,6 +17,7 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerScanner,
     scanner_from_db,
 )
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.types import EventTable
 
 
@@ -624,7 +625,9 @@ class TestSignalSideMission:
         parsed = scanner.llm_response_model().model_validate(
             {**payload, "confidence": 0.9, "signal": {"description": "Broken CTA on /cart", "confidence": 0.8}}
         )
-        assert parsed.signal.description == "Broken CTA on /cart"
+        signal = getattr(parsed, "signal", None)
+        assert isinstance(signal, SignalFinding)
+        assert signal.description == "Broken CTA on /cart"
         # `finalize` must still produce the persisted output; the finding travels separately on ScannerCallOutput.
         assert scanner.finalize(parsed) is not None
 

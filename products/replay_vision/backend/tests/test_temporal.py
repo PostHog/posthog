@@ -2023,6 +2023,7 @@ class TestEmitObservationSignalActivity:
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
             assert emit_observation_signal_activity(self._inputs(observation)) == 1
 
+        assert mock_emit.await_args is not None
         kwargs = mock_emit.await_args.kwargs
         assert kwargs["source_product"] == "replay_vision"
         assert kwargs["source_type"] == "scanner_finding"
