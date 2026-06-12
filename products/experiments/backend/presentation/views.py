@@ -837,7 +837,9 @@ class EnterpriseExperimentsViewSet(
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         result = request_recalculation(experiment, cast(User, request.user), trigger)
-        is_existing = result.pop("is_existing", False)
+        # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
+        # the idempotent-reuse path without inspecting the HTTP status code.
+        is_existing = result.get("is_existing", False)
 
         if not is_existing:
             recalculation_id = str(result["id"])
