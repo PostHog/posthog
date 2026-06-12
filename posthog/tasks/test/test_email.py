@@ -625,35 +625,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             == f"external_data_failure_digest_{self.team.pk}_2024-05-14"
         )
 
-    @parameterized.expand([(True, 1), (False, 0)])
-    def test_send_external_data_failure_digest_respects_rollout_flag(
-        self, MockEmailMessage: MagicMock, flag_enabled: bool, expected_emails: int
-    ) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-
-        items = [
-            {
-                "schema_name": "Charge",
-                "source_type": "Stripe",
-                "source_id": "abc",
-                "source_prefix": "",
-                "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
-                "error": "boom",
-                "paused": False,
-                "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
-            }
-        ]
-        with (
-            self.settings(TEST=False),
-            patch("posthog.tasks.email.posthoganalytics.feature_enabled", return_value=flag_enabled) as mock_flag,
-        ):
-            sent = send_external_data_failure_digest(self.team.pk, items)
-
-        assert sent is flag_enabled
-        assert len(mocked_email_messages) == expected_emails
-        assert mock_flag.call_args.kwargs["key"] == "external-data-failure-digest-email"
-        assert mock_flag.call_args.kwargs["groups"]["project"] == str(self.team.pk)
-
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

@@ -646,16 +646,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
         logger.warning("Team %d not found for external data failure digest", team_id)
         return False
 
-    # Gradual rollout: gated per team behind a flag (absent flag = off everywhere).
-    # Gated teams are never stamped, so once the flag opens up for them the catch-up
-    # delivers their currently-failing schemas naturally.
-    if not settings.TEST and not posthoganalytics.feature_enabled(
-        key="external-data-failure-digest-email",
-        distinct_id=str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-    ):
-        return False
-
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return False
