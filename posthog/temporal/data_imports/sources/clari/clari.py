@@ -160,7 +160,7 @@ def get_forecast(
     for _attempt in range(EXPORT_POLL_MAX_ATTEMPTS):
         job_body = fetch("GET", f"{CLARI_BASE_URL}/export/jobs/{quote(job_id)}").json()
         job = job_body.get("job") if isinstance(job_body.get("job"), dict) else job_body
-        status = job.get("status")
+        status = job["status"]
 
         if status == "DONE":
             break

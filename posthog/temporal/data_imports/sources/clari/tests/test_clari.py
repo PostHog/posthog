@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -39,6 +39,7 @@ class TestFormatTimestamp:
         [
             (datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC), "2024-01-02T03:04:05Z"),
             (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05Z"),
+            (date(2024, 1, 2), "2024-01-02T00:00:00Z"),
             ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
         ],
     )

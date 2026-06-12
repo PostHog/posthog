@@ -224,8 +224,6 @@ doesn't conflict with concurrent PRs.
 - campaign_manager_360
 - checkout_com
 - chorus
-- circleci
-- clari
 - cloudflare
 - cockroachdb
 - coda
