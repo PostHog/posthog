@@ -297,21 +297,57 @@ class _ObservationFilters:
 
     def where_clauses(self, placeholders: dict[str, "ast.Expr"]) -> list[str]:
         """HogQL predicates over `metadata`, registering their values into `placeholders`. The metadata key is
-        absent for scanner types that don't carry it, so each predicate naturally matches only the right type."""
+        absent for scanner types that don't carry it, so each predicate naturally matches only the right type.
+
+        Every clause MUST be added via `_append_filter` — that helper is the only path that pairs a
+        hardcoded-literal clause string with a parameterized placeholder. Never append a clause built from
+        anything other than a static string literal; user/LLM-controlled input belongs in `value`, not in
+        `clause`."""
         clauses: list[str] = []
         if self.verdict:
-            placeholders["verdict"] = ast.Constant(value=self.verdict)
-            clauses.append("JSONExtractString(metadata, 'verdict') IN {verdict}")
+            self._append_filter(
+                clauses, placeholders, "verdict", self.verdict, "JSONExtractString(metadata, 'verdict') IN {verdict}"
+            )
         if self.tags:
-            placeholders["tags"] = ast.Constant(value=self.tags)
-            clauses.append("hasAny(JSONExtract(metadata, 'tags', 'Array(String)'), {tags})")
+            self._append_filter(
+                clauses,
+                placeholders,
+                "tags",
+                self.tags,
+                "hasAny(JSONExtract(metadata, 'tags', 'Array(String)'), {tags})",
+            )
         if self.min_score is not None:
-            placeholders["min_score"] = ast.Constant(value=self.min_score)
-            clauses.append("JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') >= {min_score}")
+            self._append_filter(
+                clauses,
+                placeholders,
+                "min_score",
+                self.min_score,
+                "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') >= {min_score}",
+            )
         if self.max_score is not None:
-            placeholders["max_score"] = ast.Constant(value=self.max_score)
-            clauses.append("JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') <= {max_score}")
+            self._append_filter(
+                clauses,
+                placeholders,
+                "max_score",
+                self.max_score,
+                "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') <= {max_score}",
+            )
         return clauses
+
+    @staticmethod
+    def _append_filter(
+        clauses: list[str],
+        placeholders: dict[str, "ast.Expr"],
+        key: str,
+        value: Any,
+        clause: str,
+    ) -> None:
+        """Register one filter atomically: the value goes into `placeholders` (parameterized), the clause is
+        the hardcoded literal that references it. The structure/value split lives in one place so callers
+        can't half-do it — any future filter must come through here, which makes the "clause is a static
+        literal" invariant impossible to break by accident."""
+        placeholders[key] = ast.Constant(value=value)
+        clauses.append(clause)
 
 
 class SearchObservationsArgs(BaseModel):
