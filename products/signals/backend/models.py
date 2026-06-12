@@ -184,12 +184,14 @@ class SignalReport(UUIDModel):
 
     # The scout run that created this report directly (bypassing the signal pipeline).
     # Null for pipeline-created and custom-agent reports. SET_NULL so purging run history
-    # doesn't destroy the report.
+    # doesn't destroy the report. `db_index=False` keeps the AddField non-blocking on the
+    # populated table; the lookup index is added concurrently (see Meta.indexes).
     created_by_scout_run = models.ForeignKey(
         "signals.SignalScoutRun",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         related_name="created_reports",
     )
 
@@ -213,6 +215,9 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            # Backs the per-run creation-cap count and "reports this run created" lookups.
+            # Built concurrently (migration 0039); the FK itself is db_index=False.
+            models.Index(fields=["created_by_scout_run"], name="signal_report_scout_run_idx"),
         ]
 
     def transition_to(
@@ -373,11 +378,14 @@ class SignalReportArtefact(UUIDModel):
     # The scout run that wrote this artefact, when it was scout-authored rather than produced
     # by the summary workflow or a user action. Artefact reads are latest-wins per type, so
     # attribution is what distinguishes "the research agent judged P1" from "scout X judged P1".
+    # `db_index=False`: artefacts are read via their report, never queried by run, and an
+    # unindexed FK keeps the AddField non-blocking (same shape as tasks' created_by FK).
     created_by_scout_run = models.ForeignKey(
         "signals.SignalScoutRun",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         related_name="artefacts_created",
     )
 

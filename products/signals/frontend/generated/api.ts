@@ -417,7 +417,7 @@ export const getSignalsScoutUpdateReportUrl = (projectId: string, runId: string)
 }
 
 /**
- * Update an existing inbox report on this project: rewrite its title/summary, transition its state (`suppressed` / `potential` / `resolved`), and/or append priority / actionability / suggested-reviewer judgments. Judgments are append-only artefacts — the newest one becomes the report's effective value, and prior judgments persist as the audit trail. Rewritten title/summary pass a safety filter; blocked content returns `skipped_reason=unsafe_content`. Works on any non-deleted report, including pipeline-generated ones.
+ * Update an existing inbox report on this project: rewrite its title/summary, transition its state (`suppressed` / `potential` / `resolved`), and/or append priority / actionability / suggested-reviewer judgments. Judgments are append-only artefacts — the newest one becomes the report's effective value, and prior judgments persist as the audit trail. Rewritten title/summary pass a safety filter; blocked content returns `skipped_reason=unsafe_content`. Works on any non-deleted report, including pipeline-generated ones — except state transitions on reports the pipeline currently holds (`candidate` / `in_progress`), which return 409 until the summary workflow releases them.
  * @summary Update an inbox report for a run
  */
 export const signalsScoutUpdateReport = async (

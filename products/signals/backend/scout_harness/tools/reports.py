@@ -48,6 +48,7 @@ from posthog.models import Team
 
 from products.signals.backend.models import (
     SIGNAL_REPORT_MAX_SNOOZE_FOR,
+    InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
     SignalScoutRun,
@@ -147,7 +148,30 @@ def _validate_judgments(
     return parsed_priority, parsed_actionability, _normalize_reviewers(suggested_reviewers)
 
 
-def _check_content_safety(team: Team, run: SignalScoutRun, title: str | None, summary: str | None) -> str | None:
+def _scout_prose_parts(
+    title: str | None,
+    summary: str | None,
+    priority: PriorityAssessment | None,
+    actionability: ActionabilityAssessment | None,
+    reviewers: list[dict[str, Any]] | None,
+) -> list[str]:
+    """Collect every scout-authored free-text field a write would persist.
+
+    Judgment explanations and reviewer display names are report content too — they're
+    returned verbatim by the artefact API — so they must pass the same safety filter as
+    title/summary, or a judgment-only update becomes an unfiltered prose channel.
+    """
+    parts = [title, summary]
+    if priority is not None:
+        parts.append(priority.explanation)
+    if actionability is not None:
+        parts.append(actionability.explanation)
+    for reviewer in reviewers or []:
+        parts.append(reviewer.get("github_name"))
+    return [part for part in parts if part and part.strip()]
+
+
+def _check_content_safety(team: Team, run: SignalScoutRun, parts: list[str]) -> str | None:
     """Run the signal safety filter over scout-authored report prose.
 
     Returns "unsafe_content" when blocked, None when safe. The pipeline path gets this
@@ -162,7 +186,6 @@ def _check_content_safety(team: Team, run: SignalScoutRun, title: str | None, su
         safety_filter,
     )
 
-    parts = [part for part in (title, summary) if part and part.strip()]
     if not parts:
         return None
     text = "\n\n".join(parts)
@@ -280,7 +303,9 @@ def create_report_sync(
         )
         return ReportWriteResult(report_id=None, persisted=False, skipped_reason="report_cap_reached")
 
-    unsafe = _check_content_safety(team, run, title, summary)
+    unsafe = _check_content_safety(
+        team, run, _scout_prose_parts(title, summary, parsed_priority, parsed_actionability, parsed_reviewers)
+    )
     if unsafe is not None:
         return ReportWriteResult(report_id=None, persisted=False, skipped_reason=unsafe)
 
@@ -375,7 +400,9 @@ def update_report_sync(
         )
         return ReportWriteResult(report_id=str(report_id), persisted=False, skipped_reason=preflight)
 
-    unsafe = _check_content_safety(team, run, title, summary)
+    unsafe = _check_content_safety(
+        team, run, _scout_prose_parts(title, summary, parsed_priority, parsed_actionability, parsed_reviewers)
+    )
     if unsafe is not None:
         return ReportWriteResult(report_id=str(report_id), persisted=False, skipped_reason=unsafe)
 
@@ -391,6 +418,12 @@ def update_report_sync(
 
         updated_fields: set[str] = set()
         if new_state is not None:
+            # Narrower than `transition_to`'s matrix: while the summary workflow holds a
+            # report (candidate/in_progress), a scout transition would make the workflow's
+            # own follow-up transition raise mid-run and strand the report. Humans can still
+            # dismiss via the user state endpoint; scouts wait until the pipeline lets go.
+            if report.status in (SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS):
+                raise InvalidStatusTransition(report.status, new_state)
             # `snooze_for` only applies on a snooze back to potential, mirroring the user
             # state endpoint. `transition_to` raises InvalidStatusTransition on illegal moves.
             effective_snooze = snooze_for if new_state == SignalReport.Status.POTENTIAL else None

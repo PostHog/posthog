@@ -257,13 +257,6 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
         assert report.status == SignalReport.Status.POTENTIAL
         assert report.signals_at_run == 7
 
-    @parameterized.expand(
-        [
-            ("resolve_potential", SignalReport.Status.POTENTIAL, "resolved"),
-            ("resolve_resolved", SignalReport.Status.RESOLVED, "resolved"),
-            ("suppress_suppressed", SignalReport.Status.SUPPRESSED, "suppressed"),
-        ]
-    )
     def test_update_with_empty_reviewers_clears_effective_list(self) -> None:
         # Latest artefact wins on read, so an explicit empty list must write a new (empty)
         # artefact — silently skipping it would leave stale suggestions effective.
@@ -326,6 +319,17 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
 
+    @parameterized.expand(
+        [
+            ("resolve_potential", SignalReport.Status.POTENTIAL, "resolved"),
+            ("resolve_resolved", SignalReport.Status.RESOLVED, "resolved"),
+            ("suppress_suppressed", SignalReport.Status.SUPPRESSED, "suppressed"),
+            # The summary workflow owns candidate/in_progress reports — a scout transition
+            # there would strand the workflow's own follow-up transition mid-run.
+            ("suppress_candidate", SignalReport.Status.CANDIDATE, "suppressed"),
+            ("snooze_in_progress", SignalReport.Status.IN_PROGRESS, "potential"),
+        ]
+    )
     def test_update_illegal_transition_returns_409(self, _name: str, from_status: str, target: str) -> None:
         run = _make_run(self.team)
         report = self._make_report(report_status=from_status)
@@ -395,6 +399,25 @@ class TestScoutUpdateReportAPI(ScoutReportAPIBase):
         assert body["skipped_reason"] == "unsafe_content"
         report.refresh_from_db()
         assert report.title == "Existing report"
+
+    def test_update_judgment_only_runs_safety_filter_on_explanation(self) -> None:
+        # Judgment explanations are persisted, user-facing prose — a judgment-only update
+        # must not be an unfiltered channel around the title/summary safety check.
+        run = _make_run(self.team)
+        report = self._make_report()
+        with _safety_filter(safe=False) as mock_filter:
+            response = self.client.post(
+                self._update_url(str(run.id)),
+                data={
+                    "report_id": str(report.id),
+                    "priority": {"priority": "P0", "explanation": "Injected adversarial prose."},
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["skipped_reason"] == "unsafe_content"
+        mock_filter.assert_called_once()
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
 
     def test_update_state_only_skips_safety_filter(self) -> None:
         # No scout-authored prose in a pure state transition — the LLM check would be

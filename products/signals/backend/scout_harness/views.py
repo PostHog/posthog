@@ -478,7 +478,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "suggested-reviewer judgments. Judgments are append-only artefacts — the newest one becomes "
             "the report's effective value, and prior judgments persist as the audit trail. Rewritten "
             "title/summary pass a safety filter; blocked content returns `skipped_reason=unsafe_content`. "
-            "Works on any non-deleted report, including pipeline-generated ones."
+            "Works on any non-deleted report, including pipeline-generated ones — except state "
+            "transitions on reports the pipeline currently holds (`candidate` / `in_progress`), "
+            "which return 409 until the summary workflow releases them."
         ),
         operation_id="signals_scout_update_report",
     )
