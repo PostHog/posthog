@@ -23,7 +23,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from .api import AgentApplicationViewSet, EventStreamRenderer
+from ..presentation.views import AgentApplicationViewSet, EventStreamRenderer
 
 
 class TestPreviewProxyScope(APIBaseTest):

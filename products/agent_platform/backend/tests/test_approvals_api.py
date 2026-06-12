@@ -21,7 +21,7 @@ from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
 
-from .models import AgentApplication
+from ..models import AgentApplication
 
 
 class TestApprovalEndpointsAuth(APIBaseTest):
@@ -65,7 +65,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         )
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.agent_platform.backend.api._janitor")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_admin_list_forwards_to_janitor(self, mock_janitor) -> None:
         self._set_org_level(OrganizationMembership.Level.ADMIN)
         mock_janitor.return_value.list_approvals.return_value = {"results": []}
@@ -78,7 +78,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             offset=None,
         )
 
-    @patch("products.agent_platform.backend.api._janitor")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_admin_decide_forwards_decision_payload(self, mock_janitor) -> None:
         self._set_org_level(OrganizationMembership.Level.ADMIN)
         mock_janitor.return_value.get_approval.return_value = {
@@ -101,7 +101,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             reason="looks good",
         )
 
-    @patch("products.agent_platform.backend.api._janitor")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_admin_cannot_decide_approval_for_other_application(self, mock_janitor) -> None:
         self._set_org_level(OrganizationMembership.Level.ADMIN)
         other_app = AgentApplication.all_teams.create(
@@ -127,7 +127,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
         mock_janitor.return_value.decide_approval.assert_not_called()
 
-    @patch("products.agent_platform.backend.api._janitor")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_decide_validates_required_fields(self, mock_janitor) -> None:
         self._set_org_level(OrganizationMembership.Level.ADMIN)
         resp = self.client.post(self.url_decide, {}, format="json")

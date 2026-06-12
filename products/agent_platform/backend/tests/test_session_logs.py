@@ -24,8 +24,8 @@ from rest_framework import status
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 
-from .api import AGENT_SESSION_LOG_SOURCE, AgentApplicationViewSet
-from .models import AgentApplication
+from ..models import AgentApplication
+from ..presentation.views import AGENT_SESSION_LOG_SOURCE, AgentApplicationViewSet
 
 
 def _insert_log(

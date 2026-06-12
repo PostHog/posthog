@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 
-from .models import AgentApplication
+from ..models import AgentApplication
 
 
 class TestMemoryViewSetAuthz(APIBaseTest):
@@ -35,7 +35,7 @@ class TestMemoryViewSetAuthz(APIBaseTest):
         )
         self.tables_url = f"/api/projects/{self.team.id}/agent_applications/{self.application.id}/memory/tables/"
 
-    @patch("products.agent_platform.backend.api._janitor")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_authorized_member_can_list_tables(self, mock_janitor: MagicMock) -> None:
         # The added object-permission check must not over-block or crash the
         # normal path: a team member resolves the app and proxies to the janitor.
@@ -44,7 +44,7 @@ class TestMemoryViewSetAuthz(APIBaseTest):
         self.assertEqual(res.status_code, 200, res.content)
         mock_janitor.return_value.list_tables.assert_called_once()
 
-    @patch("products.agent_platform.backend.api._janitor")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_application_from_another_team_is_not_readable(self, mock_janitor: MagicMock) -> None:
         # An application owned by a different team must not be reachable through
         # this team's URL — resolution is team-scoped, so the janitor is never

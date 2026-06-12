@@ -16,7 +16,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from .models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentRevision
 
 
 class TestPromoteArchive(APIBaseTest):
