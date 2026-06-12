@@ -53,6 +53,7 @@ the row lists both.
 | appsflyer        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
+| attentive        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | azure_devops     | HTTP                        | requests                                                        | ✅                          |
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
@@ -78,7 +79,9 @@ the row lists both.
 | convertkit       | HTTP                        | requests                                                        | ✅                          |
 | convex           | HTTP                        | requests                                                        | ✅                          |
 | copper           | HTTP                        | requests                                                        | ✅                          |
+| coupa            | HTTP                        | requests                                                        | ✅                          |
 | crunchbase       | HTTP                        | requests                                                        | ✅                          |
+| culture_amp      | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
@@ -116,6 +119,7 @@ the row lists both.
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailgun          | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
+| matomo           | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mollie           | HTTP                        | requests                                                        | ✅                          |
@@ -167,6 +171,7 @@ the row lists both.
 | stripe           | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase         | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
+| taboola          | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | trello           | HTTP                        | requests                                                        | ✅                          |
@@ -179,6 +184,7 @@ the row lists both.
 | wrike            | HTTP                        | requests                                                        | ✅                          |
 | zendesk          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zoom             | HTTP                        | requests                                                        | ✅                          |
+| zuora            | HTTP                        | requests                                                        | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -226,7 +232,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - apple_search_ads
-- attentive
 - auth0
 - azure_blob
 - bigcommerce
@@ -241,9 +246,7 @@ doesn't conflict with concurrent PRs.
 - constant_contact
 - copper
 - cosmosdb
-- coupa
 - criteo
-- culture_amp
 - databricks
 - db2
 - deel
@@ -273,7 +276,6 @@ doesn't conflict with concurrent PRs.
 - lever
 - lightspeed_retail
 - marketo
-- matomo
 - microsoft_teams
 - netsuite
 - onedrive
@@ -303,14 +305,12 @@ doesn't conflict with concurrent PRs.
 - sftp
 - sharepoint
 - surveymonkey
-- taboola
 - twitter_ads
 - workday
 - xero
 - youtube_analytics
 - zoho_crm
 - zoominfo
-- zuora
 
 ---
 
