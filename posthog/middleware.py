@@ -613,6 +613,11 @@ class EnvironmentsRedirectMiddleware:
 
     @classmethod
     def _redirect_enabled(cls) -> bool:
+        # Tests across the repo blanket-mock posthoganalytics.feature_enabled for their
+        # own flags; honoring it here would flip the redirect on as a side effect of any
+        # such mock. Under TEST the redirect only turns on by patching this method.
+        if settings.TEST:
+            return False
         # only_evaluate_locally keeps this off the network on every request; a constant
         # distinct id makes the flag an instance-wide on/off switch (roll out 0% or 100%).
         return bool(
