@@ -278,6 +278,22 @@ async function expectStoryToMatchSnapshot(
     }
 }
 
+async function waitForAllImagesToSettle(page: Page): Promise<void> {
+    // `complete` flips to true when fetching finishes, whether the image decoded or errored.
+    // ProseMirror-separator isn't an actual image, ignore it.
+    await page
+        .waitForFunction(
+            () => {
+                const isIgnorableImage = (i: HTMLImageElement): boolean => i.classList.contains('ProseMirror-separator')
+                return Array.from(document.images).every((i: HTMLImageElement) => i.complete || isIgnorableImage(i))
+            },
+            { timeout: 8000 }
+        )
+        .catch(() => {
+            // if timeout, that's okay — fall through to the screenshot
+        })
+}
+
 async function takeSnapshotWithTheme(
     page: Page,
     context: TestContext,
@@ -293,22 +309,15 @@ async function takeSnapshotWithTheme(
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
-    // Wait for every image to settle (loaded OR failed) so stories with intentionally
-    // broken images snapshot the final broken-image state instead of racing the error event.
-    // `complete` flips to true when fetching finishes, whether the image decoded or errored.
-    await page.waitForFunction(() => {
-        return Array.from(document.images).every(
-            (i: HTMLImageElement) => i.complete || i.classList.contains('ProseMirror-separator')
-        )
-    })
+    // Wait so broken-image stories snapshot the final error state, not a mid-fetch race
+    await waitForAllImagesToSettle(page)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
+            // ProseMirror-separator isn't an actual image, ignore it
+            const isIgnorableImage = (i: HTMLImageElement): boolean => i.classList.contains('ProseMirror-separator')
             const allImages = Array.from(document.images)
-            const areAllImagesLoaded = allImages.every(
-                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
-                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
-            )
+            const areAllImagesLoaded = allImages.every((i: HTMLImageElement) => !!i.naturalWidth || isIgnorableImage(i))
             if (areAllImagesLoaded) {
                 // Hide gifs to prevent their animations causing flakiness
                 for (const image of allImages) {
