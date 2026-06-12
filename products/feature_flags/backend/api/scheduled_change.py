@@ -192,7 +192,8 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
 
         try:
             feature_flag = FeatureFlag.objects.get(id=record_id, team_id=team_id)
-        except FeatureFlag.DoesNotExist:
+        except (FeatureFlag.DoesNotExist, ValueError):
+            # ValueError: non-numeric record_id (record_id is a free-form CharField) — treat as not found.
             raise serializers.ValidationError("Feature flag not found")
 
         request = self.context["request"]

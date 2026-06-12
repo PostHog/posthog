@@ -130,6 +130,24 @@ class TestScheduledChange(APIBaseTest):
         assert "Feature flag not found" in str(response_data)
         assert not ScheduledChange.objects.filter(record_id="999999").exists()
 
+    def test_cannot_create_scheduled_change_for_non_numeric_record_id(self):
+        """A non-numeric record_id is rejected with a 400, not a 500 from the int cast."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": "not-a-number",
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": False},
+                "scheduled_at": "2023-12-08T12:00:00Z",
+            },
+        )
+
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Feature flag not found" in str(response_data)
+        assert not ScheduledChange.objects.filter(record_id="not-a-number").exists()
+
     def test_recurring_schedule_requires_interval(self):
         """Test that recurring schedules require a recurrence_interval"""
         feature_flag = FeatureFlag.objects.create(
