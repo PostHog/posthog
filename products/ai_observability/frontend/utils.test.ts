@@ -8,6 +8,7 @@ import {
     costContextFromTrace,
     formatAiErrorForDisplay,
     formatLLMEventTitle,
+    formatModelRowLabel,
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
@@ -1637,6 +1638,65 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 expect(typeof title).toBe('string')
                 expect(title).toBe(expected)
             })
+        })
+    })
+
+    describe('formatModelRowLabel', () => {
+        it('returns null for a trace', () => {
+            const trace: LLMTrace = {
+                id: 'trace-1',
+                createdAt: '2024-01-01T00:00:00Z',
+                distinctId: 'user-1',
+                person: {
+                    uuid: 'person-1',
+                    created_at: '2024-01-01T00:00:00Z',
+                    properties: {},
+                    distinct_id: 'user-1',
+                },
+                events: [],
+            }
+            expect(formatModelRowLabel(trace)).toBeNull()
+        })
+
+        const cases: Array<[string, string, Record<string, unknown>, string | null]> = [
+            // Only generations with a span name get a model row; otherwise the event title covers it.
+            ['span event', '$ai_span', { $ai_span_name: 'My Span', $ai_model: 'gpt-4' }, null],
+            ['embedding event', '$ai_embedding', { $ai_span_name: 'Embed', $ai_model: 'gpt-4' }, null],
+            ['generation without span name', '$ai_generation', { $ai_model: 'gpt-4' }, null],
+            ['generation with object span name', '$ai_generation', { $ai_span_name: {}, $ai_model: 'gpt-4' }, null],
+            [
+                'generation with model and provider',
+                '$ai_generation',
+                { $ai_span_name: 'Chat', $ai_model: 'gpt-4', $ai_provider: 'openai' },
+                'gpt-4 (openai)',
+            ],
+            ['generation with model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: 'gpt-4' }, 'gpt-4'],
+            [
+                'generation with object model and string provider',
+                '$ai_generation',
+                { $ai_span_name: 'Chat', $ai_model: {}, $ai_provider: 'openai' },
+                'openai',
+            ],
+            [
+                'generation with string model and object provider',
+                '$ai_generation',
+                { $ai_span_name: 'Chat', $ai_model: 'gpt-4', $ai_provider: {} },
+                'gpt-4',
+            ],
+            ['generation with object model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: {} }, null],
+            ['generation with array model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: [] }, null],
+            ['generation with numeric model only', '$ai_generation', { $ai_span_name: 'Chat', $ai_model: 4 }, null],
+            ['generation without model or provider', '$ai_generation', { $ai_span_name: 'Chat' }, null],
+        ]
+
+        it.each(cases)('%s', (_label, event, properties, expected) => {
+            const traceEvent: LLMTraceEvent = {
+                id: 'event-1',
+                event,
+                properties,
+                createdAt: '2024-01-01T00:00:00Z',
+            }
+            expect(formatModelRowLabel(traceEvent)).toBe(expected)
         })
     })
 

@@ -953,6 +953,22 @@ export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     return event.traceName ?? 'Trace'
 }
 
+export function formatModelRowLabel(event: LLMTrace | LLMTraceEvent): string | null {
+    if (!isLLMEvent(event) || event.event !== '$ai_generation') {
+        return null
+    }
+    // if we don't have a span name, we don't want to render the model row as its covered by the event title
+    if (!asString(event.properties.$ai_span_name)) {
+        return null
+    }
+    const model = asString(event.properties.$ai_model)
+    const provider = asString(event.properties.$ai_provider)
+    if (model && provider) {
+        return `${model} (${provider})`
+    }
+    return model || provider || null
+}
+
 /**
  * Lightweight XML-ish content detector for UI toggles.
  * - NOTE: Scans only the first 2KB for signals (to avoid performance issues with regex)
