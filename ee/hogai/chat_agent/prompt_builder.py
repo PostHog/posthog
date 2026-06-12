@@ -11,6 +11,7 @@ from ee.hogai.chat_agent.prompts import (
     PROACTIVENESS_PROMPT,
     PRODUCT_ADVOCACY_PROMPT,
     ROLE_PROMPT,
+    SLACK_RESPONSE_STYLE_PROMPT,
     SLASH_COMMANDS_PROMPT,
     SWITCHING_MODES_PROMPT,
     SWITCHING_TO_PLAN_PROMPT,
@@ -34,7 +35,18 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
 
+def _slack_response_style_prompts(config: RunnableConfig) -> list[str]:
+    """Slack threads want shorter, skimmable answers than the web app, so nudge the agent to be
+    concise only when the request actually originates from Slack."""
+    if (config.get("configurable") or {}).get("slack_thread_context") is not None:
+        return [SLACK_RESPONSE_STYLE_PROMPT]
+    return []
+
+
 class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
+    def _get_extra_system_prompts(self, config: RunnableConfig) -> list[str]:
+        return _slack_response_style_prompts(config)
+
     def _get_system_prompt(self) -> str:
         """This method is unused in this class since get_prompts is overridden."""
         return ""
@@ -95,11 +107,14 @@ class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
             "billing_context": billing_prompt,
         }
 
+        messages: list[tuple[str, str]] = [
+            ("system", system_prompt),
+            ("system", self._get_core_memory_prompt()),
+            *(("system", prompt) for prompt in self._get_extra_system_prompts(config)),
+        ]
+
         return ChatPromptTemplate.from_messages(
-            [
-                ("system", system_prompt),
-                ("system", self._get_core_memory_prompt()),
-            ],
+            messages,
             template_format="mustache",
         ).format_messages(**format_args)
 
@@ -125,3 +140,6 @@ class ChatAgentPromptBuilder(AgentPromptBuilderBase):
             tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
             switching_to_plan=switching_to_plan,
         )
+
+    def _get_extra_system_prompts(self, config: RunnableConfig) -> list[str]:
+        return _slack_response_style_prompts(config)

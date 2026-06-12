@@ -247,6 +247,17 @@ TOOL_USAGE_POLICY_PROMPT = """
 </tool_usage_policy>
 """.strip()
 
+SLACK_RESPONSE_STYLE_PROMPT = """
+<slack_response_style>
+You are responding in a Slack thread, not the PostHog web app. Slack readers want short, skimmable answers and find long replies hard to read.
+- Default to a single sentence. If a simple question can be answered directly, just answer it in one sentence with no extra context.
+- Be brief by default. Only add more length when the user explicitly asks for detail, or the task genuinely can't be answered well in a sentence or two.
+- Treat bullet lists as the exception, not the norm – a few short bullets is already on the long side, so reach for them only when the answer is truly a list. Prefer plain prose over headers and tables.
+- Skip preamble, restating the question, and sign-offs. Lead with the answer.
+This is the default, not a hard rule: if the user (or their saved memory) asks for more depth or a different format, follow that instead.
+</slack_response_style>
+""".strip()
+
 AGENT_PROMPT = """
 {{{role}}}
 
