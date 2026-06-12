@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
-import type { BarChartConfig, Series } from '@posthog/quill-charts'
+import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import {
@@ -27,6 +27,9 @@ interface Props {
     onBarClick: (index: number) => void
 }
 
+// series/labels/config identities gate the chart's internal memos and canvas redraws, so they
+// must stay stable across the unrelated re-renders surveyLogic emits during a results requery —
+// rebuilding them every render makes the chart visibly flash while a filter reloads.
 export function MultipleChoiceBarChart({
     chartData,
     totalResponses,
@@ -43,37 +46,61 @@ export function MultipleChoiceBarChart({
     // The series color only tints the bar track here (every bar has its own override), so use a
     // stable theme neutral: the track stays a subtle texture instead of pulling a palette color,
     // and it doesn't follow the per-bar dim applied while a choice filter is active.
-    const series: Series[] = [
-        {
-            key: 'multiple-choice',
-            label: 'Share of respondents',
-            data: chartData.map((d) => (totalResponses > 0 ? (d.value / totalResponses) * 100 : 0)),
-            color: theme.crosshairColor ?? 'gray',
-            bars: chartData.map((_, i) => ({ color: barColors[i] })),
-        },
-    ]
+    const series = useMemo<Series[]>(
+        () => [
+            {
+                key: 'multiple-choice',
+                label: 'Share of respondents',
+                data: chartData.map((d) => (totalResponses > 0 ? (d.value / totalResponses) * 100 : 0)),
+                color: theme.crosshairColor ?? 'gray',
+                bars: chartData.map((_, i) => ({ color: barColors[i] })),
+            },
+        ],
+        [chartData, totalResponses, theme, barColors]
+    )
 
     // Synthetic band keys keep bars distinct even if two choices share a label; the choice text is
     // rendered through the category-axis formatter instead.
-    const labels = chartData.map((_, i) => String(i))
+    const labels = useMemo(() => chartData.map((_, i) => String(i)), [chartData])
 
-    const config: BarChartConfig = {
-        axisOrientation: 'horizontal',
-        barLayout: 'grouped',
-        showGrid: false,
-        showAxisLines: false,
-        maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
-        xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
-        yTickFormatter: (value) => (Number.isInteger(value) ? `${value}%` : ''),
-        margins: { top: 4, right: 20, bottom: 22 },
-        bars: {
-            cornerRadius: 3,
-            minBandSize: 32,
-            track: { hover: false },
-            valueDomain: [0, 100],
-        },
-        tooltip: { placement: 'cursor' },
-    }
+    const config = useMemo<BarChartConfig>(
+        () => ({
+            axisOrientation: 'horizontal',
+            barLayout: 'grouped',
+            showGrid: false,
+            showAxisLines: false,
+            maxCategoryLabelWidth: CATEGORY_LABEL_WIDTH,
+            xTickFormatter: (_label, index) => chartData[index]?.label ?? '',
+            yTickFormatter: (value) => (Number.isInteger(value) ? `${value}%` : ''),
+            margins: { top: 4, right: 20, bottom: 22 },
+            bars: {
+                cornerRadius: 3,
+                minBandSize: 32,
+                track: { hover: false },
+                valueDomain: [0, 100],
+            },
+            tooltip: { placement: 'cursor' },
+        }),
+        [chartData]
+    )
+
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element => (
+            <ChoiceTooltip
+                ctx={ctx}
+                chartData={chartData}
+                tooltipContextByIndex={tooltipContextByIndex}
+                activeChoiceLabel={activeChoiceLabel}
+            />
+        ),
+        [chartData, tooltipContextByIndex, activeChoiceLabel]
+    )
+
+    const valueFormatter = useCallback(
+        (_value: number, _seriesIndex: number, dataIndex: number): string =>
+            formatCountWithPercentage(chartData[dataIndex]?.value ?? 0, totalResponses),
+        [chartData, totalResponses]
+    )
 
     return (
         <div className="pl-4">
@@ -82,23 +109,11 @@ export function MultipleChoiceBarChart({
                 labels={labels}
                 config={config}
                 theme={theme}
-                tooltip={(ctx) => (
-                    <ChoiceTooltip
-                        ctx={ctx}
-                        chartData={chartData}
-                        tooltipContextByIndex={tooltipContextByIndex}
-                        activeChoiceLabel={activeChoiceLabel}
-                    />
-                )}
+                tooltip={renderTooltip}
                 onPointClick={({ dataIndex }) => onBarClick(dataIndex)}
                 dataAttr="survey-multiple-choice"
             >
-                <ValueLabels
-                    valueFormatter={(_value, _seriesIndex, dataIndex) =>
-                        formatCountWithPercentage(chartData[dataIndex]?.value ?? 0, totalResponses)
-                    }
-                    offset={VALUE_LABEL_OFFSET}
-                />
+                <ValueLabels valueFormatter={valueFormatter} offset={VALUE_LABEL_OFFSET} />
             </BarChart>
         </div>
     )

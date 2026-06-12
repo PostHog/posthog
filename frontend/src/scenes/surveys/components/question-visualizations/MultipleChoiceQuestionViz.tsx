@@ -155,21 +155,14 @@ export function MultipleChoiceQuestionViz({
 
     const tooltipContextByIndex = useMemo((): TooltipContext[] => {
         const totalSelections = chartData.reduce((sum, d) => sum + d.value, 0)
-        let currentRank = 0
-        let previousValue: number | null = null
 
-        return chartData.map((entry, index) => {
-            if (entry.value !== previousValue) {
-                currentRank = index + 1
-                previousValue = entry.value
-            }
-
-            return {
-                rank: currentRank,
-                respondentPercentage: totalResponses > 0 ? ((entry.value / totalResponses) * 100).toFixed(1) : '0.0',
-                selectionPercentage: totalSelections > 0 ? ((entry.value / totalSelections) * 100).toFixed(1) : '0.0',
-            }
-        })
+        // chartData is sorted by value, so the row position is the rank — no tie-skipping,
+        // which read as the tooltip showing the "wrong" number.
+        return chartData.map((entry, index) => ({
+            rank: index + 1,
+            respondentPercentage: totalResponses > 0 ? ((entry.value / totalResponses) * 100).toFixed(1) : '0.0',
+            selectionPercentage: totalSelections > 0 ? ((entry.value / totalSelections) * 100).toFixed(1) : '0.0',
+        }))
     }, [chartData, totalResponses])
 
     const upsertChoiceAnswerFilter = (choiceLabel: string | null): void => {

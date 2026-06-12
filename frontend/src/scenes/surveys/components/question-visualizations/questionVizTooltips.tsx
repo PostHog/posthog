@@ -1,3 +1,4 @@
+import { TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { ChoiceQuestionResponseData } from '~/types'
@@ -11,6 +12,15 @@ export interface ChoiceTooltipContextData {
 export interface NpsBucketMeta {
     label: string
     textClass: string
+}
+
+function TooltipRow({ label, value }: { label: string; value: string }): JSX.Element {
+    return (
+        <div className="flex justify-between gap-4">
+            <span className="opacity-60">{label}</span>
+            <span className="font-semibold tabular-nums">{value}</span>
+        </div>
+    )
 }
 
 export function ChoiceTooltip({
@@ -28,12 +38,13 @@ export function ChoiceTooltip({
     const tooltipContext = tooltipContextByIndex[ctx.dataIndex]
     // The series carries percentages (the bar axis is share of respondents) — counts live in chartData.
     const value = chartData[ctx.dataIndex]?.value ?? 0
+    const swatchColor = ctx.seriesData[0]?.color
 
     if (!tooltipContext) {
         return (
-            <div className="bg-surface-primary border rounded-md shadow-md px-3 py-2 text-sm">
-                <span className="font-medium">{optionLabel}</span>
-            </div>
+            <TooltipSurface>
+                <span className="font-semibold">{optionLabel}</span>
+            </TooltipSurface>
         )
     }
 
@@ -45,23 +56,19 @@ export function ChoiceTooltip({
     }
 
     return (
-        <div className="bg-surface-primary border rounded-md shadow-md px-3 py-2 text-sm">
-            <div className="flex items-center gap-2 leading-tight">
-                <span className="font-semibold">{optionLabel}</span>
-                <span className="text-xs text-muted-alt">
+        <TooltipSurface>
+            <div className="flex items-center gap-2 font-semibold mb-1">
+                {swatchColor && <TooltipSwatch color={swatchColor} />}
+                <span>{optionLabel}</span>
+                <span className="font-normal opacity-60">
                     #{tooltipContext.rank} of {chartData.length}
                 </span>
             </div>
-            <div className="text-xs text-secondary leading-tight mt-0.5">
-                <span className="font-semibold tabular-nums text-primary">{value}</span> responses
-                <span className="mx-1 text-muted-alt">•</span>
-                <span className="font-semibold text-primary">{tooltipContext.respondentPercentage}%</span> respondents
-                <span className="mx-1 text-muted-alt">•</span>
-                <span className="font-medium text-primary">{tooltipContext.selectionPercentage}%</span> of all selected
-                options
-            </div>
-            <div className="text-xs text-muted mt-1">{inspectLabel}</div>
-        </div>
+            <TooltipRow label="Responses" value={String(value)} />
+            <TooltipRow label="Respondents" value={`${tooltipContext.respondentPercentage}%`} />
+            <TooltipRow label="Of selected options" value={`${tooltipContext.selectionPercentage}%`} />
+            <div className="mt-1 opacity-60">{inspectLabel}</div>
+        </TooltipSurface>
     )
 }
 
@@ -82,6 +89,7 @@ export function RatingTooltip({
     const context = tooltipContextByIndex[ctx.dataIndex]
     const value = ctx.seriesData[0]?.value ?? 0
     const npsBucket = npsBucketByIndex[ctx.dataIndex]
+    const swatchColor = ctx.seriesData[0]?.color
 
     let inspectLabel = 'Click to filter'
     if (activeRatingLabel && ratingLabel === activeRatingLabel) {
@@ -91,18 +99,15 @@ export function RatingTooltip({
     }
 
     return (
-        <div className="bg-surface-primary border rounded-md shadow-md px-3 py-2 text-sm">
-            <div className="flex items-center gap-2 leading-tight">
-                <span className="font-semibold">Rating {ratingLabel}</span>
-                {npsBucket && <span className={`text-xs ${npsBucket.textClass}`}>{npsBucket.label}</span>}
+        <TooltipSurface>
+            <div className="flex items-center gap-2 font-semibold mb-1">
+                {swatchColor && <TooltipSwatch color={swatchColor} />}
+                <span>Rating {ratingLabel}</span>
+                {npsBucket && <span className={`font-normal ${npsBucket.textClass}`}>{npsBucket.label}</span>}
             </div>
-            <div className="text-xs text-secondary leading-tight mt-0.5">
-                <span className="font-semibold tabular-nums text-primary">{value}</span> responses
-                <span className="mx-1 text-muted-alt">•</span>
-                <span className="font-semibold text-primary">{context?.respondentPercentage ?? '0.0'}%</span>{' '}
-                respondents
-            </div>
-            <div className="text-xs text-muted mt-1">{inspectLabel}</div>
-        </div>
+            <TooltipRow label="Responses" value={String(value)} />
+            <TooltipRow label="Respondents" value={`${context?.respondentPercentage ?? '0.0'}%`} />
+            <div className="mt-1 opacity-60">{inspectLabel}</div>
+        </TooltipSurface>
     )
 }
