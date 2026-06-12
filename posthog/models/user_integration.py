@@ -162,13 +162,17 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     @property
     def user_access_token(self) -> str | None:
-        return self.integration.sensitive_config.get("user_access_token") if self.integration.sensitive_config else None
+        sensitive_config = self.integration.sensitive_config
+        if isinstance(sensitive_config, dict):
+            return sensitive_config.get("user_access_token")
+        return None
 
     @property
     def user_refresh_token(self) -> str | None:
-        return (
-            self.integration.sensitive_config.get("user_refresh_token") if self.integration.sensitive_config else None
-        )
+        sensitive_config = self.integration.sensitive_config
+        if isinstance(sensitive_config, dict):
+            return sensitive_config.get("user_refresh_token")
+        return None
 
     def user_access_token_expired(self) -> bool:
         expires_at = self.integration.config.get("user_access_token_expires_at")

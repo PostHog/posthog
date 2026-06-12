@@ -747,6 +747,14 @@ class TestUserGitHubIntegration(APIBaseTest):
         self.assertEqual(gh.github_login, "octocat")
         self.assertEqual(gh.github_id, 99)
 
+    def test_user_tokens_return_none_when_sensitive_config_is_not_a_dict(self):
+        # EncryptedJSONField can decrypt to a bare string when the stored JSON is a quoted
+        # string rather than an object; the token properties must not crash on `.get`.
+        gh = self._make_integration()
+        gh.integration.sensitive_config = "ghs_legacy_string_token"  # type: ignore[assignment]
+        self.assertIsNone(gh.user_access_token)
+        self.assertIsNone(gh.user_refresh_token)
+
     def test_user_access_token_expired_returns_true_past_halfway(self):
         now = int(time.time())
         gh = self._make_integration(
