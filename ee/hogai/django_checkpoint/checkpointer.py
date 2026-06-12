@@ -6,6 +6,7 @@ from typing import Any, Optional, cast
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
+from langchain_core.load.serializable import Serializable
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
@@ -28,6 +29,30 @@ from products.posthog_ai.backend.models.assistant import (
 )
 
 
+def _json_default(obj: Any) -> Any:
+    """JSON default handler that preserves LangChain constructor markers.
+
+    Replicates the behaviour of JsonPlusSerializer.dumps (removed in checkpoint 3.x)
+    for the subset of types that appear in checkpoint metadata.
+    """
+    if isinstance(obj, Serializable):
+        return obj.to_json()
+    elif hasattr(obj, "model_dump") and callable(obj.model_dump):
+        return {
+            "lc": 2,
+            "type": "constructor",
+            "id": (*obj.__class__.__module__.split("."), obj.__class__.__name__),
+            "method": (None, "model_construct"),
+            "kwargs": obj.model_dump(),
+        }
+    elif isinstance(obj, (set, frozenset)):
+        return list(obj)
+    elif isinstance(obj, (bytes, bytearray)):
+        return obj.hex()
+    else:
+        return repr(obj)
+
+
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
 
@@ -47,9 +72,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
 
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = self.jsonplus_serde.dumps(obj)
-        # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
-        nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
+        serialized = json.dumps(obj, default=_json_default, ensure_ascii=False)
+        # Remove null characters before writing to the database
+        nulls_removed = serialized.replace("\\u0000", "")
         return json.loads(nulls_removed)
 
     def _get_checkpoint_qs(
