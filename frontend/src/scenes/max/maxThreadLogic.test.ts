@@ -455,12 +455,10 @@ describe('maxThreadLogic', () => {
             )
         })
 
-        it('waits for the open dashboard to load before sending the first message (regression for #61414)', async () => {
-            const streamSpy = mockStream()
-
-            // Simulate being on a dashboard scene whose data has not loaded yet: dashboardLogic.dashboard
-            // is null, so its maxContext returns []. The first message must wait for the load, otherwise
-            // it ships with no dashboard context and Max can't see the open dashboard.
+        // Simulate being on a dashboard scene whose data has not loaded yet: dashboardLogic.dashboard
+        // is null, so its maxContext returns []. The first message must wait for the load, otherwise
+        // it ships with no dashboard context and Max can't see the open dashboard.
+        const mockLoadingDashboardScene = (): { values: { dashboard: any } } => {
             const fakeDashboardLogic: any = {
                 selectors: {
                     maxContext: () =>
@@ -476,31 +474,70 @@ describe('maxThreadLogic', () => {
                 paramsToProps: () => ({ id: 1 }),
                 sceneParams: {},
             } as any)
+            return fakeDashboardLogic
+        }
 
-            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
-            logic.mount()
+        it('waits for the open dashboard to load before sending the first message (regression for #61414)', async () => {
+            jest.useFakeTimers()
+            try {
+                const streamSpy = mockStream()
+                const fakeDashboardLogic = mockLoadingDashboardScene()
 
-            // Fire the first message while the dashboard is still loading.
-            logic.actions.askMax('what am I seeing on this dashboard?')
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
 
-            // The gate holds the send while the dashboard is loading.
-            await new Promise((resolve) => setTimeout(resolve, 300))
-            expect(streamSpy).toHaveBeenCalledTimes(0)
+                // Fire the first message while the dashboard is still loading.
+                logic.actions.askMax('what am I seeing on this dashboard?')
 
-            // Dashboard finishes loading → gate releases → the message sends WITH the dashboard context.
-            fakeDashboardLogic.values.dashboard = { id: 1, name: 'Test Dashboard', tiles: [] }
-            await new Promise((resolve) => setTimeout(resolve, 500))
+                // The gate holds the send while the dashboard is loading.
+                await jest.advanceTimersByTimeAsync(300)
+                expect(streamSpy).toHaveBeenCalledTimes(0)
 
-            expect(streamSpy).toHaveBeenCalledTimes(1)
-            expect(streamSpy).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    ui_context: expect.objectContaining({
-                        dashboards: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
+                // Dashboard finishes loading → gate releases → the message sends WITH the dashboard context.
+                fakeDashboardLogic.values.dashboard = { id: 1, name: 'Test Dashboard', tiles: [] }
+                await jest.advanceTimersByTimeAsync(500)
+
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+                expect(streamSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        ui_context: expect.objectContaining({
+                            dashboards: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
+                        }),
                     }),
-                }),
-                expect.any(Object)
-            )
+                    expect.any(Object)
+                )
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('releases the gate and sends if the user navigates away while the dashboard is still loading', async () => {
+            jest.useFakeTimers()
+            try {
+                const streamSpy = mockStream()
+                mockLoadingDashboardScene()
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                // Still on the (never-loading) dashboard → the gate holds.
+                await jest.advanceTimersByTimeAsync(300)
+                expect(streamSpy).toHaveBeenCalledTimes(0)
+
+                // User leaves the dashboard before it ever loads. The gate re-reads the scene each tick,
+                // so it must stop waiting and send rather than block until the timeout.
+                jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.SavedInsights)
+                jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(null as any)
+                await jest.advanceTimersByTimeAsync(300)
+
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('sends form_answers in ui_context when provided', async () => {

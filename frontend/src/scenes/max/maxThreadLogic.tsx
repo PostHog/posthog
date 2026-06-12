@@ -1008,22 +1008,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             // Wait for the open dashboard to finish loading before collecting context (see the
-            // constants above for why). Re-reads `dashboard` each tick so it releases as soon as
-            // the dashboard's metadata lands.
-            const activeSceneLogic = sceneLogic.values.activeSceneLogic
-            const isDashboardContextLoaded = (): boolean =>
-                !!(activeSceneLogic?.values as { dashboard?: unknown } | undefined)?.dashboard
-            if (
-                sceneLogic.values.activeSceneId === Scene.Dashboard &&
-                activeSceneLogic &&
-                'maxContext' in activeSceneLogic.selectors &&
-                !isDashboardContextLoaded()
-            ) {
-                let waited = 0
-                while (!isDashboardContextLoaded() && waited < MAX_DASHBOARD_CONTEXT_WAIT_MS) {
-                    await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
-                    waited += DASHBOARD_CONTEXT_POLL_INTERVAL_MS
+            // constants above for why). The scene is re-read every tick, so the gate releases the
+            // moment the dashboard's metadata lands — and immediately if the user navigates away
+            // mid-wait (no longer on a dashboard, or onto a different one that's already loaded).
+            const isDashboardSceneLoading = (): boolean => {
+                if (sceneLogic.values.activeSceneId !== Scene.Dashboard) {
+                    return false
                 }
+                const activeSceneLogic = sceneLogic.values.activeSceneLogic
+                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+                    return false
+                }
+                return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
+            }
+            let waitedForDashboard = 0
+            while (isDashboardSceneLoading() && waitedForDashboard < MAX_DASHBOARD_CONTEXT_WAIT_MS) {
+                await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
+                waitedForDashboard += DASHBOARD_CONTEXT_POLL_INTERVAL_MS
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
