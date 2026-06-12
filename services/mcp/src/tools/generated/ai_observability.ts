@@ -270,10 +270,10 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
             query: {
                 enabled: params.enabled,
-                id__in: params.id__in,
+                id__in: params.id__in?.length ? params.id__in.join(',') : undefined,
                 limit: params.limit,
                 offset: params.offset,
-                order_by: params.order_by,
+                order_by: params.order_by?.length ? params.order_by.join(',') : undefined,
                 search: params.search,
             },
         })
@@ -1533,10 +1533,10 @@ const llmaTaggerList = (): ToolBase<typeof LlmaTaggerListSchema, WithPostHogUrl<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/`,
             query: {
                 enabled: params.enabled,
-                id__in: params.id__in,
+                id__in: params.id__in?.length ? params.id__in.join(',') : undefined,
                 limit: params.limit,
                 offset: params.offset,
-                order_by: params.order_by,
+                order_by: params.order_by?.length ? params.order_by.join(',') : undefined,
                 search: params.search,
             },
         })
