@@ -582,3 +582,18 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = get_hogql_autocomplete(query=autocomplete, team=self.team)
 
         assert "events" in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_malformed_source_query(self):
+        # An unquoted reserved keyword used as an alias makes the source query unparseable;
+        # autocomplete must degrade gracefully instead of raising.
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="SELECT * FROM e",
+            language=HogLanguage.HOG_QL,
+            sourceQuery=HogQLQuery(query="select 1 as team_id"),
+            startPosition=15,
+            endPosition=15,
+        )
+        results = get_hogql_autocomplete(query=autocomplete, team=self.team)
+
+        assert "events" in [suggestion.label for suggestion in results.suggestions]
