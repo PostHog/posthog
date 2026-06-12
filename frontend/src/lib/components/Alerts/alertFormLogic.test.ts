@@ -294,6 +294,52 @@ describe('alertFormLogic', () => {
         expect(successToastSpy).not.toHaveBeenCalled()
     })
 
+    describe('hogql column prefill', () => {
+        function mountHogqlForm(configOverrides: Record<string, any> = {}): ReturnType<typeof alertFormLogic.build> {
+            const logic = alertFormLogic({
+                alert: null,
+                insightId: 42,
+                onEditSuccess: jest.fn(),
+                insightVizDataLogicProps: insightLogicProps,
+                insightInterval: 'day',
+                insightAlertKind: 'hogql',
+            })
+            logic.mount()
+            if (Object.keys(configOverrides).length > 0) {
+                logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig', ...configOverrides })
+            }
+            return logic
+        }
+
+        it.each([
+            [
+                'prefills the single numeric column when none is picked',
+                {},
+                {
+                    columns: ['day', 'count'],
+                    results: [
+                        ['2026-06-01', 1],
+                        ['2026-06-02', 2],
+                    ],
+                },
+                'count',
+            ],
+            ['keeps an explicit pick', { column: 'a' }, { columns: ['a', 'b'], results: [[1, 2]] }, 'a'],
+            ['does not prefill when columns are ambiguous', {}, { columns: ['a', 'b'], results: [[1, 2]] }, undefined],
+            [
+                'does not prefill single-column results (picker hidden, auto keeps working on rename)',
+                {},
+                { columns: ['count'], results: [[5]] },
+                undefined,
+            ],
+        ])('%s', async (_name, configOverrides, insightData, expectedColumn) => {
+            const logic = mountHogqlForm(configOverrides)
+            insightDataLogic(insightLogicProps).actions.setInsightData(insightData)
+            await expectLogic(logic).toFinishAllListeners()
+            expect((logic.values.alertForm.config as any).column).toEqual(expectedColumn)
+        })
+    })
+
     describe('deriveHogQLAlertPreview', () => {
         const HOGQL_CONFIG = { type: 'HogQLAlertConfig' } as const
         const ANY_ROW_CONFIG = { type: 'HogQLAlertConfig', evaluation: 'any_row' } as const

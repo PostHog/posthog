@@ -388,17 +388,14 @@ export function AlertDefinitionSection({
                             </LemonField>
                             {hogqlHasMultipleColumns && (
                                 <LemonField name="column" className="flex-auto">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            fullWidth
-                                            allowClear
-                                            data-attr="alertForm-hogql-column"
-                                            placeholder="auto (single numeric column)"
-                                            value={value ?? null}
-                                            onChange={onChange}
-                                            options={hogqlColumnOptions}
-                                        />
-                                    )}
+                                    {/* Prefilled with the resolved column by alertFormLogic; the placeholder
+                                        only shows when the result is ambiguous and the user must pick. */}
+                                    <LemonSelect
+                                        fullWidth
+                                        data-attr="alertForm-hogql-column"
+                                        placeholder="select column to evaluate"
+                                        options={hogqlColumnOptions}
+                                    />
                                 </LemonField>
                             )}
                         </Group>

@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
@@ -705,4 +706,24 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
         }
     }),
+
+    subscriptions(({ values, actions }) => ({
+        // Materialize the heuristic-resolved evaluated column into the form, so the picker
+        // shows the actual choice and the saved config is explicit. A subscription (not a
+        // listener) because the preview derives from another logic's loader — there is no
+        // single action to listen to. Only fires when the picker is visible (>1 column);
+        // single-column queries stay implicit so they keep working if the column is renamed.
+        hogqlAlertPreview: (preview: HogQLAlertPreview | null) => {
+            const config = values.alertForm?.config
+            if (
+                preview?.status === 'ok' &&
+                preview.columnName != null &&
+                isHogQLAlertConfig(config) &&
+                config.column == null &&
+                (values.hogqlResultColumns?.length ?? 0) > 1
+            ) {
+                actions.setAlertFormValue('config', { ...config, column: preview.columnName })
+            }
+        },
+    })),
 ])
