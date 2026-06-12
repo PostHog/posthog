@@ -146,10 +146,9 @@ class SharingConfiguration(models.Model):
             if not fk_value:
                 continue
 
-            field = self._meta.get_field(field_name)
-            related_model = field.related_model
-            assert related_model is not None
-            target_field_name = cast("models.ForeignKey", field).target_field.name
+            field = cast("models.ForeignKey", self._meta.get_field(field_name))
+            related_model = cast("type[models.Model]", field.related_model)
+            target_field_name = field.target_field.name
             related_model._default_manager.select_for_update().get(
                 **{target_field_name: fk_value, "team_id": self.team_id}
             )
