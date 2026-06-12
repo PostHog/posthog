@@ -1,6 +1,3 @@
-2026-06-12
-objectstorage now registers s3 identities at boot, fixing symbol set upload; recreate the container to apply
-
 2026-06-08
 objectstorage swapped minio -> seaweedfs; old local files stay on the old volume, run hogli deploy:upgrade-objectstorage to copy them over
 
