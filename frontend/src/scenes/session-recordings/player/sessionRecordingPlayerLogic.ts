@@ -1643,7 +1643,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
-                eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
+                // NOTE: not `push(...array)` — spreading an unbounded snapshot array into a call
+                // blows the argument stack (RangeError) on very large recordings
+                for (const event of findNewEvents(allSnapshots, currentEvents)) {
+                    eventsToAdd.push(event)
+                }
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots.
