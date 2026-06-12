@@ -35,6 +35,7 @@ export function MaxNotConfigured(): JSX.Element {
                     to="https://posthog.com/docs/self-host/configure/environment-variables?utm_medium=in-product&utm_campaign=max-not-configured"
                     target="_blank"
                     targetBlankIcon
+                    data-attr="max-not-configured-configure-key"
                 >
                     Configuring environment variables
                 </Link>

@@ -164,9 +164,11 @@ CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
 EOF
-    # Only persist AI keys that were actually provided — writing a blank line
-    # (ANTHROPIC_API_KEY=) would make bin/upgrade-hobby think the key exists and
-    # skip its add-key prompt.
+    # Only persist AI keys that were actually provided — skip writing a blank
+    # ANTHROPIC_API_KEY= line that would just clutter .env with an empty assignment.
+    # (A blank value is harmless either way: bin/upgrade-hobby greps for
+    # ^ANTHROPIC_API_KEY=.+, so an empty value counts as missing and the user is
+    # still offered the key on the next upgrade.)
     [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
     [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
 fi
