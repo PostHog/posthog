@@ -419,10 +419,30 @@ class TestAppRuntimeRestartApp(BaseTest):
         service = AppRuntimeService()
         with patch(
             "products.streamlit_apps.backend.logic.app_runtime._wait_for_health",
-            side_effect=lambda sandbox, url, name, max_attempts, delay_seconds=1.0: name == "Auth proxy",
+            side_effect=lambda sandbox, url, name, deadline_seconds, poll_interval_seconds=1.0: name == "Auth proxy",
         ):
             with self.assertRaises(AppRuntimeError, msg="Streamlit failed to become ready"):
                 service.start_app(app)
+
+
+class TestWaitForHealth(BaseTest):
+    def test_returns_true_on_200(self):
+        from products.streamlit_apps.backend.logic.app_runtime import _wait_for_health
+
+        sandbox = MagicMock()
+        sandbox.execute.return_value = MagicMock(stdout="200")
+        assert _wait_for_health(sandbox, "http://x/healthz", "x", deadline_seconds=5) is True
+        assert sandbox.execute.call_count == 1
+
+    def test_stops_at_deadline_when_never_healthy(self):
+        from products.streamlit_apps.backend.logic.app_runtime import _wait_for_health
+
+        sandbox = MagicMock()
+        sandbox.execute.return_value = MagicMock(stdout="502")
+        assert (
+            _wait_for_health(sandbox, "http://x/healthz", "x", deadline_seconds=0.05, poll_interval_seconds=0) is False
+        )
+        assert sandbox.execute.call_count >= 1
 
 
 class TestResetRestartCountIfStable(BaseTest):

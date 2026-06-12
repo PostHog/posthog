@@ -39,6 +39,10 @@ STREAMLIT_APP_PATH = "/app"
 BRIDGE_TOKEN_PATH = "/run/bridge_token"
 MAX_RESTART_COUNT = 3
 STARTING_TIMEOUT_SECONDS = 600
+# Wall-clock budgets for boot health checks; together they bound how long a
+# lifecycle task can occupy a Celery worker on a sandbox that never comes up.
+AUTH_PROXY_HEALTH_DEADLINE_SECONDS = 30
+STREAMLIT_HEALTH_DEADLINE_SECONDS = 60
 # Sandbox must stay RUNNING for this long before restart_count resets; shorter
 # lifecycles are treated as part of the same crash loop that incremented it.
 RESTART_COUNT_STABILITY_SECONDS = 5 * 60
@@ -207,14 +211,25 @@ def _start_streamlit_process(sandbox: SandboxBase) -> None:
         raise AppRuntimeError(f"Failed to start Streamlit: {result.stderr}")
 
 
-def _wait_for_health(sandbox: SandboxBase, url: str, name: str, max_attempts: int, delay_seconds: float = 1.0) -> bool:
+def _wait_for_health(
+    sandbox: SandboxBase, url: str, name: str, deadline_seconds: float, poll_interval_seconds: float = 1.0
+) -> bool:
+    """Poll the URL until it returns 200 or the wall-clock deadline passes.
+
+    Deadline-based rather than attempt-based: each attempt can cost up to ~6s
+    (5s curl budget + the sleep), so N attempts could otherwise occupy a
+    Celery worker for ~6N seconds on a sandbox that never becomes ready.
+    """
     health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' {url}"
-    for attempt in range(max_attempts):
+    deadline = time.monotonic() + deadline_seconds
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
         result = sandbox.execute(health_cmd, timeout_seconds=5)
         if result.stdout.strip() == "200":
-            logger.info(f"{name} health check passed on attempt {attempt + 1}")
+            logger.info(f"{name} health check passed on attempt {attempt}")
             return True
-        time.sleep(delay_seconds)
+        time.sleep(poll_interval_seconds)
     return False
 
 
@@ -374,7 +389,9 @@ class AppRuntimeService:
             _start_streamlit_process(sandbox)
 
             proxy_url = f"http://localhost:{AUTH_PROXY_PORT}/healthz"
-            if not _wait_for_health(sandbox, proxy_url, "Auth proxy", max_attempts=20):
+            if not _wait_for_health(
+                sandbox, proxy_url, "Auth proxy", deadline_seconds=AUTH_PROXY_HEALTH_DEADLINE_SECONDS
+            ):
                 try:
                     tail_result = sandbox.execute(
                         "tail -n 20 /tmp/auth_proxy.log 2>/dev/null || true", timeout_seconds=5
@@ -387,7 +404,9 @@ class AppRuntimeService:
             # Streamlit's HTTP port opens a few seconds after the proxy is
             # live; without this second gate the iframe 502s against upstream.
             streamlit_url = f"http://localhost:{STREAMLIT_PORT}/_stcore/health"
-            if not _wait_for_health(sandbox, streamlit_url, "Streamlit", max_attempts=30):
+            if not _wait_for_health(
+                sandbox, streamlit_url, "Streamlit", deadline_seconds=STREAMLIT_HEALTH_DEADLINE_SECONDS
+            ):
                 raise AppRuntimeError("Streamlit failed to become ready")
 
             now = timezone.now()
