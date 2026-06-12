@@ -32,9 +32,13 @@ export interface ZoomableImageProps {
  */
 export function ZoomableImage({ src, alt, resetKey, className }: ZoomableImageProps): JSX.Element {
     const [transform, setTransform] = useState<Transform>(DEFAULT_TRANSFORM)
-    const dragState = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(
-        null
-    )
+    const dragState = useRef<{
+        pointerId: number
+        startX: number
+        startY: number
+        originX: number
+        originY: number
+    } | null>(null)
 
     // Reset when the source image changes so each image starts fresh.
     useEffect(() => {

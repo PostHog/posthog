@@ -148,8 +148,7 @@ export function VariantScreenshot({
 
     const showPrevious = (): void =>
         setSelectedImageIndex((prev) => (prev === null ? prev : (prev - 1 + mediaIds.length) % mediaIds.length))
-    const showNext = (): void =>
-        setSelectedImageIndex((prev) => (prev === null ? prev : (prev + 1) % mediaIds.length))
+    const showNext = (): void => setSelectedImageIndex((prev) => (prev === null ? prev : (prev + 1) % mediaIds.length))
 
     // Arrow-key navigation while the screenshot viewer is open.
     useEffect(() => {
