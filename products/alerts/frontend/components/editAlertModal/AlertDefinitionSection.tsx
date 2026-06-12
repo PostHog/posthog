@@ -283,7 +283,8 @@ export function AlertDefinitionSection({
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
-        (isHogQLAnyRow(alertForm) && 'Any-row SQL alerts only support absolute value conditions')
+        (isHogQLAnyRow(alertForm) &&
+            "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     const hogqlHasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
     // Only numeric columns are valid evaluated-column picks, and the label can be any other
     // column. Fall back to all columns when numericness is undetectable (result not loaded),
