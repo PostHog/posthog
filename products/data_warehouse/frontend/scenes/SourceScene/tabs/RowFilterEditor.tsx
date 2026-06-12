@@ -43,8 +43,7 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
     const available = useMemo(() => schema?.available_columns ?? [], [schema?.available_columns])
     const [filters, setFilters] = useState<RowFilter[]>([])
 
-    // Serialize once into a stable key: the array ref changes on every poll even with identical
-    // contents, so we key the reset effect on the content, not the reference.
+    // Key the reset effect on content, not the array ref (which changes on every poll).
     const rowFiltersKey = JSON.stringify(schema?.row_filters ?? null)
     useEffect(() => {
         setFilters(Array.isArray(schema?.row_filters) ? schema!.row_filters!.map((f) => ({ ...f })) : [])
@@ -97,8 +96,8 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                     return filter
                 }
                 const merged = { ...filter, ...patch }
-                // When the column changes, reset the value if its type category changed so we don't
-                // carry, say, a date string onto an integer column.
+                // On column change, reset the value if the type category changed (don't carry a
+                // date string onto an integer column).
                 if (patch.column && patch.column !== filter.column) {
                     const prevCategory = categoryFor(filter.column)
                     const nextCategory = categoryFor(patch.column)
@@ -108,8 +107,7 @@ export function RowFilterEditor({ schema, onSave, hideActions, onChange }: RowFi
                             : defaultValueForCategory(nextCategory)
                     }
                 }
-                // Switching between scalar and multi-value operators changes the value shape
-                // (single value vs comma-separated list), so reset to a clean string/default.
+                // Scalar <-> multi-value changes the value shape (single vs list), so reset it.
                 if (patch.operator && isMultiValueOperator(patch.operator) !== isMultiValueOperator(filter.operator)) {
                     merged.value = isMultiValueOperator(patch.operator)
                         ? ''
@@ -257,10 +255,8 @@ function RowFilterValueInput({
         )
     }
 
-    // LemonInput's text variant doesn't support `type="date"`, and its number variant emits a
-    // `number` (not string) from onChange — mixing them via a dynamic type breaks the prop union.
-    // So everything non-boolean uses a text input; the backend coerces numeric/date/timestamp
-    // strings, and `validateRowFilters` checks the format client-side.
+    // Everything non-boolean uses a text input (LemonInput's number/date variants break the
+    // onChange union); the backend coerces the string and `validateRowFilters` checks it client-side.
     const placeholder =
         category === 'date'
             ? 'YYYY-MM-DD'

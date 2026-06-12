@@ -1,24 +1,15 @@
 """Schema-level row-filter predicates for SQL sources.
 
 A row filter is a `{column, operator, value}` triple ANDed onto a source query's
-`WHERE` clause so a sync only pulls matching rows. This module is the single,
-driver-free safety boundary for that feature: it validates a filter against the
-schema's discovered columns, classifies the column's native type, and coerces the
-user-supplied value to a matching Python type.
+`WHERE` clause so a sync only pulls matching rows. This is the driver-free safety
+boundary: it validates a filter against the schema's columns and coerces the value.
 
 Three rails make SQL injection impossible by construction:
 
-1. **Column allowlist** — the column must exist in the schema's `schema_metadata`.
-2. **Operator allowlist** — only `> >= < <= = !=` (with `==`/`<>` accepted as
-   aliases). The operator emitted into SQL is looked up from `_CANONICAL_OPERATORS`,
-   never passed through from user input.
-3. **Typed value** — the value is validated against the column's
-   `ColumnTypeCategory` and coerced to the right Python type, then always leaves as
-   a *bound parameter* (never string-interpolated). The render helpers here emit
-   placeholders only; the matching value goes in the returned params.
-
-Identifier quoting is delegated to an `IdentifierQuoter` (the existing allowlist
-boundary), so column names are validated and quoted the same way as everywhere else.
+1. Column must exist in the schema's `schema_metadata`, and is quoted via `IdentifierQuoter`.
+2. Operator is looked up from `_CANONICAL_OPERATORS`, never passed through from input.
+3. Value is type-checked against the column's `ColumnTypeCategory` and always leaves as
+   a bound parameter — the render helpers emit placeholders only.
 """
 
 from __future__ import annotations
@@ -38,12 +29,8 @@ class RowFilterValidationError(ValueError):
 
 
 class ColumnTypeCategory(enum.Enum):
-    """Coarse type category a column's native `data_type` maps onto.
-
-    Used to decide how a filter value must be typed. `UNKNOWN` is a hard
-    failure — we refuse to filter on a column whose type we can't safely
-    classify, because we can't validate the value against it.
-    """
+    """Coarse type category a column's `data_type` maps onto. `UNKNOWN` is a hard
+    failure — we won't filter on a column whose value we can't type-check."""
 
     INTEGER = "integer"
     NUMERIC = "numeric"
@@ -72,18 +59,15 @@ class ValidatedRowFilter:
     category: ColumnTypeCategory
 
 
-# The only operators that may reach SQL. Input aliases are normalized to these;
-# the emitted operator is always one of these literals, never user input.
+# The only operators that may reach SQL; input aliases normalize to these.
 _SCALAR_OPERATORS = frozenset({">", ">=", "<", "<=", "=", "!="})
-# Multi-value operators take a list of values, emitted as `(%s, %s, ...)`. They are
-# case-insensitive on input ("in", "Not In") and internal whitespace is collapsed.
+# Take a list of values, emitted as `(%s, %s, ...)`. Case-insensitive on input.
 _MULTI_VALUE_OPERATORS = frozenset({"IN", "NOT IN"})
 _CANONICAL_OPERATORS = _SCALAR_OPERATORS | _MULTI_VALUE_OPERATORS
 _OPERATOR_ALIASES = {"==": "=", "<>": "!="}
 
 MAX_ROW_FILTERS = 20
-# Cap the length of an IN / NOT IN list so a single filter can't emit an unbounded
-# number of bound parameters.
+# Bound the number of parameters a single IN / NOT IN filter can emit.
 MAX_IN_VALUES = 1000
 
 
@@ -95,11 +79,9 @@ def is_multi_value_operator(operator: str) -> bool:
 def normalize_operator(operator: Any) -> str:
     """Return the canonical operator for `operator`, or raise.
 
-    Accepts the six scalar operators (plus the `==` and `<>` aliases) and the
-    multi-value operators `IN` / `NOT IN` (case-insensitive, internal whitespace
-    collapsed). Anything else (including non-strings) raises — the result is
-    guaranteed to be a member of `_CANONICAL_OPERATORS`, so callers can interpolate
-    it directly.
+    Accepts the six scalar operators (plus `==`/`<>` aliases) and `IN`/`NOT IN`
+    (case-insensitive). The result is always a member of `_CANONICAL_OPERATORS`,
+    so callers can interpolate it directly.
     """
     if not isinstance(operator, str):
         raise RowFilterValidationError(f"Operator must be a string, got {type(operator).__name__}")
@@ -204,10 +186,8 @@ _STRING_TYPES = {
     "name",
     "citext",
     "enum",
-    # NB: json / jsonb are intentionally excluded. A `jsonb <op> $text_param` comparison fails at
-    # sync time on Postgres/Redshift ("operator does not exist: jsonb = text") without an explicit
-    # cast, so we classify them as UNKNOWN (unfilterable) rather than let a filter pass PATCH-time
-    # validation and then break every sync.
+    # json / jsonb excluded: `jsonb <op> $text_param` fails at sync time without a cast, so we
+    # treat them as UNKNOWN (unfilterable) rather than pass validation and break the sync.
 }
 _BOOLEAN_TYPES = {"bool", "boolean", "bit"}
 _DATE_TYPES = {"date", "date32"}
@@ -225,12 +205,10 @@ _TIMESTAMP_TYPES = {
 
 
 def classify_column_type(data_type: Any) -> ColumnTypeCategory:
-    """Map a driver-native `data_type` string onto a `ColumnTypeCategory`.
+    """Map a driver-native `data_type` onto a `ColumnTypeCategory`, or `UNKNOWN`.
 
-    Case-insensitive, after unwrapping ClickHouse `Nullable(...)` wrappers and
-    dropping length/precision params. Prefix matches handle parameterized
-    timestamp/datetime spellings (e.g. `timestamp(6)`, `DateTime64(3, 'UTC')`).
-    Returns `UNKNOWN` for anything unrecognized.
+    Case-insensitive, after unwrapping `Nullable(...)` and dropping length/precision
+    params. Prefix matches cover parameterized timestamp/datetime spellings.
     """
     if not isinstance(data_type, str) or not data_type.strip():
         return ColumnTypeCategory.UNKNOWN
@@ -292,8 +270,7 @@ def _coerce_string(value: Any) -> str:
 def _coerce_boolean(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    # Accept the JSON integer encodings 0/1 — a direct API caller may send these for a boolean
-    # column, and rejecting them here would only surface as an opaque sync-time failure.
+    # Accept 0/1 — a direct API caller may send these for a boolean column.
     if isinstance(value, int) and value in (0, 1):
         return bool(value)
     if isinstance(value, str):
@@ -318,7 +295,7 @@ def _coerce_timestamp(value: Any) -> datetime:
     if not isinstance(value, str):
         raise RowFilterValidationError(f"Expected an ISO datetime string, got {type(value).__name__}")
     raw = value.strip()
-    # Accept a trailing "Z" (UTC) which `fromisoformat` rejects before 3.11.
+    # Accept a trailing "Z" (UTC) which older `fromisoformat` rejects.
     normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
     try:
         return datetime.fromisoformat(normalized)
@@ -369,12 +346,10 @@ def _split_top_level_commas(raw: str) -> list[str]:
 
 
 def _split_in_list(raw: str) -> list[str]:
-    """Split a comma-separated IN list into element strings.
+    """Split a comma-separated IN list into trimmed element strings.
 
-    Whitespace around each element is trimmed. A single-quoted element keeps its
-    contents verbatim (so it may hold commas or leading/trailing spaces), with a
-    doubled `''` read as an escaped quote. Blank input yields an empty list (which the
-    caller rejects). Raises on an unterminated quote.
+    A single-quoted element keeps its contents verbatim (may hold commas/spaces),
+    with `''` read as an escaped quote. Blank input yields an empty list.
     """
     if not raw.strip():
         return []
@@ -389,12 +364,11 @@ def _split_in_list(raw: str) -> list[str]:
 
 
 def _coerce_in_values(value: Any, category: ColumnTypeCategory) -> list[Any]:
-    """Parse and coerce the value for an `IN` / `NOT IN` filter into a typed list.
+    """Parse and coerce an `IN` / `NOT IN` value into a typed list.
 
-    Accepts a comma-separated string (the UI sends what the user typed) or an already
-    structured list. Each element is coerced with the same per-type rules as a scalar
-    value, so the list is just as injection-proof. Raises on an empty list, a blank
-    element, too many values, or any element that fails type coercion.
+    Accepts a comma-separated string or an already-structured list. Each element is
+    coerced with the same per-type rules as a scalar. Raises on an empty list, a blank
+    element, too many values, or a coercion failure.
     """
     coercer = _COERCERS[category]
     if isinstance(value, list):
@@ -444,8 +418,8 @@ def validate_and_coerce_row_filters(
     """Validate raw row filters against a schema's columns and coerce their values.
 
     Returns an empty list for `None`/empty input. Raises `RowFilterValidationError`
-    if the structure is malformed, a column is unknown, an operator is disallowed,
-    the column's type can't be classified, or a value doesn't match the column's type.
+    on a malformed structure, unknown column, disallowed operator, unclassifiable
+    type, or a value that doesn't match the column's type.
     """
     if row_filters is None:
         return []
@@ -498,8 +472,7 @@ def render_named_conditions(
 ) -> tuple[list[str], dict[str, Any]]:
     """Render filters as pyformat-named conditions (`%(name)s`) + a params dict.
 
-    Used by MySQL/MSSQL-style drivers. Column identifiers are quoted via `quoter`
-    (the allowlist boundary); values leave only as bound parameters.
+    Used by MySQL/MSSQL. Columns are quoted via `quoter`; values leave only as params.
     """
     conditions: list[str] = []
     params: dict[str, Any] = {}
@@ -525,8 +498,8 @@ def render_positional_conditions(
 ) -> tuple[list[str], list[Any]]:
     """Render filters as positional conditions (`%s`) + an ordered values list.
 
-    Used by Snowflake, where parameter order matters — the caller must append
-    these values after any earlier positional params (e.g. the incremental value).
+    Used by Snowflake; the caller must append these values after any earlier
+    positional params (e.g. the incremental value).
     """
     conditions: list[str] = []
     values: list[Any] = []
