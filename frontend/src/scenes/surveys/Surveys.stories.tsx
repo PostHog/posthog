@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
@@ -547,7 +546,6 @@ export const SurveyView: Story = {
 export const SurveyResults: Story = {
     parameters: {
         pageUrl: urls.survey(MOCK_SURVEY_WITH_RESULTS.id),
-        featureFlags: [FEATURE_FLAGS.HOG_CHARTS_SURVEYS],
         testOptions: {
             waitForSelector: '[data-attr="survey-rating"] canvas',
         },
