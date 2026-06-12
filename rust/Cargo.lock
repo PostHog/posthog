@@ -1762,6 +1762,7 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "http-body-util",
  "httparse",
  "hyper 1.9.0",
  "hyper-util",

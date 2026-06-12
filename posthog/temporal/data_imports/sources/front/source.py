@@ -36,7 +36,6 @@ class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
             name=SchemaExternalDataSourceType.FRONT,
             label="Front",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Front API token to sync your Front data into the PostHog Data warehouse.
 
 You can create an API token in your [Front settings](https://app.frontapp.com/settings/tools/api) under **Developers > API tokens**.

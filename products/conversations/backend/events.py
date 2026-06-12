@@ -2,9 +2,11 @@
 Emit PostHog analytics events for ticket and message state changes.
 
 These events power workflow triggers (e.g. "if ticket pending for X days, resolve it").
-All events use the ticket's distinct_id so they're tied to the customer person.
+Staff/system actions use the actor's distinct_id; customer actions use the ticket's distinct_id.
 Events are sent to the customer's PostHog project via their team's API token.
 """
+
+from typing import Literal
 
 import structlog
 
@@ -13,6 +15,7 @@ from posthog.event_usage import groups as build_groups
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel
@@ -21,6 +24,33 @@ from products.conversations.backend.person_lookup import _get_persons_by_email
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
+
+ActorType = Literal["user", "system", "external", "customer"]
+
+
+def _get_actor_properties(actor: User | None, actor_type: ActorType) -> dict:
+    """Build actor-related properties for an event."""
+    return {
+        "actor_type": actor_type,
+        "actor_id": actor.id if actor else None,
+        "actor_email": actor.email if actor else None,
+    }
+
+
+def _get_actor_distinct_id(
+    ticket: Ticket,
+    actor: User | None,
+    actor_type: ActorType,
+) -> str:
+    """Determine the distinct_id based on who performed the action.
+
+    User actions are attributed to the staff member.
+    System/external/customer actions are attributed to the customer.
+    """
+    if actor_type == "user" and actor and actor.distinct_id:
+        return actor.distinct_id
+    return ticket.distinct_id or ticket.channel_source or "unknown"
+
 
 # Channels whose customer email is tied to a provider-verified identity and is therefore safe
 # to use for organization attribution.
@@ -43,7 +73,9 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
-        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id])
+        # Only is_identified is read, and the membership lookup below keys off the ticket's own
+        # distinct_id — so skip fetching the person's distinct_ids.
+        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
         if any(p.is_identified for p in persons):
             membership = (
                 OrganizationMembership.objects.select_related("organization")
@@ -112,64 +144,90 @@ def capture_ticket_created(ticket: Ticket) -> None:
     )
 
 
-def capture_ticket_status_changed(ticket: Ticket, old_status: str, new_status: str) -> None:
+def capture_ticket_status_changed(
+    ticket: Ticket,
+    old_status: str,
+    new_status: str,
+    actor: User | None = None,
+    actor_type: ActorType = "system",
+) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["old_status"] = old_status
     properties["new_status"] = new_status
+    properties.update(_get_actor_properties(actor, actor_type))
 
     capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_status_changed",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        distinct_id=_get_actor_distinct_id(ticket, actor, actor_type),
         timestamp=None,
         properties=properties,
     )
 
 
-def capture_ticket_priority_changed(ticket: Ticket, old_priority: str | None, new_priority: str | None) -> None:
+def capture_ticket_priority_changed(
+    ticket: Ticket,
+    old_priority: str | None,
+    new_priority: str | None,
+    actor: User | None = None,
+    actor_type: ActorType = "system",
+) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
+    properties.update(_get_actor_properties(actor, actor_type))
 
     capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_priority_changed",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        distinct_id=_get_actor_distinct_id(ticket, actor, actor_type),
         timestamp=None,
         properties=properties,
     )
 
 
-def capture_ticket_assigned(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> None:
+def capture_ticket_assigned(
+    ticket: Ticket,
+    assignee_type: str | None,
+    assignee_id: str | None,
+    actor: User | None = None,
+    actor_type: ActorType = "system",
+) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
+    properties.update(_get_actor_properties(actor, actor_type))
 
     capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_assigned",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        distinct_id=_get_actor_distinct_id(ticket, actor, actor_type),
         timestamp=None,
         properties=properties,
     )
 
 
-def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, author_id: int | None) -> None:
+def capture_message_sent(
+    ticket: Ticket,
+    message_id: str,
+    message_content: str,
+    author: User | None = None,
+) -> None:
     """Team member sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
-    properties["author_id"] = author_id
+    properties.update(_get_actor_properties(author, "user"))
 
     capture_internal_routed(
         token=ticket.team.api_token,
         event_name="$conversation_message_sent",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        distinct_id=_get_actor_distinct_id(ticket, author, "user"),
         timestamp=None,
         properties=properties,
     )

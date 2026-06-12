@@ -51,6 +51,7 @@ class AgentMode(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
     USER_INTERVIEW = "user_interview"
+    CUSTOMER_ANALYTICS = "customer_analytics"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -787,6 +788,7 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    LIST_FEATURE_FLAGS = "list_feature_flags"
     UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
@@ -810,6 +812,9 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
+    UPSERT_ACCOUNT = "upsert_account"
+    UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
+    OPEN_ACCOUNT = "open_account"
 
 
 class AssistantToolCall(BaseModel):
@@ -2242,6 +2247,85 @@ class ExternalDataSourceType(StrEnum):
     RESEND = "Resend"
     PG_ANALYZE = "PgAnalyze"
     WORK_OS = "WorkOS"
+    AMAZON_S3 = "AmazonS3"
+    GOOGLE_CLOUD_STORAGE = "GoogleCloudStorage"
+    DATABRICKS = "Databricks"
+    DYNAMICS365 = "Dynamics365"
+    SALESFORCE_MARKETING_CLOUD = "SalesforceMarketingCloud"
+    DB2 = "Db2"
+    HEAP = "Heap"
+    ADOBE_ANALYTICS = "AdobeAnalytics"
+    MATOMO = "Matomo"
+    OPTIMIZELY = "Optimizely"
+    ADYEN = "Adyen"
+    GO_CARDLESS = "GoCardless"
+    MOLLIE = "Mollie"
+    CHECKOUT_COM = "CheckoutCom"
+    BRANCH = "Branch"
+    CRITEO = "Criteo"
+    OUTBRAIN = "Outbrain"
+    TABOOLA = "Taboola"
+    AD_ROLL = "AdRoll"
+    DISPLAY_VIDEO360 = "DisplayVideo360"
+    GOOGLE_AD_MANAGER = "GoogleAdManager"
+    CAMPAIGN_MANAGER360 = "CampaignManager360"
+    SEARCH_ADS360 = "SearchAds360"
+    ADOBE_COMMERCE = "AdobeCommerce"
+    AMAZON_SELLING_PARTNER = "AmazonSellingPartner"
+    EBAY = "Ebay"
+    COMMERCETOOLS = "Commercetools"
+    LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIP_STATION = "ShipStation"
+    CONSTANT_CONTACT = "ConstantContact"
+    MAILGUN = "Mailgun"
+    ELOQUA = "Eloqua"
+    SAILTHRU = "Sailthru"
+    ORTTO = "Ortto"
+    ATTENTIVE = "Attentive"
+    KUSTOMER = "Kustomer"
+    DIXA = "Dixa"
+    GLADLY = "Gladly"
+    QUALTRICS = "Qualtrics"
+    DELIGHTED = "Delighted"
+    AZURE_DEV_OPS = "AzureDevOps"
+    ROLLBAR = "Rollbar"
+    OPSGENIE = "Opsgenie"
+    INCIDENT_IO = "IncidentIo"
+    PINGDOM = "Pingdom"
+    CLOUDFLARE = "Cloudflare"
+    COSMOS_DB = "CosmosDB"
+    PLANET_SCALE = "PlanetScale"
+    SAP_HANA = "SapHana"
+    RIPPLING = "Rippling"
+    HI_BOB = "HiBob"
+    PERSONIO = "Personio"
+    DEEL = "Deel"
+    ADP_WORKFORCE_NOW = "AdpWorkforceNow"
+    PAYLOCITY = "Paylocity"
+    GUSTO = "Gusto"
+    CULTURE_AMP = "CultureAmp"
+    LATTICE = "Lattice"
+    SAGE_INTACCT = "SageIntacct"
+    FRESH_BOOKS = "FreshBooks"
+    EXPENSIFY = "Expensify"
+    RAMP = "Ramp"
+    BREX = "Brex"
+    COUPA = "Coupa"
+    SAP_CONCUR = "SapConcur"
+    APOLLO = "Apollo"
+    CRUNCHBASE = "Crunchbase"
+    ZOOM_INFO = "ZoomInfo"
+    CLARI = "Clari"
+    CHORUS = "Chorus"
+    CODA = "Coda"
+    GURU = "Guru"
+    DROPBOX = "Dropbox"
+    DOCUSIGN = "Docusign"
+    PANDA_DOC = "PandaDoc"
+    SAP_ERP = "SapErp"
+    SAP_SUCCESS_FACTORS = "SapSuccessFactors"
+    ORACLE_EBS = "OracleEbs"
+    ORACLE_FUSION = "OracleFusion"
     CUSTOM = "Custom"
 
 
@@ -4716,6 +4800,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
+            " finding. Each scout maintains and evolves its own vocabulary over time;"
+            " the harness normalizes and caps these at emit."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
@@ -4756,6 +4848,29 @@ class SimilarIssue(BaseModel):
 class SimpleIntervalType(StrEnum):
     DAY = "day"
     MONTH = "month"
+
+
+class SlackIntegrationScope(StrEnum):
+    APP_MENTIONS_READ = "app_mentions:read"
+    CHANNELS_HISTORY = "channels:history"
+    CHANNELS_READ = "channels:read"
+    CHAT_WRITE = "chat:write"
+    CHAT_WRITE_CUSTOMIZE = "chat:write.customize"
+    GROUPS_HISTORY = "groups:history"
+    GROUPS_READ = "groups:read"
+    LINKS_READ = "links:read"
+    LINKS_WRITE = "links:write"
+    REACTIONS_READ = "reactions:read"
+    REACTIONS_WRITE = "reactions:write"
+    TEAM_READ = "team:read"
+    USERS_READ = "users:read"
+    USERS_READ_EMAIL = "users:read.email"
+
+
+class SlackIntegrationScopeInReview(StrEnum):
+    ASSISTANT_WRITE = "assistant:write"
+    IM_HISTORY = "im:history"
+    MPIM_READ = "mpim:read"
 
 
 class SlashCommandName(StrEnum):
@@ -5148,6 +5263,11 @@ class TraceNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
+
+
+class TraceOrderColumn(StrEnum):
+    TIMESTAMP = "timestamp"
+    DURATION = "duration"
 
 
 class DetailedResultsAggregationType(StrEnum):
@@ -6574,7 +6694,10 @@ class AssistantTrendsFilter(BaseModel):
         default=None,
         description=(
             "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5"
-            " as `5 clicks`. You may need to add a space before postfix."
+            " as `5 clicks`. You may need to add a space before postfix. Never set a"
+            " postfix that `aggregationAxisFormat` already renders: `percentage` and"
+            " `percentage_scaled` already append the `%` sign, so a `%` postfix would"
+            " render values as `50%%`."
         ),
     )
     aggregationAxisPrefix: str | None = Field(
@@ -7468,6 +7591,12 @@ class FileSystemImport(BaseModel):
     last_viewed_at: str | None = Field(default=None, description="Timestamp when the file system entry was last viewed")
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
+    pinnedByDefault: bool | None = Field(
+        default=None,
+        description=(
+            "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row"
+        ),
+    )
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     reason: UserProductListReason | None = Field(
         default=None,
@@ -7744,6 +7873,13 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
+    showPercentagesOnSeries: bool | None = Field(
+        default=None,
+        description=(
+            "Append per-band percentage to each value label (e.g. `580 (42%)`)."
+            " Requires `showValuesOnSeries` — on its own it has no visible effect."
+        ),
+    )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None
@@ -8913,6 +9049,12 @@ class SessionRecordingType(BaseModel):
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
+    matches_filters: bool | None = Field(
+        default=None,
+        description=(
+            "False when the recording was included in list results via a direct link despite not matching the filters."
+        ),
+    )
     matching_events: list[MatchedRecording] | None = Field(default=None, description="List of matching events. *")
     mouse_activity_count: float | None = Field(
         default=None,
@@ -24404,7 +24546,14 @@ class TraceSpansQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: LogsOrderBy | None = None
+    orderBy: TraceOrderColumn | None = Field(
+        default=None,
+        description=(
+            "Column to order by. Defaults to timestamp. `timestamp` paginates via"
+            " keyset cursor (`after`); other columns via `offset`."
+        ),
+    )
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Order direction. Defaults to DESC.")
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),

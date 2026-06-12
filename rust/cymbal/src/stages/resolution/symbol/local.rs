@@ -21,7 +21,7 @@ use crate::{
         releases::ReleaseRecord,
         Frame, RawFrame,
     },
-    langs::apple::AppleDebugImage,
+    langs::native::DebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,
@@ -104,12 +104,12 @@ impl LocalSymbolResolver {
         &self,
         team_id: i32,
         frame: &RawFrame,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         if frame.is_suspicious() {
             metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
         }
-        let raw_id = frame.raw_id(team_id);
+        let raw_id = frame.raw_id(team_id, debug_images);
         let mut cache_miss = false;
         let frames = self
             .cache
@@ -133,7 +133,7 @@ impl LocalSymbolResolver {
         &self,
         frame: &RawFrame,
         raw_id: RawFrameId,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let loaded =
             ErrorTrackingStackFrame::load_all(&self.pool, &raw_id, self.ttl_policy).await?;
@@ -198,7 +198,7 @@ impl SymbolResolver for LocalSymbolResolver {
         &self,
         team_id: TeamId,
         frame: &RawFrame,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         self.resolve(team_id, frame, debug_images).await
     }
@@ -445,7 +445,7 @@ mod test {
             .unwrap();
 
         // get the frame
-        let frame_id = frame.raw_id(0);
+        let frame_id = frame.raw_id(0, &[]);
         let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.ttl_policy)
             .await
             .unwrap()

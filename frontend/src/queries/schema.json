@@ -563,7 +563,8 @@
                 "flags",
                 "llm_analytics",
                 "sandbox",
-                "user_interview"
+                "user_interview",
+                "customer_analytics"
             ],
             "type": "string"
         },
@@ -3840,6 +3841,7 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "list_feature_flags",
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
@@ -3862,7 +3864,10 @@
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
                 "summarize_replay_vision_summaries",
-                "draft_replay_vision_scanner_prompt"
+                "draft_replay_vision_scanner_prompt",
+                "upsert_account",
+                "upsert_account_notebook",
+                "open_account"
             ],
             "type": "string"
         },
@@ -4259,7 +4264,7 @@
                     "description": "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`."
                 },
                 "aggregationAxisPostfix": {
-                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.",
+                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.",
                     "type": "string"
                 },
                 "aggregationAxisPrefix": {
@@ -20402,6 +20407,85 @@
                 "Resend",
                 "PgAnalyze",
                 "WorkOS",
+                "AmazonS3",
+                "GoogleCloudStorage",
+                "Databricks",
+                "Dynamics365",
+                "SalesforceMarketingCloud",
+                "Db2",
+                "Heap",
+                "AdobeAnalytics",
+                "Matomo",
+                "Optimizely",
+                "Adyen",
+                "GoCardless",
+                "Mollie",
+                "CheckoutCom",
+                "Branch",
+                "Criteo",
+                "Outbrain",
+                "Taboola",
+                "AdRoll",
+                "DisplayVideo360",
+                "GoogleAdManager",
+                "CampaignManager360",
+                "SearchAds360",
+                "AdobeCommerce",
+                "AmazonSellingPartner",
+                "Ebay",
+                "Commercetools",
+                "LightspeedRetail",
+                "ShipStation",
+                "ConstantContact",
+                "Mailgun",
+                "Eloqua",
+                "Sailthru",
+                "Ortto",
+                "Attentive",
+                "Kustomer",
+                "Dixa",
+                "Gladly",
+                "Qualtrics",
+                "Delighted",
+                "AzureDevOps",
+                "Rollbar",
+                "Opsgenie",
+                "IncidentIo",
+                "Pingdom",
+                "Cloudflare",
+                "CosmosDB",
+                "PlanetScale",
+                "SapHana",
+                "Rippling",
+                "HiBob",
+                "Personio",
+                "Deel",
+                "AdpWorkforceNow",
+                "Paylocity",
+                "Gusto",
+                "CultureAmp",
+                "Lattice",
+                "SageIntacct",
+                "FreshBooks",
+                "Expensify",
+                "Ramp",
+                "Brex",
+                "Coupa",
+                "SapConcur",
+                "Apollo",
+                "Crunchbase",
+                "ZoomInfo",
+                "Clari",
+                "Chorus",
+                "Coda",
+                "Guru",
+                "Dropbox",
+                "Docusign",
+                "PandaDoc",
+                "SapErp",
+                "SapSuccessFactors",
+                "OracleEbs",
+                "OracleFusion",
                 "Custom"
             ],
             "type": "string"
@@ -20742,6 +20826,10 @@
                 "path": {
                     "description": "Object's name and folder",
                     "type": "string"
+                },
+                "pinnedByDefault": {
+                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
+                    "type": "boolean"
                 },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
@@ -24267,6 +24355,10 @@
             "properties": {
                 "showLegend": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showPercentagesOnSeries": {
+                    "description": "Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect.",
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
@@ -38723,6 +38815,10 @@
                 "keypress_count": {
                     "type": "number"
                 },
+                "matches_filters": {
+                    "description": "False when the recording was included in list results via a direct link despite not matching the filters.",
+                    "type": "boolean"
+                },
                 "matching_events": {
                     "description": "List of matching events. *",
                     "items": {
@@ -39413,6 +39509,13 @@
                 "skill_version": {
                     "type": "number"
                 },
+                "tags": {
+                    "description": "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -39545,6 +39648,29 @@
                 }
             ],
             "description": "A single (leaf) detector config"
+        },
+        "SlackIntegrationScope": {
+            "enum": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:read",
+                "chat:write",
+                "chat:write.customize",
+                "groups:history",
+                "groups:read",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email"
+            ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["assistant:write", "im:history", "mpim:read"],
+            "type": "string"
         },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
@@ -41337,6 +41463,11 @@
             },
             "type": "object"
         },
+        "TraceOrderColumn": {
+            "description": "Columns the trace list can be ordered by (allowlisted — fed straight into `ORDER BY`).",
+            "enum": ["timestamp", "duration"],
+            "type": "string"
+        },
         "TraceQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41572,7 +41703,13 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "$ref": "#/definitions/LogsOrderBy"
+                    "$ref": "#/definitions/TraceOrderColumn",
+                    "description": "Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`."
+                },
+                "orderDirection": {
+                    "description": "Order direction. Defaults to DESC.",
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
                 },
                 "prefetchSpans": {
                     "$ref": "#/definitions/integer",

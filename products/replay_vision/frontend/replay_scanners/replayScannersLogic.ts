@@ -15,6 +15,7 @@ import {
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -322,14 +323,16 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
+        // Refetch after any mutation so the page + creator dropdown + team-wide stats + quota meter stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
             actions.loadScannerStats()
+            visionQuotaLogic.findMounted()?.actions.loadQuota()
         },
         toggleScannerEnabledDone: () => {
             actions.loadScannerStats()
+            visionQuotaLogic.findMounted()?.actions.loadQuota()
         },
 
         toggleScannerEnabled: async ({ id }) => {

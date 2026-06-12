@@ -676,7 +676,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         from products.cohorts.backend.models.util import insert_static_cohort
 
-        persons = get_persons_by_uuids(team_id, batch)
+        # Cohort membership only needs id/uuid, so skip the unbounded per-person distinct-id fetch.
+        persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
         if not persons:
             return
 

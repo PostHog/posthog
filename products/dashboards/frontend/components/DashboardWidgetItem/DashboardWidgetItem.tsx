@@ -45,6 +45,7 @@ type DashboardWidgetItemProps = {
     placement: DashboardPlacement
     dashboardId?: number | null
     canEditDashboard?: boolean
+    isDashboardEditMode?: boolean
     result: unknown
     loading: boolean
     error?: string | null
@@ -93,12 +94,14 @@ type DashboardWidgetItemBodyProps = {
     widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
     componentProps: DashboardWidgetComponentProps
+    dashboardId?: number | null
 }
 
 function DashboardWidgetItemBody({
     widget,
     definition,
     componentProps,
+    dashboardId,
 }: DashboardWidgetItemBodyProps): JSX.Element | null {
     const catalogEntry = getDashboardWidgetCatalogEntry(widget.widget_type)
     const WidgetComponent = definition?.Component
@@ -112,6 +115,9 @@ function DashboardWidgetItemBody({
         <WidgetRuntimeAvailabilityGuard
             availability={catalogEntry.availability}
             unavailableContentFallback={definition?.unavailableContentFallback}
+            widgetType={widget.widget_type}
+            widgetId={widget.id}
+            dashboardId={dashboardId}
         >
             <WidgetComponent {...componentProps} />
         </WidgetRuntimeAvailabilityGuard>
@@ -125,6 +131,7 @@ function DashboardWidgetItemContent({
     definition,
     headerCatalogEntry,
     isUnknownWidgetType,
+    dashboardId,
     result,
     loading,
     error,
@@ -136,6 +143,7 @@ function DashboardWidgetItemContent({
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
+    isDashboardEditMode,
     canEditDashboard,
     onDuplicate,
     onRemove,
@@ -208,6 +216,7 @@ function DashboardWidgetItemContent({
                 showDescription={showDescription}
                 loading={loading}
                 showEditingControls={showEditingControls}
+                isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
                 moreButtonOverlay={
                     <>
@@ -308,6 +317,7 @@ function DashboardWidgetItemContent({
                             widget={widget}
                             definition={definition}
                             componentProps={componentProps}
+                            dashboardId={dashboardId}
                         />
                     </ErrorBoundary>
                 </WidgetCardBody>
@@ -339,6 +349,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             placement,
             dashboardId,
             canEditDashboard,
+            isDashboardEditMode,
             result,
             loading,
             error,
@@ -409,6 +420,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     definition={definition}
                     headerCatalogEntry={headerCatalogEntry}
                     isUnknownWidgetType={isUnknownWidgetType}
+                    dashboardId={dashboardId}
                     result={result}
                     loading={loading}
                     error={error}
@@ -419,6 +431,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onUpdateWidgetTile={onUpdateWidgetTile}
                     canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
+                    isDashboardEditMode={isDashboardEditMode}
                     onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}
                     onDuplicate={onDuplicate}
