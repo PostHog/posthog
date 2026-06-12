@@ -645,7 +645,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(greaterOrEquals(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0)
+  WHERE greaterOrEquals(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC'))
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -729,7 +729,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(less(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC')), 0)
+  WHERE less(fp.first_seen, parseDateTime64BestEffort('2020-01-10T10:11:00+00:00', 6, 'UTC'))
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1262,7 +1262,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(equals(issues.name, 'TypeError'), 0)
+  WHERE equals(issues.name, 'TypeError')
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2255,7 +2255,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(equals(issues.status, 'active'), 0)
+  WHERE equals(issues.status, 'active')
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -2339,7 +2339,7 @@
      WHERE and(equals(system__error_tracking_issue_assignments.team_id, 99999), in(system__error_tracking_issue_assignments.issue_id,
                                                                                      (SELECT issue_ids.issue_id AS issue_id
                                                                                       FROM issue_ids)))) AS assignment ON equals(assignment.issue_id, issues.id)
-  WHERE ifNull(equals(issues.status, 'resolved'), 0)
+  WHERE equals(issues.status, 'resolved')
   ORDER BY last_seen DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

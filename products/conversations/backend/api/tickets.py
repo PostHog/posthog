@@ -36,6 +36,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -535,7 +536,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if not distinct_ids:
             return
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
+        with personhog_caller_tag("conversations/ticket-attach-persons"):
+            persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
         distinct_id_to_person: dict[str, Person] = {}
         distinct_ids_set = set(distinct_ids)

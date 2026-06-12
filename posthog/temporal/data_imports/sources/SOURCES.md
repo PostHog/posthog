@@ -54,10 +54,12 @@ the row lists both.
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
+| brex             | HTTP                        | requests                                                        | ✅                          |
 | buildbetter      | HTTP                        | requests                                                        | ✅                          |
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| commercetools    | HTTP                        | requests                                                        | ✅                          |
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | circleci         | HTTP                        | requests                                                        | ✅                          |
@@ -79,12 +81,14 @@ the row lists both.
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | gitlab           | HTTP                        | requests                                                        | ✅                          |
+| gocardless       | HTTP                        | requests                                                        | ✅                          |
 | gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
+| guru             | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -92,6 +96,7 @@ the row lists both.
 | jira             | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
+| kustomer         | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -101,6 +106,7 @@ the row lists both.
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
+| mollie           | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -109,7 +115,10 @@ the row lists both.
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
+| pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
+| personio         | HTTP                        | requests                                                        | ✅                          |
+| pingdom          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
 | plain            | HTTP                        | requests                                                        | ✅                          |
@@ -123,11 +132,13 @@ the row lists both.
 | redshift         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend           | HTTP                        | requests                                                        | ✅                          |
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| rippling         | HTTP                        | requests                                                        | ✅                          |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft        | HTTP                        | requests                                                        | ✅                          |
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
 | sentry           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow       | HTTP                        | requests                                                        | ✅                          |
+| shipstation      | HTTP                        | requests                                                        | ✅                          |
 | shopify          | HTTP                        | requests                                                        | ✅                          |
 | shortcut         | HTTP                        | requests                                                        | ✅                          |
 | slack            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -204,7 +215,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintree
 - branch
-- brex
 - campaign_manager_360
 - checkout_com
 - chorus
@@ -212,7 +222,6 @@ doesn't conflict with concurrent PRs.
 - cloudflare
 - cockroachdb
 - coda
-- commercetools
 - constant_contact
 - copper
 - cosmosdb
@@ -238,26 +247,22 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - fullstory
 - gladly
-- gocardless
 - google_ad_manager
 - google_analytics
 - google_cloud_storage
 - google_drive
-- guru
 - gusto
 - heap
 - helpscout
 - hibob
 - instagram
 - kafka
-- kustomer
 - lattice
 - lever
 - lightspeed_retail
 - marketo
 - matomo
 - microsoft_teams
-- mollie
 - monday
 - netsuite
 - onedrive
@@ -270,20 +275,16 @@ doesn't conflict with concurrent PRs.
 - outbrain
 - outreach
 - pagerduty
-- pandadoc
 - pardot
 - paylocity
 - paypal
 - pendo
-- personio
-- pingdom
 - plaid
 - planetscale
 - qualtrics
 - quickbooks
 - ramp
 - ringcentral
-- rippling
 - rollbar
 - sage_intacct
 - sailthru
@@ -295,7 +296,6 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - sftp
 - sharepoint
-- shipstation
 - surveymonkey
 - taboola
 - twitter_ads
