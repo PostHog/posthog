@@ -234,45 +234,38 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         with pytest.raises(QueryError, match="not available"):
             self._print_select("SELECT _lookupGeoipCityName('89.160.20.129') FROM events", teams="")
 
-    def test_lookup_functions_rejected_for_restricted_target(self) -> None:
-        # Direct calls must enforce the same guard as the transform: otherwise a user denied the geo property could
-        # derive it from a readable `$ip`.
-        with pytest.raises(QueryError, match="restricted"):
-            self._print_select(
-                "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
-                restricted_properties={("$geoip_postal_code", PropertyDefinition.Type.EVENT)},
-            )
+    # The _lookupGeoip* functions are deliberately NOT property-restriction guarded (see the printer): they are pure
+    # functions over GeoLite2, a public IP->geo dataset, so they cannot circumvent property-level access control. The
+    # two tests below pin the two halves of that argument.
 
-    def test_lookup_functions_allowed_for_person_scoped_target_restriction(self) -> None:
-        # Only the event scope guards these functions: they derive the event-scoped properties, and GeoLite2 is
-        # public reference data — a user who can read an IP (e.g. a person's) could resolve it themselves, so a
-        # person-scoped geo restriction does not block the call.
+    @parameterized.expand(
+        [
+            ("event-scoped target", "$geoip_city_name", PropertyDefinition.Type.EVENT),
+            ("person-scoped target", "$geoip_city_name", PropertyDefinition.Type.PERSON),
+        ]
+    )
+    def test_lookup_functions_render_despite_target_restriction(
+        self, _name: str, restricted_key: str, property_type: int
+    ) -> None:
+        # Deriving geo data from an IP the user can already read circumvents nothing — any external geo service gives
+        # the same answer — and the restricted *stored* property still reads NULL (enforced at the property read and
+        # by the transform's target guard, covered by the end-to-end tests below).
         sql, _ = self._print_select(
-            "SELECT _lookupGeoipCityName(person.properties.$ip) FROM events",
-            restricted_properties={("$geoip_city_name", PropertyDefinition.Type.PERSON)},
+            "SELECT _lookupGeoipCityName('89.160.20.129') FROM events",
+            restricted_properties={(restricted_key, property_type)},
         )
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'city_name'" in sql
 
-    def test_lookup_functions_allowed_when_only_source_restricted(self) -> None:
-        # Restricting `$ip` does not block deriving a readable property from it: the `$ip` read itself is scrubbed by
-        # the restriction layer, so the call renders and simply misses the dictionary.
+    def test_lookup_functions_cannot_read_restricted_arguments(self) -> None:
+        # The other half of why no guard is needed: a restricted property read in the argument is scrubbed to constant
+        # NULL by the restriction layer before the function sees it, so the lookup misses — the function is no oracle
+        # for restricted values.
         sql, _ = self._print_select(
             "SELECT _lookupGeoipPostalCode(properties.$ip) FROM events",
             restricted_properties={("$ip", PropertyDefinition.Type.EVENT)},
         )
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'postal_code'" in sql
-
-    def test_lookup_functions_guard_only_their_own_target(self) -> None:
-        # A restriction on city blocks the city function only; postal stays usable, and vice versa.
-        restricted: set[tuple[str, int]] = {("$geoip_city_name", PropertyDefinition.Type.EVENT)}
-        sql, _ = self._print_select(
-            "SELECT _lookupGeoipPostalCode('89.160.20.129') FROM events", restricted_properties=restricted
-        )
-        assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'postal_code'" in sql
-        with pytest.raises(QueryError, match="restricted"):
-            self._print_select(
-                "SELECT _lookupGeoipCityName('89.160.20.129') FROM events", restricted_properties=restricted
-            )
+        assert "toIPv6OrDefault(coalesce(NULL, ''))" in sql
 
     @parameterized.expand(
         [

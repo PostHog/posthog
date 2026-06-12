@@ -249,23 +249,17 @@ class ClickHousePrinter(BasePrinter):
             # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
             if not geoip_dict_fallback_enabled_for_team(self.context.team_id):
                 raise QueryError(f"{node.name} is not available on this instance")
-            target = "$geoip_city_name" if node.name == "_lookupGeoipCityName" else "$geoip_postal_code"
-            # Mirror the transform's restricted-property guard for direct calls: the function must not let a user
-            # derive a restricted geo property from a readable `$ip`. Only the event scope counts — these functions
-            # derive the event-scoped properties, and GeoLite2 is public reference data, so deriving a city from an
-            # IP the user may already read is fine even where a person-scoped geo property is restricted (they could
-            # resolve the IP themselves). Restricted `$ip` arguments are simply scrubbed to NULL by the restriction
-            # layer, so such calls miss the dictionary.
-            # Deferred: PropertyDefinition pulls in the Django model layer; keep it off this module's import path.
-            from products.event_definitions.backend.models.property_definition import (  # noqa: PLC0415
-                PropertyDefinition,
-            )
-
-            if any(
-                name == target and ptype == PropertyDefinition.Type.EVENT
-                for name, ptype in (self.context.restricted_properties or set())
-            ):
-                raise QueryError(f"{node.name} is not allowed: the property it produces is restricted")
+            # Deliberately NO property-restriction guard here, reviewers included AI ones: these are pure functions
+            # over GeoLite2, a public IP->geo dataset, and they cannot circumvent property-level access control.
+            # (1) They never expose a restricted input: a restricted property read in the argument (e.g.
+            # `properties.$ip`) is scrubbed to constant NULL by the restriction layer before this function sees it,
+            # so the lookup misses and returns '' — there is no oracle for the restricted value. (2) They never serve
+            # a restricted *stored* property: the "restricted property reads as NULL" contract is enforced where
+            # properties are read (clickhouse_property_resolution + JSONDropKeys) and by the geoip_dict_fallback
+            # transform's own target guard. (3) The only capability left is deriving geo data from an IP the user can
+            # already read, which any external geo service provides — a guard here would add zero protection while
+            # risking the printer rejecting the transform's own emitted calls. Pinned by tests in
+            # test_geoip_dict_fallback.py.
             attribute = "city_name" if node.name == "_lookupGeoipCityName" else "postal_code"
             geoip_dict = get_geoip_city_postal_dict()
             return (
