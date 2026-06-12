@@ -401,10 +401,8 @@ pub async fn process_replay_events(
     match sink.send(ProcessedEvent { metadata, event }).await {
         Ok(()) => {}
         Err(err @ CaptureError::EventTooBig(_)) => {
-            // A snapshot batch this size usually carries the session's full
-            // snapshot; dropping it silently leaves the recording unplayable
-            // with no trace. Flag it as a team-visible ingestion warning
-            // (best effort) before failing the request with 413.
+            // The drop may cost the session its full snapshot, so surface a
+            // team-visible warning (best effort) before failing with 413.
             counter!("capture_replay_snapshot_too_large_total").increment(1);
             let warning = replay_message_too_large_warning(
                 context,
@@ -430,11 +428,9 @@ pub async fn process_replay_events(
     Ok(())
 }
 
-/// Build a `$$client_ingestion_warning` event flagging a replay snapshot batch
-/// that the sink rejected for exceeding the maximum message size. It is routed
-/// to the client ingestion warning topic, where ingestion resolves the team
-/// from the token and persists a `replay_message_too_large` warning that shows
-/// up in the ingestion warnings UI.
+/// Warning event for a snapshot batch dropped for size. Ingestion resolves
+/// the team from the token and persists it as a `replay_message_too_large`
+/// ingestion warning.
 fn replay_message_too_large_warning(
     context: &ProcessingContext,
     distinct_id: String,
@@ -492,8 +488,7 @@ fn replay_message_too_large_warning(
             token: context.token.clone(),
             event: "$$client_ingestion_warning".to_string(),
             timestamp,
-            // Deliberately not propagating cookieless mode: the warning is a
-            // synthetic event without the properties cookieless hashing needs.
+            // synthetic event without the properties cookieless hashing needs
             is_cookieless_mode: false,
             historical_migration: false,
         },
@@ -1234,14 +1229,10 @@ mod tests {
     }
 
     // ============ oversized snapshot flagging tests ============
-    // When the sink rejects the $snapshot_items message for size, the pipeline
-    // must emit a replay_message_too_large client ingestion warning (so teams
-    // can see why a recording is missing data) and still fail the request.
 
     use async_trait::async_trait;
 
-    /// Sink that rejects snapshot sends with the given error but accepts
-    /// everything else (i.e. the synthesized ingestion warning event).
+    /// Rejects snapshot sends with the given error, accepts everything else.
     struct RejectSnapshotsSink {
         error: fn() -> CaptureError,
         events: Arc<Mutex<Vec<ProcessedEvent>>>,

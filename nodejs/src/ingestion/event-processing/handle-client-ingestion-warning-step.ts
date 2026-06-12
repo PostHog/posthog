@@ -7,12 +7,10 @@ export interface HandleClientIngestionWarningStepInput {
     event: PluginEvent
 }
 
-// Warning types that may be requested via $$client_ingestion_warning_type,
-// with a validator for the shape their UI renderer depends on. Allowlisted so
-// arbitrary client traffic can't emit unrelated or malformed warning types.
+// Allowed $$client_ingestion_warning_type overrides, each validating the
+// details shape its UI renderer needs (clients can send anything here).
 const WARNING_TYPE_OVERRIDES: Record<string, (details: Record<string, unknown>) => boolean> = {
-    // capture emits this when a snapshot batch exceeds the maximum message
-    // size; the renderer needs details.replayRecord.session_id
+    // emitted by capture when a replay snapshot batch is too large to ingest
     replay_message_too_large: (details) => {
         const replayRecord = details.replayRecord
         return isPlainObject(replayRecord) && typeof (replayRecord as Record<string, unknown>).session_id === 'string'
