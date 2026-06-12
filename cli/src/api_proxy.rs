@@ -5,29 +5,73 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 
 use crate::error::CapturedError;
-use crate::utils::auth::{get_token, Token};
+use crate::invocation_context::InvocationContext;
 
-fn find_script() -> Result<PathBuf> {
-    if let Ok(path) = env::var("POSTHOG_API_CLI_PATH") {
-        let path = PathBuf::from(path);
-        if let Ok(resolved) = path.canonicalize() {
-            return Ok(resolved);
-        }
+const API_CLI_BUNDLE: &str = "posthog-api-cli.mjs";
+const ANALYTICS_HOST: &str = "https://us.i.posthog.com";
+
+fn canonicalize_file(path: &Path) -> Option<PathBuf> {
+    let resolved = path.canonicalize().ok()?;
+    if resolved.is_file() {
+        Some(resolved)
+    } else {
+        None
+    }
+}
+
+fn resolve_invoked_executable() -> Option<PathBuf> {
+    let executable = PathBuf::from(env::args_os().next()?);
+    if executable.components().count() > 1 {
+        return canonicalize_file(&executable);
     }
 
-    if let Ok(exe) = env::current_exe() {
+    let path = env::var_os("PATH")?;
+    env::split_paths(&path)
+        .map(|directory| directory.join(&executable))
+        .find_map(|candidate| canonicalize_file(&candidate))
+}
+
+fn find_script() -> Result<PathBuf> {
+    if let Some(path) = env::var_os("POSTHOG_API_CLI_PATH") {
+        if path.is_empty() {
+            bail!("POSTHOG_API_CLI_PATH is set but empty.");
+        }
+        let path = PathBuf::from(path);
+        let resolved = path.canonicalize().with_context(|| {
+            format!(
+                "POSTHOG_API_CLI_PATH is set to `{}`, but that file could not be found.",
+                path.display()
+            )
+        })?;
+        if !resolved.is_file() {
+            bail!(
+                "POSTHOG_API_CLI_PATH is set to `{}`, but it is not a file.",
+                resolved.display()
+            );
+        }
+        return Ok(resolved);
+    }
+
+    if let Some(exe) = resolve_invoked_executable() {
         if let Some(bin_dir) = exe.parent() {
             for candidate in [
-                bin_dir.join("lib/posthog-api-cli.mjs"),
-                bin_dir.join("../lib/posthog-api-cli.mjs"),
-                bin_dir.join("../lib/api-cli/posthog-api-cli.mjs"),
-                bin_dir.join("posthog-api-cli.mjs"),
+                bin_dir.join("lib").join(API_CLI_BUNDLE),
+                bin_dir.join("../lib").join(API_CLI_BUNDLE),
+                bin_dir.join("../lib/api-cli").join(API_CLI_BUNDLE),
+                bin_dir.join(API_CLI_BUNDLE),
             ] {
-                if let Ok(resolved) = candidate.canonicalize() {
+                if let Some(resolved) = canonicalize_file(&candidate) {
                     return Ok(resolved);
                 }
             }
         }
+    }
+
+    let development_bundle = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("lib")
+        .join(API_CLI_BUNDLE);
+    if let Some(resolved) = canonicalize_file(&development_bundle) {
+        return Ok(resolved);
     }
 
     bail!(
@@ -39,24 +83,18 @@ fn has_any_env(names: &[&str]) -> bool {
     names.iter().any(|name| env::var(name).is_ok())
 }
 
-fn inject_credentials(cmd: &mut Command) {
-    let token = match get_token(None) {
-        Ok(token) => token,
-        Err(_) => return,
+fn inject_credentials(cmd: &mut Command, invocation_context: Option<&InvocationContext>) {
+    let Some(invocation_context) = invocation_context else {
+        return;
     };
-
-    let Token {
-        token,
-        env_id,
-        host,
-    } = token;
+    let config = &invocation_context.config;
 
     if !has_any_env(&[
         "POSTHOG_API_KEY",
         "POSTHOG_CLI_API_KEY",
         "POSTHOG_CLI_TOKEN",
     ]) {
-        cmd.env("POSTHOG_CLI_API_KEY", token);
+        cmd.env("POSTHOG_CLI_API_KEY", &config.api_key);
     }
 
     if !has_any_env(&[
@@ -64,24 +102,38 @@ fn inject_credentials(cmd: &mut Command) {
         "POSTHOG_CLI_PROJECT_ID",
         "POSTHOG_CLI_ENV_ID",
     ]) {
-        cmd.env("POSTHOG_CLI_PROJECT_ID", env_id);
+        cmd.env("POSTHOG_CLI_PROJECT_ID", &config.env_id);
     }
 
     if !has_any_env(&["POSTHOG_HOST", "POSTHOG_CLI_HOST"]) {
-        if let Some(host) = host {
-            cmd.env("POSTHOG_CLI_HOST", host);
+        cmd.env("POSTHOG_CLI_HOST", &config.host);
+    }
+}
+
+fn inject_analytics_env(cmd: &mut Command) {
+    if let Some(token) = option_env!("POSTHOG_API_TOKEN") {
+        if env::var_os("POSTHOG_ANALYTICS_API_KEY").is_none() {
+            cmd.env("POSTHOG_ANALYTICS_API_KEY", token);
+        }
+        if env::var_os("POSTHOG_ANALYTICS_HOST").is_none() {
+            cmd.env("POSTHOG_ANALYTICS_HOST", ANALYTICS_HOST);
         }
     }
 }
 
-pub fn run(args: Vec<String>, host_override: Option<String>) -> Result<(), CapturedError> {
+pub fn run(
+    args: Vec<String>,
+    host_override: Option<String>,
+    invocation_context: Option<&InvocationContext>,
+) -> Result<(), CapturedError> {
     let script = find_script().map_err(CapturedError::from)?;
     let mut cmd = Command::new("node");
     cmd.arg(script);
     cmd.args(args);
     cmd.env("POSTHOG_CLI_VERSION", env!("CARGO_PKG_VERSION"));
 
-    inject_credentials(&mut cmd);
+    inject_credentials(&mut cmd, invocation_context);
+    inject_analytics_env(&mut cmd);
 
     if let Some(host) = host_override {
         cmd.env("POSTHOG_CLI_HOST", host);

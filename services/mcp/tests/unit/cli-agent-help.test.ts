@@ -31,4 +31,12 @@ describe('CLI agent help', () => {
     it('does not require credentials to build', () => {
         expect(() => buildAgentHelp(getCliTools())).not.toThrow()
     })
+
+    it('hides AI-consent tools unless consent is confirmed', () => {
+        const withoutConsent = getCliTools().map((tool) => tool.name)
+        const withConsent = getCliTools({ aiConsentGiven: true }).map((tool) => tool.name)
+
+        expect(withoutConsent).not.toContain('llma-summarization-create')
+        expect(withConsent).toContain('llma-summarization-create')
+    })
 })

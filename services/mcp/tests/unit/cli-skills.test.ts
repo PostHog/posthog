@@ -6,14 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ContextMillResource } from '@/resources/manifest-types'
 
-vi.mock('@/resources', () => ({
+vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn(),
     filterValidEntries: vi.fn((entries: ContextMillResource[]) => entries),
     loadManifestFromArchive: vi.fn(),
 }))
 
 import { installSkill } from '@/cli/skills'
-import { fetchContextMillResources, loadManifestFromArchive } from '@/resources'
+import { fetchContextMillResources, loadManifestFromArchive } from '@/resources/internals'
 
 const skillZip = zipSync({
     'SKILL.md': strToU8('# Test skill\n'),

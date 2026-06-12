@@ -66,7 +66,8 @@ function printResult(result: unknown): void {
 
 async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
     const context = await buildCliContext(config)
-    const tools = getCliTools()
+    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+    const tools = getCliTools({ aiConsentGiven })
     const execTool = createExecTool(
         tools,
         context,
@@ -88,6 +89,12 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
     )
 
     return { config, context, execTool, tools }
+}
+
+async function buildAgentHelpForConfig(config: CliConfig = resolveCliConfig()): Promise<string> {
+    const context = await buildCliContext(config)
+    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+    return buildAgentHelp(getCliTools({ aiConsentGiven }))
 }
 
 async function runExecCommand(command: string): Promise<void> {
@@ -186,7 +193,7 @@ async function main(): Promise<void> {
     }
 
     if (command === 'agent-help' || command === '--agent-help') {
-        process.stdout.write(`${buildAgentHelp(getCliTools())}\n`)
+        process.stdout.write(`${await buildAgentHelpForConfig()}\n`)
         return
     }
 

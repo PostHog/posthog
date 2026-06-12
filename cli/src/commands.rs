@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     api_proxy,
@@ -316,8 +316,19 @@ impl Cli {
                 }
             },
             Commands::Api { args } => {
-                api_proxy::run(args, self.host)?;
-                return Ok(());
+                let api_context = match init_context(
+                    self.host.clone(),
+                    self.skip_ssl_verification,
+                    self.rate_limit,
+                    self.env_file.clone(),
+                ) {
+                    Ok(_) => Some(context()),
+                    Err(error) => {
+                        debug!("API CLI proxy running without invocation context: {error:?}");
+                        None
+                    }
+                };
+                api_proxy::run(args, self.host, api_context)?;
             }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
