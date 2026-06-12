@@ -10,6 +10,7 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -17,6 +18,7 @@ import {
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -95,6 +97,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
+    DataWarehouseSourceConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
@@ -132,6 +136,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
+    Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
@@ -216,6 +222,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -255,6 +262,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/skills': ['Skills', 'skills'],
+    '/skills/:name': ['Skill', 'skill'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
@@ -416,7 +425,17 @@ export const productRedirects: Record<
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    '/mcp-analytics': (_params, searchParams, hashParams) =>
+        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/prompt-management/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.skills(), searchParams, hashParams).url,
+    '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/llm-analytics/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.skills(), searchParams, hashParams).url,
+    '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.skill(params.name), searchParams, hashParams).url,
     '/user_interviews': '/user_research',
 }
 
@@ -580,6 +599,7 @@ export const productConfiguration: Record<string, any> = {
     },
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
+    DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -719,6 +739,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'View detailed session group summary.',
         iconType: 'notebook',
     },
+    Skills: {
+        projectBased: true,
+        name: 'Skills',
+        description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
+    Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -906,6 +934,8 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    dataWarehouseSourceConnect: (kind?: string): string =>
+        `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1143,6 +1173,14 @@ export const productUrls = {
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
+    skills: (): string => '/skills',
+    skill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/skills/${name}`, params).url,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -1424,6 +1462,16 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/SQL`,
+        type: 'insight',
+        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        displayLabel: 'New SQL',
+        iconType: 'insight/hog',
+        iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.sql,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Stickiness`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.STICKINESS }),
@@ -1557,6 +1605,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },
@@ -1901,6 +1950,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.REPLAY_VISION,
+        pinnedByDefault: true,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
@@ -1936,6 +1986,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         sceneKey: 'Replay',
         sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback', 'ReplayKiosk'],
+    },
+    {
+        path: 'Skills',
+        intents: [ProductKey.LLM_PROMPTS],
+        category: ProductItemCategory.TOOLS,
+        type: 'llm_skills',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+        href: urls.skills(),
+        flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
+        sceneKey: 'Skills',
+        sceneKeys: ['Skills', 'Skill'],
     },
     {
         path: 'Support',
@@ -2183,6 +2245,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },

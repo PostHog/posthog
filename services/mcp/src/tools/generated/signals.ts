@@ -7,6 +7,9 @@ import {
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
+    SignalsScoutConfigCreateBody,
+    SignalsScoutConfigUpdateBody,
+    SignalsScoutConfigUpdateParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
@@ -16,8 +19,13 @@ import {
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
+    SignalsSourceConfigsCreateBody,
     SignalsSourceConfigsListQueryParams,
+    SignalsSourceConfigsPartialUpdateBody,
+    SignalsSourceConfigsPartialUpdateParams,
     SignalsSourceConfigsRetrieveParams,
+    SignalsSourceConfigsUpdateBody,
+    SignalsSourceConfigsUpdateParams,
 } from '@/generated/signals/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -126,6 +134,35 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
     },
 })
 
+const InboxSourceConfigsCreateSchema = SignalsSourceConfigsCreateBody
+
+const inboxSourceConfigsCreate = (): ToolBase<typeof InboxSourceConfigsCreateSchema, Schemas.SignalSourceConfig> => ({
+    name: 'inbox-source-configs-create',
+    schema: InboxSourceConfigsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_product !== undefined) {
+            body['source_product'] = params.source_product
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.SignalSourceConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSourceConfigsListSchema = SignalsSourceConfigsListQueryParams
 
 const inboxSourceConfigsList = (): ToolBase<
@@ -162,6 +199,40 @@ const inboxSourceConfigsList = (): ToolBase<
     },
 })
 
+const InboxSourceConfigsPartialUpdateSchema = SignalsSourceConfigsPartialUpdateParams.omit({ project_id: true }).extend(
+    SignalsSourceConfigsPartialUpdateBody.shape
+)
+
+const inboxSourceConfigsPartialUpdate = (): ToolBase<
+    typeof InboxSourceConfigsPartialUpdateSchema,
+    Schemas.SignalSourceConfig
+> => ({
+    name: 'inbox-source-configs-partial-update',
+    schema: InboxSourceConfigsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_product !== undefined) {
+            body['source_product'] = params.source_product
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.SignalSourceConfig>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSourceConfigsRetrieveSchema = SignalsSourceConfigsRetrieveParams.omit({ project_id: true })
 
 const inboxSourceConfigsRetrieve = (): ToolBase<
@@ -177,6 +248,116 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const InboxSourceConfigsUpdateSchema = SignalsSourceConfigsUpdateParams.omit({ project_id: true }).extend(
+    SignalsSourceConfigsUpdateBody.shape
+)
+
+const inboxSourceConfigsUpdate = (): ToolBase<typeof InboxSourceConfigsUpdateSchema, Schemas.SignalSourceConfig> => ({
+    name: 'inbox-source-configs-update',
+    schema: InboxSourceConfigsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_product !== undefined) {
+            body['source_product'] = params.source_product
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.SignalSourceConfig>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SignalsScoutConfigCreateSchema = SignalsScoutConfigCreateBody
+
+const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSchema, Schemas.SignalScoutConfig> => ({
+    name: 'signals-scout-config-create',
+    schema: SignalsScoutConfigCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.skill_name !== undefined) {
+            body['skill_name'] = params.skill_name
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.emit !== undefined) {
+            body['emit'] = params.emit
+        }
+        if (params.run_interval_minutes !== undefined) {
+            body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        const result = await context.api.request<Schemas.SignalScoutConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SignalsScoutConfigListSchema = z.object({})
+
+const signalsScoutConfigList = (): ToolBase<
+    typeof SignalsScoutConfigListSchema,
+    WithPostHogUrl<Schemas.SignalScoutConfig[]>
+> => ({
+    name: 'signals-scout-config-list',
+    schema: SignalsScoutConfigListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const SignalsScoutConfigUpdateSchema = SignalsScoutConfigUpdateParams.omit({ project_id: true }).extend(
+    SignalsScoutConfigUpdateBody.shape
+)
+
+const signalsScoutConfigUpdate = (): ToolBase<
+    typeof SignalsScoutConfigUpdateSchema,
+    WithPostHogUrl<Schemas.SignalScoutConfig>
+> => ({
+    name: 'signals-scout-config-update',
+    schema: SignalsScoutConfigUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.emit !== undefined) {
+            body['emit'] = params.emit
+        }
+        if (params.run_interval_minutes !== undefined) {
+            body['run_interval_minutes'] = params.run_interval_minutes
+        }
+        const result = await context.api.request<Schemas.SignalScoutConfig>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
     },
 })
 
@@ -390,8 +571,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
+    'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
+    'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
+    'inbox-source-configs-update': inboxSourceConfigsUpdate,
+    'signals-scout-config-create': signalsScoutConfigCreate,
+    'signals-scout-config-list': signalsScoutConfigList,
+    'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,

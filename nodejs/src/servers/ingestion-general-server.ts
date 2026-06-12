@@ -18,12 +18,10 @@ import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionCo
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
 import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
@@ -73,9 +71,8 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
     IngestionOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -111,9 +108,8 @@ export class IngestionGeneralServer implements NodeServer {
     constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
