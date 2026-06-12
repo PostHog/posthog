@@ -6716,12 +6716,40 @@
             "readOnlyHint": false
         }
     },
+    "workflows-create-email-template": {
+        "description": "Save an email template to the workflows library. Provide name and content.email with subject, a plain-text fallback, and design (design JSON for PostHog's visual email editor — schema in the designing-email-templates skill); the sent email is compiled from the design JSON. Liquid personalization works throughout — Liquid tags, apostrophes, and emoji are ordinary JSON characters, so pass the design inline exactly as authored. Then call workflows-show-email-template and share the _posthogUrl link with the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create email template",
+        "title": "Create email template",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
         "title": "Get workflow",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-get-email-template": {
+        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get email template",
+        "title": "Get email template",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6786,6 +6814,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-list-email-templates": {
+        "description": "List email templates in the workflows library — metadata only; fetch a template's content with workflows-get-email-template. Templates are referenced from a workflow's function_email action.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List email templates",
+        "title": "List email templates",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list-invocations": {
         "description": "List a workflow's individual invocations (one execution per person/event), each collapsed to its final outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range. Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from a failed invocation into workflows-logs for the step-by-step trace.",
         "category": "Workflows",
@@ -6806,6 +6848,20 @@
         "feature": "workflows",
         "summary": "Get workflow logs",
         "title": "Get workflow logs",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-show-email-template": {
+        "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Show email template",
+        "title": "Show email template",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6848,6 +6904,20 @@
         "feature": "workflows",
         "summary": "Update workflow",
         "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update-email-template": {
+        "description": "Update an email template by ID. content is replaced as a whole, never merged — call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update email template",
+        "title": "Update email template",
         "required_scopes": ["hog_flow:write"],
         "annotations": {
             "destructiveHint": false,

@@ -45,10 +45,12 @@ the row lists both.
 | Source           | Comm method                 | Primary library                                                 | Tracked transport           |
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
+| airtable         | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| azure_devops     | HTTP                        | requests                                                        | ✅                          |
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
@@ -70,6 +72,7 @@ the row lists both.
 | convertkit       | HTTP                        | requests                                                        | ✅                          |
 | convex           | HTTP                        | requests                                                        | ✅                          |
 | copper           | HTTP                        | requests                                                        | ✅                          |
+| crunchbase       | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog          | HTTP                        | requests                                                        | ✅                          |
 | delighted        | HTTP                        | requests                                                        | ✅                          |
@@ -77,6 +80,7 @@ the row lists both.
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
 | freshsales       | HTTP                        | requests                                                        | ✅                          |
+| elasticsearch    | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
@@ -97,6 +101,7 @@ the row lists both.
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
 | kustomer         | HTTP                        | requests                                                        | ✅                          |
+| lattice          | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -114,6 +119,7 @@ the row lists both.
 | notion           | HTTP                        | requests                                                        | ✅                          |
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
+| optimizely       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
@@ -133,6 +139,7 @@ the row lists both.
 | resend           | HTTP                        | requests                                                        | ✅                          |
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | rippling         | HTTP                        | requests                                                        | ✅                          |
+| rollbar          | HTTP                        | requests                                                        | ✅                          |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft        | HTTP                        | requests                                                        | ✅                          |
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
@@ -200,7 +207,6 @@ doesn't conflict with concurrent PRs.
 - adp_workforce_now
 - adroll
 - adyen
-- airtable
 - amazon_ads
 - amazon_cloudwatch
 - amazon_eventbridge
@@ -215,7 +221,6 @@ doesn't conflict with concurrent PRs.
 - attentive
 - auth0
 - azure_blob
-- azure_devops
 - bigcommerce
 - box
 - braintree
@@ -232,7 +237,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - coupa
 - criteo
-- crunchbase
 - culture_amp
 - databricks
 - db2
@@ -244,7 +248,6 @@ doesn't conflict with concurrent PRs.
 - dynamics365
 - dynamodb
 - ebay
-- elasticsearch
 - eloqua
 - expensify
 - facebook_pages
@@ -262,7 +265,6 @@ doesn't conflict with concurrent PRs.
 - hibob
 - instagram
 - kafka
-- lattice
 - lever
 - lightspeed_retail
 - marketo
@@ -272,7 +274,6 @@ doesn't conflict with concurrent PRs.
 - netsuite
 - onedrive
 - opsgenie
-- optimizely
 - oracle
 - oracle_ebs
 - oracle_fusion
@@ -290,7 +291,6 @@ doesn't conflict with concurrent PRs.
 - quickbooks
 - ramp
 - ringcentral
-- rollbar
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
