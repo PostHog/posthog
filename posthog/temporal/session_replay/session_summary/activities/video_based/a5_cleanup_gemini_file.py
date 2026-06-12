@@ -4,9 +4,8 @@ import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from google.genai import Client as RawGenAIClient
-from google.genai.errors import APIError
 
-from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import untrack_uploaded_file
+from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import is_gemini_file_gone, untrack_uploaded_file
 
 logger = structlog.get_logger(__name__)
 
@@ -23,8 +22,8 @@ async def cleanup_gemini_file_activity(gemini_file_name: str, session_id: str) -
             session_id=session_id,
             signals_type="session-summaries",
         )
-    except APIError as e:
-        if e.code not in (403, 404):
+    except Exception as e:
+        if not is_gemini_file_gone(e):
             logger.exception(
                 f"Failed to delete Gemini file {gemini_file_name} for session {session_id}",
                 gemini_file_name=gemini_file_name,
@@ -32,21 +31,12 @@ async def cleanup_gemini_file_activity(gemini_file_name: str, session_id: str) -
                 signals_type="session-summaries",
             )
             return
-        # File already gone: Gemini reports missing files as 403 PERMISSION_DENIED
-        # ("...or it may not exist"), not just 404. Untrack so the sweep doesn't retry forever.
+        # File already gone — untrack so the sweep doesn't retry a doomed delete forever.
         logger.info(
             f"Gemini file {gemini_file_name} already gone for session {session_id}",
             gemini_file_name=gemini_file_name,
             session_id=session_id,
             signals_type="session-summaries",
         )
-    except Exception:
-        logger.exception(
-            f"Failed to delete Gemini file {gemini_file_name} for session {session_id}",
-            gemini_file_name=gemini_file_name,
-            session_id=session_id,
-            signals_type="session-summaries",
-        )
-        return
 
     await untrack_uploaded_file(gemini_file_name)

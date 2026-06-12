@@ -1205,18 +1205,10 @@ class TestEnsureSessionAssetActivity:
 
 
 class TestCleanupGeminiFileActivity:
-    async def _track(self, file_name: str) -> None:
-        redis = get_async_client()
-        await redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}{file_name}", "{}")
-        await redis.zadd(_GEMINI_REDIS_INDEX_KEY, {file_name: 0.0})
-
-    async def _is_tracked(self, file_name: str) -> bool:
-        redis = get_async_client()
-        return bool(await redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}{file_name}"))
-
     @pytest.mark.asyncio
-    async def test_deletes_file_and_clears_tracking(self) -> None:
-        await self._track("files/rv-ok")
+    async def test_deletes_file_and_clears_tracking(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-ok": 0.0})
         fake_client = MagicMock()
         with patch(
             "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
@@ -1224,11 +1216,13 @@ class TestCleanupGeminiFileActivity:
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
         fake_client.files.delete.assert_called_once_with(name="files/rv-ok")
-        assert not await self._is_tracked("files/rv-ok")
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-ok") is None
 
     @pytest.mark.asyncio
-    async def test_keeps_tracking_on_transient_failure(self) -> None:
-        await self._track("files/rv-transient")
+    async def test_keeps_tracking_on_transient_failure(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-transient": 0.0})
         fake_client = MagicMock()
         fake_client.files.delete.side_effect = RuntimeError("gemini down")
         with patch(
@@ -1236,14 +1230,16 @@ class TestCleanupGeminiFileActivity:
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
-        assert await self._is_tracked("files/rv-transient")
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient") == 1
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-transient") is not None
 
     @pytest.mark.parametrize("code", [403, 404])
     @pytest.mark.asyncio
-    async def test_clears_tracking_when_file_already_gone(self, code: int) -> None:
+    async def test_clears_tracking_when_file_already_gone(self, gemini_redis, code: int) -> None:
         # Gemini reports missing files as 403 PERMISSION_DENIED ("...or it may not exist") or 404;
         # either way the file can't be deleted, so the tracking key must be dropped.
-        await self._track("files/rv-gone")
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-gone": 0.0})
         fake_client = MagicMock()
         fake_client.files.delete.side_effect = APIError(code=code, response_json={})
         with patch(
@@ -1251,7 +1247,8 @@ class TestCleanupGeminiFileActivity:
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
-        assert not await self._is_tracked("files/rv-gone")
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
 
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
