@@ -14,6 +14,8 @@ from posthog.schema import (
     AlertConditionType,
     AlertState,
     ChartDisplayType,
+    HogQLAlertConfig,
+    HogQLAlertEvaluation,
     InsightThreshold,
     InsightThresholdType,
     NodeKind,
@@ -133,9 +135,18 @@ def validate_alert_config(
 
     if config_type == "HogQLAlertConfig":
         # SQL insights own their time window; there is no series_index or ongoing-interval concept,
-        # so only the query kind, condition/threshold compatibility, and bounds are validated.
+        # so the query kind, evaluation mode, condition/threshold compatibility, and bounds are validated.
         if kind != NodeKind.HOG_QL_QUERY:
             raise ValueError(f"SQL alert config requires a HogQLQuery insight, got '{kind}'")
+        try:
+            parsed_hogql_config = HogQLAlertConfig.model_validate(config)
+        except Exception:
+            raise ValueError(f"Alert has invalid HogQLAlertConfig: {config}")
+        if parsed_hogql_config.evaluation == HogQLAlertEvaluation.ANY_ROW and parsed_condition.type != (
+            AlertConditionType.ABSOLUTE_VALUE
+        ):
+            # Rows are entities in any_row mode, not a time axis — relative change is meaningless.
+            raise ValueError("Any-row SQL alerts only support absolute value conditions")
         _validate_condition_threshold_compatibility(parsed_condition, threshold_config)
         if require_threshold_bounds and detector_config is None:
             validate_threshold_bounds_required(threshold_config)

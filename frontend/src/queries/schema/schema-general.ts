@@ -4783,10 +4783,22 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
-/** Alert config for HogQL/SQL-backed insights. Empty by design — the query owns its own time window
- * and the alert evaluates the last row of the single-column result. */
+/** How a SQL alert reads the query result.
+ * `last_row` = the query is chronologically ordered and the last row is the current value;
+ * `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only). */
+export type HogQLAlertEvaluation = 'last_row' | 'any_row'
+
+/** Alert config for HogQL/SQL-backed insights. The query owns its own time window. */
 export interface HogQLAlertConfig {
     type: 'HogQLAlertConfig'
+    /** Name of the result column to evaluate. When unset, the single numeric column is used
+     * (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows. Defaults to `last_row`. */
+    evaluation?: HogQLAlertEvaluation
+    /** In `any_row` mode, the column whose value labels each row in breach messages.
+     * When unset, the first non-evaluated column is used, falling back to the row number. */
+    label_column?: string | null
 }
 
 /** How a funnel alert measures conversion at its step.

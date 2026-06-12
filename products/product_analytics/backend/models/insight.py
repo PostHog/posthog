@@ -11,6 +11,8 @@ import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import NodeKind
+
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -415,7 +417,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     @property
     def are_alerts_supported(self) -> bool:
-        return self._unwrapped_query_kind() == "TrendsQuery"
+        return self._unwrapped_query_kind() == NodeKind.TRENDS_QUERY
 
     @property
     def can_have_alerts(self) -> bool:
@@ -425,12 +427,12 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         are gated by a feature flag at creation time, but once created they must keep displaying
         and must survive insight updates regardless of the flag.
         """
-        return self._unwrapped_query_kind() in ("TrendsQuery", "HogQLQuery")
+        return self._unwrapped_query_kind() in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY)
 
     @property
     def is_hogql_backed(self) -> bool:
         """True when the underlying query (unwrapped from any wrapper) is a HogQLQuery."""
-        return self._unwrapped_query_kind() == "HogQLQuery"
+        return self._unwrapped_query_kind() == NodeKind.HOG_QL_QUERY
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

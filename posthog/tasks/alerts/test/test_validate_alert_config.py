@@ -298,22 +298,18 @@ class TestValidateAlertConfig:
             with pytest.raises(ValueError, match=expected_error_fragment):
                 validate_alert_config(query, condition, config, threshold_config, calculation_interval)
 
-    def test_hogql_alert_requires_at_least_one_bound(self) -> None:
+    @parameterized.expand(
+        [
+            ("hogql", _hogql_query(), _hogql_config()),
+            ("trends", _base_query(), _base_config()),
+        ]
+    )
+    def test_threshold_alert_requires_at_least_one_bound(self, _name: str, query: dict, config: dict) -> None:
         with pytest.raises(ValueError, match="At least one threshold bound"):
             validate_alert_config(
-                _hogql_query(),
+                query,
                 _base_condition(),
-                _hogql_config(),
-                _base_threshold(bounds={}),
-                "daily",
-            )
-
-    def test_threshold_alert_requires_at_least_one_bound(self) -> None:
-        with pytest.raises(ValueError, match="At least one threshold bound"):
-            validate_alert_config(
-                _base_query(),
-                _base_condition(),
-                _base_config(),
+                config,
                 _base_threshold(bounds={}),
                 "daily",
             )
@@ -327,6 +323,26 @@ class TestValidateAlertConfig:
             "daily",
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
+
+    def test_any_row_hogql_alert_rejects_relative_conditions(self) -> None:
+        with pytest.raises(ValueError, match="Any-row SQL alerts only support absolute value conditions"):
+            validate_alert_config(
+                _hogql_query(),
+                _base_condition("relative_increase"),
+                {"type": "HogQLAlertConfig", "evaluation": "any_row"},
+                _base_threshold(type="percentage"),
+                "daily",
+            )
+
+    def test_invalid_hogql_config_rejected(self) -> None:
+        with pytest.raises(ValueError, match="invalid HogQLAlertConfig"):
+            validate_alert_config(
+                _hogql_query(),
+                _base_condition(),
+                {"type": "HogQLAlertConfig", "evaluation": "sideways"},
+                _base_threshold(),
+                "daily",
+            )
 
     def test_detector_config_rejected_for_non_trends_insight(self) -> None:
         with pytest.raises(ValueError, match="Anomaly detection alerts are only supported for trends insights"):

@@ -40,6 +40,23 @@ class ExtractionResult:
     # the detector reports that as an uncomputed value (None). Threshold extractors never set this
     # (they emit a zero sentinel series) and the comparator ignores it.
     empty_query_result: bool = False
+    # When True, every breaching series is reported (capped) instead of stopping at the first —
+    # any-row SQL alerts use this so the notification names all violating rows. Trends breakdowns
+    # keep first-breach-only for parity with their historical messages.
+    aggregate_breaches: bool = False
+
+
+EMPTY_RESULT_LABEL = "empty result"
+
+
+def zero_sentinel_series() -> ComparableSeries:
+    """The shared empty-result sentinel: two zero points so relative conditions compute
+    0 - 0 = 0 rather than skipping for lack of a previous point; absolute reads 0 at the anchor."""
+    return ComparableSeries(
+        label=EMPTY_RESULT_LABEL,
+        points=[SeriesPoint(date=None, value=0.0), SeriesPoint(date=None, value=0.0)],
+        current_index=1,
+    )
 
 
 class AlertExtractionError(Exception):

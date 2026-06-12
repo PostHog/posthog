@@ -11,6 +11,12 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import ExtractionResult
 
+# Aggregated (any-row) breach lists are capped so a wide violation doesn't flood the notification.
+MAX_BREACH_MESSAGES = 5
+# More structured breach detail is persisted to AlertCheck.triggered_metadata for debugging — a
+# higher cap than the notification, since the check record is the only durable source of truth.
+MAX_PERSISTED_BREACHING_ROWS = 25
+
 
 def _breach_messages(
     bounds: InsightsThresholdBounds,
@@ -20,6 +26,7 @@ def _breach_messages(
     *,
     subject: str,
     framed: bool,
+    include_series: bool = False,
     interval_type: IntervalType | None = None,
     series: str | None = None,
     is_current_interval: bool = False,
@@ -38,12 +45,14 @@ def _breach_messages(
             raise ValueError(f"Unsupported alert condition type: {condition_type}")
 
     # Framed (time-series trends): "(label) for current/previous interval". Unframed (e.g. SQL
-    # insights): just the subject, since there is no series label or interval to reference.
-    context = (
-        f" ({series}) for {'current' if is_current_interval else 'previous'} {interval_type or 'interval'}"
-        if framed
-        else ""
-    )
+    # insights): just the subject — plus the series label when several series are in play
+    # (any-row SQL alerts), since the reader needs to know which row breached.
+    if framed:
+        context = f" ({series}) for {'current' if is_current_interval else 'previous'} {interval_type or 'interval'}"
+    elif include_series and series is not None:
+        context = f" ({series})"
+    else:
+        context = ""
 
     if bounds.lower is not None and calculated_value < bounds.lower:
         lower_value = f"{bounds.lower:.2%}" if is_percentage else bounds.lower
@@ -99,6 +108,9 @@ def evaluate_threshold(
         return AlertEvaluationResult(value=0, breaches=[])
 
     calculated: float | None = None
+    all_breaches: list[str] = []
+    breaching_rows: list[dict] = []
+    first_breach_value: float | None = None
     for s in result.series:
         anchor = s.points[s.current_index].value
         if anchor is None:
@@ -119,12 +131,35 @@ def evaluate_threshold(
             condition.type,
             subject=result.subject,
             framed=result.framed,
+            include_series=result.is_breakdown,
             interval_type=result.interval_type,
             series=s.label,
             is_current_interval=s.is_current_interval,
         )
         if breaches:
-            return AlertEvaluationResult(value=calculated, breaches=breaches)
+            if not result.aggregate_breaches:
+                return AlertEvaluationResult(value=calculated, breaches=breaches)
+            if first_breach_value is None:
+                # Representative value = the first breaching row in result order; the full list
+                # of breaching rows is carried by ``breaches`` and ``triggered_metadata``.
+                first_breach_value = calculated
+            all_breaches.extend(breaches)
+            breaching_rows.append({"label": s.label, "value": calculated})
+
+    if all_breaches:
+        capped = all_breaches[:MAX_BREACH_MESSAGES]
+        if len(all_breaches) > MAX_BREACH_MESSAGES:
+            capped.append(f"...and {len(all_breaches) - MAX_BREACH_MESSAGES} more rows breach")
+        # Persist which rows breached on the check record — notifications are transient, and the
+        # row labels have no other durable source of truth.
+        return AlertEvaluationResult(
+            value=first_breach_value,
+            breaches=capped,
+            triggered_metadata={
+                "breaching_rows": breaching_rows[:MAX_PERSISTED_BREACHING_ROWS],
+                "breaching_row_count": len(breaching_rows),
+            },
+        )
 
     # No breach: an empty query result reports 0 regardless of breakdown (the metric is genuinely
     # zero — matching the original _is_empty_query_result); otherwise a non-breakdown query reports

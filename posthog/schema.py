@@ -124,6 +124,7 @@ from posthog.schema_enums import (
     HedgehogActorSkinOption as HedgehogActorSkinOption,
     HideViewedRecordings as HideViewedRecordings,
     HogLanguage as HogLanguage,
+    HogQLAlertEvaluation as HogQLAlertEvaluation,
     HrefMatching as HrefMatching,
     InCohortVia as InCohortVia,
     InfinityValue as InfinityValue,
@@ -1505,13 +1506,6 @@ class HogCompileResponse(BaseModel):
     )
     bytecode: list
     locals: list
-
-
-class HogQLAlertConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
 
 
 class HogQLVariable(BaseModel):
@@ -5263,6 +5257,31 @@ class HeatmapSettings(BaseModel):
     xAxisLabel: str | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
+
+
+class HogQLAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str | None = Field(
+        default=None,
+        description=(
+            "Name of the result column to evaluate. When unset, the single numeric"
+            " column is used (an error if the result has more than one numeric column)."
+        ),
+    )
+    evaluation: HogQLAlertEvaluation | None = Field(
+        default=None, description="How to read the result rows. Defaults to `last_row`."
+    )
+    label_column: str | None = Field(
+        default=None,
+        description=(
+            "In `any_row` mode, the column whose value labels each row in breach"
+            " messages. When unset, the first non-evaluated column is used, falling"
+            " back to the row number."
+        ),
+    )
+    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
 
 
 class HogQLAutocompleteResponse(BaseModel):
