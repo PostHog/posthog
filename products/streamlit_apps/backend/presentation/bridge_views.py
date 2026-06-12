@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.rate_limit import PersonalApiKeyRateThrottle
 
@@ -39,6 +40,26 @@ class StreamlitBridgeThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class StreamlitBridgeIPThrottle(PersonalApiKeyRateThrottle):
+    """IP-keyed companion to StreamlitBridgeThrottle.
+
+    The per-token throttle is bucketed by the (unvalidated) bearer value, so an
+    unauthenticated caller could rotate a fresh random token per request and dodge
+    it while still forcing OAuth token lookups. This throttle caps total attempts
+    per source IP regardless of token, closing that bypass. Kept higher than the
+    per-token rate because legitimate sandboxes may share an egress IP.
+    """
+
+    scope = "streamlit_bridge_ip"
+    rate = "600/hour"
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        return self._allow_request_internal(request, view, personal_api_key_only=False)
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
 def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None, str | None]:
     """Returns (team_id, user_distinct_id, error)."""
     from posthog.models.oauth import find_oauth_access_token
@@ -63,8 +84,23 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None, str 
         return None, None, "Invalid token application."
     if len(access_token.scoped_teams) != 1:
         return None, None, "Token must be scoped to exactly one team."
-    user_distinct_id = access_token.user.distinct_id if access_token.user else None
-    return access_token.scoped_teams[0], user_distinct_id, None
+
+    team_id = access_token.scoped_teams[0]
+
+    # The token outlives membership changes, so re-validate the minting user
+    # against the scoped team rather than trusting the embedded scope. A
+    # deactivated user, or one removed from the org, must lose bridge access.
+    user = access_token.user
+    if user is None or not user.is_active:
+        return None, None, "Token user is inactive."
+
+    team = Team.objects.filter(id=team_id).only("organization_id").first()
+    if team is None:
+        return None, None, "Token team not found."
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
+        return None, None, "Token user is not a member of the team's organization."
+
+    return team_id, user.distinct_id, None
 
 
 def _streamlit_apps_enabled_for_team(team_id: int, user_distinct_id: str | None) -> bool:
@@ -78,7 +114,7 @@ def _streamlit_apps_enabled_for_team(team_id: int, user_distinct_id: str | None)
 class StreamlitBridgeView(APIView):
     authentication_classes: list = []
     permission_classes = [AllowAny]
-    throttle_classes = [StreamlitBridgeThrottle]
+    throttle_classes = [StreamlitBridgeThrottle, StreamlitBridgeIPThrottle]
     http_method_names = ["post"]
 
     def post(self, request: Request) -> Response:

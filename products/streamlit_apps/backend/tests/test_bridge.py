@@ -94,6 +94,40 @@ class TestStreamlitBridgeView(_StreamlitAppsFlagMixin, APIBaseTest):
         )
         assert response.status_code == 401
 
+    def test_inactive_user_token_rejected(self):
+        # A bridge token outlives the minting user, so deactivating the user must
+        # immediately revoke the sandbox's access to team data.
+        token = self._streamlit_token()
+        self.user.is_active = False
+        self.user.save()
+
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({"query": "SELECT 1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 401
+
+    def test_non_member_user_token_rejected(self):
+        # A token whose user no longer belongs to the scoped team's organization
+        # must not grant query access, even with a valid bridge scope.
+        from posthog.models import Organization, User
+
+        from products.streamlit_apps.backend.logic.oauth import create_sandbox_bridge_token
+
+        other_org = Organization.objects.create(name="Outsider Org")
+        outsider = User.objects.create_and_join(other_org, "outsider@example.com", None)
+        token = create_sandbox_bridge_token(user=outsider, team_id=self.team.id)
+
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({"query": "SELECT 1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 401
+
     def test_invalid_json_body(self):
         response = self.client.post(
             self._url(),
