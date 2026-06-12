@@ -143,7 +143,7 @@ def get_rows(
     if config.per_employee:
         employee_ids: list[str] = []
         for page in paginate("/employees", {}):
-            employee_ids.extend(str(row["id"]) for row in page if row.get("id"))
+            employee_ids.extend(str(row["id"]) for row in page)
 
         start_index = 0
         if resume_config is not None and resume_config.next_employee_index is not None:
@@ -152,7 +152,7 @@ def get_rows(
 
         for index in range(start_index, len(employee_ids)):
             employee_id = employee_ids[index]
-            path = config.path.format(employee_id=quote(employee_id))
+            path = config.path.format(employee_id=quote(employee_id, safe=""))
             for page in paginate(path, {}):
                 yield [{**row, "_employee_id": employee_id} for row in page]
             # Save state AFTER yielding so a crash re-yields the in-flight
