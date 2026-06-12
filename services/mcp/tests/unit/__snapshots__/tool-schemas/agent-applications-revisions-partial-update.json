@@ -43,6 +43,17 @@
                         "max_wall_seconds": 900
                     },
                     "properties": {
+                        "max_cpu_cores": {
+                            "default": 0.25,
+                            "exclusiveMinimum": 0,
+                            "type": "number"
+                        },
+                        "max_memory_mb": {
+                            "default": 512,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        },
                         "max_output_tokens": {
                             "exclusiveMinimum": 0,
                             "maximum": 200000,
@@ -171,6 +182,33 @@
                 "reasoning": {
                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
                     "type": "string"
+                },
+                "sandbox": {
+                    "properties": {
+                        "loop_location": {
+                            "default": "in_sandbox",
+                            "enum": ["in_sandbox", "in_process"],
+                            "type": "string"
+                        },
+                        "trust_profile": {
+                            "default": "frozen",
+                            "enum": ["frozen", "coding-readonly", "coding-write", "coding-pr"],
+                            "type": "string"
+                        },
+                        "workspace": {
+                            "properties": {
+                                "ref": {
+                                    "default": "main",
+                                    "type": "string"
+                                },
+                                "repo": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
                 },
                 "secrets": {
                     "default": [],
