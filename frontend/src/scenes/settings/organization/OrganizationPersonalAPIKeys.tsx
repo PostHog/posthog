@@ -100,7 +100,7 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
                 rowKey={(key) => `${key.owner.email}-${key.mask_value}-${key.created_at}`}
                 pagination={{ pageSize: 25 }}
                 emptyState={
-                    search
+                    search.trim()
                         ? 'No personal API keys match your search.'
                         : 'No personal API keys have access to this organization.'
                 }
