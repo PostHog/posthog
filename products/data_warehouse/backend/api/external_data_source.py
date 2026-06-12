@@ -1105,20 +1105,17 @@ class SourceCredentialSerializer(serializers.Serializer):
     )
 
 
-def _find_oauth_field(config: object) -> dict | None:
-    """Recursively find an OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump."""
-    if isinstance(config, dict):
-        if config.get("type") == "oauth" and config.get("kind"):
-            return config
-        for value in config.values():
-            found = _find_oauth_field(value)
-            if found is not None:
-                return found
-    elif isinstance(config, list):
-        for item in config:
-            found = _find_oauth_field(item)
-            if found is not None:
-                return found
+def _find_top_level_oauth_field(config: dict) -> dict | None:
+    """Find a top-level OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump.
+
+    Only a top-level OAuth field makes a source OAuth-only (e.g. Hubspot). An OAuth option
+    nested inside a select (e.g. Stripe's auth_method) coexists with credential options, so
+    those sources route to the credentials connect page — its form still offers the OAuth
+    choice alongside API keys.
+    """
+    for field in config.get("fields") or []:
+        if isinstance(field, dict) and field.get("type") == "oauth" and field.get("kind"):
+            return field
     return None
 
 
@@ -2940,7 +2937,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         source = SourceRegistry.get_source(source_type_model)
-        oauth_field = _find_oauth_field(source.get_source_config.model_dump())
+        oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())
 
         # Minimal connect page: credentials only — no table selection, no source creation in the UI.
         ui_path = f"/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"

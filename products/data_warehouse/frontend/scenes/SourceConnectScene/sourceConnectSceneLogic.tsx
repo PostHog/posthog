@@ -16,19 +16,11 @@ import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
 import type { sourceConnectSceneLogicType } from './sourceConnectSceneLogicType'
 
-const containsOauthField = (fields: SourceFieldConfig[]): boolean =>
-    fields.some((field) => {
-        if (field.type === 'oauth') {
-            return true
-        }
-        if (field.type === 'switch-group') {
-            return containsOauthField(field.fields)
-        }
-        if (field.type === 'select') {
-            return field.options.some((option) => containsOauthField(option.fields ?? []))
-        }
-        return false
-    })
+// Only a top-level OAuth field makes a source OAuth-only (e.g. Hubspot). An OAuth option nested
+// inside a select (e.g. Stripe's auth_method) coexists with credential options, so those sources
+// must render the credentials form — it still offers the OAuth choice. Mirrors the backend's
+// _find_top_level_oauth_field.
+const hasTopLevelOauthField = (fields: SourceFieldConfig[]): boolean => fields.some((field) => field.type === 'oauth')
 
 const buildCredentialsPayload = async (
     fields: SourceFieldConfig[],
@@ -94,7 +86,7 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
         ],
         isOauthSource: [
             (s) => [s.sourceConfig],
-            (sourceConfig): boolean => (sourceConfig ? containsOauthField(sourceConfig.fields) : false),
+            (sourceConfig): boolean => (sourceConfig ? hasTopLevelOauthField(sourceConfig.fields) : false),
         ],
         breadcrumbs: [
             (s) => [s.sourceConfig],

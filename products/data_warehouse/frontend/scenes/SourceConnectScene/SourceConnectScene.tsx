@@ -7,6 +7,7 @@ import { LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/le
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -118,6 +119,7 @@ export function SourceConnectScene(): JSX.Element {
                             showAccessMethodSelector={false}
                             showCdcConfig={false}
                             setSourceConnectionDetailsValue={setCredentialsFormValue}
+                            oauthRedirectUrl={urls.dataWarehouseSourceConnect(sourceConfig.name)}
                         />
                         <LemonButton
                             type="primary"

@@ -115,9 +115,10 @@ describe('sourceConnectSceneLogic', () => {
     it.each([
         ['Postgres', false],
         ['Hubspot', true],
-        // Stripe's oauth field is nested inside a select option — must still count as oauth,
-        // matching the backend's recursive _find_oauth_field
-        ['Stripe', true],
+        // Stripe's oauth field is one option of the auth_method select alongside API key — the
+        // page must render the credentials form so the user chooses how to authenticate,
+        // matching the backend's _find_top_level_oauth_field
+        ['Stripe', false],
     ])('classifies %s as oauth=%s', (kind, expected) => {
         router.actions.push(`/data-warehouse/connect?kind=${kind}`)
         expect(sourceConnectSceneLogic.values.isOauthSource).toEqual(expected)

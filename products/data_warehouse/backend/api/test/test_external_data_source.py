@@ -8443,6 +8443,16 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
         assert data["integration_field"] == "credential_id"
         assert f"/project/{self.team.pk}/data-warehouse/connect?kind=Postgres" in data["connect_url"]
 
+    def test_connect_link_mixed_auth_source_routes_to_credentials_page(self):
+        # Stripe's OAuth option is nested inside the auth_method select alongside API key —
+        # the connect page form offers both, so the link must not force the OAuth flow.
+        response = self._connect_link("Stripe")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["auth_method"] == "credentials"
+        assert data["integration_field"] == "credential_id"
+        assert f"/project/{self.team.pk}/data-warehouse/connect?kind=Stripe" in data["connect_url"]
+
     def test_connect_link_missing_source_type(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
