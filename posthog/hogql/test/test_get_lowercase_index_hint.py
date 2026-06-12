@@ -26,7 +26,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.facade.queries import LogsQueryRunner
 
 
 class TestGetLowercaseIndexHint(BaseTest):

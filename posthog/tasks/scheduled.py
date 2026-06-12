@@ -78,7 +78,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
-from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 

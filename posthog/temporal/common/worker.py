@@ -53,7 +53,7 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
 )
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.logs.backend.temporal.metrics import (
+from products.logs.backend.facade.temporal import (
     LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,

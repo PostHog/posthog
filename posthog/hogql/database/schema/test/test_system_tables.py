@@ -1,6 +1,9 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
+
+from django.apps import apps
 
 from parameterized import parameterized
 
@@ -40,7 +43,9 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.logs.backend.models import LogsAlertConfiguration, LogsView
+
+if TYPE_CHECKING:
+    from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -368,12 +373,13 @@ def _create_integration_repository_cache_entry(team: Team, label: str):
     )
 
 
-def _create_logs_view(team: Team, label: str) -> LogsView:
-    return LogsView.objects.create(team=team, name=f"logs_view_{label}")
+def _create_logs_view(team: Team, label: str) -> "LogsView":
+    # apps.get_model keeps this fixture off the logs tach interface (models are internal).
+    return apps.get_model("logs", "LogsView").objects.create(team=team, name=f"logs_view_{label}")
 
 
-def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
-    return LogsAlertConfiguration.objects.create(
+def _create_logs_alert(team: Team, label: str) -> "LogsAlertConfiguration":
+    return apps.get_model("logs", "LogsAlertConfiguration").objects.create(
         team=team,
         name=f"logs_alert_{label}",
         threshold_count=10,
