@@ -389,11 +389,11 @@ tools:
             Update an existing inbox report on this project (including pipeline-generated ones): rewrite its
             `title`/`summary`, transition its state (`suppressed` to dismiss, `potential` to snooze, `resolved` to close
             as fixed), and/or attach `priority` / `actionability` / `suggested_reviewers` judgments. Priority and
-            actionability are append-only — the newest one becomes the report's effective value and earlier ones
-            remain as the audit trail; `suggested_reviewers` replaces the existing suggestions outright (an empty
-            list clears them). All scout-authored prose (title, summary, judgment explanations) passes a safety
-            filter (`skipped_reason=unsafe_content` when blocked). Illegal state transitions return 409, including
-            any transition on a report the pipeline currently holds (`candidate` / `in_progress`). Prefer this over
+            actionability are append-only — the newest one becomes the report's effective value and earlier ones remain
+            as the audit trail; `suggested_reviewers` replaces the existing suggestions outright (an empty list clears
+            them). All scout-authored prose (title, summary, judgment explanations) passes a safety filter
+            (`skipped_reason=unsafe_content` when blocked). Illegal state transitions return 409, including any
+            transition on a report the pipeline currently holds (`candidate` / `in_progress`). Prefer this over
             `signals-scout-create-report` whenever a matching report already exists.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
