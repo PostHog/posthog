@@ -47,6 +47,38 @@ export const areAlertsSupportedForInsight = (
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
 
+/** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
+export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
+    return alerts.flatMap((alert) => {
+        if (
+            alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
+            alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
+            !alert.threshold.configuration.bounds
+        ) {
+            return []
+        }
+
+        const bounds = alert.threshold.configuration.bounds
+
+        const annotations: GoalLine[] = []
+        if (bounds.upper != null) {
+            annotations.push({
+                label: `${alert.name} Upper Threshold`,
+                value: bounds.upper,
+            })
+        }
+
+        if (bounds.lower != null) {
+            annotations.push({
+                label: `${alert.name} Lower Threshold`,
+                value: bounds.lower,
+            })
+        }
+
+        return annotations
+    })
+}
+
 export const insightAlertsLogic = kea<insightAlertsLogicType>([
     path(['lib', 'components', 'Alerts', 'insightAlertsLogic']),
     props({} as InsightAlertsLogicProps),
@@ -120,38 +152,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     selectors({
         alertThresholdLines: [
             (s) => [s.alerts, s.showAlertThresholdLines],
-            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
-                const result = alerts.flatMap((alert) => {
-                    if (
-                        !showAlertThresholdLines ||
-                        alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
-                        alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
-                        !alert.threshold.configuration.bounds
-                    ) {
-                        return []
-                    }
-
-                    const bounds = alert.threshold.configuration.bounds
-
-                    const annotations = []
-                    if (bounds?.upper != null) {
-                        annotations.push({
-                            label: `${alert.name} Upper Threshold`,
-                            value: bounds?.upper,
-                        })
-                    }
-
-                    if (bounds?.lower != null) {
-                        annotations.push({
-                            label: `${alert.name} Lower Threshold`,
-                            value: bounds?.lower,
-                        })
-                    }
-
-                    return annotations
-                })
-                return result
-            },
+            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
+                showAlertThresholdLines ? alertsToThresholdGoalLines(alerts) : [],
         ],
         /** Whether the insight has any detector-based alerts (used to show/hide the toggle). */
         hasDetectorAlerts: [
