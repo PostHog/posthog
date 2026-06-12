@@ -58,19 +58,17 @@
 
     .group\/tabs[data-orientation='horizontal'] .quill-tabs__indicator--variant-default {
         top: 50%;
-        left: 0;
-        width: var(--active-tab-width);
-        height: var(--active-tab-height);
+        left: -1px;
+        width: calc(var(--active-tab-width) + 2px);
+        height: calc(var(--active-tab-height) + 2px);
         transform: translateX(var(--active-tab-left)) translateY(-50%);
     }
 
     .group\/tabs[data-orientation='vertical'] .quill-tabs__indicator--variant-default {
         top: -1px;
         left: 50%;
-        width: calc(100% - 6px);
-
-        /* +1px to account for the border of the indicator. Without it, the indicator is cut off by the border of the tab. */
-        height: calc(var(--active-tab-height) + 1px);
+        width: calc(100% - 3px);
+        height: calc(var(--active-tab-height) + 2px);
         transform: translateX(-50%) translateY(var(--active-tab-top));
     }
 
