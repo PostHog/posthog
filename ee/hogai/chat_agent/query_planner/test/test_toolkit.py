@@ -111,12 +111,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             result,
         )
 
-    def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
+    def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
         toolkit = DummyToolkit(self.team)
-        self.assertEqual(
-            toolkit.retrieve_entity_properties("person"),
-            "Properties do not exist in the taxonomy for the entity person.",
-        )
+        result = toolkit.retrieve_entity_properties("person")
+        self.assertIn("$virt_initial_channel_type", result)
+        self.assertIn("$virt_revenue", result)
 
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team)
@@ -198,6 +197,26 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
+    def test_retrieve_entity_property_values_virtual_person_property_with_examples(self):
+        toolkit = DummyToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("person", "$virt_initial_channel_type"),
+            '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
+        )
+
+    def test_retrieve_entity_property_values_virtual_property_without_examples(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        toolkit = DummyToolkit(self.team)
+        for entity in ("person", "proj"):
+            self.assertEqual(
+                toolkit.retrieve_entity_property_values(entity, "$virt_mrr"),
+                "The property $virt_mrr is a virtual property computed at query time, "
+                "so the taxonomy does not have stored sample values.",
+            )
+
     def test_group_names(self):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
@@ -259,6 +278,8 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("<Boolean>", prompt)
             self.assertIn("- bool", prompt)
             self.assertIn("</Boolean>", prompt)
+            # Virtual properties are surfaced even though they never appear in stored event data.
+            self.assertIn("- $virt_is_bot", prompt)
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()

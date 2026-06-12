@@ -90,9 +90,11 @@ def enrich_props_with_descriptions(entity: str, props: Iterable[tuple[str, str |
         "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
         "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
     }
+    # Entities other than the well-known ones are group types.
+    entity_definitions = mapping.get(entity, CORE_FILTER_DEFINITIONS_BY_GROUP["groups"])
     for prop_name, prop_type in props:
         description = None
-        if entity_definition := mapping.get(entity, {}).get(prop_name):
+        if entity_definition := entity_definitions.get(prop_name):
             if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                 continue
             description = entity_definition.get("description_llm") or entity_definition.get("description")

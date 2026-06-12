@@ -172,10 +172,13 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
         result = await self.toolkit.retrieve_event_or_action_properties_parallel([232, "event1"])
 
         assert "event1" in result
+        assert "<prop><name>id</name></prop>" in result["event1"]
         assert (
-            "<properties><String><prop><name>id</name></prop><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String></properties>"
-            == result["event1"]
+            "<prop><name>$browser</name><description>Name of the browser the user has used.</description></prop>"
+            in result["event1"]
         )
+        # Virtual event properties are surfaced even though they never appear in stored event data.
+        assert "<name>$virt_is_bot</name>" in result["event1"]
         assert "<properties>" in result["232"]
 
     async def test_retrieve_event_or_action_properties_action_no_properties(self):

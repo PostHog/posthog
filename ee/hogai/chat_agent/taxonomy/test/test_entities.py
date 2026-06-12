@@ -59,10 +59,11 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_retrieve_entity_properties(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["person"])
-        assert (
-            "<properties><String><prop><name>name</name></prop><prop><name>property_no_values</name></prop></String></properties>"
-            == result["person"]
-        )
+        assert "<prop><name>name</name></prop>" in result["person"]
+        assert "<prop><name>property_no_values</name></prop>" in result["person"]
+        # Virtual person properties are surfaced even though they have no stored definitions.
+        assert "<name>$virt_initial_channel_type</name>" in result["person"]
+        assert "<name>$virt_revenue</name>" in result["person"]
 
     async def test_retrieve_entity_properties_entity_not_found(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["test"])
@@ -71,9 +72,8 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_retrieve_entity_properties_entity_with_group(self):
         result = await self.toolkit.retrieve_entity_properties_parallel(["organization", "session"])
         assert "session" in result
-        assert (
-            "<properties><String><prop><name>name_group</name></prop></String></properties>" == result["organization"]
-        )
+        assert "<prop><name>name_group</name></prop>" in result["organization"]
+        assert "<name>$virt_revenue</name>" in result["organization"]
         assert "<properties>" in result["session"]
 
     async def test_person_property_values_exists(self):
@@ -100,6 +100,18 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
                 for val in property_vals.get("person", [])
             )
         )
+
+    async def test_person_property_values_virtual(self):
+        property_vals = await self.toolkit.retrieve_entity_property_values(
+            {"person": ["$virt_initial_channel_type", "$virt_revenue"]}
+        )
+
+        # Virtual person properties are computed by the actors taxonomy query, so real values come back.
+        values = property_vals["person"]
+        assert "$virt_initial_channel_type" in values[0]
+        assert "Unknown" in values[0]
+        assert "$virt_revenue" in values[1]
+        assert "'0'" in values[1]
 
     async def test_person_property_values_mixed(self):
         result = await self.toolkit._get_entity_names()
