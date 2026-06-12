@@ -3,6 +3,8 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
+
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
@@ -200,6 +202,42 @@ class TestBuildAISlackMessage:
         for thread_msg in message.thread_messages:
             for block in thread_msg["blocks"]:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
+
+
+def _mock_integration(scopes: frozenset[str]) -> MagicMock:
+    integration = MagicMock()
+    integration.kind = "slack"
+    integration.id = 7
+    integration.config = {"scope": ",".join(sorted(scopes))}
+    integration.sensitive_config = {"access_token": "xoxb-test"}
+    return integration
+
+
+def _action_elements(message: SlackMessageData) -> list[dict]:
+    return [el for block in message.blocks if block.get("type") == "actions" for el in block["elements"]]
+
+
+class TestAIExploreButton:
+    def test_no_explore_button_without_integration(self) -> None:
+        labels = [el["text"]["text"] for el in _action_elements(_build_message("A short report."))]
+        assert labels == ["Manage subscription"]
+
+    @pytest.mark.parametrize(
+        "scopes,label,expected_keys,forbidden_keys",
+        [
+            (REQUIRED_SLACK_SCOPES, "Dive into the data 🔍", {"action_id", "value"}, {"url"}),
+            (frozenset({"chat:write"}), "Ask PostHog about this 🔍", {"url"}, {"action_id"}),
+        ],
+    )
+    def test_explore_button_variant(
+        self, scopes: frozenset[str], label: str, expected_keys: set[str], forbidden_keys: set[str]
+    ) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, integration=_mock_integration(scopes)
+        )
+        explore = next(el for el in _action_elements(message) if el["text"]["text"] == label)
+        assert expected_keys.issubset(explore.keys())
+        assert set(forbidden_keys).isdisjoint(explore.keys())
 
 
 def _feedback_url(feedback: str, source: str) -> str:
