@@ -18,9 +18,12 @@ import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 
 import {
+    buildResumePrompt,
     CodingEvent,
     CodingLaunchConfig,
+    ConversationMessage,
     DockerCodingSandboxPool,
+    formatConversationForResume,
     PUBLISHED_HARNESS_IMAGE,
 } from '@posthog/agent-shared'
 
@@ -101,6 +104,48 @@ maybe('runCodingSession: real harness e2e', () => {
 
         // We reached the model (usage accrued) — proves the gateway round-trip.
         expect(result.events.some((e) => e.kind === 'usage')).toBe(true)
+    }, 300_000)
+
+    it('a resume-wrapped first message gives a fresh harness the prior conversation context', async () => {
+        // Mirrors what driveCodingSession does on a /send re-claim: the
+        // prior conversation is replayed as context around the new message,
+        // and the cold harness must answer from it.
+        const prior: ConversationMessage[] = [
+            {
+                role: 'user',
+                content: 'Remember this deploy codeword for later: XYZZY-PLUGH. Just confirm you have it.',
+                timestamp: 1,
+            },
+            {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Confirmed — the deploy codeword is XYZZY-PLUGH.' }],
+                timestamp: 2,
+            },
+        ]
+        const history = formatConversationForResume(prior)
+        expect(history).not.toBeNull()
+
+        const pool = new DockerCodingSandboxPool({ image: PUBLISHED_HARNESS_IMAGE })
+        const result = await runCodingSession(
+            {
+                sessionId: `e2e-resume-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                teamId: 1,
+                launch: launch(),
+                userMessage: buildResumePrompt(
+                    history!,
+                    'What was the deploy codeword from earlier? Reply with exactly that codeword and nothing else.'
+                ),
+                timeoutMs: 240_000,
+            },
+            {
+                pool,
+                approve: async (): Promise<ApprovalDecision> => ({ optionId: 'allow' }),
+            }
+        )
+
+        expect(result.state, `events: ${JSON.stringify(result.events.slice(-8))}`).toBe('completed')
+        // The fresh harness answered from the replayed history.
+        expect(result.assistantText.join('')).toContain('XYZZY-PLUGH')
     }, 300_000)
 })
 

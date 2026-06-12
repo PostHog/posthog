@@ -16,28 +16,25 @@ Tier 1 supervisor (in-process) ↔ tier 2 harness over JSON-RPC `/command` + SSE
   `$ai_generation`/`$ai_span`/`$ai_trace` (routed to the agent's own project)
 - Fix: follow-up `/send` was replaying the original prompt (seeding bug) — `192dc0252f7`
 
-## Now: conversational continuity on re-claim
+## Done: conversational continuity on re-claim
 
-Each completed session tears down its sandbox → a `/send` re-claim boots a _fresh_ harness with
-no memory of prior turns (and no workspace state). Seeding is fixed (runs the right message) but
-the harness answers cold. Goal: feed prior `session.conversation` into the harness on re-claim,
-interim ahead of full sandbox snapshot/resume (lifecycle item #4, separate).
+Shipped. Investigation (posthog/code at `/Users/benwhite/Development/code`): the harness's only
+resume path (`POSTHOG_RESUME_RUN_ID`) fetches the prior run's log from the PostHog API, then just
+formats the conversation as markdown into the first prompt (`packages/agent/src/resume.ts` +
+`agent-server.ts` `sendResumeMessage`). No structured history-injection API; Claude SDK native
+`resume` not exposed. So: supervisor does the same formatting itself.
 
-### Step 1 — investigate harness support
+- `services/agent-shared/src/sandbox/coding/resume-context.ts` —
+  `formatConversationForResume` (markdown history, tool results folded + truncated, char budget)
+  - `buildResumePrompt` (harness-matching preamble, so its `isResumeContextTurn` detection
+    recognizes these turns if native resume lands later).
+- `coding-driver.ts`: on re-claim (prior assistant turns), wraps ONLY the first wire send;
+  persisted transcript + analytics keep the raw message.
+- Tests: formatter unit (`resume-context.test.ts`), driver unit (re-claim wrap, raw later sends),
+  worker e2e (`coding-agent.test.ts` re-claim case via real ingress /send), real-harness e2e
+  (codeword recalled from replayed history by a cold harness).
 
-Source checked out at `/Users/benwhite/Development/code` (posthog/code, the `@posthog/agent` /
-`agent-server`). Find: initial-messages / resume / session-load mechanism, or confirm we must
-replay `session.conversation` as context into the first `user_message`. Decide smallest correct
-approach.
-
-### Step 2 — implement (TDD)
-
-- Driver: `services/agent-runner/src/loop/coding-driver.ts` (`driveCodingSession`)
-- On re-claim (conversation has prior assistant/toolResult turns), seed harness with history
-  before the new user message.
-- Unit test first: `coding-driver.test.ts` (fake pool, assert history reaches harness via
-  `pool.sandbox.sent`). Then worker e2e (`services/agent-tests/src/cases/coding-agent.test.ts`)
-  - real-harness e2e (`coding-supervisor.realharness.test.ts`).
+Workspace state still NOT restored on re-claim (preamble says so) — that's snapshot/resume (#4).
 
 ## Key files
 
