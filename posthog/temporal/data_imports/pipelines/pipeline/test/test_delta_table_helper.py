@@ -391,10 +391,10 @@ class TestIncrementalBatchDeduplication:
     def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
         table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
 
-        result = _first_per_pk_table(table, ["id"], keep=keep)
+        result = _first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
 
-        assert sorted(result.column("id").to_pylist()) == [1, 2]
-        assert sorted(result.column("name").to_pylist()) == sorted(expected_names)
+        assert result.column("id").to_pylist() == [1, 2]
+        assert result.column("name").to_pylist() == expected_names
 
     @pytest.mark.asyncio
     async def test_incremental_merge_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
@@ -416,7 +416,7 @@ class TestIncrementalBatchDeduplication:
         assert final.column("id").to_pylist() == [1, 2]
         # The last occurrence of a duplicated key carries the freshest data.
         assert final.column("name").to_pylist() == ["updated", "second_copy"]
-        helper._logger.awarning.assert_awaited_once()
+        cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_first_sync_append_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
