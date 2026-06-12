@@ -644,7 +644,9 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
                 f"{base}{self.scheduled_change.id}/",
                 data={"payload": {"operation": "update_status", "value": True}, "scheduled_at": "2023-12-09T12:00:00Z"},
             )
-        return self.client.delete(f"{base}{self.scheduled_change.id}/")
+        if action == "delete":
+            return self.client.delete(f"{base}{self.scheduled_change.id}/")
+        raise ValueError(f"unknown action: {action}")
 
     @parameterized.expand(["list", "retrieve"])
     def test_read_succeeds_with_read_scope(self, action: str) -> None:
@@ -680,13 +682,11 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
         ]
     )
     def test_write_succeeds_with_write_scope(self, action: str, expected_status: int) -> None:
+        # The key belongs to self.user, who created the flag with no access controls, so the real
+        # per-flag CanEditFeatureFlag check passes — exercise it rather than mocking it out.
         self._authenticate_with_scopes(["feature_flag:write"])
 
-        with patch(
-            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
-            return_value=True,
-        ):
-            response = self._write_request(action)
+        response = self._write_request(action)
 
         assert response.status_code == expected_status, response.content
 
@@ -832,3 +832,33 @@ class TestScheduledChangeAccessControl(BaseAccessControlTest):
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{viewer_change.id}/")
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN, delete_response.content
         assert ScheduledChange.objects.filter(id=viewer_change.id).exists()
+
+    def test_create_requires_resource_write_despite_object_editor_grant(self):
+        # Create is gated at the resource level: AccessControlPermission denies `create` before the
+        # per-object fallback that read/update/delete fall through to. So a member whose feature_flag
+        # resource access is below editor cannot schedule a new change even with an object-level editor
+        # grant on the flag — stricter than editing the flag directly. Pinned here so it can't regress
+        # silently; the serializer's per-flag check never runs because the 403 fires first.
+        flag_owner = User.objects.create_and_join(self.organization, "obj-grant-owner@example.com", "password123")
+        flag = FeatureFlag.objects.create(team=self.team, created_by=flag_owner, key="object-grant-flag", name="OG")
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_global_access_control({"resource": "feature_flag", "access_level": "viewer"}).status_code
+            == status.HTTP_200_OK
+        )
+        self._set_flag_access(flag, "editor")
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2023-12-09T12:00:00Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not ScheduledChange.objects.filter(record_id=str(flag.id)).exists()
