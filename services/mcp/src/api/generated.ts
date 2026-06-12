@@ -43916,7 +43916,7 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -43928,7 +43928,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 

@@ -28,6 +28,7 @@ function makeSpan(overrides: Partial<Span>): Span {
         is_root_span: false,
         matched_filter: true,
         attributes: {},
+        resource_attributes: {},
         ...overrides,
     }
 }
