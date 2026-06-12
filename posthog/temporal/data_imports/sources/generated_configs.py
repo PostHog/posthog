@@ -646,7 +646,9 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GladlySourceConfig(config.Config):
-    pass
+    organization: str
+    agent_email: str
+    api_token: str
 
 
 @config.config
