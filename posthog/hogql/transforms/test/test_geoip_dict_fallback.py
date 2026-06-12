@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -15,6 +16,7 @@ from parameterized import parameterized
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.base import get_geoip_city_postal_dict
@@ -150,9 +152,28 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         assert "mat_$ip" in sql
         assert "JSONExtract" not in sql
 
-    def test_lookup_functions_render_for_direct_use(self) -> None:
-        sql, _ = self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events", teams="")
+    def test_lookup_functions_render_for_direct_use_when_enabled(self) -> None:
+        sql, _ = self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events")
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', 'city_name'" in sql
+
+    def test_lookup_functions_rejected_when_fallback_disabled(self) -> None:
+        with pytest.raises(QueryError, match="not available"):
+            self._print_select("SELECT lookupGeoipCityName('89.160.20.129') FROM events", teams="")
+
+    @parameterized.expand(
+        [
+            ("target restricted", "$geoip_postal_code"),
+            ("ip restricted", "$ip"),
+        ]
+    )
+    def test_lookup_functions_rejected_for_restricted_properties(self, _name: str, restricted_key: str) -> None:
+        # Direct calls must enforce the same guard as the transform: otherwise a user denied the geo property could
+        # derive it from a readable `$ip`.
+        with pytest.raises(QueryError, match="restricted"):
+            self._print_select(
+                "SELECT lookupGeoipPostalCode(properties.$ip) FROM events",
+                restricted_properties={(restricted_key, PropertyDefinition.Type.EVENT)},
+            )
 
     @parameterized.expand(
         [

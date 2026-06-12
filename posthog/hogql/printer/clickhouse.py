@@ -23,6 +23,7 @@ from posthog.hogql.printer.base import (
 )
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_enabled_for_team
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -246,6 +247,23 @@ class ClickHousePrinter(BasePrinter):
             # geoip_dict_fallback transform. toIPv6OrDefault
             # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
             # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
+            if not geoip_dict_fallback_enabled_for_team(self.context.team_id):
+                raise QueryError(f"{node.name} is not available on this instance")
+            target = "$geoip_city_name" if node.name == "lookupGeoipCityName" else "$geoip_postal_code"
+            # Mirror the transform's restricted-property guard for direct calls: the function must not let a user
+            # derive a restricted geo property from a readable `$ip`.
+            # Deferred: PropertyDefinition pulls in the Django model layer; keep it off this module's import path.
+            from products.event_definitions.backend.models.property_definition import (
+                PropertyDefinition,  # noqa: PLC0415
+            )
+
+            restricted_event_properties = {
+                name
+                for name, ptype in (self.context.restricted_properties or set())
+                if ptype == PropertyDefinition.Type.EVENT
+            }
+            if not restricted_event_properties.isdisjoint((target, "$ip")):
+                raise QueryError(f"{node.name} is not allowed: a property it derives from or produces is restricted")
             attribute = "city_name" if node.name == "lookupGeoipCityName" else "postal_code"
             geoip_dict = get_geoip_city_postal_dict()
             return (

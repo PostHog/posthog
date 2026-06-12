@@ -32,6 +32,24 @@
 # ---
 # name: TestGeoipDictFallbackExecution.test_fallback_recovers_blanked_values.1
   '''
+  SELECT 1
+  FROM system.dictionaries
+  WHERE database = 'posthog_test'
+    AND name = 'city_postal_ip_trie'
+  LIMIT 1
+  '''
+# ---
+# name: TestGeoipDictFallbackExecution.test_fallback_recovers_blanked_values.2
+  '''
+  SELECT 1
+  FROM system.dictionaries
+  WHERE database = 'posthog_test'
+    AND name = 'city_postal_ip_trie'
+  LIMIT 1
+  '''
+# ---
+# name: TestGeoipDictFallbackExecution.test_fallback_recovers_blanked_values.3
+  '''
   SELECT events.event AS event,
          if(notEmpty(ifNull(nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null'), '')), nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null'), if(notEmpty(ifNull(nullIf(nullIf(events.`mat_$geoip_country_code`, ''), 'null'), '')), coalesce(nullIf(dictGetStringOrDefault('posthog_test.city_postal_ip_trie', 'city_name', toIPv6OrDefault(coalesce(nullIf(nullIf(events.`mat_$ip`, ''), 'null'), '')), ''), ''), nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null')), nullIf(nullIf(events.`mat_$geoip_city_name`, ''), 'null'))) AS `$geoip_city_name`,
          if(notEmpty(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', ''), '')), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', ''), if(notEmpty(ifNull(nullIf(nullIf(events.`mat_$geoip_country_code`, ''), 'null'), '')), coalesce(nullIf(dictGetStringOrDefault('posthog_test.city_postal_ip_trie', 'postal_code', toIPv6OrDefault(coalesce(nullIf(nullIf(events.`mat_$ip`, ''), 'null'), '')), ''), ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', '')), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$geoip_postal_code'), ''), 'null'), '^"|"$', ''))) AS `$geoip_postal_code`
