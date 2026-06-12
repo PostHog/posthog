@@ -88,20 +88,20 @@ class TestLatticeSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return",
         [
-            (True, True, None),
-            (False, False, "Invalid Lattice API key"),
+            (True, None),
+            (False, "Invalid Lattice API key"),
+            (False, "Could not reach Lattice: boom"),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.lattice.source.validate_lattice_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, mock_validate, mock_return):
         mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+        result = self.source.validate_credentials(self.config, self.team_id)
 
-        assert is_valid is expected_valid
-        assert error_message == expected_message
+        assert result == mock_return
         mock_validate.assert_called_once_with("us", "api-key")
 
     def test_get_resumable_source_manager_binds_resume_config(self):

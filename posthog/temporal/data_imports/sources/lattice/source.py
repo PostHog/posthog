@@ -105,10 +105,7 @@ A Lattice admin can generate an API key under Admin > Settings > API Keys (Latti
     def validate_credentials(
         self, config: LatticeSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_lattice_credentials(config.region, config.api_key):
-            return True, None
-
-        return False, "Invalid Lattice API key"
+        return validate_lattice_credentials(config.region, config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[LatticeResumeConfig]:
         return ResumableSourceManager[LatticeResumeConfig](inputs, LatticeResumeConfig)

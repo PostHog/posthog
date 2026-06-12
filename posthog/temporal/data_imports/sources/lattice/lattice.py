@@ -45,19 +45,29 @@ def _base_url(region: str) -> str:
     return host
 
 
-def validate_credentials(region: str, api_key: str) -> bool:
+def validate_credentials(region: str, api_key: str) -> tuple[bool, str | None]:
     """Confirm the API key is valid with a cheap one-user probe.
 
     Keys inherit the creating user's privileges, so a key may lack access to a
     specific stream (403); only 401 means the key itself is bad."""
     try:
+        base_url = _base_url(region)
+    except ValueError as e:
+        return False, str(e)
+
+    try:
         response = _get_session(api_key).get(
-            f"{_base_url(region)}/v1/users?{urlencode({'limit': 1})}",
+            f"{base_url}/v1/users?{urlencode({'limit': 1})}",
             timeout=10,
         )
-        return response.status_code != 401
-    except Exception:
-        return False
+    except requests.RequestException as e:
+        # Transport failures (timeouts, connection resets) are not auth failures;
+        # surface the real error instead of mislabeling the key as invalid.
+        return False, f"Could not reach Lattice: {e}"
+
+    if response.status_code == 401:
+        return False, "Invalid Lattice API key"
+    return True, None
 
 
 def get_rows(
@@ -89,7 +99,9 @@ def get_rows(
             raise LatticeRetryableError(f"Lattice API error (retryable): status={response.status_code}, url={page_url}")
 
         if not response.ok:
-            logger.error(f"Lattice API error: status={response.status_code}, body={response.text}, url={page_url}")
+            # Omit the response body: Lattice error payloads can carry field-level
+            # validation context or user-identifying data we don't want in logs.
+            logger.error(f"Lattice API error: status={response.status_code}, url={page_url}")
             response.raise_for_status()
 
         return response.json()

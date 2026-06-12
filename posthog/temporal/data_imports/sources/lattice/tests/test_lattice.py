@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.lattice.lattice import (
     PAGE_SIZE,
     LatticeResumeConfig,
@@ -42,27 +44,39 @@ class TestBaseUrl:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_valid, expected_message",
         [
-            (200, True),
+            (200, True, None),
             # Keys inherit the creating user's privileges; 403 means a scope
             # gap, not a bad key.
-            (403, True),
-            (401, False),
+            (403, True, None),
+            (401, False, "Invalid Lattice API key"),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
         response = mock.MagicMock()
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("us", "key") is expected
+        assert validate_credentials("us", "key") == (expected_valid, expected_message)
 
     @mock.patch("posthog.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
     def test_validate_credentials_rejects_bad_region_without_request(self, mock_session):
-        assert validate_credentials("evil", "key") is False
+        is_valid, error = validate_credentials("evil", "key")
+        assert is_valid is False
+        assert error is not None
         mock_session.return_value.get.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.lattice.lattice.make_tracked_session")
+    def test_validate_credentials_transport_error_is_not_invalid_key(self, mock_session):
+        # A transient connectivity failure must not be reported as a bad key.
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        is_valid, error = validate_credentials("us", "key")
+        assert is_valid is False
+        assert error is not None
+        assert "Invalid Lattice API key" not in error
 
 
 class TestGetRows:
