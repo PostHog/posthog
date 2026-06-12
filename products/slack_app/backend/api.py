@@ -1766,16 +1766,16 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
             prompts=_ASSISTANT_SUGGESTED_PROMPTS,
         )
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
-    except Exception as e:
-        logger.warning("assistant_thread_started_failed", error=str(e))
+    except Exception:
+        logger.warning("assistant_thread_started_failed", exc_info=True)
     return ROUTE_HANDLED_LOCALLY
 
 
 def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread_ts: str) -> None:
     try:
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
-    except Exception as e:
-        logger.warning("assistant_unavailable_post_failed", error=str(e))
+    except Exception:
+        logger.warning("assistant_unavailable_post_failed", exc_info=True)
 
 
 def send_assistant_install_welcome(integration: Integration) -> None:
@@ -1787,8 +1787,8 @@ def send_assistant_install_welcome(integration: Integration) -> None:
         return
     try:
         SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
-    except Exception as e:
-        logger.warning("assistant_install_welcome_failed", error=str(e))
+    except Exception:
+        logger.warning("assistant_install_welcome_failed", exc_info=True)
 
 
 # The DM/agent surface needs the base coding-agent scopes plus the assistant container scopes.
@@ -1807,8 +1807,8 @@ def _handle_assistant_dm_message(
 
     try:
         slack.client.assistant_threads_setStatus(channel_id=channel_id, thread_ts=thread_ts, status="Working on it…")
-    except Exception as e:
-        logger.warning("assistant_set_status_failed", error=str(e))
+    except Exception:
+        logger.warning("assistant_set_status_failed", exc_info=True)
 
     # Carry the channel the user was viewing (from assistant_thread_context_changed) so the agent
     # can ground a "look into this" DM in that channel's context.

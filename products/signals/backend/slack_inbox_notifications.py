@@ -376,7 +376,7 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox item{priority_suffix}: {title_line}"
+    fallback_text = f"Inbox item{priority_suffix}: {_escape_mrkdwn(title_line)}"
     return blocks, fallback_text
 
 
