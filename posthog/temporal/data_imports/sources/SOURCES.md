@@ -61,6 +61,7 @@ the row lists both.
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| coda             | HTTP                        | requests                                                        | ✅                          |
 | commercetools    | HTTP                        | requests                                                        | ✅                          |
 | confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
@@ -226,7 +227,6 @@ doesn't conflict with concurrent PRs.
 - clari
 - cloudflare
 - cockroachdb
-- coda
 - constant_contact
 - copper
 - cosmosdb
