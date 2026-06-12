@@ -117,6 +117,9 @@ class HoglandBackend(PreviewBackend):
             "name": self.name,
             "kind": self.kind,
             "ttl_seconds": self.ttl_seconds,
+            # HTTP-expose the web port so the box gets its own box-front hostname
+            # (https://<box>.<box-edge>/) — that's the URL we post to the PR.
+            "web_port": self.web_port,
         }
 
     def _restore_fresh(self):
@@ -161,9 +164,15 @@ class HoglandBackend(PreviewBackend):
 
     @property
     def web_url(self) -> str:
-        # Authenticated hogplane proxy into the in-guest web port. Path-prefixed
-        # (see module docstring); the in-box /_health probe is unaffected.
-        return self._require_box().proxy_url(self.web_port).rstrip("/")
+        # The box's own per-box hostname (box-front edge), surfaced by the server
+        # once the box is HTTP-exposed (web_port at create) and running — that's
+        # the clean URL we post to the PR. Fall back to the authenticated hogplane
+        # path proxy for an un-exposed box (e.g. a reused --box-id box).
+        box = self._require_box()
+        url = box.web_url()
+        if url:
+            return url.rstrip("/")
+        return box.proxy_url(self.web_port).rstrip("/")
 
     @property
     def box_id(self) -> str | None:
