@@ -236,6 +236,7 @@ pub fn router(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
         flag_definitions_limiter.clone(),
+        remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
 
@@ -511,6 +512,7 @@ fn spawn_rate_limiter_cleanup_task(
     flags_rate_limiter: FlagsRateLimiter,
     ip_rate_limiter: IpRateLimiter,
     flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    remote_config_limiter: FlagDefinitionsRateLimiter,
     cleanup_interval_secs: u64,
 ) {
     tokio::spawn(async move {
@@ -523,17 +525,21 @@ fn spawn_rate_limiter_cleanup_task(
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
                 flag_definitions_limiter.cleanup();
+                remote_config_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_definitions_entries")
                     .set(flag_definitions_limiter.len() as f64);
+                gauge!("flags_rate_limiter_remote_config_entries")
+                    .set(remote_config_limiter.len() as f64);
 
                 tracing::debug!(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
                     definitions_entries = flag_definitions_limiter.len(),
+                    remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
                 );
             }));
