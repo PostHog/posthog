@@ -152,8 +152,9 @@ fn clock_window_minutes() -> u64 {
     CLOCK_START.get_or_init(Instant::now).elapsed().as_secs() / 60
 }
 
-/// Windowed counter for the capture cap. Cross-window races can let a few
-/// extra captures through; the cap is a safety bound, not an exact quota.
+/// Windowed counter for the capture cap. The reset is not atomic with the
+/// increment, so captures racing a window change can be over-allowed or
+/// over-suppressed by a few; the cap is a safety bound, not an exact quota.
 struct RateWindow {
     window: AtomicU64,
     count: AtomicU32,
