@@ -1065,7 +1065,7 @@ class TestAssistantEvents(TestCase):
         load = patch(
             "products.slack_app.backend.api.load_integrations",
             return_value=ResolutionResult(
-                integration=self.integration, source="default", candidates=[self.integration]
+                integration=self.integration, source="sole_candidate", candidates=[self.integration]
             ),
         )
         resolve = patch("products.slack_app.backend.api._resolve_posthog_user_from_event", return_value=user)
