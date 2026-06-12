@@ -431,7 +431,7 @@ class CriteoSourceConfig(config.Config):
 
 @config.config
 class CrunchbaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
