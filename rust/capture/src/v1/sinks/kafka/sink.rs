@@ -48,7 +48,21 @@ struct MetricLabels {
     sink: &'static str,
     mode: &'static str,
     path: &'static str,
-    attempt: metrics::SharedString,
+    attempt: &'static str,
+}
+
+/// Map the client-controlled attempt number to a bounded static label value.
+/// Capped at "5+" as a cardinality defense.
+fn attempt_tag(attempt: u32) -> &'static str {
+    match attempt {
+        0 => "0",
+        1 => "1",
+        2 => "2",
+        3 => "3",
+        4 => "4",
+        5 => "5",
+        _ => "5+",
+    }
 }
 
 pub struct KafkaSink<P: KafkaProducerTrait> {
@@ -97,7 +111,7 @@ fn reject_publishable(
             "cluster" => labels.sink,
             "outcome" => Outcome::RetriableError.as_tag(),
             "path" => labels.path,
-            "attempt" => labels.attempt.clone(),
+            "attempt" => labels.attempt,
             "destination" => *dest_tag,
         )
         .increment(*count);
@@ -175,7 +189,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     "cluster" => labels.sink,
                     "outcome" => Outcome::FatalError.as_tag(),
                     "path" => labels.path,
-                    "attempt" => labels.attempt.clone(),
+                    "attempt" => labels.attempt,
                     "destination" => dest_tag,
                 )
                 .increment(1);
@@ -260,7 +274,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "cluster" => labels.sink,
                             "outcome" => outcome.as_tag(),
                             "path" => labels.path,
-                            "attempt" => labels.attempt.clone(),
+                            "attempt" => labels.attempt,
                             "destination" => dest_tag,
                         )
                         .increment(1);
@@ -309,7 +323,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
                         "path" => labels.path,
-                        "attempt" => labels.attempt.clone(),
+                        "attempt" => labels.attempt,
                         "destination" => dest_tag,
                     )
                     .increment(1);
@@ -322,7 +336,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "cluster" => labels.sink,
                             "outcome" => outcome_tag,
                             "path" => labels.path,
-                            "attempt" => labels.attempt.clone(),
+                            "attempt" => labels.attempt,
                             "destination" => dest_tag,
                         )
                         .record(secs.as_secs_f64());
@@ -373,7 +387,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 "cluster" => labels.sink,
                 "outcome" => Outcome::Timeout.as_tag(),
                 "path" => labels.path,
-                "attempt" => labels.attempt.clone(),
+                "attempt" => labels.attempt,
                 "destination" => *dest_tag,
             )
             .increment(*count);
@@ -403,11 +417,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             sink: self.name.as_str(),
             mode: self.capture_mode.as_tag(),
             path: ctx.path,
-            attempt: if ctx.attempt > 5 {
-                "5+".into()
-            } else {
-                ctx.attempt.to_string().into()
-            },
+            attempt: attempt_tag(ctx.attempt),
         };
 
         if !self.producer.is_ready() {
@@ -519,5 +529,27 @@ mod effective_partition_key_tests {
         #[case] expected: Option<&str>,
     ) {
         assert_eq!(effective_partition_key("k", force_disable, &dest), expected);
+    }
+}
+
+#[cfg(test)]
+mod attempt_tag_tests {
+    use super::attempt_tag;
+
+    #[test]
+    fn maps_in_range_attempts_to_exact_values() {
+        assert_eq!(attempt_tag(0), "0");
+        assert_eq!(attempt_tag(1), "1");
+        assert_eq!(attempt_tag(2), "2");
+        assert_eq!(attempt_tag(3), "3");
+        assert_eq!(attempt_tag(4), "4");
+        assert_eq!(attempt_tag(5), "5");
+    }
+
+    #[test]
+    fn caps_out_of_range_attempts() {
+        assert_eq!(attempt_tag(6), "5+");
+        assert_eq!(attempt_tag(100), "5+");
+        assert_eq!(attempt_tag(u32::MAX), "5+");
     }
 }

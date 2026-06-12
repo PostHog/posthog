@@ -66,23 +66,7 @@ impl BatchResponse {
             })
             .collect();
 
-        if !events.is_empty() {
-            let all_ok_or_warn = events
-                .iter()
-                .all(|e| matches!(e.result, EventResult::Ok | EventResult::Warning));
-            let all_drop = events.iter().all(|e| e.result == EventResult::Drop);
-            let all_retry = events.iter().all(|e| e.result == EventResult::Retry);
-
-            let outcome = if all_ok_or_warn {
-                "all_ok"
-            } else if all_drop {
-                "all_drop"
-            } else if all_retry {
-                "all_retry"
-            } else {
-                "partial_failure"
-            };
-
+        if let Some(outcome) = classify_batch(events) {
             metrics::counter!(CAPTURE_V1_BATCH_OUTCOMES, "outcome" => outcome, "path" => ctx.path)
                 .increment(1);
         }
@@ -93,6 +77,30 @@ impl BatchResponse {
     pub fn entries(&self) -> &[(Uuid, BatchEntryStatus)] {
         &self.entries
     }
+}
+
+/// Classify the outcome mix of a processed batch for the
+/// `capture_v1_batch_outcomes` counter. `Warning` counts toward "all_ok"
+/// (the event was still accepted). Returns `None` for an empty batch.
+fn classify_batch(events: &[WrappedEvent]) -> Option<&'static str> {
+    if events.is_empty() {
+        return None;
+    }
+    let all_ok_or_warn = events
+        .iter()
+        .all(|e| matches!(e.result, EventResult::Ok | EventResult::Warning));
+    let all_drop = events.iter().all(|e| e.result == EventResult::Drop);
+    let all_retry = events.iter().all(|e| e.result == EventResult::Retry);
+
+    Some(if all_ok_or_warn {
+        "all_ok"
+    } else if all_drop {
+        "all_drop"
+    } else if all_retry {
+        "all_retry"
+    } else {
+        "partial_failure"
+    })
 }
 
 /// Wrapper for serializing the response body as `{"results": {uuid: status, ...}}`.
@@ -227,6 +235,65 @@ mod tests {
             json,
             r#"{"result":"warning","details":"person_processing_disabled"}"#
         );
+    }
+
+    #[test]
+    fn classify_batch_all_ok() {
+        let events = vec![
+            make_wrapped(EventResult::Ok, None),
+            make_wrapped(EventResult::Ok, None),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_ok"));
+    }
+
+    #[test]
+    fn classify_batch_ok_and_warning_counts_as_all_ok() {
+        let events = vec![
+            make_wrapped(EventResult::Ok, None),
+            make_wrapped(EventResult::Warning, Some("person_processing_disabled")),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_ok"));
+    }
+
+    #[test]
+    fn classify_batch_all_drop() {
+        let events = vec![
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_drop"));
+    }
+
+    #[test]
+    fn classify_batch_all_retry() {
+        let events = vec![
+            make_wrapped(EventResult::Retry, Some("not_persisted")),
+            make_wrapped(EventResult::Retry, Some("not_persisted")),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_retry"));
+    }
+
+    #[test]
+    fn classify_batch_ok_and_drop_is_partial_failure() {
+        let events = vec![
+            make_wrapped(EventResult::Ok, None),
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+        assert_eq!(classify_batch(&events), Some("partial_failure"));
+    }
+
+    #[test]
+    fn classify_batch_drop_and_retry_is_partial_failure() {
+        let events = vec![
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+            make_wrapped(EventResult::Retry, Some("not_persisted")),
+        ];
+        assert_eq!(classify_batch(&events), Some("partial_failure"));
+    }
+
+    #[test]
+    fn classify_batch_empty_is_none() {
+        assert_eq!(classify_batch(&[]), None);
     }
 
     #[test]

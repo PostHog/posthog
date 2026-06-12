@@ -48,9 +48,6 @@ pub(super) const CAPTURE_V1_OVERFLOW_ROUTED: &str = "capture_v1_events_rerouted_
 /// Counter/gauge key for the per-token global rate limiter.
 pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 
-/// Counter for events with an illegal distinct_id (person processing disabled).
-pub(super) const CAPTURE_V1_ILLEGAL_DISTINCT_ID: &str = "capture_v1_illegal_distinct_id";
-
 /// Detail tag for events flagged by the per-token:distinct_id rate limiter.
 /// Matches the OpenAPI BatchEntryStatusError example for `result: warning`.
 pub(super) const DETAIL_PERSON_PROCESSING_DISABLED: &str = "person_processing_disabled";
@@ -111,8 +108,11 @@ pub(super) const ILLEGAL_DISTINCT_IDS: &[&str] = &[
 /// (in milliseconds) are clamped to server `now`.
 pub(super) const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
 
-/// Counter for events whose far-future timestamps were clamped to server now.
-pub(super) const CAPTURE_V1_EVENTS_TIMESTAMP_CLAMPED: &str = "capture_v1_events_timestamp_clamped";
+/// Counter for adjustments applied to accepted events (label: reason).
+/// Counts adjustments, NOT unique events — a single event may trigger more
+/// than one reason emission.
+pub(super) const CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED: &str =
+    "capture_v1_event_adjustments_applied";
 
 /// Counter for non-drop event-restriction actions applied (label: action).
 pub(super) const CAPTURE_V1_EVENTS_RESTRICTED: &str = "capture_v1_events_restricted";
