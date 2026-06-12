@@ -4779,6 +4779,28 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
  * on serializer methods and converts them into proper HTTP 409 Conflict responses with
  * change request details.
  */
+export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+    target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
+    feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
+    name: zod.string().optional().describe('Optional name for the copied experiment.'),
+})
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
