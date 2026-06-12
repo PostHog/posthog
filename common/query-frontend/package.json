@@ -1,0 +1,58 @@
+{
+    "name": "@posthog/query-frontend",
+    "version": "0.0.1",
+    "private": true,
+    "description": "PostHog's <Query /> component: the query schema and the frontend for every query node kind (TrendsQuery, FunnelsQuery, DataTable, ...)",
+    "exports": {
+        "./*": "./src/*"
+    },
+    "dependencies": {
+        "@posthog/react": "catalog:",
+        "fast-deep-equal": "catalog:",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "kea-window-values": "catalog:",
+        "posthog-js": "catalog:",
+        "use-debounce": "catalog:",
+        "uuid": "^11.1.1"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@testing-library/dom": ">=9.3.4",
+        "@testing-library/react": "^14.3.1",
+        "@testing-library/user-event": "^14.6.1",
+        "@types/jest": "catalog:",
+        "@types/react": "catalog:",
+        "kea-test-utils": "catalog:",
+        "timekeeper": "^2.2.0"
+    },
+    "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
+        "@microlink/react-json-view": "*",
+        "@monaco-editor/react": "*",
+        "@posthog/icons": "*",
+        "@react-hook/size": "*",
+        "@xyflow/react": "*",
+        "chartjs-plugin-annotation": "*",
+        "chartjs-plugin-datalabels": "*",
+        "chartjs-plugin-stacked100": "*",
+        "chartjs-plugin-trendline": "*",
+        "clsx": "*",
+        "d3": "*",
+        "elkjs": "*",
+        "lodash.merge": "*",
+        "monaco-editor": "*",
+        "natural-orderby": "*",
+        "papaparse": "*",
+        "react": "*",
+        "react-dom": "*",
+        "react-toastify": "*",
+        "torph": "*"
+    }
+}

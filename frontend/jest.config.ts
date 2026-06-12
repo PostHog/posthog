@@ -65,7 +65,13 @@ const esmModules = [
     'yaml/browser',
 ]
 function rootDirectories(): string[] {
-    return ['<rootDir>/src', '<rootDir>/../products', '<rootDir>/../packages/quill/packages/charts/src']
+    return [
+        '<rootDir>/src',
+        '<rootDir>/../products',
+        '<rootDir>/../packages/quill/packages/charts/src',
+        '<rootDir>/../common/query-frontend/src',
+        '<rootDir>/../common/visualizations/src',
+    ]
 }
 
 const config: Config = {
@@ -174,6 +180,8 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/query-frontend/(.*)$': '<rootDir>/../common/query-frontend/src/$1',
+        '^@posthog/visualizations/(.*)$': '<rootDir>/../common/visualizations/src/$1',
         '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
         '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
         '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
@@ -250,7 +258,12 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/[^/]+/frontend/e2e/', '/products/visual_review/cli/'],
+    testPathIgnorePatterns: [
+        '/node_modules/',
+        '/services/mcp/',
+        '/products/[^/]+/frontend/e2e/',
+        '/products/visual_review/cli/',
+    ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],

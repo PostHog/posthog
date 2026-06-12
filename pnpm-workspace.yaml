@@ -3,10 +3,12 @@ packages:
     - common/esbuilder
     - common/hogvm/typescript
     - common/plugin_transpiler
+    - common/query-frontend
     - common/storybook
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
+    - common/visualizations
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*

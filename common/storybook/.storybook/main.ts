@@ -17,6 +17,10 @@ const config: StorybookConfig = {
         '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx)',
         '../../../packages/quill/packages/charts/src/**/*.mdx',
         '../../../packages/quill/packages/charts/src/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../common/query-frontend/src/**/*.mdx',
+        '../../../common/query-frontend/src/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../common/visualizations/src/**/*.mdx',
+        '../../../common/visualizations/src/**/*.stories.@(js|jsx|ts|tsx)',
     ],
 
     addons: [

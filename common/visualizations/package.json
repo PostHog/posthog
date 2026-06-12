@@ -1,0 +1,37 @@
+{
+    "name": "@posthog/visualizations",
+    "version": "0.0.1",
+    "private": true,
+    "description": "PostHog's shared visualization surfaces: Chart.js wrapper, line graphs, pie charts, bold numbers, maps, and other chart components used across queries and products",
+    "exports": {
+        "./*": "./src/*"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "posthog-js": "catalog:",
+        "use-debounce": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@testing-library/react": "^14.3.1",
+        "@types/jest": "catalog:",
+        "@types/react": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@sgratzl/chartjs-chart-boxplot": "*",
+        "chart.js": "*",
+        "chartjs-plugin-annotation": "*",
+        "chartjs-plugin-crosshair": "*",
+        "chartjs-plugin-datalabels": "*",
+        "chartjs-plugin-stacked100": "*",
+        "chartjs-plugin-trendline": "*",
+        "chartjs-plugin-zoom": "*",
+        "clsx": "*",
+        "d3": "*",
+        "react": "*",
+        "react-dom": "*",
+        "react-simple-maps": "*",
+        "use-resize-observer": "*"
+    }
+}

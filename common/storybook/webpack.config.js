@@ -76,6 +76,8 @@ function createEntry(entry) {
                 scenes: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'scenes'),
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
                 '@posthog/mcp-ui': path.resolve(__dirname, '..', '..', 'services', 'mcp', 'src', 'ui-apps', 'lib'),
+                '@posthog/query-frontend': path.resolve(__dirname, '..', '..', 'common', 'query-frontend', 'src'),
+                '@posthog/visualizations': path.resolve(__dirname, '..', '..', 'common', 'visualizations', 'src'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
                 '@posthog/quill': path.resolve(__dirname, '..', '..', 'packages', 'quill', 'packages', 'quill', 'src'),
                 '@posthog/quill-charts': path.resolve(

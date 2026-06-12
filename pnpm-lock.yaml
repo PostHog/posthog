@@ -326,6 +326,139 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  common/query-frontend:
+    dependencies:
+      '@dnd-kit/core':
+        specifier: '*'
+        version: 6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/modifiers':
+        specifier: '*'
+        version: 6.0.1(@dnd-kit/core@6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/sortable':
+        specifier: '*'
+        version: 7.0.2(@dnd-kit/core@6.0.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/utilities':
+        specifier: '*'
+        version: 3.2.1(react@18.3.1)
+      '@microlink/react-json-view':
+        specifier: '*'
+        version: 1.31.18(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@monaco-editor/react':
+        specifier: '*'
+        version: 4.7.0(monaco-editor@0.55.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/react':
+        specifier: 'catalog:'
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.386.6)(react@18.3.1)
+      '@react-hook/size':
+        specifier: '*'
+        version: 2.1.2(react@18.3.1)
+      '@xyflow/react':
+        specifier: '*'
+        version: 12.6.0(@types/react@18.3.27)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      chartjs-plugin-annotation:
+        specifier: '*'
+        version: 3.1.0(chart.js@4.5.1)
+      chartjs-plugin-datalabels:
+        specifier: '*'
+        version: 2.2.0(chart.js@4.5.1)
+      chartjs-plugin-stacked100:
+        specifier: '*'
+        version: 1.7.1(chart.js@4.5.1)
+      chartjs-plugin-trendline:
+        specifier: '*'
+        version: 3.2.0
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      d3:
+        specifier: '*'
+        version: 7.9.0
+      elkjs:
+        specifier: '*'
+        version: 0.10.0
+      fast-deep-equal:
+        specifier: 'catalog:'
+        version: 3.1.3
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-subscriptions:
+        specifier: 'catalog:'
+        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-window-values:
+        specifier: 'catalog:'
+        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+      lodash.merge:
+        specifier: '*'
+        version: 4.6.2
+      monaco-editor:
+        specifier: '*'
+        version: 0.55.1
+      natural-orderby:
+        specifier: '*'
+        version: 3.0.2
+      papaparse:
+        specifier: '*'
+        version: 5.4.1
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.386.6
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      react-toastify:
+        specifier: '*'
+        version: 10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      torph:
+        specifier: '*'
+        version: 0.0.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      use-debounce:
+        specifier: 'catalog:'
+        version: 9.0.3(react@18.3.1)
+      uuid:
+        specifier: ^11.1.1
+        version: 11.1.1
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '>=9.3.4'
+        version: 10.4.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/user-event':
+        specifier: ^14.6.1
+        version: 14.6.1(@testing-library/dom@10.4.0)
+      '@types/jest':
+        specifier: 'catalog:'
+        version: 29.5.14
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+      timekeeper:
+        specifier: ^2.2.0
+        version: 2.2.0
+
   common/replay-headless:
     dependencies:
       '@posthog/replay-shared':
@@ -523,6 +656,76 @@ importers:
       tailwindcss-scroll-mask:
         specifier: ^0.0.3
         version: 0.0.3(tailwindcss@4.2.4)
+
+  common/visualizations:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@sgratzl/chartjs-chart-boxplot':
+        specifier: '*'
+        version: 4.4.5(chart.js@4.5.1)
+      chart.js:
+        specifier: '*'
+        version: 4.5.1
+      chartjs-plugin-annotation:
+        specifier: '*'
+        version: 3.1.0(chart.js@4.5.1)
+      chartjs-plugin-crosshair:
+        specifier: '*'
+        version: 2.0.0(patch_hash=b40c879817dfedb5ac7ec8296f1e73d02fd3bdddd18a0a731b441ff05ff62f8a)(chart.js@4.5.1)
+      chartjs-plugin-datalabels:
+        specifier: '*'
+        version: 2.2.0(chart.js@4.5.1)
+      chartjs-plugin-stacked100:
+        specifier: '*'
+        version: 1.7.1(chart.js@4.5.1)
+      chartjs-plugin-trendline:
+        specifier: '*'
+        version: 3.2.0
+      chartjs-plugin-zoom:
+        specifier: '*'
+        version: 2.2.0(chart.js@4.5.1)
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      d3:
+        specifier: '*'
+        version: 7.9.0
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.386.6
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      react-simple-maps:
+        specifier: '*'
+        version: 3.0.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      use-debounce:
+        specifier: 'catalog:'
+        version: 9.0.3(react@18.3.1)
+      use-resize-observer:
+        specifier: '*'
+        version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/jest':
+        specifier: 'catalog:'
+        version: 29.5.14
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
 
   docs/onboarding:
     dependencies:
