@@ -81,7 +81,6 @@ test.describe('Notebooks', () => {
     })
 
     test('Add a funnel insight, configure steps, and verify conversion rates', async ({ page }) => {
-        test.setTimeout(60_000)
         const notebook = new NotebookPage(page)
         const insight = new InsightPage(page)
         const notebookName = randomString('nb-funnels')

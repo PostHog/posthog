@@ -9,7 +9,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
-import { formatDuration } from './TraceFlameChart'
+import { formatDuration } from './TraceWaterfallView'
 
 interface TreeNode {
     serviceName: string

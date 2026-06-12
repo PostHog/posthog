@@ -58,6 +58,42 @@ const S3_BATCH_EXPORT = fixture('test-s3-id', 'S3 Export', {
     },
 })
 
+const AWS_S3_BATCH_EXPORT = fixture('test-aws-s3-id', 'AWS S3 Export', {
+    type: 'AwsS3',
+    config: {
+        bucket_name: 'test-bucket',
+        region: 'us-east-1',
+        prefix: 'posthog-events/',
+        aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
+        aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        exclude_events: [],
+        include_events: [],
+        compression: 'zstd',
+        encryption: null,
+        kms_key_id: null,
+        file_format: 'Parquet',
+        max_file_size_mb: null,
+    },
+})
+
+const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatible Export', {
+    type: 'S3Compatible',
+    config: {
+        bucket_name: 'test-bucket',
+        region: 'auto',
+        prefix: 'posthog-events/',
+        aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
+        aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+        exclude_events: [],
+        include_events: [],
+        compression: 'zstd',
+        endpoint_url: 'https://test-minio-host:9000',
+        use_virtual_style_addressing: false,
+        file_format: 'Parquet',
+        max_file_size_mb: null,
+    },
+})
+
 // BigQuery exports are integration-backed: the config carries `integration` and the
 // credentials live on the integration, not in the config.
 const BIGQUERY_BATCH_EXPORT = fixture('test-bq-id', 'BigQuery Export', {
@@ -248,6 +284,8 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
 // Single map keyed by id; used to register GET + PATCH mocks dynamically below.
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     S3_BATCH_EXPORT,
+    AWS_S3_BATCH_EXPORT,
+    S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
     SNOWFLAKE_PASSWORD_BATCH_EXPORT,
@@ -354,8 +392,6 @@ describe('batchExportConfigFormLogic', () => {
     })
 
     describe('required fields validation', () => {
-        // Expected required fields are hardcoded so this suite is decoupled from the implementation
-        // and runs unchanged before and after the destination-registry refactor.
         const GENERAL_REQUIRED_FIELDS = ['interval', 'name', 'model']
         it.each([
             {
@@ -364,6 +400,29 @@ describe('batchExportConfigFormLogic', () => {
                     'bucket_name',
                     'region',
                     'prefix',
+                    'aws_access_key_id',
+                    'aws_secret_access_key',
+                    'file_format',
+                ],
+            },
+            {
+                service: 'AwsS3' as const,
+                fields: [
+                    'bucket_name',
+                    'region',
+                    'prefix',
+                    'aws_access_key_id',
+                    'aws_secret_access_key',
+                    'file_format',
+                ],
+            },
+            {
+                service: 'S3Compatible' as const,
+                fields: [
+                    'bucket_name',
+                    'region',
+                    'prefix',
+                    'endpoint_url',
                     'aws_access_key_id',
                     'aws_secret_access_key',
                     'file_format',
@@ -577,6 +636,26 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
+                service: 'AwsS3',
+                expected: {
+                    destination: 'AwsS3',
+                    file_format: 'Parquet',
+                    compression: 'zstd',
+                    paused: true,
+                    model: 'events',
+                },
+            },
+            {
+                service: 'S3Compatible',
+                expected: {
+                    destination: 'S3Compatible',
+                    file_format: 'Parquet',
+                    compression: 'zstd',
+                    paused: true,
+                    model: 'events',
+                },
+            },
+            {
                 service: 'Snowflake',
                 expected: { destination: 'Snowflake', authentication_type: 'password', paused: true, model: 'events' },
             },
@@ -645,6 +724,56 @@ describe('batchExportConfigFormLogic', () => {
                         bucket_name: 'my-bucket',
                         region: 'us-east-1',
                         prefix: 'test/',
+                        aws_access_key_id: 'AKIA',
+                        aws_secret_access_key: 'secret',
+                        file_format: 'Parquet',
+                        compression: 'zstd',
+                    },
+                },
+            },
+            {
+                // AwsS3 must not leak endpoint_url / use_virtual_style_addressing into the payload.
+                name: 'AwsS3',
+                service: 'AwsS3' as const,
+                requiredValues: {
+                    bucket_name: 'my-bucket',
+                    region: 'us-east-1',
+                    prefix: 'test/',
+                    aws_access_key_id: 'AKIA',
+                    aws_secret_access_key: 'secret',
+                },
+                expectedDestination: {
+                    type: 'AwsS3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'test/',
+                        aws_access_key_id: 'AKIA',
+                        aws_secret_access_key: 'secret',
+                        file_format: 'Parquet',
+                        compression: 'zstd',
+                    },
+                },
+            },
+            {
+                // S3Compatible requires endpoint_url and must not leak encryption / kms_key_id.
+                name: 'S3Compatible',
+                service: 'S3Compatible' as const,
+                requiredValues: {
+                    bucket_name: 'my-bucket',
+                    region: 'auto',
+                    prefix: 'test/',
+                    endpoint_url: 'https://my-minio-host:9000',
+                    aws_access_key_id: 'AKIA',
+                    aws_secret_access_key: 'secret',
+                },
+                expectedDestination: {
+                    type: 'S3Compatible',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'auto',
+                        prefix: 'test/',
+                        endpoint_url: 'https://my-minio-host:9000',
                         aws_access_key_id: 'AKIA',
                         aws_secret_access_key: 'secret',
                         file_format: 'Parquet',
@@ -837,6 +966,8 @@ describe('batchExportConfigFormLogic', () => {
     describe('round-trip: load and save preserves destination config', () => {
         it.each([
             { name: 'S3', fixture: S3_BATCH_EXPORT },
+            { name: 'AwsS3', fixture: AWS_S3_BATCH_EXPORT },
+            { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
             { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
