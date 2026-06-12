@@ -73,6 +73,34 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             expect(result).toEqual(DateTime.utc().set({ hour: 23, minute: 0, second: 0, millisecond: 0 }))
         })
 
+        it('should advance immediately in the evening half of a window spanning midnight', () => {
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-01T23:30:00.000Z')) // Inside, before midnight
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('should advance immediately in the morning half of a window spanning midnight', () => {
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-02T00:30:00.000Z')) // Inside, after midnight
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('should wait for tonight when a window spanning midnight is not currently open', () => {
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-01T02:00:00.000Z')) // After last night's window, before tonight's
+            expect(getWaitUntilTime(action)).toEqual(
+                DateTime.utc().set({ hour: 23, minute: 0, second: 0, millisecond: 0 })
+            )
+        })
+
+        it('anchors the morning half of a midnight-spanning window to the day it opened', () => {
+            action.config.day = ['wednesday']
+            action.config.time = ['23:00', '01:00']
+            // Thursday 00:30 is still inside the window that opened Wednesday 23:00
+            jest.setSystemTime(new Date('2025-01-02T00:30:00.000Z'))
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
         it('should handle time window with minutes', () => {
             action.config.time = ['14:30', '15:45']
             const result = getWaitUntilTime(action)
