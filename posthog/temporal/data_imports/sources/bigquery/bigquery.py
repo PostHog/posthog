@@ -46,6 +46,7 @@ from posthog.temporal.data_imports.sources.common.sql import (
     ColumnTypeCategory,
     ValidatedRowFilter,
     compute_projected_columns,
+    is_multi_value_operator,
 )
 from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
@@ -448,6 +449,15 @@ _BQ_FIELD_TYPE_NORMALIZATION = {
 }
 
 
+def _adapt_bq_value(value: typing.Any, bq_type: str) -> typing.Any:
+    """Coerce a coerced filter value to what the BigQuery client expects for `bq_type`."""
+    if bq_type == "FLOAT64" and isinstance(value, Decimal):
+        return float(value)
+    if bq_type == "DATETIME" and isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
 def _bq_row_filter_conditions(
     row_filters: list[ValidatedRowFilter] | None,
     bq_table: bigquery.Table,
@@ -455,9 +465,9 @@ def _bq_row_filter_conditions(
     """Build row-filter SQL conditions + bound BigQuery scalar parameters.
 
     Columns are quoted through the identifier allowlist; operators are the canonical
-    set; values leave only as named query parameters (`@row_filter_i`). The parameter
-    type follows the column's actual BigQuery type so DATETIME vs TIMESTAMP columns
-    don't mismatch their bound value.
+    set; values leave only as named query parameters (`@row_filter_i`, or
+    `@row_filter_i_j` per element for `IN` / `NOT IN`). The parameter type follows the
+    column's actual BigQuery type so DATETIME vs TIMESTAMP columns don't mismatch.
     """
     if not row_filters:
         return [], []
@@ -466,19 +476,22 @@ def _bq_row_filter_conditions(
     conditions: list[str] = []
     parameters: list[bigquery.ScalarQueryParameter] = []
     for index, row_filter in enumerate(row_filters):
-        name = f"row_filter_{index}"
+        quoted = _BQ_QUOTER.quote(row_filter.column)
         bq_type = _BQ_FIELD_TYPE_NORMALIZATION.get(
             column_field_types.get(row_filter.column, "").upper()
         ) or _BQ_PARAM_TYPE_BY_CATEGORY.get(row_filter.category, "STRING")
 
-        value = row_filter.value
-        if bq_type == "FLOAT64" and isinstance(value, Decimal):
-            value = float(value)
-        elif bq_type == "DATETIME" and isinstance(value, datetime) and value.tzinfo is not None:
-            value = value.replace(tzinfo=None)
-
-        conditions.append(f"{_BQ_QUOTER.quote(row_filter.column)} {row_filter.operator} @{name}")
-        parameters.append(bigquery.ScalarQueryParameter(name, bq_type, value))
+        if is_multi_value_operator(row_filter.operator):
+            placeholders = []
+            for position, element in enumerate(row_filter.value):
+                name = f"row_filter_{index}_{position}"
+                placeholders.append(f"@{name}")
+                parameters.append(bigquery.ScalarQueryParameter(name, bq_type, _adapt_bq_value(element, bq_type)))
+            conditions.append(f"{quoted} {row_filter.operator} ({', '.join(placeholders)})")
+        else:
+            name = f"row_filter_{index}"
+            conditions.append(f"{quoted} {row_filter.operator} @{name}")
+            parameters.append(bigquery.ScalarQueryParameter(name, bq_type, _adapt_bq_value(row_filter.value, bq_type)))
     return conditions, parameters
 
 
