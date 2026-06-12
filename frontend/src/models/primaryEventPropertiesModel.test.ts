@@ -103,6 +103,41 @@ describe('the primary event properties model', () => {
         expect(updateAttempted).toBe(false)
     })
 
+    it('aborts the load cleanly when the logic unmounts mid-request, without throwing a failure', async () => {
+        let releaseRequest: () => void = () => {}
+        let markStarted: () => void = () => {}
+        const requestStarted = new Promise<void>((resolve) => {
+            markStarted = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/primary_properties/': async () => {
+                    markStarted()
+                    await new Promise<void>((resolve) => {
+                        releaseRequest = resolve
+                    })
+                    return [200, { primary_properties: { my_event: 'existing_prop' } }]
+                },
+            },
+        })
+
+        const failureSpy = jest.spyOn(logic.actions, 'loadPrimaryPropertiesFailure')
+        const successSpy = jest.spyOn(logic.actions, 'loadPrimaryPropertiesSuccess')
+
+        logic.actions.loadPrimaryProperties({ names: ['my_event'] })
+        await requestStarted
+
+        // Mirrors the session-replay inspector / taxonomic filter tearing the model down mid-request.
+        logic.unmount()
+        releaseRequest()
+        await new Promise((resolve) => setTimeout(resolve, 50))
+
+        // breakpoint() aborts before the unmounted selector read, so the loader neither commits
+        // nor reports a "[KEA] Can not find path" failure.
+        expect(failureSpy).not.toHaveBeenCalled()
+        expect(successSpy).not.toHaveBeenCalled()
+    })
+
     it('does not mark events as loaded when the load request fails, so they can be retried', async () => {
         useMocks({
             get: { '/api/projects/:team_id/event_definitions/primary_properties/': () => [500, {}] },
