@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -24144,6 +24144,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -24157,6 +24158,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -29104,7 +29106,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
