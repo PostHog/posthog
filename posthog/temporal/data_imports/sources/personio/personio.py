@@ -171,7 +171,13 @@ def get_rows(
         if items:
             yield items
 
-        next_url = (((data.get("_meta") or {}).get("links") or {}).get("next") or {}).get("href")
+        # Guard against malformed responses where intermediate values aren't dicts.
+        next_url = None
+        meta = data.get("_meta")
+        links = meta.get("links") if isinstance(meta, dict) else None
+        next_obj = links.get("next") if isinstance(links, dict) else None
+        if isinstance(next_obj, dict):
+            next_url = next_obj.get("href")
         if not next_url or not items:
             break
 
