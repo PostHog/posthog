@@ -155,6 +155,7 @@ SignalTeamConfig
 SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
+StreamlitApp
 Subscription
 SubscriptionDelivery
 Survey

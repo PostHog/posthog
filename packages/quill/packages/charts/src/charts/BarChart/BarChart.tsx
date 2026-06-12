@@ -87,7 +87,6 @@ function BarChartInner<Meta = unknown>({
         minBandSize,
         fitToHeight = false,
         valueDomain,
-        valuePadding,
         roundStackEnds = false,
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
@@ -174,7 +173,6 @@ function BarChartInner<Meta = unknown>({
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 valueDomain,
-                valuePadding,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -257,7 +255,6 @@ function BarChartInner<Meta = unknown>({
             fitToHeight,
             resolvedMinBandSize,
             valueDomain,
-            valuePadding,
         ]
     )
 

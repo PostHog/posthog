@@ -1,4 +1,4 @@
-import { deriveSpanSummary, getQueryText } from './spanSummary'
+import { deriveSpanSummary } from './spanSummary'
 import type { Span } from './types'
 
 function makeSpan(overrides: Partial<Span>): Span {
@@ -91,18 +91,5 @@ describe('deriveSpanSummary', () => {
         [{ 'messaging.system': 'kafka' }, 'Messaging'],
     ])('derives type from the attribute namespace (%j)', (attributes, type) => {
         expect(deriveSpanSummary(makeSpan({ attributes })).type).toBe(type)
-    })
-})
-
-describe('getQueryText', () => {
-    it.each([
-        // legacy spelling
-        [{ 'db.statement': 'SELECT * FROM users WHERE id = ?' }, 'SELECT * FROM users WHERE id = ?'],
-        // both present: the stabilized db.query.text wins over the legacy db.statement
-        [{ 'db.query.text': 'SELECT 1', 'db.statement': 'SELECT 2' }, 'SELECT 1'],
-        // non-DB span
-        [{ 'http.method': 'GET' }, null],
-    ])('resolves the DB query text from %j', (attributes, expected) => {
-        expect(getQueryText(makeSpan({ attributes }))).toBe(expected)
     })
 })
