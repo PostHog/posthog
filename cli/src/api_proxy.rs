@@ -19,16 +19,8 @@ fn canonicalize_file(path: &Path) -> Option<PathBuf> {
     }
 }
 
-fn resolve_invoked_executable() -> Option<PathBuf> {
-    let executable = PathBuf::from(env::args_os().next()?);
-    if executable.components().count() > 1 {
-        return canonicalize_file(&executable);
-    }
-
-    let path = env::var_os("PATH")?;
-    env::split_paths(&path)
-        .map(|directory| directory.join(&executable))
-        .find_map(|candidate| canonicalize_file(&candidate))
+fn default_install_dir() -> Option<PathBuf> {
+    Some(dirs::home_dir()?.join(".posthog"))
 }
 
 fn find_script() -> Result<PathBuf> {
@@ -52,17 +44,15 @@ fn find_script() -> Result<PathBuf> {
         return Ok(resolved);
     }
 
-    if let Some(exe) = resolve_invoked_executable() {
-        if let Some(bin_dir) = exe.parent() {
-            for candidate in [
-                bin_dir.join("lib").join(API_CLI_BUNDLE),
-                bin_dir.join("../lib").join(API_CLI_BUNDLE),
-                bin_dir.join("../lib/api-cli").join(API_CLI_BUNDLE),
-                bin_dir.join(API_CLI_BUNDLE),
-            ] {
-                if let Some(resolved) = canonicalize_file(&candidate) {
-                    return Ok(resolved);
-                }
+    if let Some(install_dir) = default_install_dir() {
+        for candidate in [
+            install_dir.join("lib").join(API_CLI_BUNDLE),
+            install_dir.join("cli/lib").join(API_CLI_BUNDLE),
+            install_dir.join("api-cli").join(API_CLI_BUNDLE),
+            install_dir.join(API_CLI_BUNDLE),
+        ] {
+            if let Some(resolved) = canonicalize_file(&candidate) {
+                return Ok(resolved);
             }
         }
     }
