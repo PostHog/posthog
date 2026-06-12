@@ -48,6 +48,7 @@ the row lists both.
 | aircall          | HTTP                        | requests                                                        | ✅                          |
 | airtable         | HTTP                        | requests                                                        | ✅                          |
 | amplitude        | HTTP                        | requests                                                        | ✅                          |
+| appsflyer        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -216,7 +217,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - apollo
 - apple_search_ads
-- appsflyer
 - attentive
 - auth0
 - azure_blob

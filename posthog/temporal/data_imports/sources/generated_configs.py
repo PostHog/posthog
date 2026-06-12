@@ -189,7 +189,8 @@ class AppleSearchAdsSourceConfig(config.Config):
 
 @config.config
 class AppsFlyerSourceConfig(config.Config):
-    pass
+    app_id: str
+    api_token: str
 
 
 @config.config
