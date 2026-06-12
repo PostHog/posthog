@@ -59,9 +59,16 @@ pub async fn init(
         return Ok(());
     };
 
+    // Exclude this crate's own frames from in-app classification so captured
+    // stacks lead with the real service call site, not the shared wrapper.
+    let error_tracking = posthog_rs::ErrorTrackingOptionsBuilder::default()
+        .in_app_exclude_paths(vec!["common_posthog::".to_string()])
+        .build()
+        .expect("all error tracking options have defaults");
     let options = posthog_rs::ClientOptionsBuilder::default()
         .api_key(api_key.to_string())
         .host(normalize_host(endpoint))
+        .error_tracking(error_tracking)
         .build()
         .expect("all client options have defaults");
     posthog_rs::init_global(options).await?;
