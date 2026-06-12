@@ -1024,8 +1024,8 @@ def _build_query(
     select_clause: sql.Composable = (
         sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
     )
-    # Row filters apply only to the real data path. The sampling queries feed row-count
-    # estimation, where an over-estimate is harmless, so they stay unfiltered.
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
     row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:

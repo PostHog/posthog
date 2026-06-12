@@ -1,12 +1,9 @@
 """psycopg rendering of row-filter predicates for Postgres / Redshift.
 
-Kept separate from `predicates.py` so the psycopg import stays off the serializer
-import path (the serializer only needs the driver-free validation in `predicates`).
+Separate from `predicates.py` so the psycopg import stays off the serializer path.
 
-Values are emitted as `sql.Literal` — psycopg adapts them server-side, so they are
-never string-interpolated. Column names use `sql.Identifier` (psycopg quotes and
-escapes them). The operator is the already-normalized canonical operator from
-`ValidatedRowFilter`, so wrapping it in `sql.SQL` is safe.
+Values are `sql.Literal` (psycopg adapts them server-side, never interpolated),
+columns are `sql.Identifier`, and the operator is already canonical so `sql.SQL` is safe.
 """
 
 from __future__ import annotations

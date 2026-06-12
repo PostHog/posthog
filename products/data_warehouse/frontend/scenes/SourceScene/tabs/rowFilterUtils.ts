@@ -1,8 +1,7 @@
 import { RowFilter, RowFilterOperator } from '~/types'
 
-// Client-side mirror of the backend predicates classifier
-// (posthog/temporal/data_imports/sources/common/sql/predicates.py). Kept in sync so the UI
-// can validate before the PATCH; the backend re-validates and is the source of truth.
+// Client-side mirror of the backend classifier (predicates.py) so the UI can validate before
+// the PATCH. The backend re-validates and is the source of truth.
 
 export type RowFilterColumnCategory = 'integer' | 'numeric' | 'string' | 'boolean' | 'date' | 'timestamp' | 'unknown'
 
@@ -99,9 +98,7 @@ const STRING_TYPES = new Set([
     'name',
     'citext',
     'enum',
-    // json / jsonb are intentionally excluded — a jsonb/json column compared to a text-bound
-    // value fails at sync time without a cast, so they're treated as unfilterable. Mirror of
-    // `_STRING_TYPES` in predicates.py.
+    // json / jsonb excluded (unfilterable) — mirror of `_STRING_TYPES` in predicates.py.
 ])
 
 const BOOLEAN_TYPES = new Set(['bool', 'boolean', 'bit'])
@@ -166,11 +163,7 @@ export function classifyColumnType(dataType: string | undefined | null): RowFilt
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/
 
-/**
- * Validate a single filter's value against the column's type category. Returns an error
- * string to show the user, or `null` when the value is acceptable. Mirrors the backend
- * coercion rules closely enough to catch mistakes before the request goes out.
- */
+/** Validate a scalar value against the column's type. Returns an error string, or `null` if valid. */
 export function validateRowFilterValue(
     category: RowFilterColumnCategory,
     value: string | number | boolean
@@ -247,9 +240,8 @@ function splitTopLevelCommas(raw: string): string[] {
 }
 
 /**
- * Parse a comma-separated `IN` / `NOT IN` list into its element strings. Trims each
- * element, keeps single-quoted contents verbatim (commas, spaces), and unescapes `''`.
- * Mirrors the backend `_split_in_list`. Throws on an unterminated quote.
+ * Parse a comma-separated `IN` / `NOT IN` list into element strings. Mirrors the backend
+ * `_split_in_list`: trims, keeps quoted contents verbatim, unescapes `''`. Throws on an open quote.
  */
 export function parseInList(raw: string): string[] {
     if (!raw.trim()) {
@@ -287,10 +279,7 @@ function validateInElement(category: RowFilterColumnCategory, element: string): 
     }
 }
 
-/**
- * Validate an `IN` / `NOT IN` value (a comma-separated string) against the column type.
- * Returns an error string to show the user, or `null` when every element is acceptable.
- */
+/** Validate an `IN` / `NOT IN` value (comma-separated) against the column type. Error string, or `null`. */
 export function validateInListValue(
     category: RowFilterColumnCategory,
     value: string | number | boolean
@@ -323,11 +312,7 @@ export interface RowFilterValidationContext {
     availableColumns: { name: string; data_type?: string }[]
 }
 
-/**
- * Validate the full list of filters. Returns a per-index error map (empty when all valid).
- * A filter is invalid if its column is unknown, its operator is disallowed, or its value
- * doesn't match the column's type.
- */
+/** Validate every filter. Returns a per-index error map (empty when all valid). */
 export function validateRowFilters(
     filters: RowFilter[],
     { availableColumns }: RowFilterValidationContext

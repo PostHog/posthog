@@ -146,11 +146,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
-        # Re-validate the persisted row filters against the current schema metadata so a
-        # stale filter (column dropped, type changed) fails loudly here rather than emitting
-        # a broken query downstream. Values are coerced to bound-parameter-ready Python types.
-        # Surface an actionable, schema-scoped message so a drifted filter is fixable rather
-        # than an opaque failure.
+        # Re-validate against current metadata so a stale filter (dropped column, changed type)
+        # fails here with an actionable message rather than emitting a broken query downstream.
         try:
             row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
         except RowFilterValidationError as e:
