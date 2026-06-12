@@ -279,11 +279,8 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
         assert "Duplicate column alias 'a'" in str(ctx.exception)
 
-    def test_resolve_database_field_missing_field_returns_none(self):
-        # A FieldType can survive type resolution (e.g. a CTE/alias column referenced where it
-        # is not defined) yet name a column absent from the underlying database table. Downstream
-        # transforms such as the property swapper call resolve_database_field on it; that must
-        # degrade to None instead of raising a bare Exception from Table.get_field.
+    def test_resolve_database_field_returns_none_instead_of_raising_when_field_absent_from_table(self):
+        # cohort_day mimics a CTE/alias column that survives type resolution but has no column on the table.
         events_table = self.database.get_table("events")
         table_type = ast.TableType(table=events_table)
         field_type = ast.FieldType(name="cohort_day", table_type=table_type)
