@@ -63,7 +63,7 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
+                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -175,7 +175,7 @@ export const TracingSpansCountCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
+                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -273,7 +273,7 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
+                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -456,7 +456,7 @@ export const TracingSpansTreeCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
+                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
