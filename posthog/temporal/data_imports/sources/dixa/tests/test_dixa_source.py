@@ -90,8 +90,13 @@ class TestDixaSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid Dixa API token"),
+            ((True, None), True, None),
+            ((False, "Invalid Dixa API token"), False, "Invalid Dixa API token"),
+            (
+                (False, "Could not reach Dixa to validate the API token. Please try again."),
+                False,
+                "Could not reach Dixa to validate the API token. Please try again.",
+            ),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.dixa.source.validate_dixa_credentials")

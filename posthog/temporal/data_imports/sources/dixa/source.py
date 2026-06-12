@@ -91,10 +91,7 @@ An admin can generate an API token in Dixa under Settings > Integrations > API T
     def validate_credentials(
         self, config: DixaSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_dixa_credentials(config.api_token):
-            return True, None
-
-        return False, "Invalid Dixa API token"
+        return validate_dixa_credentials(config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DixaResumeConfig]:
         return ResumableSourceManager[DixaResumeConfig](inputs, DixaResumeConfig)

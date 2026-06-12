@@ -58,26 +58,49 @@ class TestToMs:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_valid, expected_message",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, True, None),
+            (401, False, "Invalid Dixa API token"),
+            (403, False, "Invalid Dixa API token"),
+            # Transient failures must not be reported as an invalid token.
+            (
+                429,
+                False,
+                "Dixa returned an unexpected response (429) while validating the API token. Please try again.",
+            ),
+            (
+                500,
+                False,
+                "Dixa returned an unexpected response (500) while validating the API token. Please try again.",
+            ),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
         response = mock.MagicMock()
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("token") is expected
+        assert validate_credentials("token") == (expected_valid, expected_message)
 
     @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
+        assert validate_credentials("token") == (
+            False,
+            "Could not reach Dixa to validate the API token. Please try again.",
+        )
+
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
+    def test_validate_credentials_disables_redirects(self, mock_session):
+        response = mock.MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        validate_credentials("token")
+
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
 
 
 class TestGetRowsExport:
@@ -108,6 +131,22 @@ class TestGetRowsExport:
             EXPORT_EPOCH_MS + EXPORT_WINDOW_MS,
             EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 1000,
         ]
+
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.time.sleep")
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa._now_ms")
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
+    def test_does_not_sleep_before_first_window(self, mock_session, mock_now, mock_sleep):
+        # Two windows: no sleep before the first request, one sleep before the second.
+        mock_now.return_value = EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 1000
+        mock_session.return_value.get.side_effect = [
+            _json_response([{"id": "1", "updated_at": EXPORT_EPOCH_MS + 5}]),
+            _json_response([{"id": "2", "updated_at": EXPORT_EPOCH_MS + EXPORT_WINDOW_MS + 5}]),
+        ]
+
+        list(get_rows("token", "conversations", mock.MagicMock(), _make_manager()))
+
+        assert mock_session.return_value.get.call_count == 2
+        assert mock_sleep.call_count == 1
 
     @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa._now_ms")
     @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
@@ -205,6 +244,39 @@ class TestGetRowsMain:
         assert batches == []
         assert mock_session.return_value.get.call_count == 1
         manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
+    def test_meta_next_to_foreign_host_stops_pagination(self, mock_session):
+        # An absolute meta.next pointing off-host must not receive the token.
+        mock_session.return_value.get.side_effect = [
+            _json_response({"data": [{"id": "1"}], "meta": {"next": "https://attacker.example/collect"}}),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("token", "endusers", mock.MagicMock(), manager))
+
+        assert [item["id"] for batch in batches for item in batch] == ["1"]
+        assert mock_session.return_value.get.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
+    def test_resume_url_on_foreign_host_falls_back_to_default(self, mock_session):
+        mock_session.return_value.get.return_value = _json_response({"data": [], "meta": {}})
+
+        manager = _make_manager(DixaResumeConfig(next_url="https://attacker.example/collect"))
+        list(get_rows("token", "endusers", mock.MagicMock(), manager))
+
+        # Falls back to the default main-host URL rather than the tampered one.
+        requested_url = mock_session.return_value.get.call_args_list[0].args[0]
+        assert urlparse(requested_url).netloc == "dev.dixa.io"
+
+    @mock.patch("posthog.temporal.data_imports.sources.dixa.dixa.make_tracked_session")
+    def test_session_disables_redirects(self, mock_session):
+        mock_session.return_value.get.return_value = _json_response({"data": [], "meta": {}})
+
+        list(get_rows("token", "endusers", mock.MagicMock(), _make_manager()))
+
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
 
 
 class TestDixaSourceResponse:
