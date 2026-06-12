@@ -52,12 +52,6 @@ pub enum ProcessEventsError {
     Backpressure,
 }
 
-impl From<UnhandledError> for ProcessEventsError {
-    fn from(value: UnhandledError) -> Self {
-        Self::Unhandled(Arc::new(value))
-    }
-}
-
 impl IntoResponse for ProcessEventsError {
     fn into_response(self) -> axum::response::Response {
         match self {
