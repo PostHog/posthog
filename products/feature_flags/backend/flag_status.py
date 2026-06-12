@@ -17,6 +17,7 @@ FeatureFlagStatusReason = str
 class FeatureFlagStatus(StrEnum):
     ACTIVE = "active"
     STALE = "stale"
+    ARCHIVED = "archived"
     DELETED = "deleted"
     UNKNOWN = "unknown"
 
@@ -98,6 +99,7 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
 # - STALE: The feature flag is likely safe to remove. Detection uses the best available signal:
 #       1. If last_called_at exists: flag hasn't been called in 30+ days (usage-based)
 #       2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old (config-based)
+# - ARCHIVED: The feature flag has been archived (done for good, kept for historical data).
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
 #
@@ -129,6 +131,9 @@ class FeatureFlagStatusChecker:
 
         if flag.deleted:
             return FeatureFlagStatus.DELETED, "Flag has been deleted"
+
+        if flag.archived:
+            return FeatureFlagStatus.ARCHIVED, "Flag has been archived"
 
         # Disabled flags are not evaluated for staleness
         if not flag.active:

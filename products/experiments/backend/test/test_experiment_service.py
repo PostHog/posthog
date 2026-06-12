@@ -2115,6 +2115,59 @@ class TestExperimentService(APIBaseTest):
         assert archived.archived is True
         assert archived.status == Experiment.Status.STOPPED
 
+    def test_archive_experiment_archives_disabled_flag(self):
+        experiment = self._create_ended_experiment(name="Archive Flag", feature_flag_key="archive-linked-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+    def test_archive_experiment_keeps_enabled_flag_unarchived(self):
+        # An enabled flag may still be serving traffic (e.g. rolling out the winning
+        # variant), so archiving the experiment must not archive it.
+        experiment = self._create_ended_experiment(name="Archive Active Flag", feature_flag_key="still-active-flag")
+        assert experiment.feature_flag.active is True
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+    def test_archive_experiment_keeps_flag_shared_with_live_experiment(self):
+        experiment = self._create_ended_experiment(name="Shared Flag", feature_flag_key="shared-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Other experiment on same flag",
+            feature_flag=experiment.feature_flag,
+        )
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+    def test_unarchive_experiment_unarchives_flag(self):
+        experiment = self._create_ended_experiment(name="Unarchive Flag", feature_flag_key="unarchive-linked-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+        service.unarchive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+        # The flag stays disabled — re-enabling is an explicit user decision
+        assert experiment.feature_flag.active is False
+
     def test_archive_experiment_already_archived_raises(self):
         experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")
         service = self._service()

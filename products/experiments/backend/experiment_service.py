@@ -1276,9 +1276,26 @@ class ExperimentService:
         experiment.archived = True
         experiment.save()
 
+        self._archive_linked_feature_flag(experiment)
+
         self._report_experiment_archived(experiment, request=request)
 
         return experiment
+
+    def _archive_linked_feature_flag(self, experiment: Experiment) -> None:
+        """Archive the experiment's flag along with it, so it stops cluttering the flag list.
+
+        Only safe when the flag is already disabled (an enabled flag may still be serving
+        traffic, e.g. rolling out the winning variant) and no other live experiment uses it.
+        """
+        feature_flag = experiment.feature_flag
+        if feature_flag.deleted or feature_flag.archived or feature_flag.active:
+            return
+        if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
+            return
+
+        feature_flag.archived = True
+        feature_flag.save(update_fields=["archived"])
 
     def _report_experiment_archived(
         self,
@@ -1309,9 +1326,23 @@ class ExperimentService:
         experiment.archived = False
         experiment.save()
 
+        self._unarchive_linked_feature_flag(experiment)
+
         self._report_experiment_unarchived(experiment, request=request)
 
         return experiment
+
+    def _unarchive_linked_feature_flag(self, experiment: Experiment) -> None:
+        """Mirror of _archive_linked_feature_flag: bring the flag back with the experiment.
+
+        The flag stays disabled — re-enabling it is an explicit user decision.
+        """
+        feature_flag = experiment.feature_flag
+        if feature_flag.deleted or not feature_flag.archived:
+            return
+
+        feature_flag.archived = False
+        feature_flag.save(update_fields=["archived"])
 
     def _report_experiment_unarchived(
         self,

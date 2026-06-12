@@ -693,6 +693,11 @@ class FeatureFlagSerializer(
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
 
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+    )
+
     experiment_set = serializers.SerializerMethodField()
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
@@ -731,6 +736,7 @@ class FeatureFlagSerializer(
             "filters",
             "deleted",
             "active",
+            "archived",
             "created_by",
             "created_at",
             "updated_at",
@@ -808,6 +814,7 @@ class FeatureFlagSerializer(
         # regardless of creation_context (surveys, etc.) or evaluation contexts.
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
+        self._validate_archived_flags_are_disabled(attrs)
         self._validate_flag_limits()
 
         request = self.context.get("request")
@@ -891,6 +898,22 @@ class FeatureFlagSerializer(
                     "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
                     "These features are incompatible."
                 )
+
+    def _validate_archived_flags_are_disabled(self, attrs: dict) -> None:
+        """An archived flag must be disabled — archived means "done for good", not paused."""
+        # Resolve effective values: use incoming attrs, falling back to instance for updates
+        archived = attrs.get("archived", getattr(self.instance, "archived", False) if self.instance else False)
+        # On create, fall back to the model default (active=True)
+        active = attrs.get("active", getattr(self.instance, "active", True) if self.instance else True)
+
+        if not (archived and active):
+            return
+
+        if attrs.get("archived"):
+            raise serializers.ValidationError(
+                "Cannot archive an enabled feature flag. Disable it first, or send active: false in the same request."
+            )
+        raise serializers.ValidationError("Cannot enable an archived feature flag. Unarchive it first.")
 
     def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
         """Encrypted payloads are only valid on remote configuration flags."""
@@ -1568,9 +1591,9 @@ class FeatureFlagSerializer(
             # only a currently running experiment blocks deletion.
             running_experiments = [exp for exp in instance.experiment_set.filter(deleted=False) if exp.is_running]
             if running_experiments:
-                experiment_ids = [exp.id for exp in running_experiments]
+                experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in running_experiments)
                 raise exceptions.ValidationError(
-                    f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please stop the experiment(s) before deleting the flag."
+                    f"Cannot delete a feature flag that is linked to running experiment(s): {experiment_names}. Please stop the experiment(s) before deleting the flag."
                 )
 
             # Check for other flags that depend on this flag
@@ -2341,9 +2364,18 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="Tag names to filter by. Flags carrying at least one of these tags match.",
     )
+    excluded_tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to exclude. Flags carrying any of these tags are filtered out.",
+    )
     has_evaluation_contexts = serializers.BooleanField(
         required=False,
         help_text="When true, only matches flags with at least one evaluation context.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Filter by archived state. When omitted, archived flags are excluded.",
     )
 
 
@@ -2515,6 +2547,10 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
+            # Archived flags are hidden unless explicitly requested via the `archived` param
+            if "archived" not in self.request.GET:
+                queryset = queryset.filter(archived=False)
+
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
@@ -2577,6 +2613,21 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of tag names to filter feature flags by.",
+            ),
+            OpenApiParameter(
+                "excluded_tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.",
+            ),
+            OpenApiParameter(
+                "archived",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description="Filter by archived state. When omitted, archived flags are excluded.",
             ),
             OpenApiParameter(
                 "has_evaluation_contexts",
@@ -2914,6 +2965,10 @@ class FeatureFlagViewSet(
         ).values_list("internal_targeting_flag_id", flat=True)
         queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
 
+        # Archived flags are hidden unless explicitly requested (same as list endpoint)
+        if "archived" not in self.request.GET:
+            queryset = queryset.filter(archived=False)
+
         # Apply client filters (same filtering as list endpoint)
         queryset = self._filter_request(self.request, queryset)
 
@@ -3012,6 +3067,10 @@ class FeatureFlagViewSet(
         queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
 
         if filters:
+            # Match the list endpoint's semantics: archived flags are not deleted by
+            # filter-based bulk deletion unless explicitly requested.
+            if "archived" not in filters:
+                queryset = queryset.filter(archived=False)
             # Apply filters from request body (same logic as _filter_request but from dict)
             queryset = self._apply_filters(filters, queryset)
         else:
@@ -3220,6 +3279,9 @@ class FeatureFlagViewSet(
         for key, value in filters.items():
             if key == "active":
                 queryset = filter_flags_by_active_param(queryset, value)
+            elif key == "archived":
+                is_archived = value if isinstance(value, bool) else str(value).lower() == "true"
+                queryset = queryset.filter(archived=is_archived)
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=value)
             elif key == "search":
@@ -3269,6 +3331,16 @@ class FeatureFlagViewSet(
                     tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
                     if tags:
                         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            elif key == "excluded_tags":
+                try:
+                    # Handle both list and JSON string
+                    excluded_tags = (
+                        value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+                    )
+                    if excluded_tags:
+                        queryset = queryset.exclude(tagged_items__tag__name__in=excluded_tags)
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "has_evaluation_contexts":

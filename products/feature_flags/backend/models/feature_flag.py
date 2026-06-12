@@ -70,6 +70,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
+    # Archived flags are "done for good" (e.g. a finished experiment's flag): hidden from
+    # the flag list by default but kept so linked experiments/surveys retain their data.
+    # An archived flag must be disabled — the serializer enforces this invariant.
+    archived = models.BooleanField(default=False, db_default=False)
 
     version = models.IntegerField(default=1, null=True)
     last_modified_by = models.ForeignKey(

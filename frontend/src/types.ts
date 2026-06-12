@@ -4176,6 +4176,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
+    /** Archived flags are hidden from the flag list by default and must be disabled. */
+    archived: boolean
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
@@ -4183,7 +4185,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
-    status: 'ACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    status: 'ACTIVE' | 'STALE' | 'ARCHIVED' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
@@ -4219,6 +4221,7 @@ export type OrganizationFeatureFlags = {
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
     STALE = 'stale',
+    ARCHIVED = 'archived',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
 }

@@ -176,6 +176,8 @@ export interface FeatureFlagApi {
     filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     readonly created_by: UserBasicApi
     created_at?: string
     /** @nullable */
@@ -988,8 +990,12 @@ export interface BulkDeleteFiltersApi {
     excluded_properties?: string
     /** Tag names to filter by. Flags carrying at least one of these tags match. */
     tags?: string[]
+    /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+    excluded_tags?: string[]
     /** When true, only matches flags with at least one evaluation context. */
     has_evaluation_contexts?: boolean
+    /** Filter by archived state. When omitted, archived flags are excluded. */
+    archived?: boolean
 }
 
 export interface BulkDeleteRequestApi {
@@ -1325,6 +1331,10 @@ export interface PatchedScheduledChangeApi {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived
+    /**
      * The User ID which initially created the feature flag.
      */
     created_by_id?: string
@@ -1336,6 +1346,10 @@ export type FeatureFlagsListParams = {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -1363,6 +1377,13 @@ export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeo
 
 export const FeatureFlagsListActive = {
     Stale: 'STALE',
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof typeof FeatureFlagsListArchived]
+
+export const FeatureFlagsListArchived = {
     False: 'false',
     True: 'true',
 } as const

@@ -247,6 +247,7 @@ export const NEW_FLAG: FeatureFlagType = {
     },
     deleted: false,
     active: true,
+    archived: false,
     created_by: null,
     ensure_experience_continuity: false,
     experiment_set: null,
@@ -1448,6 +1449,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
+                updateFeatureFlagArchived: async (archived: boolean) => {
+                    if (!values.featureFlag.id) {
+                        throw new Error('Cannot archive an unsaved flag')
+                    }
+                    // Archiving also disables the flag — the backend rejects archived+enabled flags
+                    const savedFlag = await api.update(
+                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        archived ? { archived: true, active: false } : { archived: false }
+                    )
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
             },
         ],
         relatedInsights: [
@@ -1908,6 +1921,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                actions.setFeatureFlag(featureFlagActiveUpdate)
+                actions.updateFlag(featureFlagActiveUpdate)
+            }
+        },
+        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
+            if (featureFlagActiveUpdate) {
+                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
                 actions.setFeatureFlag(featureFlagActiveUpdate)
                 actions.updateFlag(featureFlagActiveUpdate)
             }

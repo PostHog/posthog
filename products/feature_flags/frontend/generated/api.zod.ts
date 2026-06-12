@@ -360,6 +360,12 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -747,6 +753,12 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -829,6 +841,12 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -911,6 +929,12 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -1045,10 +1069,18 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            excluded_tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to exclude. Flags carrying any of these tags are filtered out.'),
             has_evaluation_contexts: zod
                 .boolean()
                 .optional()
                 .describe('When true, only matches flags with at least one evaluation context.'),
+            archived: zod
+                .boolean()
+                .optional()
+                .describe('Filter by archived state. When omitted, archived flags are excluded.'),
         })
         .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
         .optional()

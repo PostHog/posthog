@@ -116,9 +116,11 @@ const featureFlagGetAll = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             query: {
                 active: params.active,
+                archived: params.archived,
                 created_by_id: params.created_by_id,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
+                excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
                 limit: params.limit,
                 offset: params.offset,

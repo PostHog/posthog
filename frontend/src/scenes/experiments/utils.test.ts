@@ -551,6 +551,7 @@ describe('checkFeatureFlagEligibility', () => {
             multivariate: null,
         },
         deleted: false,
+        archived: false,
         active: true,
         experiment_set: null,
         experiment_set_metadata: null,

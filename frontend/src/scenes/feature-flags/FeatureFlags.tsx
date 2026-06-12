@@ -57,6 +57,7 @@ import {
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
+import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
@@ -98,6 +99,14 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                         Updating
                     </span>
                 </LemonTag>
+            ) : featureFlag.archived ? (
+                <Tooltip title="This flag is done for good. It's hidden from the flag list by default, but linked experiments and surveys keep their data.">
+                    <span>
+                        <LemonTag type="muted" className="uppercase cursor-default">
+                            Archived
+                        </LemonTag>
+                    </span>
+                </Tooltip>
             ) : featureFlag.active ? (
                 <LemonTag type="success" className="uppercase">
                     Enabled
@@ -220,7 +229,13 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                 id={`feature-flag-${featureFlag.id}-switch`}
                                 fullWidth
                                 loading={isUpdating}
-                                disabledReason={isUpdating ? 'Updating…' : undefined}
+                                disabledReason={
+                                    isUpdating
+                                        ? 'Updating…'
+                                        : featureFlag.archived
+                                          ? 'Unarchive this flag before enabling it.'
+                                          : undefined
+                                }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'} feature flag
                             </LemonButton>
@@ -275,22 +290,30 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                 userAccessLevel={featureFlag.user_access_level}
                             >
                                 <LemonButton
-                                    status="danger"
+                                    data-attr={`feature-flag-${featureFlag.key}-${featureFlag.archived ? 'unarchive' : 'archive'}`}
                                     onClick={() => {
+                                        if (featureFlag.archived) {
+                                            featureFlag.id &&
+                                                updateFeatureFlag({
+                                                    id: featureFlag.id,
+                                                    payload: { archived: false },
+                                                })
+                                            return
+                                        }
                                         LemonDialog.open({
-                                            title: 'Delete feature flag?',
-                                            description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                            title: 'Archive this flag?',
+                                            description: featureFlag.active
+                                                ? 'This flag is currently enabled — archiving will disable it and immediately roll it back from users matching the release conditions. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data.'
+                                                : 'Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive it at any time.',
                                             primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
+                                                children: 'Archive',
+                                                type: 'primary',
                                                 onClick: () => {
-                                                    void deleteWithUndo({
-                                                        endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                        object: { name: featureFlag.key, id: featureFlag.id },
-                                                        callback: loadFeatureFlags,
-                                                    }).catch((e) => {
-                                                        lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
-                                                    })
+                                                    featureFlag.id &&
+                                                        updateFeatureFlag({
+                                                            id: featureFlag.id,
+                                                            payload: { archived: true, active: false },
+                                                        })
                                                 },
                                                 size: 'small',
                                             },
@@ -301,16 +324,38 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             },
                                         })
                                     }}
+                                    fullWidth
+                                    loading={isUpdating}
+                                    disabledReason={isUpdating ? 'Updating…' : undefined}
+                                >
+                                    {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+
+                        {featureFlag.id && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={featureFlag.user_access_level}
+                            >
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        openFeatureFlagDeleteDialog(featureFlag, () => {
+                                            void deleteWithUndo({
+                                                endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                object: { name: featureFlag.key, id: featureFlag.id },
+                                                callback: loadFeatureFlags,
+                                            }).catch((e) => {
+                                                lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                            })
+                                        })
+                                    }}
                                     disabledReason={
                                         !featureFlag.can_edit
                                             ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                            : (featureFlag.features?.length || 0) > 0
-                                              ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                              : featureFlag.experiment_set_metadata?.some((exp) => exp.is_running)
-                                                ? 'This feature flag is linked to a running experiment. Stop the experiment to delete this flag.'
-                                                : (featureFlag.surveys?.length || 0) > 0
-                                                  ? 'This feature flag is linked to a survey. Delete the survey to delete this flag.'
-                                                  : null
+                                            : null
                                     }
                                     fullWidth
                                 >
