@@ -16,6 +16,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.scoping import team_scope
@@ -39,6 +40,20 @@ from products.experiments.backend.temporal.recalculation_logic import discover_e
 # never started (Temporal connect failure, transient infra issue, etc.). See the rollback in views.py for the
 # happy-path failure handling; this TTL is the defense-in-depth backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
+
+# `is_existing=True` reuse path — counts how often the idempotency guard saves us a workflow start.
+# A sustained climb here without a matching climb in requests is the signal the frontend is double-posting.
+_recalculation_reuse_counter = Counter(
+    "experiment_metrics_recalculation_existing_run_reused",
+    "POST requests that returned an existing active run instead of creating a new one (idempotent reuse).",
+)
+# Fires whenever the 30-min staleness threshold marks a PENDING/IN_PROGRESS row FAILED so the experiment
+# can recalculate again. A sustained climb is a leading indicator of Temporal connect failures or the
+# rollback path in views.py itself failing.
+_recalculation_stale_cleanup_counter = Counter(
+    "experiment_metrics_recalculation_stale_rows_cleaned",
+    "Stale recalc rows force-failed to release the per-experiment uniqueness constraint.",
+)
 
 
 def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict] | None = None) -> tuple[int, int]:
@@ -128,18 +143,21 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
             .first()
         )
         if existing:
+            _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
         # No fresh active row, but stale tombstones might still hold the per-experiment uniqueness constraint
         # (unique_active_metrics_recalculation_per_experiment). Mark them FAILED so the constraint releases
         # and the new row can land. Status reflects reality — these workflows are not coming back.
-        ExperimentMetricsRecalculation.objects.filter(
+        cleaned_count = ExperimentMetricsRecalculation.objects.filter(
             experiment=experiment,
             status__in=[
                 ExperimentMetricsRecalculation.Status.PENDING,
                 ExperimentMetricsRecalculation.Status.IN_PROGRESS,
             ],
         ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
+        if cleaned_count:
+            _recalculation_stale_cleanup_counter.inc(cleaned_count)
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.

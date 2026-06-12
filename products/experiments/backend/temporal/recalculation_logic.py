@@ -18,7 +18,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -461,7 +461,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 override_end_date=query_to_dt,
                 workload=Workload.OFFLINE,
             )
-            tag_queries(trigger="warming/experiment_metrics_recalculation")
+            # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
+            # expensive without reverse-engineering the trigger string.
+            tag_queries(
+                trigger="warming/experiment_metrics_recalculation",
+                team_id=state.team_id,
+                product=Product.EXPERIMENTS,
+                feature=Feature.CACHE_WARMUP,
+            )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = result.model_dump(mode="json")
 
