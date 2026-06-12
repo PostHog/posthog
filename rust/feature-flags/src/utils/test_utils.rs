@@ -611,6 +611,7 @@ pub async fn insert_flag_for_team_in_pg(
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         },
     };
 

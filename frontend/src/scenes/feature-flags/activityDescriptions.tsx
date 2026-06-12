@@ -369,6 +369,21 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
+    evaluation_contexts_match_mode: function onEvaluationContextsMatchMode(change) {
+        const modeAfter = change?.after as string
+        const modeBefore = change?.before as string
+
+        const getMatchModeLabel = (mode: string): string => (mode === 'all' ? 'Match all' : 'Match any')
+
+        return {
+            description: [
+                <>
+                    changed the evaluation context match mode from <strong>{getMatchModeLabel(modeBefore)}</strong> to{' '}
+                    <strong>{getMatchModeLabel(modeAfter)}</strong>
+                </>,
+            ],
+        }
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,

@@ -150,7 +150,8 @@ impl FeatureFlagList {
                       ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
-                  bucketing_identifier
+                  bucketing_identifier,
+                  f.evaluation_contexts_match_mode
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
               LEFT JOIN posthog_featureflagevaluationcontext AS ec ON (f.id = ec.feature_flag_id)
@@ -194,6 +195,7 @@ impl FeatureFlagList {
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
                         bucketing_identifier: row.bucketing_identifier,
+                        evaluation_contexts_match_mode: row.evaluation_contexts_match_mode,
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
@@ -366,6 +368,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let flag2 = FeatureFlagRow {
@@ -381,6 +384,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         // Insert multiple flags for the team
@@ -445,6 +449,65 @@ mod tests {
         assert!(tags.contains(&"docs-page".to_string()));
         assert!(tags.contains(&"marketing-site".to_string()));
         assert!(tags.contains(&"app".to_string()));
+
+        // The match mode falls back to the column's "any" db_default when not set.
+        assert_eq!(
+            flag.evaluation_contexts_match_mode,
+            Some("any".to_string()),
+            "match mode should default to 'any' via the column db_default"
+        );
+        assert_eq!(
+            flag.evaluation_context_match_mode(),
+            crate::flags::flag_models::EvaluationContextMatchMode::Any
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_flags_with_all_match_mode_from_pg() {
+        // Verifies the new SELECT column is read back from a real PG schema —
+        // deploy-ordering-sensitive: the column must exist in PG first.
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let mut conn = context
+            .non_persons_writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflag
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+             evaluation_contexts_match_mode, created_at)
+            VALUES ($1, $2, $3, $4, false, true, false, 'all', '2024-06-17')"#,
+        )
+        .bind(team.id)
+        .bind("All Mode Flag")
+        .bind("all_mode_flag")
+        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to insert all-mode flag");
+
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        let flag = flags_from_pg
+            .iter()
+            .find(|f| f.key == "all_mode_flag")
+            .expect("Should have the all-mode flag");
+        assert_eq!(
+            flag.evaluation_contexts_match_mode,
+            Some("all".to_string())
+        );
+        assert_eq!(
+            flag.evaluation_context_match_mode(),
+            crate::flags::flag_models::EvaluationContextMatchMode::All
+        );
     }
 
     #[tokio::test]
@@ -646,6 +709,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         }];
 
         // Serialize as we do in production cache
@@ -1128,6 +1192,14 @@ mod tests {
             full_flag.bucketing_identifier,
             Some("device_id".to_string())
         );
+        assert_eq!(
+            full_flag.evaluation_contexts_match_mode,
+            Some("all".to_string())
+        );
+        assert_eq!(
+            full_flag.evaluation_context_match_mode(),
+            crate::flags::flag_models::EvaluationContextMatchMode::All
+        );
         // evaluation_contexts is aliased to evaluation_tags in Rust
         let tags = full_flag
             .evaluation_tags
@@ -1152,6 +1224,14 @@ mod tests {
         assert_eq!(minimal_flag.ensure_experience_continuity, Some(false));
         assert!(minimal_flag.bucketing_identifier.is_none());
         assert!(minimal_flag.filters.multivariate.is_none());
+        assert_eq!(
+            minimal_flag.evaluation_contexts_match_mode,
+            Some("any".to_string())
+        );
+        assert_eq!(
+            minimal_flag.evaluation_context_match_mode(),
+            crate::flags::flag_models::EvaluationContextMatchMode::Any
+        );
 
         // Cohort flag: verify cohort property type parsed
         let cohort_flag = &flags[2];
@@ -1250,6 +1330,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         }];
 
         let sealed = PreparedFlags::seal(flags);
@@ -1329,6 +1410,7 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: Some(vec!["context-1".to_string(), "context-2".to_string()]),
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let json_str = serde_json::to_string(&flag).expect("Should serialize");

@@ -236,6 +236,15 @@ pub enum BucketingIdentifier {
     DeviceId,
 }
 
+/// How a flag's evaluation contexts are matched against a request's declared contexts.
+/// `Any` (default): evaluate when the request declares at least one of the flag's contexts.
+/// `All`: evaluate only when the request declares every one of them (superset match).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluationContextMatchMode {
+    Any,
+    All,
+}
+
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
@@ -270,6 +279,11 @@ pub struct FeatureFlag {
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
+    /// How `evaluation_tags` are matched against the request's declared contexts.
+    /// Loose `Option<String>` (not a strict serde enum) so unknown future values
+    /// degrade to OR rather than failing deserialization — matches `bucketing_identifier`.
+    #[serde(default)]
+    pub evaluation_contexts_match_mode: Option<String>,
 }
 
 impl FeatureFlag {
@@ -279,6 +293,16 @@ impl FeatureFlag {
         match self.bucketing_identifier.as_deref() {
             Some("device_id") => BucketingIdentifier::DeviceId,
             _ => BucketingIdentifier::DistinctId,
+        }
+    }
+
+    /// Returns how this flag's evaluation contexts should be matched.
+    /// Defaults to `Any` (OR) when unset or set to any value other than `"all"`,
+    /// so an unknown or malformed mode can never silently disable a team's flags.
+    pub fn evaluation_context_match_mode(&self) -> EvaluationContextMatchMode {
+        match self.evaluation_contexts_match_mode.as_deref() {
+            Some("all") => EvaluationContextMatchMode::All,
+            _ => EvaluationContextMatchMode::Any,
         }
     }
 }
@@ -302,6 +326,8 @@ pub struct FeatureFlagRow {
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
+    #[serde(default)]
+    pub evaluation_contexts_match_mode: Option<String>,
 }
 
 /// Request-scoped view of flag definitions plus the per-request filter set.
@@ -355,6 +381,10 @@ impl PreparedFlagDefinitions {
                     .as_ref()
                     .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
                 let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
+                let match_mode_size = f
+                    .evaluation_contexts_match_mode
+                    .as_ref()
+                    .map_or(0, |m| m.len());
                 // Each PropertyFilter with a compiled regex costs ~2KB for the
                 // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
                 // payload can dominate for cohort/group filters, so walk it.
@@ -398,6 +428,7 @@ impl PreparedFlagDefinitions {
                     + runtime_size
                     + tags_size
                     + bucketing_size
+                    + match_mode_size
                     + filters_size
                     + payloads_size
             })
@@ -518,6 +549,7 @@ mod mock_impls {
                 evaluation_runtime: flag.evaluation_runtime,
                 evaluation_tags: flag.evaluation_tags,
                 bucketing_identifier: flag.bucketing_identifier,
+                evaluation_contexts_match_mode: flag.evaluation_contexts_match_mode,
                 ..Default::default()
             }
         }
@@ -773,5 +805,64 @@ mod unknown_key_passthrough_tests {
 
         let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
         assert_eq!(output["aggregation_group_type_index"], 2);
+    }
+}
+
+#[cfg(test)]
+mod evaluation_context_match_mode_tests {
+    //! The match mode is a loose `Option<String>` so an old cache payload that
+    //! omits the key, or a future/garbage value, can never fail deserialization or
+    //! silently disable a team's flags — it degrades to OR (`Any`).
+    use super::*;
+
+    fn flag_from(json: serde_json::Value) -> FeatureFlag {
+        serde_json::from_value(json).expect("FeatureFlag should deserialize cleanly")
+    }
+
+    #[test]
+    fn absent_key_defaults_to_any() {
+        // Old cache payloads written before this field existed lack the key entirely.
+        let flag = flag_from(serde_json::json!({
+            "id": 1, "team_id": 1, "key": "f", "filters": {"groups": []}
+        }));
+        assert_eq!(flag.evaluation_contexts_match_mode, None);
+        assert_eq!(
+            flag.evaluation_context_match_mode(),
+            EvaluationContextMatchMode::Any
+        );
+    }
+
+    #[test]
+    fn all_value_maps_to_all() {
+        let flag = flag_from(serde_json::json!({
+            "id": 1, "team_id": 1, "key": "f", "filters": {"groups": []},
+            "evaluation_contexts_match_mode": "all"
+        }));
+        assert_eq!(
+            flag.evaluation_context_match_mode(),
+            EvaluationContextMatchMode::All
+        );
+    }
+
+    #[test]
+    fn unknown_value_degrades_to_any() {
+        let flag = flag_from(serde_json::json!({
+            "id": 1, "team_id": 1, "key": "f", "filters": {"groups": []},
+            "evaluation_contexts_match_mode": "sometimes"
+        }));
+        assert_eq!(
+            flag.evaluation_context_match_mode(),
+            EvaluationContextMatchMode::Any
+        );
+    }
+
+    #[test]
+    fn match_mode_round_trips_through_serialize() {
+        let flag = flag_from(serde_json::json!({
+            "id": 1, "team_id": 1, "key": "f", "filters": {"groups": []},
+            "evaluation_contexts_match_mode": "all"
+        }));
+        let output = serde_json::to_value(&flag).expect("FeatureFlag should serialize cleanly");
+        assert_eq!(output["evaluation_contexts_match_mode"], "all");
     }
 }

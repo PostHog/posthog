@@ -212,6 +212,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "evaluation_contexts_match_mode": "any",
             "is_used_in_replay_settings": False,
         }
 
@@ -306,6 +307,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "evaluation_contexts_match_mode": "any",
             "is_used_in_replay_settings": False,
         }
 
@@ -445,6 +447,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "evaluation_contexts_match_mode": "any",
             "is_used_in_replay_settings": False,
         }
         flag_response = response.json()["success"][0]

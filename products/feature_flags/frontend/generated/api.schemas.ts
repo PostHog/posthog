@@ -115,6 +115,18 @@ export interface FeatureFlagExperimentSetMetadataApi {
 }
 
 /**
+ * * `any` - Match any
+ * * `all` - Match all
+ */
+export type EvaluationContextsMatchModeEnumApi =
+    (typeof EvaluationContextsMatchModeEnumApi)[keyof typeof EvaluationContextsMatchModeEnumApi]
+
+export const EvaluationContextsMatchModeEnumApi = {
+    Any: 'any',
+    All: 'all',
+} as const
+
+/**
  * * `feature_flags` - feature_flags
  * * `experiments` - experiments
  * * `surveys` - surveys
@@ -164,6 +176,10 @@ export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
 
+export const FeatureFlagApiEvaluationContextsMatchMode = {
+    ...EvaluationContextsMatchModeEnumApi,
+    ...BlankEnumApi,
+} as const
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -194,6 +210,11 @@ export interface FeatureFlagApi {
     readonly can_edit: boolean
     tags?: unknown[]
     evaluation_contexts?: unknown[]
+    /** How the flag's evaluation contexts are matched against a request's declared contexts
+     *
+     * * `any` - Match any
+     * * `all` - Match all */
+    evaluation_contexts_match_mode?: (typeof FeatureFlagApiEvaluationContextsMatchMode)[keyof typeof FeatureFlagApiEvaluationContextsMatchMode]
     readonly usage_dashboard: number
     analytics_dashboards?: number[]
     /** @nullable */
@@ -679,6 +700,11 @@ export interface FeatureFlagCreateRequestSchemaApi {
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
     evaluation_contexts?: string[]
+    /** How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.
+     *
+     * * `any` - Match any
+     * * `all` - Match all */
+    evaluation_contexts_match_mode?: EvaluationContextsMatchModeEnumApi
     /**
      * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
      * @nullable
@@ -699,6 +725,11 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
     evaluation_contexts?: string[]
+    /** How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.
+     *
+     * * `any` - Match any
+     * * `all` - Match all */
+    evaluation_contexts_match_mode?: EvaluationContextsMatchModeEnumApi
     /**
      * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
      * @nullable
@@ -1120,6 +1151,10 @@ export interface BulkUpdateTagsResponseApi {
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
+export const MinimalFeatureFlagApiEvaluationContextsMatchMode = {
+    ...EvaluationContextsMatchModeEnumApi,
+    ...BlankEnumApi,
+} as const
 export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
@@ -1149,6 +1184,11 @@ export interface MinimalFeatureFlagApi {
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
+    /** How the flag's evaluation contexts are matched against a request's declared contexts
+     *
+     * * `any` - Match any
+     * * `all` - Match all */
+    evaluation_contexts_match_mode?: (typeof MinimalFeatureFlagApiEvaluationContextsMatchMode)[keyof typeof MinimalFeatureFlagApiEvaluationContextsMatchMode]
 }
 
 export interface MyFlagsResponseApi {

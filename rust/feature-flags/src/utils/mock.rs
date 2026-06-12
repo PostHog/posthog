@@ -351,6 +351,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            evaluation_contexts_match_mode: None,
         };
 
         let mock_flag = mock!(FeatureFlag,

@@ -634,6 +634,12 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
     )
+    evaluation_contexts_match_mode = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_CONTEXTS_MATCH_MODE_CHOICES,
+        required=False,
+        help_text="How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of "
+        "its contexts, 'all' only when the SDK declares every one of them.",
+    )
     is_remote_configuration = serializers.BooleanField(
         required=False,
         allow_null=True,
@@ -659,6 +665,12 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
+    )
+    evaluation_contexts_match_mode = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_CONTEXTS_MATCH_MODE_CHOICES,
+        required=False,
+        help_text="How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of "
+        "its contexts, 'all' only when the SDK declares every one of them.",
     )
     is_remote_configuration = serializers.BooleanField(
         required=False,
@@ -746,6 +758,7 @@ class FeatureFlagSerializer(
             "can_edit",
             "tags",
             "evaluation_contexts",
+            "evaluation_contexts_match_mode",
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
@@ -1491,6 +1504,11 @@ class FeatureFlagSerializer(
         validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         evaluation_contexts = validated_data.pop("evaluation_contexts", None)
+        # The match mode is gated behind the same feature as the contexts themselves;
+        # drop it for non-gated users so the column stays at its "any" default. Only run
+        # the (DB-touching) feature check when the field is actually being written.
+        if "evaluation_contexts_match_mode" in validated_data and not self._is_evaluation_contexts_feature_enabled():
+            validated_data.pop("evaluation_contexts_match_mode")
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
@@ -1555,6 +1573,12 @@ class FeatureFlagSerializer(
         validated_data["last_modified_by"] = request.user
         # Prevent DRF from attempting to set reverse FK relation directly
         validated_data.pop("evaluation_contexts", None)
+        # The match mode is gated behind the same feature as the contexts themselves;
+        # drop it for non-gated users so the existing value is left untouched. Only run
+        # the (DB-touching) feature check when the field is actually being written, so
+        # unrelated updates (e.g. scheduled changes toggling status) don't pay for it.
+        if "evaluation_contexts_match_mode" in validated_data and not self._is_evaluation_contexts_feature_enabled():
+            validated_data.pop("evaluation_contexts_match_mode")
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
@@ -2249,6 +2273,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "evaluation_runtime",
             "bucketing_identifier",
             "evaluation_contexts",
+            "evaluation_contexts_match_mode",
         ]
 
     def get_evaluation_contexts(self, feature_flag: FeatureFlag) -> list[str]:
@@ -2601,6 +2626,7 @@ class FeatureFlagViewSet(
         for feature_flag in feature_flags_data:
             if not is_evaluation_contexts_enabled:
                 feature_flag["evaluation_contexts"] = []
+                feature_flag["evaluation_contexts_match_mode"] = "any"
 
             # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
             if feature_flag.get("has_encrypted_payloads", False):
@@ -2618,6 +2644,7 @@ class FeatureFlagViewSet(
 
         if not is_evaluation_contexts_enabled:
             feature_flag_data["evaluation_contexts"] = []
+            feature_flag_data["evaluation_contexts_match_mode"] = "any"
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):

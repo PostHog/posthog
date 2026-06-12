@@ -462,6 +462,7 @@ mod tests {
                 evaluation_runtime: Some("all".to_string()),
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                evaluation_contexts_match_mode: None,
             },
             FeatureFlag {
                 id: 2,
@@ -485,6 +486,7 @@ mod tests {
                 evaluation_runtime: Some("all".to_string()),
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                evaluation_contexts_match_mode: None,
             },
             FeatureFlag {
                 id: 3,
@@ -522,6 +524,7 @@ mod tests {
                 evaluation_runtime: Some("all".to_string()),
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                evaluation_contexts_match_mode: None,
             },
         ];
         let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(&flags_vec));
@@ -654,6 +657,7 @@ mod tests {
                 evaluation_runtime: Some("all".to_string()),
                 evaluation_tags: None,
                 bucketing_identifier: None,
+                evaluation_contexts_match_mode: None,
             })
             .collect();
         let large_flags = FeatureFlagList {

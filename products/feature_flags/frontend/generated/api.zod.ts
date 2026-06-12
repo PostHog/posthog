@@ -332,6 +332,13 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    evaluation_contexts_match_mode: zod
+        .enum(['any', 'all'])
+        .describe('\* `any` - Match any\n\* `all` - Match all')
+        .optional()
+        .describe(
+            "How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.\n\n\* `any` - Match any\n\* `all` - Match all"
+        ),
     is_remote_configuration: zod
         .boolean()
         .nullish()
@@ -367,6 +374,12 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
+        evaluation_contexts_match_mode: zod
+            .union([zod.enum(['any', 'all']).describe('\* `any` - Match any\n\* `all` - Match all'), zod.enum([''])])
+            .optional()
+            .describe(
+                "How the flag's evaluation contexts are matched against a request's declared contexts\n\n\* `any` - Match any\n\* `all` - Match all"
+            ),
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),
         creation_context: zod
@@ -719,6 +732,13 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    evaluation_contexts_match_mode: zod
+        .enum(['any', 'all'])
+        .describe('\* `any` - Match any\n\* `all` - Match all')
+        .optional()
+        .describe(
+            "How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.\n\n\* `any` - Match any\n\* `all` - Match all"
+        ),
     is_remote_configuration: zod
         .boolean()
         .nullish()
@@ -754,6 +774,12 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
+        evaluation_contexts_match_mode: zod
+            .union([zod.enum(['any', 'all']).describe('\* `any` - Match any\n\* `all` - Match all'), zod.enum([''])])
+            .optional()
+            .describe(
+                "How the flag's evaluation contexts are matched against a request's declared contexts\n\n\* `any` - Match any\n\* `all` - Match all"
+            ),
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),
         creation_context: zod
@@ -836,6 +862,12 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
+        evaluation_contexts_match_mode: zod
+            .union([zod.enum(['any', 'all']).describe('\* `any` - Match any\n\* `all` - Match all'), zod.enum([''])])
+            .optional()
+            .describe(
+                "How the flag's evaluation contexts are matched against a request's declared contexts\n\n\* `any` - Match any\n\* `all` - Match all"
+            ),
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),
         creation_context: zod
@@ -918,6 +950,12 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
+        evaluation_contexts_match_mode: zod
+            .union([zod.enum(['any', 'all']).describe('\* `any` - Match any\n\* `all` - Match all'), zod.enum([''])])
+            .optional()
+            .describe(
+                "How the flag's evaluation contexts are matched against a request's declared contexts\n\n\* `any` - Match any\n\* `all` - Match all"
+            ),
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),
         creation_context: zod

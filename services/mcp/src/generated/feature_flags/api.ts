@@ -384,6 +384,13 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    evaluation_contexts_match_mode: zod
+        .enum(['any', 'all'])
+        .describe('* `any` - Match any\n* `all` - Match all')
+        .optional()
+        .describe(
+            "How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.\n\n* `any` - Match any\n* `all` - Match all"
+        ),
     is_remote_configuration: zod
         .boolean()
         .nullish()
@@ -714,6 +721,13 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    evaluation_contexts_match_mode: zod
+        .enum(['any', 'all'])
+        .describe('* `any` - Match any\n* `all` - Match all')
+        .optional()
+        .describe(
+            "How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.\n\n* `any` - Match any\n* `all` - Match all"
+        ),
     is_remote_configuration: zod
         .boolean()
         .nullish()

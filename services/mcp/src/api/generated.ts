@@ -14463,8 +14463,21 @@ export namespace Schemas {
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * * `any` - Match any
+     * * `all` - Match all
+     */
+    export type EvaluationContextsMatchModeEnum = typeof EvaluationContextsMatchModeEnum[keyof typeof EvaluationContextsMatchModeEnum];
+
+
+    export const EvaluationContextsMatchModeEnum = {
+      Any: 'any',
+      All: 'all',
+    } as const;
+
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
+    export const MinimalFeatureFlagEvaluationContextsMatchMode = {...EvaluationContextsMatchModeEnum,...BlankEnum,} as const
     export interface MinimalFeatureFlag {
       readonly id: number;
       readonly team_id: number;
@@ -14494,6 +14507,11 @@ export namespace Schemas {
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       readonly evaluation_contexts: readonly string[];
+      /** How the flag's evaluation contexts are matched against a request's declared contexts
+       *
+       * * `any` - Match any
+       * * `all` - Match all */
+      evaluation_contexts_match_mode?: typeof MinimalFeatureFlagEvaluationContextsMatchMode[keyof typeof MinimalFeatureFlagEvaluationContextsMatchMode];
     }
 
     /**
@@ -18198,6 +18216,7 @@ export namespace Schemas {
 
     export type FeatureFlagFeatures = { [key: string]: unknown };
 
+    export const FeatureFlagEvaluationContextsMatchMode = {...EvaluationContextsMatchModeEnum,...BlankEnum,} as const
     export interface FeatureFlagExperimentSetMetadata {
       /** ID of the experiment linked to this flag. */
       id: number;
@@ -18257,6 +18276,11 @@ export namespace Schemas {
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];
+      /** How the flag's evaluation contexts are matched against a request's declared contexts
+       *
+       * * `any` - Match any
+       * * `all` - Match all */
+      evaluation_contexts_match_mode?: typeof FeatureFlagEvaluationContextsMatchMode[keyof typeof FeatureFlagEvaluationContextsMatchMode];
       readonly usage_dashboard: number;
       analytics_dashboards?: number[];
       /** @nullable */
@@ -18742,6 +18766,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /** How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.
+       *
+       * * `any` - Match any
+       * * `all` - Match all */
+      evaluation_contexts_match_mode?: EvaluationContextsMatchModeEnum;
       /**
          * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
          * @nullable
@@ -30454,6 +30483,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /** How evaluation contexts are matched: 'any' evaluates the flag when the SDK declares at least one of its contexts, 'all' only when the SDK declares every one of them.
+       *
+       * * `any` - Match any
+       * * `all` - Match all */
+      evaluation_contexts_match_mode?: EvaluationContextsMatchModeEnum;
       /**
          * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
          * @nullable
