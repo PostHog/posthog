@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -136,7 +136,7 @@ export interface GatewayBoundCredentialsApi {
 
 /**
  * * `project_secret_api_key` - project_secret_api_key
- * `oauth_application` - oauth_application
+ * * `oauth_application` - oauth_application
  */
 export type CredentialTypeEnumApi = (typeof CredentialTypeEnumApi)[keyof typeof CredentialTypeEnumApi]
 
@@ -147,9 +147,9 @@ export const CredentialTypeEnumApi = {
 
 export interface UnassignCredentialApi {
     /** Which kind of credential to unassign.
-
-  * `project_secret_api_key` - project_secret_api_key
-  * `oauth_application` - oauth_application */
+     *
+     * * `project_secret_api_key` - project_secret_api_key
+     * * `oauth_application` - oauth_application */
     credential_type: CredentialTypeEnumApi
     /** Id of the credential to unassign from this gateway. */
     credential_id: string

@@ -41,7 +41,7 @@ export const getGatewaysListUrl = (projectId: string, params?: GatewaysListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -144,9 +144,9 @@ export const getGatewaysAssignCredentialCreateUrl = (projectId: string, id: stri
 
 /**
  * Assign one of the team's unassigned project secret keys to this gateway (admin-only).
-
-The key must belong to the gateway's canonical team, so a key from another
-project can't be attributed here.
+ *
+ * The key must belong to the gateway's canonical team, so a key from another
+ * project can't be attributed here.
  */
 export const gatewaysAssignCredentialCreate = async (
     projectId: string,

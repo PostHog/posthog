@@ -45,9 +45,9 @@ export const GatewaysPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Assign one of the team's unassigned project secret keys to this gateway (admin-only).
-
-The key must belong to the gateway's canonical team, so a key from another
-project can't be attributed here.
+ *
+ * The key must belong to the gateway's canonical team, so a key from another
+ * project can't be attributed here.
  */
 export const GatewaysAssignCredentialCreateBody = /* @__PURE__ */ zod.object({
     credential_id: zod
