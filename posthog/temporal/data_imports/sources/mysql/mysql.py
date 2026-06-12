@@ -221,7 +221,9 @@ def _release_streaming_cursor(cursor: SSCursor) -> None:
     `close`/`__del__` becomes a no-op and the owning `with self.connect(...)`
     block closes the socket cleanly.
     """
-    cursor.connection = None
+    # PyMySQL clears this same attribute once a query is fully consumed; the
+    # stub types it non-optional, so we mirror that runtime behaviour here.
+    cursor.connection = None  # ty: ignore[invalid-assignment]
 
 
 class MySQLColumn(Column):

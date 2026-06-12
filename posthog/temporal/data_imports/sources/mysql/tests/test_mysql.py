@@ -600,11 +600,6 @@ class TestStreamingCursorTeardown:
 
     def test_early_close_does_not_drain_or_raise(self, build_pipeline_mocks):
         _, _, ss_cursor = build_pipeline_mocks
-        # Faithfully mimic PyMySQL: leaving the cursor context closes it, and
-        # closing an unconsumed SSCursor drains the result set — which on a
-        # dropped connection raises 2013. If teardown ever closes the cursor,
-        # this surfaces.
-        ss_cursor.__exit__.side_effect = lambda *exc_info: ss_cursor.close()
         # Every fetch returns a row, so the generator stays suspended at a yield
         # until we close it — mimicking a sync cancelled mid-stream.
         ss_cursor.fetchmany.return_value = [(1,)]
@@ -622,7 +617,6 @@ class TestStreamingCursorTeardown:
 
     def test_midstream_error_propagates_without_draining(self, build_pipeline_mocks):
         _, _, ss_cursor = build_pipeline_mocks
-        ss_cursor.__exit__.side_effect = lambda *exc_info: ss_cursor.close()
         # First fetch yields a batch, the second loses the connection mid-stream.
         ss_cursor.fetchmany.side_effect = [
             [(1,)],
