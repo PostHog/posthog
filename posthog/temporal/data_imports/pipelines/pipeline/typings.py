@@ -12,6 +12,8 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
     from dlt.common.data_types.typing import TDataType
+
+    from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 else:
     # Runtime stub so get_type_hints() on the dataclasses below resolves without importing dlt (kept
     # type-only above). Deliberately not `str` — nothing should rely on the runtime value, and a named
@@ -20,7 +22,6 @@ else:
     class TDataType:
         def __repr__(self) -> str:
             return "<TDataType: type-checking-only stub for dlt.common.data_types.typing.TDataType>"
-
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
@@ -72,6 +73,7 @@ class SourceInputs:
     logger: FilteringBoundLogger
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
+    row_filters: Optional[list["ValidatedRowFilter"]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     dwh_storage_key: Optional[str] = None

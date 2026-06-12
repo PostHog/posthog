@@ -28,6 +28,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.sql.predicates import validate_and_coerce_row_filters
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -142,6 +143,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
+        # Re-validate the persisted row filters against the current schema metadata so a
+        # stale filter (column dropped, type changed) fails loudly here rather than emitting
+        # a broken query downstream. Values are coerced to bound-parameter-ready Python types.
+        row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -161,6 +167,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
+                row_filters=row_filters,
                 schema_metadata=schema.schema_metadata,
                 dwh_storage_key=schema.dwh_storage_key,
             )
