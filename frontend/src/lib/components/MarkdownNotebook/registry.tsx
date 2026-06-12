@@ -16,6 +16,7 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
+import { wasNotebookNodeJustInserted } from './freshlyInserted'
 import {
     NotebookComponentDefinition,
     NotebookComponentBlockNode,
@@ -331,7 +332,7 @@ function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
                 value={src}
                 onChange={(value) => updateProps({ src: value })}
                 placeholder="Image URL"
-                autoFocus
+                autoFocus={wasNotebookNodeJustInserted(node.id)}
             />
             <LemonInput value={alt} onChange={(value) => updateProps({ alt: value })} placeholder="Alt text" />
         </div>
@@ -359,7 +360,7 @@ function EmbedEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
                 value={title}
                 onChange={(value) => updateProps({ title: value })}
                 placeholder="Title"
-                autoFocus
+                autoFocus={wasNotebookNodeJustInserted(node.id)}
             />
             <LemonInput
                 value={src}
@@ -385,7 +386,7 @@ function LatexEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
                 onChange={(value) => updateProps({ content: value })}
                 placeholder="E = mc^2"
                 minRows={3}
-                autoFocus
+                autoFocus={wasNotebookNodeJustInserted(node.id)}
             />
         </div>
     )

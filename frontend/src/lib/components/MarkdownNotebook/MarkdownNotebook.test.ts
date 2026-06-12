@@ -1456,6 +1456,15 @@ Repeated block`),
         expect(onCaretChange).toHaveBeenLastCalledWith({ nodeIndex: 1 })
     })
 
+    it('does not open editors or steal focus for blocks that mount on load', () => {
+        // An empty comment in loaded markdown must sit closed — only a freshly inserted
+        // one may open its editor and grab focus.
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nHello\n\n<!--  -->' }))
+
+        expect(container.querySelector('[data-attr="notebook-comment-block"]')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('[data-attr="notebook-comment-editor"]')).toBeNull()
+    })
+
     it('moves the caret with the text when a collaborator inserts before it', () => {
         const onChange = jest.fn()
         const onCaretChange = jest.fn()

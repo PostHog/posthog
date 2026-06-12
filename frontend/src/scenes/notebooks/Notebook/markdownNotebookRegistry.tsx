@@ -38,6 +38,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
+import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import {
     NotebookComponentBlockNode,
     NotebookComponentDefinition,
@@ -437,7 +438,7 @@ export function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): 
                 value={src}
                 onChange={(value) => updateProps({ src: value })}
                 placeholder="Image URL"
-                autoFocus
+                autoFocus={wasNotebookNodeJustInserted(node.id)}
             />
             <LemonInput value={alt} onChange={(value) => updateProps({ alt: value })} placeholder="Alt text" />
         </div>
@@ -454,7 +455,7 @@ export function EmbedEdit({ node, updateProps }: NotebookComponentRenderProps): 
                 value={title}
                 onChange={(value) => updateProps({ title: value })}
                 placeholder="Title"
-                autoFocus
+                autoFocus={wasNotebookNodeJustInserted(node.id)}
             />
             <LemonInput
                 value={src}
@@ -475,7 +476,7 @@ export function LatexEdit({ node, updateProps }: NotebookComponentRenderProps): 
                 onChange={(value) => updateProps({ content: value })}
                 placeholder="E = mc^2"
                 minRows={3}
-                autoFocus
+                autoFocus={wasNotebookNodeJustInserted(node.id)}
             />
         </div>
     )

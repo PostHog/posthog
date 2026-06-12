@@ -7,6 +7,7 @@ import { LemonTextArea } from '@posthog/lemon-ui'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 
 import { InsertMenuSelectionDirection } from './editorTypes'
+import { wasNotebookNodeJustInserted } from './freshlyInserted'
 import { NotebookBlockNode, NotebookComponentBlockNode, NotebookMode } from './types'
 
 /**
@@ -36,8 +37,12 @@ export function CommentBlock({
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
 }): JSX.Element {
     const text = typeof node.props.text === 'string' ? node.props.text : ''
-    // Freshly inserted comments open the editor right away so typing can start immediately
-    const [isEditorOpen, setIsEditorOpen] = useState(() => mode === 'edit' && !text)
+    // Freshly inserted comments open the editor right away so typing can start immediately —
+    // but only when this user just inserted it, never when an empty comment merely mounts
+    // (loading a notebook, a remote merge) where it would steal focus.
+    const [isEditorOpen, setIsEditorOpen] = useState(
+        () => mode === 'edit' && !text && wasNotebookNodeJustInserted(node.id)
+    )
 
     const setText = (value: string): void => {
         updateNode(node.id, (currentNode) =>

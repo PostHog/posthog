@@ -1,7 +1,8 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { type CSSProperties, useEffect, useMemo, useRef } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
+import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -263,6 +264,9 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
 }: NotebookNodeAttributeProperties<T>): JSX.Element {
     const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
     const editorSourceQuery = useNotebookQuerySQLEditorSync({ attributes, updateAttributes, tabId })
+    // Focus the editor only when this user just inserted the node - a node mounting on
+    // notebook load or after a structural re-render must never steal the caret.
+    const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
 
     if (!editorSourceQuery) {
         return <></>
@@ -286,6 +290,7 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
+                autoFocusQueryPane={autoFocusQueryPane}
             />
         </div>
     )
@@ -311,6 +316,9 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
+    // Focus the editor only when this user just inserted the node - a node mounting on
+    // notebook load or after a structural re-render must never steal the caret.
+    const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
 
     return (
         <div
@@ -329,6 +337,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                autoFocusQueryPane={autoFocusQueryPane}
                 onRunQuery={onRunQuery}
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}

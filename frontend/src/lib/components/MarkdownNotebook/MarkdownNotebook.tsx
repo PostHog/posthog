@@ -116,6 +116,7 @@ import {
     TextSelectionPointerState,
 } from './editorTypes'
 import { FormattingToolbar, getFloatingToolbarLinkHref, getSelectedBlockStyle } from './FormattingToolbar'
+import { markNotebookNodeFreshlyInserted } from './freshlyInserted'
 import {
     InlineMarkSelection,
     areInlineSelectionsFullyMarked,
@@ -1859,6 +1860,7 @@ export function MarkdownNotebook({
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
             const insertedPanels = getComponentPanelVisibility(nextNode, INSERTED_COMPONENT_PANEL_VISIBILITY)
             const insertedNode = withPersistedComponentPanelProps(nextNode, definition, insertedPanels)
+            markNotebookNodeFreshlyInserted(nextNode.id)
             focusNodeRef.current = nextNode.id
             replaceNode(nodeId, insertedNode)
         },
