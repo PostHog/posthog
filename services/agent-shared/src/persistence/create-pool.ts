@@ -1,16 +1,19 @@
 /**
- * Wrapper around `new Pool` that flips on SSL for non-local Postgres hosts.
+ * Wrapper around `new Pool` that flips on SSL only for a *direct external*
+ * Postgres host.
  *
  * Aurora's `pg_hba.conf` requires SSL for the agent-* DB users (`hostssl`
  * only). The chart helper builds DSNs without `?sslmode=require`, so we
  * have to opt in client-side — otherwise the runner / ingress / janitor
  * boot loops with `no pg_hba.conf entry for host ..., no encryption`.
  *
- * Dev (localhost) Postgres usually doesn't speak SSL, so we leave it off
- * when the hostname is loopback. `rejectUnauthorized: false` matches what
- * the in-cluster pgbouncer does when terminating SSL to Aurora — Aurora
- * uses the AWS RDS CA which Node doesn't trust out of the box, and we
- * don't want every service to bundle the CA.
+ * But when the DB is routed through the in-cluster pgbouncer, node connects
+ * to the bouncer (a bare k8s service name) which speaks *plaintext* to clients
+ * and carries SSL only on its own hop to Aurora. Requesting SSL there fails
+ * with "The server does not support SSL connections". So SSL is on only for an
+ * external (dotted, non-`.svc`) host; off for loopback + in-cluster.
+ * `rejectUnauthorized: false` is used for the external case because Aurora's
+ * RDS CA isn't in Node's trust store and we don't bundle it.
  */
 
 // `pg` is CommonJS (`module.exports = new PG(...)`), so Node's ESM loader
@@ -30,12 +33,28 @@ pg.types.setTypeParser(20, (value: string | null) => (value === null ? null : Nu
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', ''])
 
-function isLocalHost(connectionString: string): boolean {
+/**
+ * Client SSL is needed only for a *direct* external Postgres (Aurora RDS, whose
+ * `pg_hba` is `hostssl`-only). It must NOT be requested for an in-cluster host —
+ * loopback, a bare k8s service name (single label, e.g. `pgbouncer-agent-platform-write`),
+ * or a `.svc.cluster.local` FQDN — because the in-cluster pgbouncer terminates
+ * plaintext on the client side (the bouncer→Aurora hop carries SSL, not node→bouncer).
+ * Requesting SSL there fails with "The server does not support SSL connections".
+ */
+export function needsClientSsl(connectionString: string): boolean {
+    let host: string
     try {
-        return LOCAL_HOSTS.has(new URL(connectionString).hostname)
+        host = new URL(connectionString).hostname
     } catch {
         return false
     }
+    if (LOCAL_HOSTS.has(host)) {
+        return false
+    }
+    if (!host.includes('.') || host.endsWith('.svc.cluster.local') || host.endsWith('.svc')) {
+        return false
+    }
+    return true
 }
 
 export function createAgentPool(
@@ -45,9 +64,10 @@ export function createAgentPool(
     return new Pool({
         connectionString,
         // Deliberate — see the file header: Aurora's RDS CA isn't in Node's trust
-        // store and we don't bundle it; matches the in-cluster pgbouncer behavior.
+        // store and we don't bundle it. Off for in-cluster hosts (pgbouncer speaks
+        // plaintext to clients); on only for a direct external cluster.
         // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-        ssl: isLocalHost(connectionString) ? false : { rejectUnauthorized: false },
+        ssl: needsClientSsl(connectionString) ? { rejectUnauthorized: false } : false,
         ...options,
     })
 }
