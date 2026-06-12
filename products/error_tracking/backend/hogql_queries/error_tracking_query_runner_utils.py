@@ -175,45 +175,22 @@ def build_select_expressions(
             ]
         )
 
+    # Only the uuid is aggregated here; the runner fetches the selected events' properties
+    # in a second point lookup. Aggregating the tuple directly would decompress every
+    # matching event's properties blob just to keep one row per issue.
     if query.withFirstEvent:
         exprs.append(
             ast.Alias(
-                alias="first_event",
-                expr=ast.Call(
-                    name="argMin",
-                    args=[
-                        ast.Tuple(
-                            exprs=[
-                                ast.Field(chain=["uuid"]),
-                                ast.Field(chain=["distinct_id"]),
-                                ast.Field(chain=["timestamp"]),
-                                ast.Field(chain=["properties"]),
-                            ]
-                        ),
-                        ast.Field(chain=["timestamp"]),
-                    ],
-                ),
+                alias="first_event_uuid",
+                expr=ast.Call(name="argMin", args=[ast.Field(chain=["uuid"]), ast.Field(chain=["timestamp"])]),
             )
         )
 
     if query.withLastEvent:
         exprs.append(
             ast.Alias(
-                alias="last_event",
-                expr=ast.Call(
-                    name="argMax",
-                    args=[
-                        ast.Tuple(
-                            exprs=[
-                                ast.Field(chain=["uuid"]),
-                                ast.Field(chain=["distinct_id"]),
-                                ast.Field(chain=["timestamp"]),
-                                ast.Field(chain=["properties"]),
-                            ]
-                        ),
-                        ast.Field(chain=["timestamp"]),
-                    ],
-                ),
+                alias="last_event_uuid",
+                expr=ast.Call(name="argMax", args=[ast.Field(chain=["uuid"]), ast.Field(chain=["timestamp"])]),
             )
         )
 

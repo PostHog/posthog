@@ -302,24 +302,17 @@ class ErrorTrackingQueryV3Builder:
                 )
             )
 
+        # Only the uuid is aggregated here; the runner fetches the selected events' properties
+        # in a second point lookup. Aggregating the tuple directly would decompress every
+        # matching event's properties blob just to keep one row per fingerprint.
         if self.query.withFirstEvent:
             exprs.append(
                 ast.Alias(
-                    alias="first_event_state",
+                    alias="first_event_uuid_state",
                     expr=_state(
                         ast.Call(
                             name="argMin",
-                            args=[
-                                ast.Tuple(
-                                    exprs=[
-                                        ast.Field(chain=["e", "uuid"]),
-                                        ast.Field(chain=["e", "distinct_id"]),
-                                        ast.Field(chain=["e", "timestamp"]),
-                                        ast.Field(chain=["e", "properties"]),
-                                    ]
-                                ),
-                                ast.Field(chain=["e", "timestamp"]),
-                            ],
+                            args=[ast.Field(chain=["e", "uuid"]), ast.Field(chain=["e", "timestamp"])],
                         )
                     ),
                 )
@@ -328,21 +321,11 @@ class ErrorTrackingQueryV3Builder:
         if self.query.withLastEvent:
             exprs.append(
                 ast.Alias(
-                    alias="last_event_state",
+                    alias="last_event_uuid_state",
                     expr=_state(
                         ast.Call(
                             name="argMax",
-                            args=[
-                                ast.Tuple(
-                                    exprs=[
-                                        ast.Field(chain=["e", "uuid"]),
-                                        ast.Field(chain=["e", "distinct_id"]),
-                                        ast.Field(chain=["e", "timestamp"]),
-                                        ast.Field(chain=["e", "properties"]),
-                                    ]
-                                ),
-                                ast.Field(chain=["e", "timestamp"]),
-                            ],
+                            args=[ast.Field(chain=["e", "uuid"]), ast.Field(chain=["e", "timestamp"])],
                         )
                     ),
                 )
@@ -455,10 +438,10 @@ class ErrorTrackingQueryV3Builder:
             )
 
         if self.query.withFirstEvent:
-            exprs.append(ast.Alias(alias="first_event", expr=_merge("first_event_state", "argMin")))
+            exprs.append(ast.Alias(alias="first_event_uuid", expr=_merge("first_event_uuid_state", "argMin")))
 
         if self.query.withLastEvent:
-            exprs.append(ast.Alias(alias="last_event", expr=_merge("last_event_state", "argMax")))
+            exprs.append(ast.Alias(alias="last_event_uuid", expr=_merge("last_event_uuid_state", "argMax")))
 
         exprs.append(ast.Alias(alias="library", expr=_merge("library_state", "argMax")))
 
@@ -595,23 +578,13 @@ class ErrorTrackingQueryV3Builder:
                 )
             )
 
+        # uuid-only here too — the runner attaches the event payloads in a second point lookup.
         if self.query.withFirstEvent:
             exprs.append(
                 ast.Alias(
-                    alias="first_event",
+                    alias="first_event_uuid",
                     expr=ast.Call(
-                        name="argMin",
-                        args=[
-                            ast.Tuple(
-                                exprs=[
-                                    ast.Field(chain=["e", "uuid"]),
-                                    ast.Field(chain=["e", "distinct_id"]),
-                                    ast.Field(chain=["e", "timestamp"]),
-                                    ast.Field(chain=["e", "properties"]),
-                                ]
-                            ),
-                            ast.Field(chain=["e", "timestamp"]),
-                        ],
+                        name="argMin", args=[ast.Field(chain=["e", "uuid"]), ast.Field(chain=["e", "timestamp"])]
                     ),
                 )
             )
@@ -619,20 +592,9 @@ class ErrorTrackingQueryV3Builder:
         if self.query.withLastEvent:
             exprs.append(
                 ast.Alias(
-                    alias="last_event",
+                    alias="last_event_uuid",
                     expr=ast.Call(
-                        name="argMax",
-                        args=[
-                            ast.Tuple(
-                                exprs=[
-                                    ast.Field(chain=["e", "uuid"]),
-                                    ast.Field(chain=["e", "distinct_id"]),
-                                    ast.Field(chain=["e", "timestamp"]),
-                                    ast.Field(chain=["e", "properties"]),
-                                ]
-                            ),
-                            ast.Field(chain=["e", "timestamp"]),
-                        ],
+                        name="argMax", args=[ast.Field(chain=["e", "uuid"]), ast.Field(chain=["e", "timestamp"])]
                     ),
                 )
             )
