@@ -95,7 +95,7 @@ export function NotableSessionsTable({
     loading: boolean
 }): JSX.Element {
     return (
-        <Card size="sm" className="self-start gap-0">
+        <Card size="sm" className="gap-0">
             <CardHeader className="border-b border-border pb-3">
                 <CardTitle>Sessions flagged for review</CardTitle>
             </CardHeader>

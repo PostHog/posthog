@@ -274,7 +274,7 @@ class BrevoSourceConfig(config.Config):
 
 @config.config
 class BrexSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -321,7 +321,8 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class CircleCISourceConfig(config.Config):
-    pass
+    api_token: str
+    org_slug: str
 
 
 @config.config
@@ -375,7 +376,12 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CommercetoolsSourceConfig(config.Config):
-    pass
+    project_key: str
+    client_id: str
+    client_secret: str
+    region: Literal[
+        "us-central1.gcp", "us-east-2.aws", "europe-west1.gcp", "eu-central-1.aws", "australia-southeast1.gcp"
+    ] = config.value(default="us-central1.gcp")
 
 
 @config.config
@@ -472,7 +478,7 @@ class DeelSourceConfig(config.Config):
 
 @config.config
 class DelightedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -664,7 +670,8 @@ class GreenhouseSourceConfig(config.Config):
 
 @config.config
 class GuruSourceConfig(config.Config):
-    pass
+    username: str
+    api_token: str
 
 
 @config.config
@@ -695,7 +702,7 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class IncidentIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -773,9 +780,9 @@ class MSSQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -791,7 +798,8 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailgunSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -832,7 +840,7 @@ class MixpanelSourceConfig(config.Config):
 
 @config.config
 class MollieSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -854,7 +862,6 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
-    connection_string: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -937,7 +944,7 @@ class PagerDutySourceConfig(config.Config):
 
 @config.config
 class PandaDocSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -963,7 +970,8 @@ class PendoSourceConfig(config.Config):
 
 @config.config
 class PersonioSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -975,7 +983,7 @@ class PgAnalyzeSourceConfig(config.Config):
 
 @config.config
 class PingdomSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1070,9 +1078,9 @@ class RedshiftSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -1094,7 +1102,7 @@ class RingCentralSourceConfig(config.Config):
 
 @config.config
 class RipplingSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1184,7 +1192,8 @@ class SharePointSourceConfig(config.Config):
 
 @config.config
 class ShipStationSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -1221,9 +1230,9 @@ class SnowflakeSourceConfig(config.Config):
     database: str
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
-    schema: str
     connection_string: str | None = None
     role: str | None = None
+    schema: str | None = None
 
 
 @config.config

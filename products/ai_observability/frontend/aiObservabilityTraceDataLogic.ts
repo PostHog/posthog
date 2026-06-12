@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -24,7 +24,7 @@ import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDa
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { normalizeMessages } from './messageNormalization'
+import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -162,6 +162,25 @@ function findEventWithParents(
     }
 
     return parentChain
+}
+
+// Generations should always be conversations, so one whose input or output no recipe
+// recognizes is a parse gap worth surfacing. Spans/embeddings carry opaque state and
+// are skipped. Runs once per trace load over every generation, viewed or not.
+export function reportTraceNormalizationFailures(trace: LLMTrace): void {
+    for (const event of trace.events) {
+        if (event.event !== '$ai_generation') {
+            continue
+        }
+        const input = event.properties.$ai_input
+        const output = event.properties.$ai_output_choices ?? event.properties.$ai_output
+        if (!normalizeMessages(input, 'user', event.properties.$ai_tools).recognized) {
+            captureNormalizationFailure(input)
+        }
+        if (!normalizeMessages(output, 'assistant').recognized) {
+            captureNormalizationFailure(output)
+        }
+    }
 }
 
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
@@ -446,6 +465,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 organization_name: appContext?.current_user?.organization?.name ?? null,
                 ...timing,
             })
+
+            reportTraceNormalizationFailures(trace)
         },
     })),
     subscriptions(({ actions, props, values }) => ({

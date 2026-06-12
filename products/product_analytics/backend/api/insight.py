@@ -823,7 +823,23 @@ class InsightSerializer(InsightBasicSerializer):
                         f"You don't have permission to remove insights from dashboard: {dashboard.id}"
                     )
 
+            # Capture the still-active tiles before soft-deleting so we report one
+            # "dashboard tile removed" per tile that is actually removed.
+            tiles_to_remove = list(DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance))
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
+
+            for tile in tiles_to_remove:
+                report_user_action(
+                    self.context["request"].user,
+                    "dashboard tile removed",
+                    {
+                        "tile_type": "insight",
+                        "insight_type": _get_insight_type(instance),
+                        "dashboard_id": tile.dashboard_id,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
