@@ -277,7 +277,7 @@ class BrevoSourceConfig(config.Config):
 
 @config.config
 class BrexSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -668,7 +668,8 @@ class GreenhouseSourceConfig(config.Config):
 
 @config.config
 class GuruSourceConfig(config.Config):
-    pass
+    username: str
+    api_token: str
 
 
 @config.config
@@ -941,7 +942,7 @@ class PagerDutySourceConfig(config.Config):
 
 @config.config
 class PandaDocSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -979,7 +980,7 @@ class PgAnalyzeSourceConfig(config.Config):
 
 @config.config
 class PingdomSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1098,7 +1099,7 @@ class RingCentralSourceConfig(config.Config):
 
 @config.config
 class RipplingSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1188,7 +1189,8 @@ class SharePointSourceConfig(config.Config):
 
 @config.config
 class ShipStationSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config

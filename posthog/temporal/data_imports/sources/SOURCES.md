@@ -54,6 +54,7 @@ the row lists both.
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
+| brex             | HTTP                        | requests                                                        | ✅                          |
 | buildbetter      | HTTP                        | requests                                                        | ✅                          |
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
@@ -85,6 +86,7 @@ the row lists both.
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
+| guru             | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | incident_io      | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -109,7 +111,9 @@ the row lists both.
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
+| pandadoc         | HTTP                        | requests                                                        | ✅                          |
 | pendo            | HTTP                        | requests                                                        | ✅                          |
+| pingdom          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
 | plain            | HTTP                        | requests                                                        | ✅                          |
@@ -123,11 +127,13 @@ the row lists both.
 | redshift         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend           | HTTP                        | requests                                                        | ✅                          |
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| rippling         | HTTP                        | requests                                                        | ✅                          |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft        | HTTP                        | requests                                                        | ✅                          |
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
 | sentry           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow       | HTTP                        | requests                                                        | ✅                          |
+| shipstation      | HTTP                        | requests                                                        | ✅                          |
 | shopify          | HTTP                        | requests                                                        | ✅                          |
 | shortcut         | HTTP                        | requests                                                        | ✅                          |
 | slack            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -204,7 +210,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintree
 - branch
-- brex
 - campaign_manager_360
 - checkout_com
 - chorus
@@ -243,7 +248,6 @@ doesn't conflict with concurrent PRs.
 - google_analytics
 - google_cloud_storage
 - google_drive
-- guru
 - gusto
 - heap
 - helpscout
@@ -270,20 +274,17 @@ doesn't conflict with concurrent PRs.
 - outbrain
 - outreach
 - pagerduty
-- pandadoc
 - pardot
 - paylocity
 - paypal
 - pendo
 - personio
-- pingdom
 - plaid
 - planetscale
 - qualtrics
 - quickbooks
 - ramp
 - ringcentral
-- rippling
 - rollbar
 - sage_intacct
 - sailthru
@@ -295,7 +296,6 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - sftp
 - sharepoint
-- shipstation
 - surveymonkey
 - taboola
 - twitter_ads

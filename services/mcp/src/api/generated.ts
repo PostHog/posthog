@@ -2390,6 +2390,8 @@ export namespace Schemas {
       resultCustomizations?: FunnelsFilterResultCustomizations;
       /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
       showAnnotations?: boolean | null;
+      /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
+      showLegend?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -11357,6 +11359,70 @@ export namespace Schemas {
       next: string | null;
       /** @nullable */
       previous: string | null;
+    }
+
+    export interface CohortUsedInCohort {
+      /** Cohort database ID */
+      id: number;
+      /** Cohort display name; falls back to 'Unnamed' when empty */
+      name: string;
+    }
+
+    export interface CohortUsedInCohortsBlock {
+      /** Cohorts that include this cohort as a criterion, capped at 100 results */
+      results: CohortUsedInCohort[];
+      /** Total number of cohorts referencing this cohort, before truncation */
+      total: number;
+      /** True when more cohorts exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInFlag {
+      /** Feature flag database ID */
+      id: number;
+      /** Feature flag key (URL slug) */
+      key: string;
+      /**
+         * Feature flag display name
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface CohortUsedInFlagsBlock {
+      /** Feature flags referencing this cohort, capped at 100 results */
+      results: CohortUsedInFlag[];
+      /** Total number of feature flags referencing this cohort, before truncation */
+      total: number;
+      /** True when more feature flags exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInInsight {
+      /** Insight database ID */
+      id: number;
+      /** Insight short ID used for routing in the frontend */
+      short_id: string;
+      /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+      name: string;
+    }
+
+    export interface CohortUsedInInsightsBlock {
+      /** Insights referencing this cohort, capped at 100 results */
+      results: CohortUsedInInsight[];
+      /** Total number of insights referencing this cohort, before truncation */
+      total: number;
+      /** True when more insights exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInResponse {
+      /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+      feature_flags: CohortUsedInFlagsBlock;
+      /** Insights referencing this cohort with truncation metadata */
+      insights: CohortUsedInInsightsBlock;
+      /** Other cohorts that include this cohort as a criterion, with truncation metadata */
+      cohorts: CohortUsedInCohortsBlock;
     }
 
     /**
@@ -23773,6 +23839,44 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookCollabCursor {
+      /**
+         * ProseMirror selection head position (rich v1 notebooks).
+         * @minimum 0
+         */
+      head?: number;
+      /**
+         * Index of the caret's block node in the markdown notebook document (markdown notebooks).
+         * @minimum 0
+         */
+      node_index?: number;
+      /**
+         * Caret offset in the plain text of the focused editable element, in UTF-16 code units.
+         * @minimum 0
+         */
+      offset?: number;
+      /**
+         * Index of the focused list item when the caret is inside a list block.
+         * @minimum 0
+         */
+      list_item_index?: number;
+    }
+
+    export interface NotebookCollabPresence {
+      /**
+         * Unique identifier for the client session, used to skip self-echo on the update stream.
+         * @maxLength 200
+         */
+      client_id: string;
+      /**
+         * The notebook version the cursor position is relative to.
+         * @minimum 0
+         */
+      version: number;
+      /** The caller's caret position, broadcast to other clients on this notebook's collab stream. */
+      cursor: NotebookCollabCursor;
+    }
+
     export interface NotebookCollabSave {
       /** Unique identifier for the client session. */
       client_id: string;
@@ -23791,6 +23895,21 @@ export namespace Schemas {
          * @nullable
          */
       cursor_head?: number | null;
+    }
+
+    export interface NotebookMarkdownSave {
+      /** Unique identifier for the client session, used to skip self-echo on the update stream. */
+      client_id: string;
+      /** The notebook version the submitted content is based on (optimistic concurrency baseline). */
+      version: number;
+      /** The full markdown notebook document: a ProseMirror doc wrapping a single markdown node. */
+      content: unknown;
+      /** Plain text for search indexing. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
+      /** The author's caret in the saved markdown, broadcast with the update so other clients can move the author's remote caret together with the text change. */
+      cursor?: NotebookCollabCursor;
     }
 
     export interface NotebookMinimal {

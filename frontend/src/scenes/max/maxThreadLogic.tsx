@@ -105,6 +105,7 @@ export interface MaxThreadLogicProps {
     panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
     conversation?: ConversationDetail | null
+    skipInitialLoad?: boolean
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
@@ -1223,7 +1224,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
             // but it's a string (conversationId) for loadConversation
             const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
-            if (doNotUpdate || values.autoRun || values.streamingActive) {
+            if (props.skipInitialLoad || doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -1808,6 +1809,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+            return
+        }
+
+        if (props.skipInitialLoad) {
             return
         }
 

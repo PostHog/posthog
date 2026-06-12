@@ -10,6 +10,7 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -17,6 +18,7 @@ import {
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -1451,6 +1453,15 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconType: 'insight/retention',
         iconColor: ['var(--color-insight-retention-light)'] as FileSystemIconColor,
         visualOrder: INSIGHT_VISUAL_ORDER.retention,
+        sceneKeys: ['Insight'],
+    },
+    {
+        path: `Insight/SQL`,
+        type: 'insight',
+        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        iconType: 'insight/hog',
+        iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.sql,
         sceneKeys: ['Insight'],
     },
     {

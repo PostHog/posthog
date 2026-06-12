@@ -5650,7 +5650,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ilike(toString(console_logs_log_entries.message), '%message 5%')))))
+                                                                                                                                                                                                                                     WHERE and(equals(console_logs_log_entries.level, 'info'), ilike(toString(console_logs_log_entries.message), '%message 5%')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -5866,7 +5866,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'error'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'error'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -5914,7 +5914,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -5962,7 +5962,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -6010,7 +6010,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'warn'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -6058,7 +6058,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'warn'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -6106,7 +6106,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -6202,7 +6202,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -7578,7 +7578,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+                                                                                                                                                                                                                WHERE and(equals(console_logs_log_entries.level, 'warn'), equals(console_logs_log_entries.message, 'random')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -7626,7 +7626,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+                                                                                                                                                                                                                WHERE and(equals(console_logs_log_entries.level, 'info'), equals(console_logs_log_entries.message, 'random')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -7674,7 +7674,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+                                                                                                                                                                                                                WHERE equals(console_logs_log_entries.level, 'warn'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -7722,7 +7722,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE ifNull(equals(console_logs_log_entries.message, 'random'), 0))))
+                                                                                                                                                                                                                WHERE equals(console_logs_log_entries.message, 'random'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -7770,7 +7770,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+                                                                                                                                                                                                                WHERE or(equals(console_logs_log_entries.level, 'warn'), equals(console_logs_log_entries.message, 'random')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13364,7 +13364,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ilike(toString(console_logs_log_entries.message), '%message 5%')))))
+                                                                                                                                                                                                                                     WHERE and(equals(console_logs_log_entries.level, 'info'), ilike(toString(console_logs_log_entries.message), '%message 5%')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13580,7 +13580,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'error'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'error'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13628,7 +13628,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13676,7 +13676,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13724,7 +13724,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'warn'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13772,7 +13772,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'warn'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13820,7 +13820,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -13916,7 +13916,7 @@
                                                                                                                                                                                                                                        (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                                         FROM log_entries
                                                                                                                                                                                                                                         WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                                     WHERE ifNull(equals(console_logs_log_entries.level, 'info'), 0))))
+                                                                                                                                                                                                                                     WHERE equals(console_logs_log_entries.level, 'info'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -15292,7 +15292,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE and(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+                                                                                                                                                                                                                WHERE and(equals(console_logs_log_entries.level, 'warn'), equals(console_logs_log_entries.message, 'random')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -15340,7 +15340,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE and(ifNull(equals(console_logs_log_entries.level, 'info'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+                                                                                                                                                                                                                WHERE and(equals(console_logs_log_entries.level, 'info'), equals(console_logs_log_entries.message, 'random')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -15388,7 +15388,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE ifNull(equals(console_logs_log_entries.level, 'warn'), 0))))
+                                                                                                                                                                                                                WHERE equals(console_logs_log_entries.level, 'warn'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -15436,7 +15436,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE ifNull(equals(console_logs_log_entries.message, 'random'), 0))))
+                                                                                                                                                                                                                WHERE equals(console_logs_log_entries.message, 'random'))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
@@ -15484,7 +15484,7 @@
                                                                                                                                                                                                                   (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
                                                                                                                                                                                                                    FROM log_entries
                                                                                                                                                                                                                    WHERE and(equals(log_entries.team_id, 99999), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-                                                                                                                                                                                                                WHERE or(ifNull(equals(console_logs_log_entries.level, 'warn'), 0), ifNull(equals(console_logs_log_entries.message, 'random'), 0)))))
+                                                                                                                                                                                                                WHERE or(equals(console_logs_log_entries.level, 'warn'), equals(console_logs_log_entries.message, 'random')))))
   GROUP BY s.session_id
   HAVING and(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), equals(max(s.is_deleted), 0))
   ORDER BY start_time DESC,
