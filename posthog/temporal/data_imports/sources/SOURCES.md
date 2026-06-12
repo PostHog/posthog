@@ -117,6 +117,7 @@ the row lists both.
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailgun          | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
+| matomo           | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mollie           | HTTP                        | requests                                                        | ✅                          |
@@ -274,7 +275,6 @@ doesn't conflict with concurrent PRs.
 - lever
 - lightspeed_retail
 - marketo
-- matomo
 - microsoft_teams
 - netsuite
 - onedrive
