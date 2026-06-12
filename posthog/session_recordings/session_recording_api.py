@@ -301,6 +301,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
     summary_outcome = serializers.SerializerMethodField()
+    matches_filters = serializers.SerializerMethodField(
+        help_text="Whether this recording matched the filters of the listing query that returned it. "
+        "False only when a recording requested via session_recording_id was included despite not matching the filters."
+    )
     # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
     expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
     recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
@@ -308,6 +312,11 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
         return getattr(obj, "ongoing", False)
+
+    def get_matches_filters(self, obj: SessionRecording) -> bool:
+        # matches_filters is a custom field set when a recording requested via
+        # session_recording_id is included in listing results despite not matching the filters
+        return getattr(obj, "matches_filters", None) is not False
 
     def get_viewed(self, obj: SessionRecording) -> bool:
         # viewed is a custom field that we load from PG Sql and merge into the model
@@ -400,6 +409,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "has_summary",
             "summary_outcome",
             "external_references",
+            "matches_filters",
         ]
 
         read_only_fields = [
@@ -880,6 +890,9 @@ class SessionRecordingViewSet(
                         cast(User, request.user),
                         team=self.team,
                         allow_event_property_expansion=allow_event_property_expansion,
+                        # show explicitly selected sessions (e.g. a funnel drop-off handoff)
+                        # even outside the date range
+                        bypass_date_window_for_session_ids=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -1958,9 +1971,30 @@ def _load_recording_if_matches_filters(
     return None
 
 
+def _load_selected_recording_ignoring_filters(session_id: str, team: Team) -> SessionRecording | None:
+    """
+    Load a recording directly by session id, ignoring listing filters.
+
+    Used when a recording explicitly requested via session_recording_id (e.g. a shared link)
+    doesn't match the current filters: we still want the link to open it, flagged with
+    matches_filters=False so the UI can explain why it's shown.
+    """
+    recording = SessionRecording.get_or_build(session_id=session_id, team=team)
+    if recording.deleted:
+        return None
+    if not recording.load_metadata():
+        return None
+    recording.matches_filters = False
+    return recording
+
+
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
+    query: RecordingsQuery,
+    user: User | None,
+    team: Team,
+    allow_event_property_expansion: bool = False,
+    bypass_date_window_for_session_ids: bool = False,
 ) -> tuple[list[SessionRecording], bool, str, str | None]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -1998,6 +2032,10 @@ def list_recordings_from_query(
                     team,
                     allow_event_property_expansion,
                 )
+                if prepend_recording is None:
+                    # The recording was explicitly requested (e.g. a shared link) but doesn't match
+                    # the current filters - include it anyway so the link still opens it
+                    prepend_recording = _load_selected_recording_ignoring_filters(session_recording_id_to_prepend, team)
                 if prepend_recording:
                     recordings.append(prepend_recording)
 
@@ -2051,6 +2089,7 @@ def list_recordings_from_query(
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
                 session_ids_to_exclude=session_ids_to_exclude,
+                bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
             ).run()
             ch_session_recordings = query_result.results
 

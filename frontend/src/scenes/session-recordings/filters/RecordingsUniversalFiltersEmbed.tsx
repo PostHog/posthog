@@ -493,7 +493,7 @@ function SavedFilterNameEditor({
     )
 }
 
-function RecordingsUniversalFilterAddFilterPopover({
+export function RecordingsUniversalFilterAddFilterPopover({
     categoryDropdownVariant,
     taxonomicGroupTypes,
 }: {

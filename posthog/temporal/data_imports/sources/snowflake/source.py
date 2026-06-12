@@ -160,10 +160,10 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="schema",
-                        label="Schema",
+                        label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="public",
+                        required=False,
+                        placeholder="leave blank to list tables from all schemas",
                         secret=False,
                     ),
                 ],
@@ -176,6 +176,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin
+            # (e.g. `ALTER USER ... SET DISABLED = TRUE`). Retrying can never succeed until they re-enable it.
+            "User access disabled. Contact your local system administrator": "Your Snowflake user account has been disabled. Please contact your Snowflake administrator to re-enable it, then resync.",
             "MFA authentication is required": None,
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
