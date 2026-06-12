@@ -48971,6 +48971,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -49050,6 +49051,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -49115,6 +49117,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -49182,6 +49185,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',

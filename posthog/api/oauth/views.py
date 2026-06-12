@@ -517,7 +517,7 @@ class OAuthValidator(OAuth2Validator):
             "sub": str(request.user.uuid),
         }
 
-    def _sessions_revoked_at(self, application_id: int) -> datetime | None:
+    def _sessions_revoked_at(self, application_id: uuid.UUID) -> datetime | None:
         return OAuthApplication.objects.filter(pk=application_id).values_list("sessions_revoked_at", flat=True).first()
 
     def _reject_refresh_racing_revoke(self, request, source_refresh_token):
