@@ -61,12 +61,17 @@ from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import (
+    get_request_analytics_properties,
+    groups as event_usage_groups,
+    report_user_action,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
@@ -78,10 +83,15 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import (
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    is_authenticated_via_project_secret_api_key,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.synthetic_user import SyntheticUser
 from posthog.types import InsightQueryNode
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -121,6 +131,8 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
 from products.endpoints.backend.rate_limit import (
     EndpointBurstThrottle,
+    EndpointProjectSecretApiKeyTeamBurstThrottle,
+    EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
     clear_endpoint_materialization_cache,
 )
@@ -415,6 +427,8 @@ class EndpointViewSet(
     LogEntryMixin,
     viewsets.ModelViewSet,
 ):
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["run"]
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Read endpoint execution logs from the `log_entries` table keyed by this source.
@@ -449,7 +463,12 @@ class EndpointViewSet(
         return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
 
     def get_throttles(self):
-        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
+        return [
+            EndpointBurstThrottle(),
+            EndpointSustainedThrottle(),
+            EndpointProjectSecretApiKeyTeamBurstThrottle(),
+            EndpointProjectSecretApiKeyTeamSustainedThrottle(),
+        ]
 
     def dangerously_get_permissions(self):
         # `run` is the public-facing execution API. It still requires authentication, the
@@ -479,6 +498,11 @@ class EndpointViewSet(
         defaults so a restrictive project default doesn't break the public execution API. Creators
         and org admins always pass (specific_access_level_for_object returns the highest level).
         """
+        # PSAK scopes are project-wide within their resource type and deliberately ignore
+        # object-level access controls — the key's team binding and `endpoint:read` scope are
+        # the whole authorization story (see posthog/scopes.py).
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
         specific_level = self.user_access_control.specific_access_level_for_object(endpoint)
         if specific_level is not None and not access_level_satisfied_for_resource("endpoint", specific_level, "viewer"):
             raise PermissionDenied("You do not have access to this endpoint.")
@@ -2097,24 +2121,24 @@ class EndpointViewSet(
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
     def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        if version is None:
-            return False
-        if version.query.get("kind") != "HogQLQuery":
+        if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
-        user_email = getattr(self.request.user, "email", "") if self.request else ""
         ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
-            user_email,
-            person_properties={"email": str(user_email)},
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        logger.info(
-            "Ducklake FF evaluation",
-            endpoint_name=endpoint.name,
-            ff_result=ff_result,
-        )
+        logger.info("Ducklake FF evaluation", endpoint_name=endpoint.name, ff_result=ff_result)
         if not ff_result:
             return False
 
@@ -2333,22 +2357,37 @@ class EndpointViewSet(
         try:
             data = self._parse_run_request(request)
 
-            # Track endpoint execution for deprecation monitoring
-            report_user_action(
-                user=cast(User, request.user),
-                event="endpoint executed",
-                properties={
-                    "endpoint_id": str(endpoint.id),
-                    "endpoint_name": endpoint.name,
-                    "has_filters_override": bool(data.filters_override),
-                    "has_variables": bool(data.variables),
-                    "has_limit": data.limit is not None,
-                    "has_offset": data.offset is not None,
-                    "refresh_mode": data.refresh.value if data.refresh else None,
-                },
-                team=self.team,
-                request=request,
-            )
+            # One property bag for both paths, so the "endpoint executed" event has the same shape
+            # regardless of auth method. report_user_action drops non-User principals, so synthetic
+            # users (PSAK) are captured explicitly instead.
+            request_user = cast("User | SyntheticUser", request.user)
+            event_properties = {
+                **get_request_analytics_properties(request),
+                "endpoint_id": str(endpoint.id),
+                "endpoint_name": endpoint.name,
+                "has_filters_override": bool(data.filters_override),
+                "has_variables": bool(data.variables),
+                "has_limit": data.limit is not None,
+                "has_offset": data.offset is not None,
+                "refresh_mode": data.refresh.value if data.refresh else None,
+                "auth_method": "project_secret_api_key"
+                if isinstance(request_user, ProjectSecretAPIKeyUser)
+                else "user",
+            }
+            if isinstance(request_user, SyntheticUser):
+                posthoganalytics.capture(
+                    distinct_id=request_user.distinct_id,
+                    event="endpoint executed",
+                    properties=event_properties,
+                    groups=event_usage_groups(self.team.organization, self.team),
+                )
+            else:
+                report_user_action(
+                    user=request_user,
+                    event="endpoint executed",
+                    properties=event_properties,
+                    team=self.team,
+                )
 
             version_number = self._parse_int_param(data.version, request.query_params.get("version"), "version")
             limit = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
