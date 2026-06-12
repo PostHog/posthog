@@ -15,13 +15,17 @@ if TYPE_CHECKING:
 
     from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 else:
-    # Runtime stub so get_type_hints() on the dataclasses below resolves without importing dlt (kept
-    # type-only above). Deliberately not `str` — nothing should rely on the runtime value, and a named
+    # Runtime stubs so get_type_hints() on the dataclasses below resolves without importing dlt or the
+    # predicates module. Deliberately not `str` — nothing should rely on the runtime value, and a named
     # stub makes accidental use obvious rather than silently passing as a plausible type. The real,
-    # mypy-visible type comes from the TYPE_CHECKING branch.
+    # mypy-visible types come from the TYPE_CHECKING branch.
     class TDataType:
         def __repr__(self) -> str:
             return "<TDataType: type-checking-only stub for dlt.common.data_types.typing.TDataType>"
+
+    class ValidatedRowFilter:
+        def __repr__(self) -> str:
+            return "<ValidatedRowFilter: type-checking-only stub>"
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
@@ -73,7 +77,7 @@ class SourceInputs:
     logger: FilteringBoundLogger
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
-    row_filters: Optional[list["ValidatedRowFilter"]] = None
+    row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     dwh_storage_key: Optional[str] = None
