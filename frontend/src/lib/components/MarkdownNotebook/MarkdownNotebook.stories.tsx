@@ -59,7 +59,7 @@ const embedsNotebook = `# Embeds
 
 ![PostHog engineering](https://res.cloudinary.com/dmukukwp6/image/upload/data_warehouse_2c3928e9ad)
 
-<Embed src="https://posthog.com" title="PostHog" />
+<Embed src="${window.location.origin}/mock-page.html" title="PostHog demo page" />
 
 <Latex content="E=mc^2" />`
 
