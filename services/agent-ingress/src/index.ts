@@ -118,7 +118,6 @@ async function main(): Promise<void> {
         queue: new PgSessionQueue(agentDb),
         identities: new PgIdentityStore(agentDb),
         bus,
-        teamId: config.teamId,
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,
         pathPrefix: config.pathPrefix,

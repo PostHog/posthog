@@ -36,7 +36,6 @@ import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclA
 
 export interface EnqueueDeps {
     queue: SessionQueue
-    teamId: number
 }
 
 export interface EnqueueInput {
@@ -141,7 +140,9 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         id: randomUUID(),
         application_id: input.application.id,
         revision_id: input.revision.id,
-        team_id: deps.teamId,
+        // Session is owned by the team that owns the resolved app — not a
+        // deployment-wide default. The ingress is no longer single-tenant.
+        team_id: input.application.team_id,
         external_key: input.externalKey,
         idempotency_key: input.idempotencyKey ?? null,
         trigger_metadata: input.triggerMetadata ?? null,

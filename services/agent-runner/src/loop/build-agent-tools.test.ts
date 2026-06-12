@@ -122,7 +122,8 @@ function makeSession(): AgentSession {
         idempotency_key: null,
         trigger_metadata: null,
         state: 'running',
-        principal: null,
+        // A PostHog-authed caller — `@posthog/*` data tools act as this user.
+        principal: { kind: 'posthog', user_id: 'u1', team_id: 1 },
         conversation: [],
         pending_inputs: [],
         retry_count: 0,

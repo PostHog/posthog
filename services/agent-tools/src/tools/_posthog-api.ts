@@ -71,7 +71,23 @@ export async function callPosthogApi<T = unknown>(ctx: ToolContext, opts: CallPo
     return (await res.json()) as T
 }
 
-/** Convenience: build the project-scoped path prefix. Reads team from ctx. */
+/**
+ * The team the `@posthog/*` data tools operate on: the invoking PostHog user's
+ * team, NOT the agent's owning team. Fails closed when the session has no
+ * PostHog user principal — these tools act as the connected user, so without
+ * one there is no authorized context to act in.
+ */
+export function requirePosthogUserTeam(ctx: ToolContext): number {
+    if (ctx.posthogUserTeamId == null) {
+        throw new Error(
+            'posthog_user_context_required: this tool acts as the connected PostHog user and needs the ' +
+                'session to be authenticated with `posthog` auth — the current session has no PostHog user principal.'
+        )
+    }
+    return ctx.posthogUserTeamId
+}
+
+/** Convenience: build the project-scoped path prefix for the calling user's team. */
 export function projectPath(ctx: ToolContext, suffix: string): string {
-    return `/api/projects/${ctx.teamId}${suffix}`
+    return `/api/projects/${requirePosthogUserTeam(ctx)}${suffix}`
 }

@@ -39,7 +39,6 @@ import type { TriggerModule } from './types'
 export interface SlackTriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
-    teamId: number
     signingSecretResolver: SecretResolver
     /** Optional identity store — when present, slack events resolve to a stable AgentUser. */
     identities?: IdentityStore
@@ -316,7 +315,7 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 event.text ?? '',
             ].join('\n')
             const outcome = await enqueueOrResume(
-                { queue: deps.queue, teamId: deps.teamId },
+                { queue: deps.queue },
                 {
                     application: resolved.application,
                     revision: resolved.revision,
@@ -448,7 +447,13 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 kind: 'slack',
                 workspace_id: workspaceId,
                 slack_user_id: clickerId,
-                agent_user_id: await resolveSlackUserId(deps, session.application_id, workspaceId, clickerId),
+                agent_user_id: await resolveSlackUserId(
+                    deps,
+                    session.team_id,
+                    session.application_id,
+                    workspaceId,
+                    clickerId
+                ),
             }
             const authz = authorizeGrant(session, requestId, clickerPrincipal)
             if (!authz.ok) {
@@ -680,6 +685,7 @@ async function postThreadMessage(
  */
 async function resolveSlackUserId(
     deps: SlackTriggerDeps,
+    teamId: number,
     applicationId: string,
     workspaceId: string,
     userId: string
@@ -689,7 +695,7 @@ async function resolveSlackUserId(
         return principalId
     }
     const agentUser = await deps.identities.findOrCreate({
-        team_id: deps.teamId,
+        team_id: teamId,
         application_id: applicationId,
         principal_kind: 'slack',
         principal_id: principalId,

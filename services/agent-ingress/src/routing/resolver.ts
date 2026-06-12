@@ -73,8 +73,6 @@ export interface ResolverOpts {
     domainSuffix?: string
     /** For path mode: the prefix that precedes the slug (e.g. "/agents"). */
     pathPrefix?: string
-    /** Team that owns all routed agents in this deployment. v1 = single tenant. */
-    teamId: number
     /**
      * Shared HMAC signing key for cross-service JWTs (the same value Django
      * + the janitor read from `AGENT_INTERNAL_SIGNING_KEY`). Django mints
@@ -131,7 +129,7 @@ export class RevisionResolver {
         const suffixMatch = rawSlug.match(/^(.+)-([0-9a-f]{8,32})$/i)
         if (suffixMatch) {
             const [, baseSlug, prefix] = suffixMatch
-            const baseApp = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, baseSlug)
+            const baseApp = await this.opts.revisions.getApplicationBySlug(baseSlug)
             if (baseApp && !baseApp.archived) {
                 const candidates = await this.opts.revisions.listRevisionsByIdPrefix(baseApp.id, prefix)
                 const live = candidates.filter((c) => c.state !== 'archived')
@@ -150,7 +148,7 @@ export class RevisionResolver {
             }
         }
 
-        const application = await this.opts.revisions.getApplicationBySlug(this.opts.teamId, rawSlug)
+        const application = await this.opts.revisions.getApplicationBySlug(rawSlug)
         if (!application || application.archived || !application.live_revision_id) {
             return null
         }

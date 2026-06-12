@@ -6,7 +6,6 @@ describe('native tool registry', () => {
         expect(ids).toEqual(
             expect.arrayContaining([
                 '@posthog/query',
-                '@posthog/persons-search',
                 '@posthog/slack-post-message',
                 '@posthog/slack-update-message',
                 '@posthog/slack-react',

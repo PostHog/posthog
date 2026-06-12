@@ -24,7 +24,6 @@ import { WebhookBodySchema } from './webhook.schemas'
 export interface WebhookTriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
-    teamId: number
     authProvider?: AuthProvider
 }
 
@@ -66,7 +65,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             const idempotencyKey = extractProviderIdempotencyKey(req, parsed.data)
             const sessionPrincipal = auth.principal
             const outcome = await enqueueOrResume(
-                { queue: deps.queue, teamId: deps.teamId },
+                { queue: deps.queue },
                 {
                     application: resolved.application,
                     revision: resolved.revision,

@@ -39,7 +39,6 @@ export interface TriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
     bus: SessionEventBus
-    teamId: number
     authProvider?: AuthProvider
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
     signingSecretResolver: SecretResolver

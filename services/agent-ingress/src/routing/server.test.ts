@@ -102,7 +102,6 @@ describe('ingress HTTP server (path mode)', () => {
             queue,
             bus,
             credentialBroker,
-            teamId: 1,
             routingMode: routing?.routingMode ?? 'path',
             domainSuffix: routing?.domainSuffix,
             pathPrefix: '/agents',

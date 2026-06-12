@@ -8,9 +8,12 @@ deferred to the eventual MCP redesign (see TODO B5 in agent-shared).
 
 from __future__ import annotations
 
+import string
+import secrets
 from typing import Any
 
 from django.conf import settings
+from django.db import IntegrityError
 
 import jsonschema
 from drf_spectacular.utils import extend_schema_field
@@ -20,6 +23,26 @@ from posthog.models import User
 
 from .models import AgentApplication, AgentRevision
 from .spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
+
+# Opaque random slug: leading letter (DNS-label-safe) + lowercase alphanumerics.
+# No dashes, so it can't be misread as the `<slug>-<revHex>` revision form, and
+# no name prefix — human-readable slugs are reserved for the explicit allowlist.
+_SLUG_ALPHABET = string.ascii_lowercase + string.digits
+_SLUG_LENGTH = 12
+
+
+def _mint_unique_slug() -> str:
+    """Mint a globally-unique opaque slug. The global partial unique index on
+    `slug` is the final guard; this pre-check keeps the common path off the
+    IntegrityError retry."""
+    for _ in range(10):
+        candidate = secrets.choice(string.ascii_lowercase) + "".join(
+            secrets.choice(_SLUG_ALPHABET) for _ in range(_SLUG_LENGTH - 1)
+        )
+        if not AgentApplication.all_teams.filter(slug=candidate, archived=False).exists():
+            return candidate
+    raise serializers.ValidationError("could not generate a unique slug; retry")
+
 
 # Shape of the resolved `created_by` object — exactly the fields the agent
 # console renders. Nullable: `created_by_id` may be unset (system rows) or
@@ -102,9 +125,18 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField(
         help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
     )
-    # Explicit so the slug constraint ([a-zA-Z0-9_-], <=63) is visible + enforced
-    # at the API layer rather than only inferred from the model field.
-    slug = serializers.SlugField(max_length=63)
+    # Optional on write: the server mints a globally-unique opaque slug unless
+    # the team is on AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS and supplies one.
+    # Always present on read.
+    slug = serializers.SlugField(
+        max_length=63,
+        required=False,
+        help_text=(
+            "Globally-unique URL identifier. Server-minted as an opaque random slug on create; "
+            "only allowlisted first-party teams may set it explicitly. Slugs live in one "
+            "global namespace (domain-mode ingress routing carries no team)."
+        ),
+    )
 
     class Meta:
         model = AgentApplication
@@ -157,6 +189,32 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
         # Empty path → the base the routes hang off (`…/agents/<slug>` in path
         # mode, `https://<slug><suffix>` in domain mode).
         return agent_ingress_route_url(obj.slug, "")
+
+    def _explicit_slug_allowed(self, team_id: int | None) -> bool:
+        return team_id is not None and team_id in settings.AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS
+
+    def create(self, validated_data: dict[str, Any]) -> AgentApplication:
+        team_id = validated_data.get("team_id")
+        explicit_slug = validated_data.pop("slug", None)
+        if explicit_slug and self._explicit_slug_allowed(team_id):
+            validated_data["slug"] = explicit_slug
+        else:
+            validated_data["slug"] = _mint_unique_slug()
+        try:
+            return super().create(validated_data)
+        except IntegrityError as e:
+            raise serializers.ValidationError({"slug": "An agent with this slug already exists."}) from e
+
+    def update(self, instance: AgentApplication, validated_data: dict[str, Any]) -> AgentApplication:
+        # Slug is immutable except for allowlisted teams — renaming it would
+        # break the live agent's routing URLs. Drop any other team's attempt.
+        explicit_slug = validated_data.pop("slug", None)
+        if explicit_slug and explicit_slug != instance.slug and self._explicit_slug_allowed(instance.team_id):
+            validated_data["slug"] = explicit_slug
+        try:
+            return super().update(instance, validated_data)
+        except IntegrityError as e:
+            raise serializers.ValidationError({"slug": "An agent with this slug already exists."}) from e
 
 
 def agent_ingress_route_url(slug: str, path: str) -> str | None:

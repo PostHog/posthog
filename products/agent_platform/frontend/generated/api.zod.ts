@@ -29,13 +29,19 @@ export const agentApplicationsCreateBodyNameMax = 255
 export const agentApplicationsCreateBodySlugMax = 63
 
 export const agentApplicationsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const agentApplicationsCreateBodyArchivedDefault = false
 
 export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsCreateBodyNameMax),
-    slug: zod.string().max(agentApplicationsCreateBodySlugMax).regex(agentApplicationsCreateBodySlugRegExp),
+    slug: zod
+        .string()
+        .max(agentApplicationsCreateBodySlugMax)
+        .regex(agentApplicationsCreateBodySlugRegExp)
+        .optional()
+        .describe(
+            'Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).'
+        ),
     description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsCreateBodyArchivedDefault),
+    archived: zod.boolean().optional(),
 })
 
 /**
@@ -1840,13 +1846,19 @@ export const agentApplicationsUpdateBodyNameMax = 255
 export const agentApplicationsUpdateBodySlugMax = 63
 
 export const agentApplicationsUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const agentApplicationsUpdateBodyArchivedDefault = false
 
 export const AgentApplicationsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsUpdateBodyNameMax),
-    slug: zod.string().max(agentApplicationsUpdateBodySlugMax).regex(agentApplicationsUpdateBodySlugRegExp),
+    slug: zod
+        .string()
+        .max(agentApplicationsUpdateBodySlugMax)
+        .regex(agentApplicationsUpdateBodySlugRegExp)
+        .optional()
+        .describe(
+            'Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).'
+        ),
     description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsUpdateBodyArchivedDefault),
+    archived: zod.boolean().optional(),
 })
 
 /**
@@ -1869,7 +1881,6 @@ export const agentApplicationsPartialUpdateBodyNameMax = 255
 export const agentApplicationsPartialUpdateBodySlugMax = 63
 
 export const agentApplicationsPartialUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const agentApplicationsPartialUpdateBodyArchivedDefault = false
 
 export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsPartialUpdateBodyNameMax).optional(),
@@ -1877,9 +1888,12 @@ export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(agentApplicationsPartialUpdateBodySlugMax)
         .regex(agentApplicationsPartialUpdateBodySlugRegExp)
-        .optional(),
+        .optional()
+        .describe(
+            'Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).'
+        ),
     description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsPartialUpdateBodyArchivedDefault),
+    archived: zod.boolean().optional(),
 })
 
 /**

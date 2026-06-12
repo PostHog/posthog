@@ -126,7 +126,7 @@ export async function fireCronManually(
     const idempotencyKey = `cron-manual:${input.rev.id}:${trigger.config.name}:${input.requestId}`
 
     const outcome = await enqueueOrResume(
-        { queue: deps.queue, teamId: input.app.team_id },
+        { queue: deps.queue },
         {
             application: input.app,
             revision: input.rev,
@@ -289,7 +289,7 @@ async function fireOne(
     const idempotencyKey = `cron:${rev.id}:${cfg.name}:${firedAtMinute}`
 
     await enqueueOrResume(
-        { queue: deps.queue, teamId: app.team_id },
+        { queue: deps.queue },
         {
             application: app,
             revision: rev,

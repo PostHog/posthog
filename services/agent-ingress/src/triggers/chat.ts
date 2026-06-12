@@ -42,7 +42,6 @@ export interface ChatTriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
     bus: SessionEventBus
-    teamId: number
     authProvider?: AuthProvider
     /**
      * Broker for per-session auth credentials. Required — prod wires
@@ -92,7 +91,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             }
             const sessionPrincipal = auth.principal
             const outcome = await enqueueOrResume(
-                { queue: deps.queue, teamId: deps.teamId },
+                { queue: deps.queue },
                 {
                     application: resolved.application,
                     revision: resolved.revision,

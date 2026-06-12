@@ -399,7 +399,7 @@ describe('example: sre-slack-bot bundle', () => {
         const session = await c.queue.get(sessionId)
         const queued = findApprovalPayload(session!.conversation)
         expect(queued).not.toBeNull()
-        expect(queued!.approval_url).toMatch(/\/approvals\//)
+        expect(queued!.approval_url).toMatch(/\/approvals\?request=/)
 
         // Exactly one queued approval for the memory-write, queryable via janitor.
         const listed = await request(c.janitor)

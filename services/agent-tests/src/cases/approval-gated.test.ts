@@ -31,7 +31,11 @@ import request from 'supertest'
 
 import { AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxCallTool, fauxText } from '../harness'
+
+// `@posthog/*` data tools act as the connected PostHog user, so the cases that
+// actually execute one (case 1) run as a posthog-authed caller.
+const APPROVAL_PAT = 'approval-pat'
 import { fauxToolUse } from '../harness/faux'
 
 /**
@@ -103,7 +107,7 @@ describe('approval-gated tools: real e2e', () => {
     let c: Cluster
 
     beforeEach(async () => {
-        c = await buildCluster()
+        c = await buildCluster({ authProvider: fakeAuthProvider({ posthog: APPROVAL_PAT }) })
     })
 
     afterEach(async () => {
@@ -127,6 +131,7 @@ describe('approval-gated tools: real e2e', () => {
         allowEdit?: boolean
         extraTools?: Array<Record<string, unknown>>
         files?: Record<string, string>
+        auth?: Record<string, unknown>
     }): Promise<{ application: { id: string } }> {
         const gated =
             opts.kind === 'custom'
@@ -145,7 +150,7 @@ describe('approval-gated tools: real e2e', () => {
                   }
         return c.deployAgent({
             slug: opts.slug,
-            spec: { tools: [gated, ...(opts.extraTools ?? [])] },
+            spec: { tools: [gated, ...(opts.extraTools ?? [])], ...(opts.auth ? { auth: opts.auth } : {}) },
             files: opts.files,
         })
     }
@@ -192,9 +197,16 @@ describe('approval-gated tools: real e2e', () => {
             // Turn 3: after approval wake, model wraps up.
             fauxText('done'),
         ])
-        const { application } = await deployGatedAgent({ slug: 'gated-1', toolId: '@posthog/query' })
+        const { application } = await deployGatedAgent({
+            slug: 'gated-1',
+            toolId: '@posthog/query',
+            auth: { modes: [{ type: 'posthog' }] },
+        })
 
-        const run = await request(c.ingress).post('/agents/gated-1/run').send({ message: 'go' })
+        const run = await request(c.ingress)
+            .post('/agents/gated-1/run')
+            .set('authorization', `Bearer ${APPROVAL_PAT}`)
+            .send({ message: 'go' })
         expect(run.status).toBe(200)
         const sid = run.body.session_id
 
@@ -397,7 +409,7 @@ describe('approval-gated tools: real e2e', () => {
         c.setScript([
             fauxToolUse([
                 fauxToolCall('@posthog/query', { query: 'gated-call' }),
-                fauxToolCall('@posthog/persons-search', { query: 'free-call' }),
+                fauxToolCall('@posthog/memory-list', {}),
             ]),
             fauxText('mixed done'),
         ])
@@ -411,7 +423,7 @@ describe('approval-gated tools: real e2e', () => {
                         requires_approval: true,
                         approval_policy: { allow_edit: false },
                     },
-                    { kind: 'native', id: '@posthog/persons-search' },
+                    { kind: 'native', id: '@posthog/memory-list' },
                 ],
             },
         })
@@ -424,10 +436,10 @@ describe('approval-gated tools: real e2e', () => {
         // Gated → synthetic queued result.
         expect(findApproval(session!.conversation, 'queued')).not.toBeNull()
 
-        // Non-gated → real tool result with the actual rows.
+        // Non-gated → real tool result.
         const realResults = session!.conversation.filter((m) => {
             const cast = m as { role: string; toolName?: string }
-            return cast.role === 'toolResult' && cast.toolName === '@posthog/persons-search'
+            return cast.role === 'toolResult' && cast.toolName === '@posthog/memory-list'
         })
         expect(realResults).toHaveLength(1)
     })

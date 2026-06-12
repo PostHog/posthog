@@ -25,11 +25,14 @@ export class PgRevisionStore implements RevisionStore {
         return r.rowCount === 0 ? null : rowToApp(r.rows[0])
     }
 
-    async getApplicationBySlug(teamId: number, slug: string): Promise<AgentApplication | null> {
+    async getApplicationBySlug(slug: string): Promise<AgentApplication | null> {
+        // Global slug namespace — the partial unique index on (slug) where
+        // archived = FALSE guarantees at most one row. LIMIT 1 is belt-and-
+        // braces against a stray duplicate, never a real disambiguation.
         const r = await this.pool.query(
             `SELECT id, team_id, slug, name, description, encrypted_env, live_revision_id, archived
-             FROM agent_application WHERE team_id = $1 AND slug = $2 AND archived = FALSE`,
-            [teamId, slug]
+             FROM agent_application WHERE slug = $1 AND archived = FALSE LIMIT 1`,
+            [slug]
         )
         return r.rowCount === 0 ? null : rowToApp(r.rows[0])
     }

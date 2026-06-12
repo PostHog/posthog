@@ -2,8 +2,8 @@ name: Build and deploy agent platform container images
 
 # Builds and pushes container images for the agent platform:
 #
-#   - posthog-agents (ingress / runner / janitor / migrations — one image,
-#     four bundled entrypoints; the deploy manifest picks the CMD)
+#   - posthog-agents (ingress / runner / janitor — one image,
+#     three bundled entrypoints; the deploy manifest picks the CMD)
 #   - posthog-agent-console (Next.js standalone)
 #   - posthog-agent-sandbox-host (Alpine sidecar — no build step)
 #
@@ -247,10 +247,11 @@ jobs:
 
                   case "$IMAGE_NAME" in
                       posthog-agents)
-                          # Four entrypoints baked into the same image; each
+                          # Three entrypoints baked into the same image; each
                           # has its own .mjs and config schema, so each gets
-                          # its own smoke pass.
-                          for entrypoint in ingress runner janitor migrate; do
+                          # its own smoke pass. (Schema is Django-owned now —
+                          # no migrate entrypoint; see services/agents/scripts/build.ts.)
+                          for entrypoint in ingress runner janitor; do
                               echo "::group::Smoke test ${entrypoint}"
                               .github/scripts/smoke-test-agent-bundle.sh "$IMAGE_REF" "$entrypoint"
                               echo "::endgroup::"

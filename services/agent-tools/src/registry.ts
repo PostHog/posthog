@@ -52,7 +52,6 @@ import {
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSetEnvV1,
 } from './tools/posthog-agent-management.v1'
-import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
 import {
     slackPostMessageV1,
@@ -102,7 +101,6 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogAgentApplicationsSessionsListV1,
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSessionLogsV1,
-    posthogPersonsSearchV1,
     slackPostMessageV1,
     slackUpdateMessageV1,
     slackReadChannelV1,

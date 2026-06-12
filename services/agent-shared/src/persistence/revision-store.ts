@@ -9,7 +9,14 @@ import { AgentApplication, AgentRevision, AgentSpec, RevisionState } from '../sp
 
 export interface RevisionStore {
     getApplication(applicationId: string): Promise<AgentApplication | null>
-    getApplicationBySlug(teamId: number, slug: string): Promise<AgentApplication | null>
+    /**
+     * Resolve a live application by slug across all teams. Slugs are a single
+     * global namespace (server-minted on create, globally unique), so domain-
+     * mode routing — `<slug>.agents.<suffix>`, which carries no team — can
+     * resolve without knowing the team up front. The team is read off the
+     * resolved row.
+     */
+    getApplicationBySlug(slug: string): Promise<AgentApplication | null>
     listApplications(teamId: number): Promise<AgentApplication[]>
     createApplication(input: NewApplication): Promise<AgentApplication>
     archiveApplication(applicationId: string): Promise<void>
