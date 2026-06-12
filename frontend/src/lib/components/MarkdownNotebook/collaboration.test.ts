@@ -230,6 +230,63 @@ describe('mergeNotebookMarkdownChanges', () => {
         expect(result.mergedMarkdown).toContain('remote-chat')
     })
 
+    it('merges concurrent replies to the same comment thread by reply id', () => {
+        const base = '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"First"}]} />'
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: base,
+            localMarkdown:
+                '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"First"},{"id":"r2","author":"Bob","text":"Local reply"}]} />',
+            remoteMarkdown:
+                '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"First"},{"id":"r3","author":"Cay","text":"Remote reply"}]} />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toContain('"id":"r1"')
+        expect(result.mergedMarkdown).toContain('Local reply')
+        expect(result.mergedMarkdown).toContain('Remote reply')
+    })
+
+    it('keeps a reply deletion deleted when the other side merely replied', () => {
+        const base =
+            '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"First"},{"id":"r2","author":"Bob","text":"Oops"}]} />'
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: base,
+            localMarkdown: '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"First"}]} />',
+            remoteMarkdown:
+                '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"First"},{"id":"r2","author":"Bob","text":"Oops"},{"id":"r3","author":"Cay","text":"New"}]} />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).not.toContain('Oops')
+        expect(result.mergedMarkdown).toContain('New')
+    })
+
+    it('takes the edited version of a reply edited on one side only', () => {
+        const base = '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"Tpyo"}]} />'
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: base,
+            localMarkdown: '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"Tpyo"}]} />',
+            remoteMarkdown: '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"Typo"}]} />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toContain('Typo')
+        expect(result.mergedMarkdown).not.toContain('Tpyo')
+    })
+
+    it('merges replies added concurrently to a thread that was empty in the base', () => {
+        const base = '<Comment ref="banana" replies={[]} />'
+        const result = mergeNotebookMarkdownChanges({
+            baseMarkdown: base,
+            localMarkdown: '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"Mine"}]} />',
+            remoteMarkdown: '<Comment ref="banana" replies={[{"id":"r2","author":"Bob","text":"Theirs"}]} />',
+        })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toContain('Mine')
+        expect(result.mergedMarkdown).toContain('Theirs')
+    })
+
     it('keeps non-string prop edits atomic per prop', () => {
         const result = mergeNotebookMarkdownChanges({
             baseMarkdown: '<Query query={{"kind":"TrendsQuery","interval":"day"}} />',
