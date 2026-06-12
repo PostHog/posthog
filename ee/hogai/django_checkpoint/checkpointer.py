@@ -16,7 +16,6 @@ from langgraph.checkpoint.base import (
     PendingWrite,
     get_checkpoint_id,
 )
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from posthog.sync import database_sync_to_async
@@ -29,8 +28,6 @@ from products.posthog_ai.backend.models.assistant import (
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
-    jsonplus_serde = JsonPlusSerializer()
-
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
             [
@@ -47,9 +44,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
 
     def _dump_json(self, obj: Any) -> dict[str, Any]:
-        serialized_metadata = self.jsonplus_serde.dumps(obj)
-        # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
-        nulls_removed = serialized_metadata.decode().replace("\\u0000", "")
+        serialized = json.dumps(obj, default=str)
+        # Remove null characters before writing to the database
+        nulls_removed = serialized.replace("\\u0000", "")
         return json.loads(nulls_removed)
 
     def _get_checkpoint_qs(
