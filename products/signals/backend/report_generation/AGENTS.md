@@ -58,6 +58,12 @@ This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity,
 so this module stays isolated from report DB writes.
 
+The caller activity passes `has_business_knowledge=True` when the team's business knowledge
+product is both feature-flagged on and has at least one READY source (via
+`products.business_knowledge.backend.logic.is_available_for_team`). When true, the research
+prompt includes a `## Business knowledge` block that instructs the agent to search the team's
+curated knowledge base via MCP tools.
+
 ## Local debug commands
 
 These commands are debug-only local-dev tools.

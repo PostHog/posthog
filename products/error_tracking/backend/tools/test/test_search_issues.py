@@ -22,7 +22,11 @@ from posthog.schema import (
     MaxErrorTrackingSearchResponse,
 )
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
+)
 from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
 
 from ee.hogai.context.context import AssistantContextManager
@@ -84,6 +88,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
     def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        # the query reads the denormalized ClickHouse table, so mirror the issue state there
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
     def create_events_and_issue(

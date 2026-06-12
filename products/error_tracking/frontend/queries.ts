@@ -45,7 +45,6 @@ export const errorTrackingQuery = ({
     groupKey,
     groupTypeIndex,
     limit = 50,
-    useQueryV3,
     pendingFingerprintIssueStateUpdates,
 }: Pick<
     ErrorTrackingQuery,
@@ -60,7 +59,6 @@ export const errorTrackingQuery = ({
     | 'personId'
     | 'groupKey'
     | 'groupTypeIndex'
-    | 'useQueryV3'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: string[]
@@ -86,8 +84,7 @@ export const errorTrackingQuery = ({
             personId,
             groupKey,
             groupTypeIndex,
-            useQueryV3,
-            // Only V3 understands these; omit when empty so cache keys stay stable.
+            // Omit when empty so cache keys stay stable.
             ...(pendingFingerprintIssueStateUpdates && pendingFingerprintIssueStateUpdates.length > 0
                 ? { pendingFingerprintIssueStateUpdates }
                 : {}),

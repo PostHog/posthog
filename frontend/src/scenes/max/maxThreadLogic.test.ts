@@ -27,6 +27,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -39,7 +40,6 @@ import {
     maxMocks,
     mockStream,
 } from './testUtils'
-import { EnhancedToolCall } from './Thread'
 
 jest.mock(
     '@posthog/hogvm',

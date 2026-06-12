@@ -747,9 +747,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'heatmaps-mcp',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
+                'field-notes',
             ])
         )
-        expect(flags).toHaveLength(15)
+        expect(flags).toHaveLength(16)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

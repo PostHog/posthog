@@ -158,7 +158,7 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -174,7 +174,7 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
 
 

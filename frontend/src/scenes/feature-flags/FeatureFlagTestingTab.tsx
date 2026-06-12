@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -48,6 +48,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         enrichedConditions,
         hasValidPerson,
         errorDisplay,
+        personDistinctIds,
+        hasMultipleDistinctIds,
+        bucketingDistinctId,
     } = useValues(logic)
 
     const {
@@ -95,7 +98,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     // name + distinct_id, not the full person (no uuid/distinct_ids).
                                     const distinctId = typeof value === 'string' ? value : ''
                                     if (distinctId) {
-                                        setSelectedPerson((person as Partial<PersonType>) ?? null)
+                                        setSelectedPerson((person as Partial<PersonType>) ?? null, distinctId)
                                         setTestFormData({ distinct_id: distinctId })
                                     } else {
                                         setSelectedPerson(null)
@@ -106,15 +109,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 placeholder="Search for a person by name, email, or ID..."
                                 allowClear
                                 fullWidth
+                                truncate
                                 renderValue={() => {
                                     if (formData.distinct_id) {
-                                        return (
-                                            <span>
-                                                {selectedPerson?.name ||
-                                                    selectedPerson?.distinct_ids?.[0] ||
-                                                    formData.distinct_id}
-                                            </span>
-                                        )
+                                        return <span>{selectedPerson?.name || formData.distinct_id}</span>
                                     }
                                     return null
                                 }}
@@ -125,13 +123,43 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             distinct ID.
                         </p>
 
-                        {formData.distinct_id && (
-                            <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
-                                <div>
-                                    <strong>Distinct ID:</strong> {formData.distinct_id}
+                        {formData.distinct_id &&
+                            (hasMultipleDistinctIds ? (
+                                <div className="space-y-2">
+                                    <LemonLabel>Distinct ID for bucketing</LemonLabel>
+                                    <LemonSelect
+                                        fullWidth
+                                        aria-label="Distinct ID for bucketing"
+                                        truncateText={{ maxWidthClass: 'max-w-full' }}
+                                        value={formData.distinct_id}
+                                        onChange={(distinctId) => {
+                                            if (distinctId) {
+                                                setTestFormData({ distinct_id: distinctId })
+                                            }
+                                        }}
+                                        options={personDistinctIds.map((id) => ({
+                                            value: id,
+                                            label: id,
+                                            tooltip: id,
+                                        }))}
+                                    />
+                                    <LemonBanner type="warning">
+                                        <div className="text-sm">
+                                            This person has {personDistinctIds.length} merged distinct IDs. Rollout and
+                                            variant assignment are computed by hashing the distinct ID, so the result
+                                            can differ depending on which one you pick. At runtime PostHog buckets using
+                                            the distinct ID from the incoming request, which may not be the one selected
+                                            here.
+                                        </div>
+                                    </LemonBanner>
                                 </div>
-                            </div>
-                        )}
+                            ) : (
+                                <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
+                                    <div>
+                                        <strong>Distinct ID:</strong> {formData.distinct_id}
+                                    </div>
+                                </div>
+                            ))}
                     </div>
 
                     {/* Optional Timestamp */}
@@ -253,6 +281,19 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             : String(result.result)}
                                     </div>
                                 </div>
+
+                                {/* Distinct ID used for rollout/variant bucketing. Only shown when the
+                                    backend echoes an explicit value — it returns null when a different ID
+                                    was actually bucketed against, and falling back to the requested ID
+                                    here would mislabel which ID drove the result. */}
+                                {bucketingDistinctId && (
+                                    <div className="space-y-2">
+                                        <LemonLabel>Bucketed using distinct ID</LemonLabel>
+                                        <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light break-all">
+                                            {bucketingDistinctId}
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Timestamp Warning */}
                                 {formData.timestamp && (

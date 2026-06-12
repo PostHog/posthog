@@ -168,14 +168,18 @@ describe('EmailService', () => {
                     from: { integrationId: 100 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not an email integration', async () => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 3 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not the correct team', async () => {
                 invocation.teamId = 100
@@ -183,7 +187,9 @@ describe('EmailService', () => {
                     from: { integrationId: 1 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
