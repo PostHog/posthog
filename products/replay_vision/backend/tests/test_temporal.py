@@ -20,10 +20,6 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
-    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
-    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
-)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -63,6 +59,10 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionError,
     IneligibleSessionKind,
     ScannerFailureError,
+)
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
+    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
+    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
 )
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
