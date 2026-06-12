@@ -14,7 +14,7 @@ func process(value int) int {
 func transform(value int) int {
 	doubled := value * 2
 	doubled += value / 3
-	// Line 17 - this should appear as an inlined frame
+	// Line 16 - this should appear as an inlined frame
 	return doubled + 5
 }
 

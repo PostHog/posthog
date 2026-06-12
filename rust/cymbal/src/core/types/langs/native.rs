@@ -961,6 +961,7 @@ mod test {
         assert_eq!(frames[0].lang, "go");
 
         assert_eq!(frames[1].resolved_name.as_deref(), Some("main.transform"));
+        assert_eq!(frames[1].source.as_deref(), Some("test_go.go"));
         assert_eq!(frames[1].line, Some(16));
         assert_eq!(frames[1].lang, "go");
     }
