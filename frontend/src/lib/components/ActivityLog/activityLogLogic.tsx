@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
+import { instanceSettingActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/instanceSettingActivityDescriber'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import {
     ActivityLogItem,
@@ -135,8 +136,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
             return insightActivityDescriber
-        case ActivityScope.DASHBOARD:
-            return dashboardActivityDescriber
+        case ActivityScope.INSTANCE_SETTING:
+            return instanceSettingActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
         case ActivityScope.PERSONAL_API_KEY:

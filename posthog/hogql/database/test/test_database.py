@@ -22,11 +22,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _compute_system_table_access_decision,
     _preload_active_external_data_schemas,
     build_database_root_node,
     get_data_warehouse_table_name,
 )
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -132,7 +134,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     from_field=["dashboard_id"],
                     to_field=["id"],
                     join_table="direct_table",
-                    join_function=lambda *_args: None,
+                    resolver=FOREIGN_KEY,
                 )
             },
             postgres_table_name="events",
@@ -1076,7 +1078,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
+            "equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -1094,7 +1096,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)"
+            "less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -2865,3 +2867,56 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         persons = database.get_table("persons")
         assert "ext_data" not in persons.fields
+
+    def test_create_for_with_synthetic_user_skips_user_rbac(self):
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="rbac-shortcircuit",
+            secure_value="sha256$" + "f" * 64,
+            scopes=["endpoint:read"],
+        )
+        synthetic_user = ProjectSecretAPIKeyUser(psak)
+
+        captured: dict = {}
+
+        def spy(team, user):
+            result = _compute_system_table_access_decision(team, user)
+            captured["result"] = result
+            return result
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy) as decision,
+        ):
+            Database.create_for(team=self.team, user=synthetic_user)
+
+        decision.assert_called_once()
+        user_access_control, denied = captured["result"]
+        # No per-user access control, but the endpoint:read scope keeps the endpoint-scoped
+        # system tables; other scoped tables (e.g. feature_flags) stay hidden.
+        assert user_access_control is None
+        assert "data_modeling_endpoints" not in denied
+        assert "data_modeling_endpoint_versions" not in denied
+        assert "feature_flags" in denied
+
+    def test_create_for_with_real_user_uses_user_rbac(self):
+        captured: dict = {}
+
+        def spy(team, user):
+            result = _compute_system_table_access_decision(team, user)
+            captured["result"] = result
+            return result
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy) as decision,
+        ):
+            Database.create_for(team=self.team, user=self.user)
+
+        decision.assert_called_once()
+        user_access_control, _denied = captured["result"]
+        # A real user gets per-user access control computed rather than the anonymous all-deny path.
+        assert user_access_control is not None

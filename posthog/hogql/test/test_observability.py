@@ -17,6 +17,8 @@ from posthog.hogql.observability import (
     emit_hogql_type_observability,
 )
 
+from posthog.clickhouse.query_tagging import Product
+
 
 def _metric(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
@@ -130,6 +132,55 @@ class TestHogQLTypeObservability(SimpleTestCase):
         self.assertEqual(stats.property_typing["event_unknown"], 1)
         self.assertEqual(stats.property_typing["person_known"], 1)
         self.assertEqual(stats.unknown_by_reason["unknown_property_metadata"], 1)
+
+    def test_records_materialized_property_usage_with_bounded_labels(self):
+        stats = HogQLTypeObservability(dialect="clickhouse", source="sql_editor")
+
+        stats.record_materialized_property_usage("materialized_column")
+        stats.record_materialized_property_usage("json")
+        stats.record_materialized_property_usage("not_a_real_source_kind")
+
+        self.assertEqual(stats.materialized_property_usage["materialized_column"], 1)
+        self.assertEqual(stats.materialized_property_usage["json"], 1)
+        self.assertEqual(stats.materialized_property_usage["unknown"], 1)
+
+    def test_records_and_emits_materialized_range_rewrites(self):
+        base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}
+        before_fired = _metric("hogql_materialized_range_rewrite_total", {**base, "result": "fired_compare"})
+        before_skipped = _metric("hogql_materialized_range_rewrite_total", {**base, "result": "skipped"})
+
+        stats = HogQLTypeObservability(dialect="clickhouse", source="sql_editor")
+        stats.record_materialized_range_rewrite("fired_compare")
+        stats.record_materialized_range_rewrite("fired_compare")
+        stats.record_materialized_range_rewrite("skipped")
+        stats.record_materialized_range_rewrite("not_a_real_outcome")
+        emit_hogql_type_observability(stats)
+
+        self.assertEqual(
+            _metric("hogql_materialized_range_rewrite_total", {**base, "result": "fired_compare"}) - before_fired, 2
+        )
+        self.assertEqual(
+            _metric("hogql_materialized_range_rewrite_total", {**base, "result": "skipped"}) - before_skipped, 1
+        )
+        self.assertEqual(stats.materialized_range_rewrite["unknown"], 1)
+
+    @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
+    def test_source_falls_back_to_query_tags_product(self):
+        with patch("posthog.hogql.observability.get_query_tags") as mock_tags:
+            mock_tags.return_value.product = Product.WAREHOUSE
+            stats = create_hogql_type_observability(dialect="clickhouse")
+
+        assert stats is not None
+        self.assertEqual(stats.source, "warehouse")
+
+    @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 1.0)
+    def test_explicit_source_wins_over_query_tags(self):
+        with patch("posthog.hogql.observability.get_query_tags") as mock_tags:
+            mock_tags.return_value.product = Product.WAREHOUSE
+            stats = create_hogql_type_observability(dialect="clickhouse", source="probe")
+
+        assert stats is not None
+        self.assertEqual(stats.source, "probe")
 
     @parameterized.expand(
         [

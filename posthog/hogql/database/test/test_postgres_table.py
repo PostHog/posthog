@@ -10,11 +10,11 @@ from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
-    LazyJoinToAdd,
     StringDatabaseField,
     StringJSONDatabaseField,
     TableNode,
@@ -278,25 +278,6 @@ class TestPostgresTable(BaseTest):
         )
 
     def test_lazy_join_with_predicate(self):
-        from posthog.hogql import ast
-
-        def join_fn(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
-            table = join_to_add.lazy_join.join_table
-            table_name = table if isinstance(table, str) else table.name
-            assert table_name is not None
-            join_expr = ast.JoinExpr(table=ast.Field(chain=[table_name]))
-            join_expr.join_type = "LEFT JOIN"
-            join_expr.alias = join_to_add.to_table
-            join_expr.constraint = ast.JoinConstraint(
-                expr=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_to_add.from_table, "ref_id"]),
-                    right=ast.Field(chain=[join_to_add.to_table, "id"]),
-                ),
-                constraint_type="ON",
-            )
-            return join_expr
-
         self.database = Database.create_for(team=self.team)
 
         pg_table = PostgresTable(
@@ -324,8 +305,9 @@ class TestPostgresTable(BaseTest):
                         "ref_id": IntegerDatabaseField(name="ref_id"),
                         "details": LazyJoin(
                             from_field=["ref_id"],
+                            to_field=["id"],
                             join_table=pg_table,
-                            join_function=join_fn,
+                            resolver=FOREIGN_KEY,
                         ),
                     },
                 ),
@@ -345,7 +327,7 @@ class TestPostgresTable(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT details.name FROM other_table LIMIT 10"),
-            f"SELECT other_table__details.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS other_table__details ON and(and(equals(other_table__details.team_id, {self.team.pk}), greaterOrEquals(other_table__details.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.ref_id, other_table__details.id)) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT other_table__details.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN (SELECT postgres_table.name AS name, postgres_table.id AS other_table__details___id FROM postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30))))) AS other_table__details ON equals(other_table.ref_id, other_table__details.other_table__details___id) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_predicate_with_nested_property_access(self):
@@ -359,7 +341,7 @@ class TestPostgresTable(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT id FROM postgres_table LIMIT 10"),
-            f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_15)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_16)s), 1)) LIMIT 10",
+            f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_5)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_6)s), 1)) LIMIT 10",
         )
 
 

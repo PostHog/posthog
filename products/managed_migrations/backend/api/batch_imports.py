@@ -21,7 +21,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.batch_exports.backend.api.batch_export import resolve_and_validate_url
 from products.managed_migrations.backend.models.batch_import_utils import (
     extract_batch_import_info,
     get_batch_import_created_by_info,
@@ -62,6 +61,10 @@ class BatchImportSerializer(serializers.ModelSerializer):
     def validate_endpoint_url(self, value: str | None) -> str | None:
         if not value or not value.strip():
             return None
+        # Deferred: batch_export pulls the batch-export Temporal framework; keeping it out of
+        # module scope lets this module connect its delete receiver at AppConfig.ready() cheaply.
+        from products.batch_exports.backend.api.batch_export import resolve_and_validate_url  # noqa: PLC0415
+
         try:
             resolve_and_validate_url(value)
         except ValueError:
