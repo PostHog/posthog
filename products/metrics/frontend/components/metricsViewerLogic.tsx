@@ -16,7 +16,7 @@ export type MetricsViewerSeries = _MetricSeriesApi
 
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 const DEFAULT_DATE_FROM = '-1h'
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
 
 const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
