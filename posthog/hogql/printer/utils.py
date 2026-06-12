@@ -23,7 +23,9 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
-from posthog.hogql.transforms.geoip_dict_fallback import apply_geoip_dict_fallback
+from posthog.hogql.transforms.geoip_dict_fallback import (
+    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved,
+)
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
@@ -215,7 +217,11 @@ def prepare_ast_for_printing(
         # pass below routes to materialized columns. Remove with the transform.
         if context.modifiers.useGeoipDictFallback:
             with context.timings.measure("geoip_dict_fallback"):
-                node = apply_geoip_dict_fallback(node, context)
+                node = (
+                    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(
+                        node, context
+                    )
+                )
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and

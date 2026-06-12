@@ -99,5 +99,7 @@ class GeoipDictFallback(CloningVisitor):
         )
 
 
-def apply_geoip_dict_fallback(node: _T_AST, context: HogQLContext) -> _T_AST:
+def apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(
+    node: _T_AST, context: HogQLContext
+) -> _T_AST:
     return cast(_T_AST, GeoipDictFallback(context).visit(node))
