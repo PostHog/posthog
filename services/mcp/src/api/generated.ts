@@ -12919,6 +12919,36 @@ export namespace Schemas {
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
+     * * `never` - never
+     * * `1min` - 1min
+     * * `5min` - 5min
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day
+     */
+    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+
+
+    export const SyncFrequencyEnum = {
+      Never: 'never',
+      '1min': '1min',
+      '5min': '5min',
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
+    } as const;
+
+    /**
      * * `Cancelled` - Cancelled
      * * `Modified` - Modified
      * * `Completed` - Completed
@@ -12968,8 +12998,20 @@ export namespace Schemas {
       query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
-      /** @nullable */
-      readonly sync_frequency: string | null;
+      /** How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.
+       *
+       * * `never` - never
+       * * `1min` - 1min
+       * * `5min` - 5min
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      sync_frequency?: SyncFrequencyEnum | null;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -17817,36 +17859,6 @@ export namespace Schemas {
       Date: 'date',
       Timestamp: 'timestamp',
       Objectid: 'objectid',
-    } as const;
-
-    /**
-     * * `never` - never
-     * * `1min` - 1min
-     * * `5min` - 5min
-     * * `15min` - 15min
-     * * `30min` - 30min
-     * * `1hour` - 1hour
-     * * `6hour` - 6hour
-     * * `12hour` - 12hour
-     * * `24hour` - 24hour
-     * * `7day` - 7day
-     * * `30day` - 30day
-     */
-    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
-
-
-    export const SyncFrequencyEnum = {
-      Never: 'never',
-      '1min': '1min',
-      '5min': '5min',
-      '15min': '15min',
-      '30min': '30min',
-      '1hour': '1hour',
-      '6hour': '6hour',
-      '12hour': '12hour',
-      '24hour': '24hour',
-      '7day': '7day',
-      '30day': '30day',
     } as const;
 
     export interface ExternalDataSchema {
@@ -29747,8 +29759,20 @@ export namespace Schemas {
       query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
-      /** @nullable */
-      readonly sync_frequency?: string | null;
+      /** How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.
+       *
+       * * `never` - never
+       * * `1min` - 1min
+       * * `5min` - 5min
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      sync_frequency?: SyncFrequencyEnum | null;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *

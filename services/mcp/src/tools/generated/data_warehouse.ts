@@ -930,6 +930,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
@@ -1032,6 +1035,9 @@ const viewMaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
@@ -1074,6 +1080,9 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
         }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
@@ -1136,6 +1145,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
+        }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
@@ -1182,6 +1194,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.sync_frequency !== undefined) {
+            body['sync_frequency'] = params.sync_frequency
         }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id

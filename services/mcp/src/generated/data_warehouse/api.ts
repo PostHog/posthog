@@ -1473,6 +1473,31 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        sync_frequency: zod
+            .union([
+                zod
+                    .enum([
+                        'never',
+                        '1min',
+                        '5min',
+                        '15min',
+                        '30min',
+                        '1hour',
+                        '6hour',
+                        '12hour',
+                        '24hour',
+                        '7day',
+                        '30day',
+                    ])
+                    .describe(
+                        '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+            ),
         folder_id: zod
             .uuid()
             .nullish()
@@ -1529,6 +1554,31 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+            ),
+        sync_frequency: zod
+            .union([
+                zod
+                    .enum([
+                        'never',
+                        '1min',
+                        '5min',
+                        '15min',
+                        '30min',
+                        '1hour',
+                        '6hour',
+                        '12hour',
+                        '24hour',
+                        '7day',
+                        '30day',
+                    ])
+                    .describe(
+                        '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -1590,6 +1640,31 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        sync_frequency: zod
+            .union([
+                zod
+                    .enum([
+                        'never',
+                        '1min',
+                        '5min',
+                        '15min',
+                        '30min',
+                        '1hour',
+                        '6hour',
+                        '12hour',
+                        '24hour',
+                        '7day',
+                        '30day',
+                    ])
+                    .describe(
+                        '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+            ),
         folder_id: zod
             .uuid()
             .nullish()
@@ -1645,6 +1720,31 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
             ),
+        sync_frequency: zod
+            .union([
+                zod
+                    .enum([
+                        'never',
+                        '1min',
+                        '5min',
+                        '15min',
+                        '30min',
+                        '1hour',
+                        '6hour',
+                        '12hour',
+                        '24hour',
+                        '7day',
+                        '30day',
+                    ])
+                    .describe(
+                        '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+            ),
         folder_id: zod
             .uuid()
             .nullish()
@@ -1696,6 +1796,31 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             })
             .describe(
                 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}'
+            ),
+        sync_frequency: zod
+            .union([
+                zod
+                    .enum([
+                        'never',
+                        '1min',
+                        '5min',
+                        '15min',
+                        '30min',
+                        '1hour',
+                        '6hour',
+                        '12hour',
+                        '24hour',
+                        '7day',
+                        '30day',
+                    ])
+                    .describe(
+                        '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
