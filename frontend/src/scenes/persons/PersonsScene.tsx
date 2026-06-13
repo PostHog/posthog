@@ -47,7 +47,8 @@ export function PersonsScene(): JSX.Element {
 
     // A UUID-shaped search that returns nothing is often a session ID typed into the wrong field.
     // Session IDs aren't part of the persons query, so point the user to where they are searchable.
-    const searchTerm = (query.source as ActorsQuery | undefined)?.search?.trim()
+    const rawSearch: unknown = (query.source as Partial<ActorsQuery> | undefined)?.search
+    const searchTerm = typeof rawSearch === 'string' ? rawSearch.trim() : undefined
     const searchLooksLikeSessionId = !!searchTerm && isUUIDLike(searchTerm)
 
     useOnMountEffect(() => {
