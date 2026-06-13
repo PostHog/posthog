@@ -1109,6 +1109,24 @@ describe('TaxonomicFilter', () => {
             )
         })
 
+        it('collapses URLs in the aggregated Suggested filters tab too', async () => {
+            const user = userEvent.setup()
+            useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.PageviewUrls],
+                collapseUrlsToContainsRow: true,
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'pricing')
+
+            // The Suggested filters tab is the default and aggregates each group's top matches —
+            // the URL group must contribute the single shortcut there, not raw URLs.
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
+            expect(screen.queryByTestId('prop-filter-suggested_filters-1')).not.toBeInTheDocument()
+        })
+
         it('lists individual URLs (no collapse) when the prop is omitted', async () => {
             const user = userEvent.setup()
             useMockPageviewUrls(['https://example.com/pricing'])
@@ -1127,18 +1145,34 @@ describe('TaxonomicFilter', () => {
 
         it('shows no shortcut row when no URL matches the query', async () => {
             const user = userEvent.setup()
-            useMockPageviewUrls([])
+            // Flag set when the URL values endpoint actually responds (empty), so the negative
+            // assertions below aren't vacuously true before the async fetch path runs.
+            let valuesFetched = false
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/environments/:team/events/values': () => {
+                        valuesFetched = true
+                        return [200, []]
+                    },
+                },
+            })
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
                 collapseUrlsToContainsRow: true,
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
+            // A query unique to this test so the module-level `apiCache` in infiniteListLogic
+            // can't serve a non-empty response cached by an earlier test under the same URL.
+            await user.type(searchInput, 'nomatchquery')
 
-            await waitFor(() => expect(searchInput).toHaveValue('pricing'))
-            expect(screen.queryByText('URL contains "pricing"')).not.toBeInTheDocument()
-            expect(document.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).toBeNull()
+            await waitFor(() => expect(valuesFetched).toBe(true))
+            await waitFor(() => {
+                expect(screen.queryByText('URL contains "nomatchquery"')).not.toBeInTheDocument()
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-nomatchquery-property"]')).toBeNull()
+            })
         })
     })
 

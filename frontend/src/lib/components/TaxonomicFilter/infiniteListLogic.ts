@@ -710,18 +710,36 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         topMatchesForQuery: [
-            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource, s.keywordShortcutItems],
+            (s) => [
+                s.localItems,
+                s.remoteItems,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.keywordShortcutItems,
+                s.listGroupType,
+                (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
+            ],
             (
                 localItems,
                 remoteItems,
                 searchQuery,
                 hasRemoteDataSource,
-                keywordShortcutItems
+                keywordShortcutItems,
+                listGroupType,
+                collapseUrlsToContainsRow
             ): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
                     return []
                 }
                 const remoteIsFresh = remoteItems.searchQuery === searchQuery
+                // Collapsed groups contribute the single "URL contains <query>" shortcut to the
+                // aggregated SuggestedFilters / "All" tab too — not the raw URL matches — so the
+                // common entry path collapses identically to the dedicated group list above.
+                if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
+                    const trimmed = searchQuery.trim()
+                    const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
+                    return hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
+                }
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
                 const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
                 // Shortcuts lead the group's top-match contribution so the aggregated SuggestedFilters
