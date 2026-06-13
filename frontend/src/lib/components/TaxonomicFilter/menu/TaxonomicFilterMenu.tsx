@@ -251,10 +251,10 @@ export function TaxonomicFilterMenu({
             // dwh-pick list they never visited.
             return { kind: 'dwh-config', table: selected.item, group: selected.group, origin: 'menu' }
         }
-        // Land on the regular combobox with chips visible — the matching
-        // chip auto-selects via `selectedEntry` inside the combobox so the
-        // user keeps full context and can switch categories without
-        // bouncing back to the dropdown menu.
+        // Land on the regular combobox on the "All" scope. The committed selection
+        // floats to the first row (and stays highlighted) so the user can verify it
+        // at a glance, while still seeing recents/pinned and being able to search
+        // across every category.
         return { kind: 'combobox', drillTo: 'all' }
     }, [selected])
 

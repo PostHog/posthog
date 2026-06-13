@@ -142,6 +142,15 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
 
+/** Selection types that reopen on their own tab rather than the default "All" surface,
+ *  because they're config/edit flows (an expression editor, a data-warehouse table/column
+ *  picker) with no simple category value to verify at a glance. */
+const OPEN_AS_SELF_ON_REOPEN: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
+])
+
 const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
     '$virt_is_bot',
     '$virt_traffic_type',
@@ -1659,10 +1668,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
                     return explicitActiveTab
                 }
-                // A SQL/HogQL expression being edited has no category "value" to land on,
-                // so reopen on its own tab rather than the All surface.
+                // Config/edit flows have no simple category "value" to verify on the All
+                // surface — reopen them on their own tab: a SQL/HogQL expression lands in its
+                // editor, a data-warehouse selection in its table/column picker.
                 if (
-                    propsGroupType === TaxonomicFilterGroupType.HogQLExpression &&
+                    propsGroupType &&
+                    OPEN_AS_SELF_ON_REOPEN.has(propsGroupType) &&
                     groupTypes.includes(propsGroupType)
                 ) {
                     return propsGroupType

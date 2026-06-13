@@ -526,6 +526,32 @@ describe('MenuFilterCombobox', () => {
             expect(category).not.toHaveTextContent('Events')
         })
 
+        it('leads with the committed selection as the first row when idle (no search)', async () => {
+            apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+            // Reopening on an existing selection: the user often just wants to check what's
+            // chosen, so the committed value is the first row even ahead of recents.
+            const selectedEntry = makeEntry(TaxonomicFilterGroupType.Events, 'my_current_event', 'Events')
+            render(
+                <Provider>
+                    <TaxonomicFilterHeadless.Root
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        onChange={jest.fn()}
+                    >
+                        <MenuFilterCombobox
+                            drillTo="all"
+                            selectedEntry={selectedEntry}
+                            recentEntries={[makeEntry(TaxonomicFilterGroupType.Events, 'recent_event', 'Events')]}
+                            onCommit={jest.fn()}
+                            onBack={jest.fn()}
+                        />
+                    </TaxonomicFilterHeadless.Root>
+                </Provider>
+            )
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('my_current_event'))).toBe(true))
+            expect(rowTexts()[0]).toContain('my_current_event')
+        })
+
         it('puts the "url contains <query>" shortcut first, then recent, then pinned', async () => {
             mockUrlValues(['https://app.posthog.com/replay', 'https://app.posthog.com/replay/home'])
             renderAll({

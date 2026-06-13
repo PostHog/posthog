@@ -495,11 +495,20 @@ export function MenuFilterCombobox({
             // wants the contains match. Everything else keeps the recents-then-pinned order.
             const shortcuts = content.filter((e) => isContainsShortcutItem(e.item))
             const rest = content.filter((e) => !isContainsShortcutItem(e.item))
-            return [
+            const assembled = [
                 ...shortcuts,
                 ...recentsPinnedPrefix,
                 ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
+            // Idle (no search): float the committed selection to the very first row so the
+            // user can see/verify what's currently chosen without leaving the All surface.
+            if (!q && selectedRowId) {
+                const selIdx = assembled.findIndex((e) => rowDomId(e) === selectedRowId)
+                if (selIdx > 0) {
+                    return [assembled[selIdx], ...assembled.slice(0, selIdx), ...assembled.slice(selIdx + 1)]
+                }
+            }
+            return assembled
         }
         return base
     }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])

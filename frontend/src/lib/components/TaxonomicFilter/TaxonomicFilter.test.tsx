@@ -1206,6 +1206,25 @@ describe('TaxonomicFilter', () => {
             unmountFeatureFlagLogic = null
         })
 
+        it('reopens on the Data warehouse tab (its own picker), not All, for a data-warehouse selection', async () => {
+            renderFilter({
+                groupType: TaxonomicFilterGroupType.DataWarehouse,
+                value: 'some_table',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.DataWarehouse,
+                ],
+            })
+
+            // Data warehouse is a config flow (table/column picker) — it should reopen on
+            // its own tab so the user can reconfigure, not drop them on the All surface.
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Data warehouse|Events/))
+            expect(trigger).toHaveTextContent('Data warehouse')
+            expect(trigger).not.toHaveTextContent('All')
+        })
+
         it('opens focused on the All tab, not Events, when an event is already selected', async () => {
             renderFilter({
                 groupType: TaxonomicFilterGroupType.Events,
