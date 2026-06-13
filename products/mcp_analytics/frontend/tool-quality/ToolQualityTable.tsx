@@ -1,11 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Card,
     CardHeader,
     CardTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
     Table,
     TableBody,
     TableCell,
@@ -162,14 +167,20 @@ export function ToolQualityTable(): JSX.Element {
             <CardHeader className="border-b border-border pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <CardTitle>All tools</CardTitle>
-                    <LemonInput
-                        type="search"
-                        size="small"
-                        placeholder="Search tools"
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        data-attr="mcp-tool-quality-search"
-                    />
+                    <InputGroup className="w-auto">
+                        <InputGroupAddon align="inline-start">
+                            <InputGroupText>
+                                <IconSearch />
+                            </InputGroupText>
+                        </InputGroupAddon>
+                        <InputGroupInput
+                            type="search"
+                            placeholder="Search tools"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            data-attr="mcp-tool-quality-search"
+                        />
+                    </InputGroup>
                 </div>
             </CardHeader>
             <Table fullWidth>

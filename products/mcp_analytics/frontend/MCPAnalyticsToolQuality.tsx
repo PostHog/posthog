@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { type ChartTheme } from '@posthog/quill-charts'
+import { Button } from '@posthog/quill-primitives'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import { CategoryScopeSelect } from './tool-quality/CategoryScopeSelect'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityDateFilter } from './tool-quality/ToolQualityDateFilter'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
@@ -28,15 +29,12 @@ function FilterBar(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[220px] max-w-[420px] flex-1">
-                <LemonInputSelect
-                    mode="multiple"
+            <div className="min-w-[220px] max-w-[420px] flex-1" data-attr="mcp-tool-quality-category-scope">
+                <CategoryScopeSelect
+                    categories={availableCategories}
                     value={selectedCategories}
-                    onChange={setSelectedCategories}
-                    options={availableCategories.map((category) => ({ key: category, label: category }))}
                     loading={availableCategoriesLoading}
-                    placeholder="All categories"
-                    data-attr="mcp-tool-quality-category-scope"
+                    onChange={setSelectedCategories}
                 />
             </div>
             <ToolQualityDateFilter
@@ -76,21 +74,23 @@ function ChartsScopeHeader(): JSX.Element {
             <span className="truncate font-mono text-sm font-semibold" title={selectedTool}>
                 {selectedTool}
             </span>
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                to={urls.mcpAnalyticsTool(selectedTool)}
+            <Button
+                variant="outline"
+                size="xs"
+                render={<LinkPrimitive to={urls.mcpAnalyticsTool(selectedTool)} />}
                 data-attr="mcp-tool-quality-full-report"
             >
                 Full tool report
-            </LemonButton>
-            <LemonButton
-                size="xsmall"
-                icon={<IconX />}
+            </Button>
+            <Button
+                variant="link-muted"
+                size="icon-xs"
                 onClick={() => setSelectedTool(null)}
-                tooltip="Show all tools"
+                title="Show all tools"
                 data-attr="mcp-tool-quality-clear-tool"
-            />
+            >
+                <IconX />
+            </Button>
         </div>
     )
 }
