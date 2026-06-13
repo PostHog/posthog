@@ -493,21 +493,15 @@ def _launch_local_browser(p: Playwright) -> Browser:
     proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
     # In the production image CHROME_BIN points at the only installed browser (/usr/bin/chromium);
     # Playwright's bundled browser is intentionally NOT installed. So when CHROME_BIN is set but the
-    # path is invalid, fail loudly with a config error rather than silently falling through to a
+    # path is missing, fail loudly with a config error rather than silently falling through to a
     # non-existent bundled browser. When CHROME_BIN is unset (local dev), executable_path stays None
     # and Playwright uses its own bundled Chromium. NOTE: Playwright skips browser-version enforcement
     # when executable_path is set, so re-check system-chromium compatibility when bumping `playwright`.
     executable_path = os.environ.get("CHROME_BIN") or None
-    if executable_path and (not os.path.isfile(executable_path) or not os.access(executable_path, os.X_OK)):
-        logger.error(
-            "heatmap_screenshot.chrome_bin_invalid",
-            chrome_bin=executable_path,
-            exists=os.path.exists(executable_path),
-            is_file=os.path.isfile(executable_path),
-            is_executable=os.access(executable_path, os.X_OK),
-        )
+    if executable_path and not os.path.exists(executable_path):
+        logger.error("heatmap_screenshot.chrome_bin_invalid", chrome_bin=executable_path)
         raise ImproperlyConfigured(
-            f"CHROME_BIN is set to '{executable_path}' but it is not an executable file. The production "
+            f"CHROME_BIN is set to '{executable_path}' but no executable exists there. The production "
             "image installs Chromium at /usr/bin/chromium and does not bundle a Playwright browser."
         )
     return p.chromium.launch(
