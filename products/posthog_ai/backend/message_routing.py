@@ -448,9 +448,29 @@ class MessageRoutingService(BaseSandboxService):
         The full undeduped context is recorded on the logged message's
         `_meta.attached_context` so the persisted ACP log stays a complete record.
         """
-        signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
+        try:
+            signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
+        except Exception as e:
+            # Status race: the run still reads in-progress but its workflow has already finished or
+            # was terminated, so the signal can't be delivered. Surface a recoverable conflict
+            # instead of an unhandled 500, and don't log the turn — a retry then routes cleanly
+            # without leaving a duplicated `_posthog/user_message` entry behind.
+            logger.warning(
+                "sandbox_followup_signal_failed",
+                run_id=str(run.id),
+                workflow_id=run.workflow_id,
+                error=str(e),
+            )
+            raise Conflict("The sandbox run is no longer accepting messages. Please try again.") from e
 
-        self._log_user_message(run, wrapped, attached_context)
+        try:
+            # Persist only after the signal was accepted, so the log never records a message the
+            # agent never received.
+            self._log_user_message(run, wrapped, attached_context)
+        except Exception as e:
+            # The agent already has the message; a log-append failure must not fail the request —
+            # it only degrades context-dedup on the next follow-up.
+            logger.warning("sandbox_followup_log_failed", run_id=str(run.id), error=str(e))
 
         return SandboxRouteResult(
             task_id=str(self.conversation.task_id),

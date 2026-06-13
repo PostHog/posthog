@@ -168,6 +168,39 @@ class TestHandleSandboxMessage(APIBaseTest):
         meta = logged_entries[0]["notification"]["params"]["_meta"]
         assert meta["attached_context"] == [{"type": "insight", "id": "abc"}]
 
+    def test_in_progress_followup_raises_conflict_when_signal_fails(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        self._attach_task(task)
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message", side_effect=RuntimeError("workflow gone")),
+            patch.object(TaskRun, "append_log") as m_append,
+        ):
+            with self.assertRaises(Conflict):
+                self._service().handle({"content": "follow up", "attached_context": []})
+
+        # The signal never reached the agent, so the turn is not logged — a retry stays clean
+        # instead of leaving a duplicated user_message behind.
+        m_append.assert_not_called()
+
+    def test_in_progress_followup_succeeds_when_logging_fails(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        self._attach_task(task)
+
+        with (
+            patch(f"{ROUTING}.signal_task_followup_message") as m_signal,
+            patch.object(TaskRun, "append_log", side_effect=RuntimeError("storage down")),
+        ):
+            result = self._service().handle({"content": "follow up", "attached_context": []})
+
+        # The agent already has the message; a log-append failure must not fail the request.
+        m_signal.assert_called_once()
+        assert result.run_id == str(run.id)
+
     def test_terminal_followup_creates_new_run_with_resume(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED

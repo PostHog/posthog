@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
 
 import { IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
@@ -137,8 +138,10 @@ export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
             try {
                 // BuiltLogic exposes selector results on `.values`; props are already bound.
                 sceneItems = (activeSceneLogic.values as { maxContext?: MaxContextInput[] }).maxContext ?? []
-            } catch {
-                // If the scene's maxContext selector throws, skip — nothing to attach.
+            } catch (error) {
+                // The scene's maxContext selector threw (e.g. dereferencing still-loading state).
+                // Capture so the dropped attach is observable instead of silent; nothing to attach.
+                posthog.captureException(error)
                 return
             }
             for (const item of sceneItems) {
