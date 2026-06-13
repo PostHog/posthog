@@ -64,8 +64,6 @@ export interface DateFilter {
     dateTo: string | null
 }
 
-// One row per tool from tool_quality.sql, parsed into a typed shape so the
-// quill table and the selected-tool strip can render without re-querying.
 export interface ToolQualityRow {
     tool: string
     total_calls: number
@@ -89,7 +87,6 @@ export interface DailyToolStat {
     p99: number
 }
 
-// Pivoted per-day series feeding the three trend charts.
 export interface DailyChartData {
     labels: string[]
     calls: number[]
@@ -174,6 +171,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         setSelectedCategories: (categories: string[]) => ({ categories }),
         setSelectedTool: (tool: string | null) => ({ tool }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        reloadAll: true,
     }),
 
     reducers({
@@ -363,9 +361,8 @@ ORDER BY day
             },
         ],
         dailyChartData: [
-            (s) => [s.dailyStats, s.dateFilter],
-            (dailyStats: DailyToolStat[], dateFilter: DateFilter): DailyChartData => {
-                const timezone = teamLogic.findMounted()?.values.timezone ?? 'UTC'
+            (s) => [s.dailyStats, s.dateFilter, teamLogic.selectors.timezone],
+            (dailyStats: DailyToolStat[], dateFilter: DateFilter, timezone: string): DailyChartData => {
                 const start = dateStringToDayJs(dateFilter.dateFrom, timezone)
                 const end =
                     (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : dayjs().tz(timezone)) ??
@@ -377,11 +374,14 @@ ORDER BY day
     }),
 
     listeners(({ actions, values }) => ({
+        // Both scope filters refetch the table and the charts
         setDateFilter: () => {
-            actions.loadToolRows()
-            actions.loadDailyStats()
+            actions.reloadAll()
         },
         setSelectedCategories: () => {
+            actions.reloadAll()
+        },
+        reloadAll: () => {
             actions.loadToolRows()
             actions.loadDailyStats()
         },

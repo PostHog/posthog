@@ -62,9 +62,12 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             [50, '50ms'],
             [500, '0.5s'],
             [1000, '1s'],
+            [99, '99ms'],
+            [100, '0.1s'],
             [1500, '1.5s'],
             [2000, '2s'],
             [NaN, '—'],
+            [Infinity, '—'],
         ])('formats %s ms as %s', (input, expected) => {
             expect(formatMsAsSeconds(input)).toBe(expected)
         })
@@ -93,9 +96,10 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             const newCalls = queryCallsSince(callsBefore)
             expect(newCalls.length).toBe(2) // tool rows + daily stats
-            for (const call of newCalls) {
-                expect(call.filters.dateRange).toEqual({ date_from: '-30d', date_to: null })
-            }
+            expect(newCalls.map((call) => call.filters.dateRange)).toEqual([
+                { date_from: '-30d', date_to: null },
+                { date_from: '-30d', date_to: null },
+            ])
         })
 
         it('reloads daily stats with the tool as a property filter when a tool is selected', async () => {

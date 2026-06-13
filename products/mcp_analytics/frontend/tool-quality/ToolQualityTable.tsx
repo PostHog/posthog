@@ -18,7 +18,7 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { formatMs, formatNumber } from '../dashboard/formatters'
@@ -26,20 +26,17 @@ import { type SortState, type ToolQualityRow, mcpAnalyticsToolQualityLogic } fro
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
-const COLUMN_COUNT = 9
-
 // LIMIT in tool_quality.sql — when the fetched set hits this, more tools may exist.
 const TOOL_ROW_LIMIT = 200
 
 function formatToolCount(filtered: number, total: number): string {
-    const plural = (n: number): string => `${n} tool${n === 1 ? '' : 's'}`
     if (filtered < total) {
-        return `Showing ${filtered} of ${plural(total)}`
+        return `Showing ${filtered} of ${pluralize(total, 'tool')}`
     }
     if (total >= TOOL_ROW_LIMIT) {
-        return `Showing first ${plural(total)}`
+        return `Showing first ${pluralize(total, 'tool')}`
     }
-    return plural(total)
+    return pluralize(total, 'tool')
 }
 
 interface ColumnSpec {
@@ -64,6 +61,9 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'sessions', label: 'Sessions', align: 'right', tooltip: 'Unique sessions where this tool was called' },
     { key: 'last_seen', label: 'Last seen' },
 ]
+
+// Tool column + every sortable column, for the skeleton/empty-row colSpan
+const COLUMN_COUNT = SORTABLE_COLUMNS.length + 1
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
