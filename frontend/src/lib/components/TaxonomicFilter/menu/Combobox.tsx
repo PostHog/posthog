@@ -854,58 +854,17 @@ export function MenuFilterCombobox({
     // button as its prefix and the category dropdown as its suffix. The button
     // trigger keeps the quill input bar.
     const searchField = iconButton ? (
-        <Autocomplete.Input
+        <AutocompleteLemonInput
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            render={(autoProps) => {
-                // base-ui hands us the input's controlled props (role,
-                // aria-activedescendant, keyboard nav, ref…). Route them to
-                // LemonInput's inner input; value/onChange round-trip through
-                // `searchQuery` so we don't fight LemonInput's string onChange.
-                const {
-                    ref,
-                    value: _baseValue,
-                    onChange: _baseOnChange,
-                    className: _baseClassName,
-                    onKeyDown: baseOnKeyDown,
-                    ...rest
-                } = autoProps as Record<string, unknown> & { ref?: React.Ref<HTMLInputElement> }
-                // Feed both base-ui's ref (focus/aria) and the shared
-                // `inputRef` (popover `initialFocus`, category-select refocus).
-                const setFieldRef = (el: HTMLInputElement | null): void => {
-                    if (typeof ref === 'function') {
-                        ref(el)
-                    } else if (ref) {
-                        ;(ref as React.MutableRefObject<HTMLInputElement | null>).current = el
-                    }
-                    ;(inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el
-                }
-                return (
-                    <LemonInput
-                        // eslint-disable-next-line react/no-unknown-property
-                        {...(rest as Record<string, unknown>)}
-                        inputRef={setFieldRef}
-                        size="small"
-                        fullWidth
-                        prefix={iconButton}
-                        suffix={categorySelect ?? undefined}
-                        data-attr="menu-filter-search"
-                        placeholder={activePlaceholder}
-                        value={searchQuery}
-                        onChange={(next) => setSearchQuery(next)}
-                        onKeyDown={(e) => {
-                            handleInputKeyDown(e)
-                            if (!e.defaultPrevented) {
-                                ;(baseOnKeyDown as ((e: React.KeyboardEvent<HTMLInputElement>) => void) | undefined)?.(
-                                    e
-                                )
-                            }
-                        }}
-                        onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
-                            pastedCharsRef.current += e.clipboardData.getData('text').length
-                        }}
-                    />
-                )
+            onValueChange={setSearchQuery}
+            sharedInputRef={inputRef}
+            prefix={iconButton}
+            suffix={categorySelect ?? undefined}
+            placeholder={activePlaceholder}
+            data-attr="menu-filter-search"
+            onKeyDown={handleInputKeyDown}
+            onPaste={(e) => {
+                pastedCharsRef.current += e.clipboardData.getData('text').length
             }}
         />
     ) : (
@@ -1059,6 +1018,101 @@ export function MenuFilterCombobox({
                 </div>
             </Autocomplete.Root>
         </div>
+    )
+}
+
+interface AutocompleteLemonInputProps {
+    value: string
+    onValueChange: (value: string) => void
+    /** Set alongside base-ui's own ref, so callers (popover `initialFocus`,
+     *  category-select refocus) can reach the input element. */
+    sharedInputRef?: RefObject<HTMLInputElement | null>
+    prefix?: ReactElement
+    suffix?: ReactElement
+    placeholder?: string
+    'data-attr'?: string
+    /** Runs before base-ui's own keydown handler; base-ui's runs only when this
+     *  one didn't `preventDefault` (so Esc/Enter/Tab can take precedence over the
+     *  autocomplete's arrow-key navigation). */
+    onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
+    onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void
+}
+
+/**
+ * The single place that bridges base-ui's `Autocomplete.Input` onto a
+ * `LemonInput`. base-ui drives a controlled `<input>` through its `render` prop —
+ * value/onChange/ref/keyboard plus the combobox a11y attrs (`role`,
+ * `aria-activedescendant`, `aria-expanded`, …). `LemonInput`'s typed props don't
+ * include those a11y attrs but its inner `<input>` forwards unrecognised props,
+ * so we strip the props we drive ourselves and pass the rest through. Keeping the
+ * adapter in one named place (rather than inline in the combobox render) means a
+ * base-ui upgrade that changes how it drives the input has exactly one site to
+ * update. Validated against `@base-ui/react` 1.5.
+ */
+function AutocompleteLemonInput({
+    value,
+    onValueChange,
+    sharedInputRef,
+    prefix,
+    suffix,
+    placeholder,
+    onKeyDown,
+    onPaste,
+    'data-attr': dataAttr,
+}: AutocompleteLemonInputProps): JSX.Element {
+    return (
+        <Autocomplete.Input
+            value={value}
+            onChange={(e) => onValueChange(e.target.value)}
+            render={(autoProps) => {
+                // Type the incoming contract as input attributes (not `any`), then
+                // peel off the props we own — base-ui's value/onChange/className,
+                // its ref (merged below), and its keydown (composed below).
+                const {
+                    ref,
+                    value: _baseValue,
+                    onChange: _baseOnChange,
+                    className: _baseClassName,
+                    onKeyDown: baseOnKeyDown,
+                    ...baseInputAttrs
+                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
+                const setRef = (el: HTMLInputElement | null): void => {
+                    if (typeof ref === 'function') {
+                        ref(el)
+                    } else if (ref) {
+                        ;(ref as React.MutableRefObject<HTMLInputElement | null>).current = el
+                    }
+                    if (sharedInputRef) {
+                        ;(sharedInputRef as React.MutableRefObject<HTMLInputElement | null>).current = el
+                    }
+                }
+                return (
+                    <LemonInput
+                        // The remaining base-ui attrs (role, aria-activedescendant…)
+                        // are valid `<input>` attributes LemonInput forwards but
+                        // doesn't type — the one boundary cast the bridge needs.
+                        // eslint-disable-next-line react/no-unknown-property
+                        {...(baseInputAttrs as Record<string, unknown>)}
+                        inputRef={setRef}
+                        size="small"
+                        fullWidth
+                        prefix={prefix}
+                        suffix={suffix}
+                        data-attr={dataAttr}
+                        placeholder={placeholder}
+                        value={value}
+                        onChange={(next) => onValueChange(next)}
+                        onKeyDown={(e) => {
+                            onKeyDown?.(e)
+                            if (!e.defaultPrevented) {
+                                baseOnKeyDown?.(e)
+                            }
+                        }}
+                        onPaste={onPaste}
+                    />
+                )
+            }}
+        />
     )
 }
 

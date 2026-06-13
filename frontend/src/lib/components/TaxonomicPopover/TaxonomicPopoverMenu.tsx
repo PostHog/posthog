@@ -174,7 +174,13 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
                             size="icon-sm"
                             aria-label="Open filter menu"
                             data-attr="taxonomic-popover-menu-trigger"
-                            onClick={() => arm('menu')}
+                            // Stop the click bubbling to the LemonInput wrapper, whose
+                            // onClick focuses the input → onFocus arms the combobox.
+                            // Without this the icon would open the combobox, not the menu.
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                arm('menu')
+                            }}
                         >
                             <IconFilter />
                         </InputGroupButton>

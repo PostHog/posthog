@@ -141,17 +141,25 @@ type MenuOption = 'new' | 'recent' | 'pinned' | 'dwh' | 'hogql'
 let lastMenuClosedAtMs: number | null = null
 const QUICK_REOPEN_MS = 3000
 
-/** Distance from the input-trigger panel's top to its search field: the
- *  `MenuFilterHeader` (px-3 py-2 + sm button + border ≈ 41px) plus the input
- *  row's top padding (p-2 = 8px). Used to shift the panel up so the field lands
- *  over the trigger row. */
-const INPUT_TRIGGER_PANEL_HEADER_OFFSET = 49
+// The input-trigger panel is shifted up + left so its search field lands over
+// the trigger row (the input appears to stay put and only widen). The shift
+// equals the field's offset from the panel's top-left, summed from the pieces
+// that produce it — kept as named parts so a change to `MenuFilterHeader`'s
+// spacing or the input row's padding is visibly the thing to keep in sync here.
+const MENU_HEADER_PADDING_Y_PX = 16 // MenuFilterHeader `py-2` (top + bottom)
+const MENU_HEADER_BUTTON_HEIGHT_PX = 24 // "Go back" Button `size="sm"` (h-6)
+const MENU_HEADER_BORDER_PX = 1 // MenuFilterHeader `border-b`
+const SEARCH_ROW_PADDING_PX = 8 // search-field row `p-2` (one side)
+const PANEL_BORDER_PX = 1 // PopoverContent border
 
-/** The input-trigger panel's search field is inset from the panel's left edge
- *  by its border + the input row's left padding. Shift the panel left by this
- *  much so the field's box lands over the trigger box — the input appears not
- *  to move horizontally, only widen. */
-const INPUT_TRIGGER_PANEL_LEFT_INSET = 9
+/** Panel-top → search-field-top: the header (padding + button + border) plus the
+ *  search row's top padding. */
+const INPUT_TRIGGER_PANEL_HEADER_OFFSET =
+    MENU_HEADER_PADDING_Y_PX + MENU_HEADER_BUTTON_HEIGHT_PX + MENU_HEADER_BORDER_PX + SEARCH_ROW_PADDING_PX
+
+/** Panel-left → search-field-left: the panel border plus the search row's left
+ *  padding. */
+const INPUT_TRIGGER_PANEL_LEFT_INSET = PANEL_BORDER_PX + SEARCH_ROW_PADDING_PX
 
 /** Mirrors legacy `taxonomicFilterLogic`: staleness only applies to event /
  *  custom-event definitions that carry `last_seen_at`; `undefined` for every
@@ -434,10 +442,12 @@ export function TaxonomicFilterMenu({
     // table list.
     const popoverOpen = state.kind === 'combobox' || state.kind === 'dwh-pick' || state.kind === 'hogql-edit'
 
-    // The combobox (the only popover state that renders a search field) is what
-    // hosts the portaled input. In those states the trigger box yields its
-    // input slot; otherwise it shows its own plain input.
-    const externalInput = useInputTrigger && (state.kind === 'combobox' || state.kind === 'dwh-pick')
+    // `combobox` and `dwh-pick` render a search-field row, so in input-trigger
+    // mode the panel is shifted to overlay that field on the trigger box (and the
+    // trigger yields to an invisible spacer). `hogql-edit` is intentionally
+    // excluded: the code editor has no search-field row to align to, so it opens
+    // as a normal dropdown below the trigger.
+    const comboboxOverlaysTrigger = useInputTrigger && (state.kind === 'combobox' || state.kind === 'dwh-pick')
 
     // Filter-icon menu anchor, styled to match the scene (LemonButton). Lives
     // as the field's prefix — in the resting trigger box, and in the combobox's
@@ -603,7 +613,7 @@ export function TaxonomicFilterMenu({
                             fullWidth={fullWidthTrigger}
                             placeholder={inputTriggerPlaceholder}
                             value={searchQuery}
-                            spacerOnly={externalInput}
+                            spacerOnly={comboboxOverlaysTrigger}
                             onChange={(next) => {
                                 setSearchQuery(next)
                                 if (state.kind !== 'combobox') {
@@ -634,23 +644,25 @@ export function TaxonomicFilterMenu({
                     // the side fixed so it can't flip away from that alignment.
                     // Button trigger: a normal dropdown below the button.
                     sideOffset={
-                        externalInput ? ({ anchor }) => -(anchor.height + INPUT_TRIGGER_PANEL_HEADER_OFFSET) : 4
+                        comboboxOverlaysTrigger
+                            ? ({ anchor }) => -(anchor.height + INPUT_TRIGGER_PANEL_HEADER_OFFSET)
+                            : 4
                     }
                     // Pull the panel left so its inset search field aligns with
                     // the trigger box horizontally (input appears not to move).
-                    alignOffset={externalInput ? -INPUT_TRIGGER_PANEL_LEFT_INSET : 0}
+                    alignOffset={comboboxOverlaysTrigger ? -INPUT_TRIGGER_PANEL_LEFT_INSET : 0}
                     // Input trigger: pin both axes so the field stays over the
                     // trigger (no collision shift can break the alignment).
                     // Button trigger: keep it on the vertical axis, never beside.
                     collisionAvoidance={
-                        externalInput
+                        comboboxOverlaysTrigger
                             ? { side: 'none', align: 'none' }
                             : { side: 'flip', align: 'shift', fallbackAxisSide: 'none' }
                     }
                     container={popoverContainer ?? undefined}
                     // Focus the panel's search field on open (it's outside the
                     // popover's default focusable flow until rendered).
-                    initialFocus={externalInput ? comboboxInputRef : undefined}
+                    initialFocus={comboboxOverlaysTrigger ? comboboxInputRef : undefined}
                     className={cn(
                         'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]'
                     )}

@@ -93,6 +93,9 @@ describe('TaxonomicFilterMenu input trigger', () => {
         // Typing in the box replaces "New filter…", so it must not be offered.
         expect(screen.queryByTestId('taxonomic-filter-menu-new')).not.toBeInTheDocument()
         expect(screen.queryByText('New filter…')).not.toBeInTheDocument()
+        // The icon opens the menu, NOT the combobox — guards the `stopPropagation`
+        // that keeps the click from bubbling to the input's focus handler.
+        expect(screen.queryByTestId('menu-filter-search')).not.toBeInTheDocument()
     })
 
     it('opens the combobox search panel when the input is focused', async () => {
