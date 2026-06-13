@@ -114,7 +114,8 @@ function IdleInput(): JSX.Element {
                             }
                         }}
                         autoComplete="off"
-                        className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
+                        // pr reserves space for the absolutely-positioned "Tab to search" + arrow buttons so long text doesn't run under them
+                        className="w-full pl-1 pr-32 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
                         autoFocus
                     />
                     <div className="flex items-end shrink-0 absolute right-[0.5rem] bottom-[0.2rem]">
