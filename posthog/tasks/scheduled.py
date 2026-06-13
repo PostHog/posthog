@@ -67,6 +67,7 @@ from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_p
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.ai_observability.backend.tasks import sync_community_skills
 from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
@@ -342,6 +343,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="15"),
         send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
+    )
+
+    # Sync the community skills catalog from GitHub hourly
+    sender.add_periodic_task(
+        crontab(minute="20"),
+        sync_community_skills.s(),
+        name="sync community skills catalog",
     )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)

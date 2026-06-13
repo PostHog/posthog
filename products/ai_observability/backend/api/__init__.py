@@ -1,6 +1,7 @@
 from .clustering import AIObservabilityClusteringRunViewSet
 from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
+from .community_skills import CommunitySkillViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
 from .evaluation_config import EvaluationConfigViewSet
 from .evaluation_reports import EvaluationReportViewSet
@@ -25,6 +26,7 @@ from .translate import AIObservabilityTranslateViewSet
 __all__ = [
     "ClusteringConfigViewSet",
     "ClusteringJobViewSet",
+    "CommunitySkillViewSet",
     "AIObservabilityClusteringRunViewSet",
     "LLMModelsViewSet",
     "LLMProxyViewSet",

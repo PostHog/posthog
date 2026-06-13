@@ -1,5 +1,6 @@
 from .clustering_config import ClusteringConfig
 from .clustering_job import ClusteringJob
+from .community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier, CommunitySkillVote
 from .datasets import Dataset, DatasetItem
 from .evaluation_config import EvaluationConfig
 from .evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -18,6 +19,10 @@ from .trace_reviews import TraceReview, TraceReviewScore
 __all__ = [
     "ClusteringConfig",
     "ClusteringJob",
+    "CommunitySkill",
+    "CommunitySkillFile",
+    "CommunitySkillTrustTier",
+    "CommunitySkillVote",
     "Evaluation",
     "EvaluationConfig",
     "EvaluationReport",
