@@ -18,39 +18,6 @@ tools:
     event-filter-metrics-totals-retrieve:
         operation: event_filter_metrics_totals_retrieve
         enabled: false
-    groups-types-metrics-create:
-        operation: groups_types_metrics_create
-        enabled: false
-    groups-types-metrics-destroy:
-        operation: groups_types_metrics_destroy
-        enabled: false
-    groups-types-metrics-list:
-        operation: groups_types_metrics_list
-        enabled: false
-    groups-types-metrics-partial-update:
-        operation: groups_types_metrics_partial_update
-        enabled: false
-    groups-types-metrics-retrieve:
-        operation: groups_types_metrics_retrieve
-        enabled: false
-    groups-types-metrics-update:
-        operation: groups_types_metrics_update
-        enabled: false
-    hog-flows-metrics-global-retrieve:
-        operation: hog_flows_metrics_global_retrieve
-        enabled: false
-    hog-flows-metrics-retrieve:
-        operation: hog_flows_metrics_retrieve
-        enabled: false
-    hog-flows-metrics-totals-retrieve:
-        operation: hog_flows_metrics_totals_retrieve
-        enabled: false
-    hog-functions-metrics-retrieve:
-        operation: hog_functions_metrics_retrieve
-        enabled: false
-    hog-functions-metrics-totals-retrieve:
-        operation: hog_functions_metrics_totals_retrieve
-        enabled: false
     metric-names-list:
         operation: metrics_values_retrieve
         enabled: true
