@@ -287,6 +287,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
 
+    # remove version suffix from the restricted-property blob-strip UDF
+    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
+
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
 
