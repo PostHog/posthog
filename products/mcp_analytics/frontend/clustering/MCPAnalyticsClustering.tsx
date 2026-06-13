@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconSparkles, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Progress, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
@@ -374,51 +374,46 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
 
             <section className="flex flex-col gap-2">
                 <span className="text-xs uppercase text-muted font-medium">Tool routing breakdown</span>
-                <LemonTable
-                    embedded
-                    size="small"
-                    dataSource={[...cluster.tool_distribution]}
-                    rowKey={(row) => row.tool}
-                    columns={[
-                        {
-                            title: 'Tool',
-                            key: 'tool',
-                            render: (_, row) => <span className="font-mono">{row.tool}</span>,
-                        },
-                        {
-                            title: 'Calls',
-                            key: 'count',
-                            align: 'right',
-                            render: (_, row) => row.count.toLocaleString(),
-                        },
-                        {
-                            title: 'Share of cluster',
-                            key: 'pct',
-                            render: (_, row) => (
-                                <div className="flex items-center gap-2 min-w-[160px]">
-                                    <LemonProgress percent={row.pct} className="flex-1" />
-                                    <span className="text-xs text-muted tabular-nums w-10 text-right">
-                                        {row.pct.toFixed(1)}%
-                                    </span>
-                                </div>
-                            ),
-                        },
-                        {
-                            title: 'Errors',
-                            key: 'errors',
-                            align: 'right',
-                            render: (_, row) =>
-                                row.error_rate_pct > 0 ? (
-                                    <span className="text-danger tabular-nums">
-                                        {row.error_rate_pct.toFixed(1)}%{' '}
-                                        <span className="text-muted">({row.errors})</span>
-                                    </span>
-                                ) : (
-                                    <span className="text-muted">0%</span>
-                                ),
-                        },
-                    ]}
-                />
+                <div data-quill>
+                    <Table fullWidth>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead expand>Tool</TableHead>
+                                <TableHead align="right">Calls</TableHead>
+                                <TableHead>Share of cluster</TableHead>
+                                <TableHead align="right">Errors</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {cluster.tool_distribution.map((row) => (
+                                <TableRow key={row.tool}>
+                                    <TableCell expand>
+                                        <span className="font-mono">{row.tool}</span>
+                                    </TableCell>
+                                    <TableCell align="right">{row.count.toLocaleString()}</TableCell>
+                                    <TableCell>
+                                        <div className="flex min-w-[160px] items-center gap-2">
+                                            <Progress value={row.pct} className="flex-1" />
+                                            <span className="w-10 text-right text-xs tabular-nums text-muted">
+                                                {row.pct.toFixed(1)}%
+                                            </span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        {row.error_rate_pct > 0 ? (
+                                            <span className="tabular-nums text-danger">
+                                                {row.error_rate_pct.toFixed(1)}%{' '}
+                                                <span className="text-muted">({row.errors})</span>
+                                            </span>
+                                        ) : (
+                                            <span className="text-muted">0%</span>
+                                        )}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
             </section>
 
             <section className="flex flex-col gap-2">
