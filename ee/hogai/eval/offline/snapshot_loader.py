@@ -116,7 +116,7 @@ class SnapshotLoader:
         content = await response["Body"].read()
         return BytesIO(content)
 
-    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
+    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T]:
         for record in reader(buffer):
             yield schema.model_validate(record)
 

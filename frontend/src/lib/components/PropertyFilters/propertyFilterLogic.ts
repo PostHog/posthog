@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
@@ -59,6 +59,13 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     path((key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key]),
     props({} as PropertyFilterLogicProps),
     key((props) => props.pageKey),
+    propsChanged(({ actions, props }, oldProps) => {
+        // parseProperties so non-array shapes (PropertyGroup / legacy dicts) don't crash setFilters,
+        // matching the reducer's initial-state path.
+        if (!equal(props.propertyFilters ?? [], oldProps.propertyFilters ?? [])) {
+            actions.setFilters(props.propertyFilters ? parseProperties(props.propertyFilters) : [])
+        }
+    }),
 
     actions({
         update: true,

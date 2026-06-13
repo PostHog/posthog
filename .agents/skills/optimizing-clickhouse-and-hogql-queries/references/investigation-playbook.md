@@ -63,10 +63,17 @@ diagnosis, and stay open to a cause that is not listed here.
 
 1. **Unmaterialized property access (JSONExtract).** The number-one cause of extreme byte reads.
    `JSONExtract*(events.properties, …)` or `JSONExtract*(person_properties, …)` forces a read of the
-   full JSON blob per matching row. Confirm by searching the query text for `JSONExtract` / `JSONHas`;
-   then check whether the property has a `mat_<property>` column. Fix: materialize it (see the
-   JSON-operations smell in [`SKILL.md`](../SKILL.md) and the migration layer in its Step 5) or drop the
-   property filter. Person properties are the worst because the blobs are large.
+   full JSON blob per matching row. Confirm by searching the query text for `JSONExtract` / `JSONHas`.
+   The fix depends on where the `JSONExtract` came from. If it's **hand-written in a printer-path query**
+   (HogQL source that literally says `JSONExtractString(properties, 'X')`), the fix is to replace it with
+   property access `properties.X` for every such property and let the printer materialize — the column may
+   already be materialized in prod, so no migration is needed (see the JSON-operations smell in
+   [`SKILL.md`](../SKILL.md)). If the **source already uses `properties.X`** (or it's raw SQL that bypasses
+   the printer) and prod still emits `JSONExtract`, the property genuinely isn't materialized — then the
+   fix is to materialize it (the migration layer in `SKILL.md` Step 5) or drop the property filter. This
+   applies to both event and person property blobs: reading either as raw JSON can be up to ~100x slower
+   than reading a directly materialized (`mat_*` / `dmat_*`) column, and ~10x slower than a property group
+   read.
 2. **Session joins.** Joining `raw_sessions` / `sharded_sessions` (for `$session_duration` etc.) adds a
    full sessions scan. Look for `raw_sessions` in the text.
 3. **High-cardinality breakdowns.** A `breakdown_value` on something like a URL or an ID explodes the

@@ -2,11 +2,19 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 
 class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"}
+        ]
+        self.organization.save()
+
     def _create_key(self, user, **kwargs):
         return PersonalAPIKey.objects.create(
             user=user,
@@ -79,3 +87,13 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
         self._create_key(outsider, label="outsider")
 
         assert self.client.get(self._url()).json()["count"] == 0
+
+    def test_requires_organization_security_settings_feature(self):
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert response.json()["code"] == "payment_required"

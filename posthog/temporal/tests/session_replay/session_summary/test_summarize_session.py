@@ -30,9 +30,10 @@ from posthog.temporal.session_replay.session_summary.workflow import (
 )
 from posthog.temporal.tests.session_replay.session_summary.conftest import AsyncRedisTestContext
 
+from products.replay.backend.models.session_summaries import SingleSessionSummary
+
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.session_summaries import SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -178,7 +179,7 @@ class TestExecuteSummarizeSessionVideoStream:
 
     @staticmethod
     async def _collect(
-        generator: AsyncGenerator[str, None],
+        generator: AsyncGenerator[str],
     ) -> list[str]:
         return [event async for event in generator]
 

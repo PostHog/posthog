@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -20,6 +20,7 @@ from oauth2_provider.models import (
 )
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
@@ -107,6 +108,18 @@ class OAuthApplication(AbstractApplication):
         blank=True,
         null=False,
         help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+    )
+
+    # Generation marker for app-wide session revocation. A refresh presenting a token issued
+    # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
+    # can't slip new tokens past the one-shot bulk revoke.
+    sessions_revoked_at: models.DateTimeField = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an admin last force-revoked every session for this app. Tokens issued before this "
+            "are rejected on refresh, forcing re-authorization."
+        ),
     )
 
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
@@ -478,6 +491,34 @@ def revoke_oauth_session(
 
         # Delete all grants for this user+application
         OAuthGrant.objects.filter(user=user, application=application).delete()
+
+
+def revoke_application_sessions(application: "OAuthApplication") -> None:
+    """Force-invalidate every outstanding token and grant for an application, across all users.
+
+    Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
+    re-authorize under the new ceiling, instead of waiting for each token to hit its next
+    refresh (where `get_original_scopes` caps it).
+
+    Revokes refresh tokens before deleting access tokens, all in one transaction, so a
+    concurrent refresh can't mint a fresh access token in the gap and a mid-way failure
+    can't leave refresh tokens live after their access tokens are already gone.
+
+    Stamps `sessions_revoked_at` so a refresh that validated its (now-revoked) token before
+    this transaction committed is rejected when it tries to mint — DOT validates the refresh
+    token in autocommit, before its own transaction takes the row lock, so the bulk update
+    here would otherwise miss the tokens that racing refresh is about to create.
+
+    Grants are deleted before the token sweep: a racing code exchange locks its grant row at
+    mint (`_reject_code_exchange_racing_revoke`), so deleting grants first makes this
+    transaction block on that lock and re-snapshot the token sweep after the mint commits.
+    Sweeping tokens first would let the racing mint's tokens escape the sweep."""
+    now = timezone.now()
+    with transaction.atomic():
+        OAuthApplication.objects.filter(pk=application.pk).update(sessions_revoked_at=now)
+        OAuthGrant.objects.filter(application=application).delete()
+        OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
+        OAuthAccessToken.objects.filter(application=application).delete()
 
 
 def generate_random_token_cimd_verification() -> str:

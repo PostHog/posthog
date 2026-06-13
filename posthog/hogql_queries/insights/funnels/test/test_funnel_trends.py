@@ -33,8 +33,9 @@ from posthog.hogql import ast
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.models.cohort.cohort import Cohort
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"

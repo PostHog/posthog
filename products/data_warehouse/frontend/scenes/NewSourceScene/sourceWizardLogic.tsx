@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -290,7 +290,6 @@ function syncExpandedDirectQuerySchemaKeys(
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
-    tabId?: string
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
 }
@@ -298,7 +297,6 @@ export interface SourceWizardLogicProps {
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
-    key((props) => props.tabId ?? 'default'),
     actions({
         selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
             connector,

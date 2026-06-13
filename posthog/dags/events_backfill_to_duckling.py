@@ -28,14 +28,6 @@ Partition Strategy:
     DynamicPartitionsDefinition with composite keys: {team_id}_{date}
     - team_id maps to duckling via DuckLakeCatalog
     - date is the partition date (YYYY-MM-DD)
-
-Iceberg dual-write:
-    Teams in ICEBERG_BACKFILL_TEAM_IDS additionally dual-write each exported
-    Parquet file into their Iceberg (Lakekeeper) catalog alongside DuckLake.
-    Iceberg has no add_data_files equivalent, so the duckgres worker re-reads the
-    Parquet from S3 and writes Iceberg data + metadata via INSERT ... SELECT. The
-    Iceberg path is best-effort: any failure is logged but never aborts the
-    DuckLake backfill, which remains the source of truth for every team.
 """
 
 import os
@@ -1721,7 +1713,6 @@ def write_partition_to_iceberg(
 
     context.log.info(f"Iceberg dual-write succeeded for {table} team_id={team_id} from {s3_path}")
     logger.info("duckling_iceberg_write_success", table=table, team_id=team_id, s3_path=s3_path)
-    return True
 
 
 @asset(

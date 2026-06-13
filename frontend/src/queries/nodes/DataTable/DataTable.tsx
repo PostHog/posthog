@@ -52,7 +52,7 @@ import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -893,7 +893,10 @@ export function DataTable({
                     {showResultsTable && (
                         <div className="relative">
                             {usedWebAnalyticsLazyPrecompute ? (
-                                <PreAggregatedBadge variant="precomputed" />
+                                <PreAggregatedBadge
+                                    variant="precomputed"
+                                    onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
                             ) : null}

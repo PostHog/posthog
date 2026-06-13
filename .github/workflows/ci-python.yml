@@ -45,6 +45,7 @@ jobs:
                       python:
                         - 'pyproject.toml'
                         - 'uv.lock'
+                        - conftest.py # Root conftest loads for every pytest run
                         - 'ee/**/*.py'
                         - 'posthog/**/*'
                         - 'products/**/*.py'

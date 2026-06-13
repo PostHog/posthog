@@ -7,20 +7,24 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 from __future__ import annotations
 
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
+from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
+from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -30,6 +34,7 @@ from products.signals.backend.models import SignalProjectProfile, SignalReport, 
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
+    _business_knowledge,
     _existing_inbox_reports,
     _external_data_sources,
     _integrations,
@@ -586,6 +591,54 @@ class TestRecentActivity(BaseTest):
         return User.objects.create(email=email, distinct_id=email)
 
 
+class TestBusinessKnowledge(BaseTest):
+    def test_returns_zeroed_section_when_no_sources(self) -> None:
+        result = _business_knowledge(self.team)
+        assert result == {
+            "total_count": 0,
+            "ready_count": 0,
+            "document_count": 0,
+            "chunk_count": 0,
+            "recent": [],
+        }
+
+    def test_counts_ready_sources_and_aggregates_docs_and_chunks(self) -> None:
+        ready = KnowledgeSource.objects.create(team=self.team, name="Docs", source_type="text", status="ready")
+        processing = KnowledgeSource.objects.create(team=self.team, name="URLs", source_type="url", status="processing")
+        # doc1 carries 2 chunks — guards against join inflation in the shared aggregate.
+        doc1 = KnowledgeDocument.objects.create(team=self.team, source=ready, stable_id="d1")
+        doc2 = KnowledgeDocument.objects.create(team=self.team, source=ready, stable_id="d2")
+        KnowledgeDocument.objects.create(team=self.team, source=processing, stable_id="d3")
+        # Tombstoned doc (and its chunk) must not count toward searchable volume.
+        tombstoned = KnowledgeDocument.objects.create(
+            team=self.team, source=ready, stable_id="d4", tombstoned_at=timezone.now()
+        )
+        for i in range(2):
+            KnowledgeChunk.objects.create(
+                id=uuid4(), team=self.team, source=ready, document=doc1, ordinal=i, content="c", char_count=1
+            )
+        KnowledgeChunk.objects.create(
+            id=uuid4(), team=self.team, source=ready, document=doc2, ordinal=0, content="c", char_count=1
+        )
+        KnowledgeChunk.objects.create(
+            id=uuid4(), team=self.team, source=ready, document=tombstoned, ordinal=0, content="c", char_count=1
+        )
+
+        result = _business_knowledge(self.team)
+        assert result["total_count"] == 2
+        assert result["ready_count"] == 1
+        assert result["document_count"] == 3
+        assert result["chunk_count"] == 3
+        assert len(result["recent"]) == 2
+        assert result["recent"][0]["name"] in ("Docs", "URLs")
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        KnowledgeSource.objects.create(team=other, name="Other", source_type="text", status="ready")
+        result = _business_knowledge(self.team)
+        assert result["total_count"] == 0
+
+
 class TestBuildInventory(BaseTest):
     def test_returns_a_validated_inventory_with_all_sections(self) -> None:
         inventory = build_inventory(self.team)
@@ -609,6 +662,7 @@ class TestBuildInventory(BaseTest):
             "recent_notebooks",
             "recent_cohorts",
             "recent_actions",
+            "business_knowledge",
             "top_events",
         }
 

@@ -39,8 +39,8 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-function TaggerMetrics({ tabId }: { tabId?: string }): JSX.Element {
-    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic({ tabId }))
+function TaggerMetrics(): JSX.Element {
+    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic)
 
     const enabledCount = taggers.filter((t) => t.enabled && !t.deleted).length
 
@@ -103,8 +103,8 @@ function getTaggerProviderKeyIssue(tagger: Tagger, providerKeys: LLMProviderKey[
     return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
 }
 
-function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element {
-    const taggersLogic = llmTaggersLogic({ tabId })
+function AIObservabilityTagsContent(): JSX.Element {
+    const taggersLogic = llmTaggersLogic()
     const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap, tagDistributionMap } =
         useValues(taggersLogic)
     const { providerKeys } = useValues(llmProviderKeysLogic)
@@ -281,7 +281,7 @@ function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element 
 
             <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
-            <TaggerMetrics tabId={tabId} />
+            <TaggerMetrics />
 
             <div className="flex items-center gap-2">
                 <LemonInput
@@ -309,7 +309,7 @@ function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element 
     )
 }
 
-export function AIObservabilityTagsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function AIObservabilityTagsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     return (
         <SceneContent>
@@ -333,7 +333,7 @@ export function AIObservabilityTagsScene({ tabId }: { tabId?: string }): JSX.Ele
                     </AccessControlAction>
                 }
             />
-            <AIObservabilityTagsContent tabId={tabId} />
+            <AIObservabilityTagsContent />
         </SceneContent>
     )
 }

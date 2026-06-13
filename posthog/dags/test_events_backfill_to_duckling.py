@@ -16,30 +16,21 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
-    ICEBERG_BACKFILL_TEAM_IDS,
-    ICEBERG_EVENTS_PARTITION_EXPR,
-    ICEBERG_PERSONS_PARTITION_EXPR,
-    ICEBERG_PERSONS_TABLE_DDL,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
     _connection_dropped,
     _DuckgresSession,
     _get_cluster,
-    _set_iceberg_table_partitioning,
     _set_table_partitioning,
     _validate_identifier,
-    drop_iceberg_table,
     duckling_events_full_backfill_sensor,
-    ensure_iceberg_table_exists,
     get_months_in_range,
     get_s3_url_for_clickhouse,
-    iceberg_enabled_for_team,
     is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
     table_exists,
-    write_partition_to_iceberg,
 )
 
 
@@ -202,129 +193,6 @@ class TestPersonsDDL:
         conn.execute(ddl)
         conn.execute(ddl)
         conn.close()
-
-
-class TestIcebergDualWrite:
-    @parameterized.expand([(2, True), (1, False), (12345, False), (0, False)])
-    def test_iceberg_enabled_for_team(self, team_id, expected):
-        assert iceberg_enabled_for_team(team_id) is expected
-
-    def test_iceberg_backfill_team_ids_is_dogfood_only(self):
-        assert ICEBERG_BACKFILL_TEAM_IDS == {2}
-
-    def test_iceberg_persons_ddl_is_valid_sql_with_signed_version(self):
-        conn = duckdb.connect()
-        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        conn.execute(ICEBERG_PERSONS_TABLE_DDL.format(catalog="memory"))
-
-        result = conn.execute("DESCRIBE memory.posthog.persons").fetchall()
-        column_names = {row[0] for row in result}
-        types_by_name = {row[0]: row[1] for row in result}
-
-        assert column_names == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
-        # Iceberg has no unsigned types — person_version must be signed BIGINT, not UBIGINT.
-        assert types_by_name["person_version"] == "BIGINT"
-        conn.close()
-
-    def test_iceberg_persons_ddl_is_idempotent(self):
-        conn = duckdb.connect()
-        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = ICEBERG_PERSONS_TABLE_DDL.format(catalog="memory")
-        conn.execute(ddl)
-        conn.execute(ddl)
-        conn.close()
-
-    def test_ensure_iceberg_table_returns_false_when_catalog_unavailable(self):
-        # When the iceberg catalog isn't attached, CREATE SCHEMA raises — the
-        # helper must swallow it and disable Iceberg for the run, not fail.
-        conn = MagicMock()
-        conn.execute.side_effect = Exception("Catalog with name iceberg does not exist")
-        assert ensure_iceberg_table_exists(MagicMock(), conn, "events", EVENTS_TABLE_DDL) is False
-
-    def test_ensure_iceberg_table_returns_true_on_success(self):
-        conn = MagicMock()
-        assert ensure_iceberg_table_exists(MagicMock(), conn, "events", EVENTS_TABLE_DDL) is True
-
-    def test_ensure_iceberg_table_unpartitioned_without_expr(self):
-        conn = MagicMock()
-        ensure_iceberg_table_exists(MagicMock(), conn, "events", EVENTS_TABLE_DDL)
-        executed = " ".join(str(c.args[0]) for c in conn.execute.call_args_list)
-        assert "PARTITIONED BY" not in executed
-
-    def test_ensure_iceberg_table_appends_partition_clause(self):
-        conn = MagicMock()
-        assert (
-            ensure_iceberg_table_exists(
-                MagicMock(), conn, "events", EVENTS_TABLE_DDL, partition_expr=ICEBERG_EVENTS_PARTITION_EXPR
-            )
-            is True
-        )
-        executed = " ".join(str(c.args[0]) for c in conn.execute.call_args_list)
-        # Fresh tables are partitioned in the CREATE; existing tables are evolved via ALTER.
-        assert f"PARTITIONED BY ({ICEBERG_EVENTS_PARTITION_EXPR})" in executed
-        assert "ALTER TABLE" in executed and "SET PARTITIONED BY" in executed
-
-    def test_iceberg_partition_exprs_are_single_temporal_transform(self):
-        # Lakekeeper rejects multiple temporal transforms on one source column as
-        # redundant, so each spec must be a single day()/month() transform — not
-        # the multi-level year/month/day spec DuckLake uses.
-        assert ICEBERG_EVENTS_PARTITION_EXPR == "day(timestamp)"
-        assert ICEBERG_PERSONS_PARTITION_EXPR == "month(_timestamp)"
-        for expr in (ICEBERG_EVENTS_PARTITION_EXPR, ICEBERG_PERSONS_PARTITION_EXPR):
-            assert "," not in expr
-
-    def test_set_iceberg_partitioning_treats_redundant_as_success(self):
-        # Lakekeeper reports re-declaring an identical spec as "redundant"; that
-        # means the table is already partitioned the way we want — not an error.
-        conn = MagicMock()
-        conn.execute.side_effect = Exception("Cannot add redundant partition with source id 2 and transform `time`")
-        _set_iceberg_table_partitioning(MagicMock(), conn, "events", "day(timestamp)")  # must not raise
-
-    def test_set_iceberg_partitioning_is_non_fatal(self):
-        conn = MagicMock()
-        conn.execute.side_effect = Exception("some other partitioning failure")
-        _set_iceberg_table_partitioning(MagicMock(), conn, "events", "day(timestamp)")  # must not raise
-
-    def test_set_iceberg_partitioning_rejects_invalid_table(self):
-        with pytest.raises(ValueError) as exc_info:
-            _set_iceberg_table_partitioning(MagicMock(), MagicMock(), "events; DROP", "day(timestamp)")
-        assert "Invalid SQL identifier" in str(exc_info.value)
-
-    def test_write_partition_rejects_invalid_table(self):
-        with pytest.raises(ValueError) as exc_info:
-            write_partition_to_iceberg(
-                MagicMock(), MagicMock(), "events; DROP TABLE", "s3://b/f.parquet", 2, "timestamp", None
-            )
-        assert "Invalid SQL identifier" in str(exc_info.value)
-
-    @parameterized.expand(
-        [
-            ("daily_partition", datetime(2024, 1, 15)),
-            ("full_export_no_date", None),
-        ]
-    )
-    def test_write_partition_is_non_fatal_on_insert_failure(self, _name, partition_date):
-        # A failed Iceberg INSERT must never bubble up — DuckLake is the source
-        # of truth and its backfill must complete regardless. Covers both the
-        # daily partition-scoped DELETE and the full-export delete-by-team path.
-        conn = MagicMock()
-        conn.execute.side_effect = Exception("iceberg insert blew up")
-        result = write_partition_to_iceberg(
-            MagicMock(), conn, "events", "s3://b/f.parquet", 2, "timestamp", partition_date
-        )
-        assert result is False
-
-    def test_drop_iceberg_table_rejects_invalid_table(self):
-        with pytest.raises(ValueError) as exc_info:
-            drop_iceberg_table(MagicMock(), MagicMock(), "events; DROP")
-        assert "Invalid SQL identifier" in str(exc_info.value)
-
-    def test_drop_iceberg_table_is_non_fatal(self):
-        # delete_tables wipes DuckLake; the Iceberg drop is best-effort and must
-        # not raise even when the catalog isn't attached for this org.
-        conn = MagicMock()
-        conn.execute.side_effect = Exception("Catalog with name iceberg does not exist")
-        drop_iceberg_table(MagicMock(), conn, "events")  # must not raise
 
 
 class TestParsePartitionKeyDates:
@@ -847,69 +715,6 @@ class TestDuckLakeAddDataFilesPartitioning:
                 f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
                 f" schema => 'posthog', hive_partitioning => false)"
             )
-
-
-class TestIcebergInsertByNameHivePartitioning:
-    """Regression tests for the Iceberg dual-write INSERT ... BY NAME.
-
-    read_parquet() auto-detects the Hive year=/month=/day= keys in the S3 path
-    and synthesizes year/month/day columns. INSERT ... BY NAME then tries to map
-    those into the events table, which has no such columns, producing a binder
-    error. Disabling hive_partitioning keeps read_parquet to the real data
-    columns. These reuse TestDuckLakeAddDataFilesPartitioning's catalog fixture.
-    """
-
-    ducklake_env = TestDuckLakeAddDataFilesPartitioning.ducklake_env
-
-    def _hive_partitioned_parquet(self, parquet_dir):
-        dest = os.path.join(parquet_dir, "2", "year=2026", "month=03", "day=30")
-        os.makedirs(dest, exist_ok=True)
-        path = os.path.join(dest, "run.parquet")
-        os.link(os.path.join(parquet_dir, "events.parquet"), path)
-        return path
-
-    def test_insert_by_name_default_hive_partitioning_fails(self, ducklake_env):
-        # Reproduces the production error: BY NAME can't map the inferred day column.
-        conn, parquet_dir = ducklake_env
-        path = self._hive_partitioned_parquet(parquet_dir)
-        with pytest.raises(duckdb.BinderException, match='column with name "day"'):
-            conn.execute(f"INSERT INTO test_lake.posthog.events BY NAME SELECT * FROM read_parquet('{path}')")
-
-    def test_insert_by_name_hive_partitioning_false_succeeds(self, ducklake_env):
-        conn, parquet_dir = ducklake_env
-        path = self._hive_partitioned_parquet(parquet_dir)
-        conn.execute(
-            f"INSERT INTO test_lake.posthog.events BY NAME "
-            f"SELECT * FROM read_parquet('{path}', hive_partitioning=false)"
-        )
-        result = conn.execute("SELECT count(*) FROM test_lake.posthog.events").fetchone()
-        assert result[0] == 1
-
-    def test_write_partition_emits_hive_partitioning_false(self):
-        # Guards the production code path itself (the tests above only exercise
-        # hand-written SQL): write_partition_to_iceberg must emit a read_parquet
-        # that disables Hive inference, or BY NAME breaks on the path's
-        # year/month/day keys again.
-        executed: list[str] = []
-        conn = MagicMock()
-        conn.execute.side_effect = lambda stmt, *a, **k: executed.append(
-            stmt.as_string(None) if hasattr(stmt, "as_string") else str(stmt)
-        )
-
-        result = write_partition_to_iceberg(
-            MagicMock(),
-            conn,
-            "events",
-            "s3://bucket/backfill/events/2/year=2026/month=05/day=31/run.parquet",
-            2,
-            "timestamp",
-            datetime(2026, 5, 31),
-        )
-
-        assert result is True
-        insert_sql = next(s for s in executed if "read_parquet" in s)
-        assert "BY NAME" in insert_sql
-        assert "hive_partitioning=false" in insert_sql
 
 
 class TestDucklingConcurrencyTags:

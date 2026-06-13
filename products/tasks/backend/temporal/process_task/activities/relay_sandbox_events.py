@@ -14,6 +14,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.models import TaskRun as TaskRunModel
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
@@ -62,7 +63,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
 
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key, task_run.created_at)
+    redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
     await redis_stream.initialize()
 
     created_by = task_run.task.created_by

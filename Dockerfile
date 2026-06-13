@@ -67,12 +67,22 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # problem (missing secret, CLI download / network / auth failure): in that case the status is
 # "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
 # which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
+#
+# The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
+# the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
+# To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
+#   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
+ARG POSTHOG_CLI_VERSION=0.7.22
+ARG POSTHOG_CLI_INSTALLER_SHA256=9bfeafcfb6f3acd2d15e3fad267b3c22b26d6aa0a28497e3f1a214f143f66219
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
     if ( \
         [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
         apt-get update && \
         apt-get install -y --no-install-recommends ca-certificates curl && \
-        curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
+            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
+        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
+        sh /tmp/posthog-cli-installer.sh && \
         export PATH="/root/.posthog:$PATH" && \
         export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
         export POSTHOG_CLI_ENV_ID=2 && \
@@ -170,8 +180,9 @@ COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 
-# Copy the built frontend assets and also the products.json file
-COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+# Copy the sourcemap-processed frontend assets and also the products.json file. The CLI injects
+# chunk IDs into JS before uploading maps, so the runtime JS must come from the same processed tree.
+COPY --from=sourcemap-upload /code/frontend/dist /code/frontend/dist
 COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
@@ -219,6 +230,11 @@ FROM unit:1.34.2-python3.13
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+# Unit embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
+# coercion never runs and open() defaults to ASCII under the container's bare locale.
+# Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
+ENV PYTHONUTF8 1
+ENV LANG C.UTF-8
 ARG UNIT_GIT_TAG=1.35.0
 ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
 
@@ -273,7 +289,9 @@ RUN apt-get update && \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
     "libxml2" \
-    "libssl3=3.0.19-1~deb12u2" \
+    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # point releases out of the security archive, which breaks exact pins on uncached builds.
+    "libssl3=3.0.*" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -323,7 +341,7 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
     && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
     && node --version \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/include/node \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/include/node \
     && rm -rf /tmp/*
 
 # Install and use a non-root user.

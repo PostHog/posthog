@@ -48,9 +48,10 @@ function buildStreamableClient(
     return { client, transport }
 }
 
-function buildExecModeClient(
-    harness: ProtocolTestHarness
-): { client: Client; transport: StreamableHTTPClientTransport } {
+function buildExecModeClient(harness: ProtocolTestHarness): {
+    client: Client
+    transport: StreamableHTTPClientTransport
+} {
     const transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
         fetch: harness.fetch,
         requestInit: {
@@ -1591,10 +1592,12 @@ export function defineExecModeTests(
             await safeClose(client)
         })
 
-        it('lists only the exec tool when in cli mode', async () => {
+        it('lists the exec umbrella tool in cli mode', async () => {
             const { tools } = await client.listTools()
-            expect(tools).toHaveLength(1)
-            expect(tools[0]!.name).toBe('exec')
+            // The sibling `render-ui` tool is gated behind the `mcp-render-ui` flag,
+            // which is off in this environment (analytics client disabled), so the
+            // cli-mode roster collapses to just `exec`.
+            expect(tools.map((t) => t.name).sort()).toEqual(['exec'])
         })
 
         it('exec "tools" lists available inner tools', async () => {

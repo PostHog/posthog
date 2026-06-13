@@ -75,7 +75,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             },
         ],
         recommendationsLoading: [
-            false,
+            true,
             {
                 setRecommendationsLoading: (_, { loading }) => loading,
             },

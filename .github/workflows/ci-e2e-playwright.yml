@@ -16,6 +16,11 @@ on:
     push:
         branches:
             - master
+    # Required so `Playwright tests pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already runs
+    # in full on every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 permissions:
     contents: read
@@ -72,10 +77,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         # Run on master push, manual dispatch, and on internal-repo PRs.
+        # Skipped on merge_group (explicitly, though the allowlist below would
+        # also skip it implicitly) — see the trigger comment above.
         if: |
+            github.event_name != 'merge_group' && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            github.event.pull_request.head.repo.full_name == github.repository
+            github.event.pull_request.head.repo.full_name == github.repository)
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}

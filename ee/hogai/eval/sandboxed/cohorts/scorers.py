@@ -36,7 +36,7 @@ COHORTS_UPDATE_TOOL = "cohorts-partial-update"
 COHORTS_ADD_PERSONS_TOOL = "cohorts-add-persons-to-static-cohort-partial-update"
 
 # Column names ``print_cohort_hogql_query`` accepts for actor extraction, in
-# priority order — keep in sync with posthog/models/cohort/util.py.
+# priority order — keep in sync with products/cohorts/backend/models/util.py.
 ID_COLUMN_NAMES: tuple[str, ...] = ("person_id", "actor_id", "id", "distinct_id")
 
 
