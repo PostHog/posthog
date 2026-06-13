@@ -20,6 +20,7 @@ from posthog.dags.events_backfill_to_duckling import (
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
     _connection_dropped,
+    _duckgres_backfill_options,
     _DuckgresSession,
     _get_cluster,
     _set_table_partitioning,
@@ -764,17 +765,42 @@ class TestConnectionDropped:
         [
             ("constraint", "Constraint Error: duplicate key value"),
             ("generic_unavailable", "Catalog Error: schema unavailable for team"),
+            # duckgres prefixes EVERY worker-side SQL error with "flight execute",
+            # so these are flight-wrapped genuine engine errors. They must NOT be
+            # classified as transport drops (else they'd be retried 4x). This pins
+            # that we match on transport phrases, not the "flight execute" prefix.
+            (
+                "flight_wrapped_oom",
+                "flight execute update: rpc error: code = Internal desc = Out of Memory Error: "
+                "failed to allocate 4.0 GiB (limit 16.0 GiB)",
+            ),
+            (
+                "flight_wrapped_binder",
+                "flight execute: rpc error: code = InvalidArgument desc = Binder Error: "
+                'Referenced column "nope" not found',
+            ),
         ]
     )
     def test_internal_error_real_sql_error_is_not_dropped(self, _label, msg):
         # A genuine engine error (not a transport failure) must propagate, not retry.
         assert _connection_dropped(psycopg.InternalError(msg)) is False
 
+    def test_internal_error_non_unavailable_transport_drop_is_dropped(self):
+        # A torn stream can carry a gRPC code other than Unavailable; the
+        # transport-phrase markers (here "transport:") still catch it.
+        msg = "flight execute: rpc error: code = Internal desc = transport: error while reading: EOF"
+        assert _connection_dropped(psycopg.InternalError(msg)) is True
+
     @parameterized.expand(
         [
             ("disk_full", psycopg.errors.DiskFull()),
             ("undefined_table", psycopg.errors.UndefinedTable()),
             ("value_error", ValueError("nope")),
+            # Classification-gap pins (current intended behavior): a server-side
+            # statement cancel and a bare InterfaceError with no transport marker
+            # are NOT treated as worker-drops — they propagate rather than retry.
+            ("query_canceled", psycopg.errors.QueryCanceled("canceling statement due to user request")),
+            ("bare_interface_error", psycopg.InterfaceError("the connection is closed")),
         ]
     )
     def test_non_connection_errors_are_not_dropped(self, _label, exc):
@@ -838,3 +864,54 @@ class TestDuckgresSessionRetry:
             session.run("op", op)
         assert op.call_count == 1
         assert mock_connect.call_count == 1  # no reconnect on a real SQL error
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_replay_runs_against_fresh_connection(self, mock_connect, _sleep):
+        # The whole point of the fix: each replay must execute against the NEW
+        # worker connection, not the dead one, and the prior connection must be
+        # closed on reconnect.
+        conn0, conn1, conn2 = MagicMock(name="conn0"), MagicMock(name="conn1"), MagicMock(name="conn2")
+        mock_connect.side_effect = [conn0, conn1, conn2]
+        session = _DuckgresSession(MagicMock(), MagicMock())
+
+        seen_conns = []
+
+        def op(conn):
+            seen_conns.append(conn)
+            if len(seen_conns) < 3:
+                raise psycopg.InternalError("connection reset by peer")
+            return "ok"
+
+        assert session.run("op", op) == "ok"
+        # attempt 1 → conn0 (initial), attempt 2 → conn1 (reconnect), attempt 3 → conn2
+        assert seen_conns == [conn0, conn1, conn2]
+        # _reconnect closes the prior (dead) connection before acquiring a fresh one
+        conn0.close.assert_called_once()
+        conn1.close.assert_called_once()
+
+
+class TestDuckgresBackfillOptions:
+    """_duckgres_backfill_options() builds the libpq startup `options` string that
+    sizes/schedules the duckgres worker; it must request a small colocated worker
+    when enabled and never emit a statement_timeout (removed on purpose).
+    """
+
+    def test_enabled_requests_small_colocated_worker(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True):
+            assert (
+                _duckgres_backfill_options()
+                == "-c duckgres.colocate=true -c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
+            )
+
+    def test_disabled_returns_empty_string(self):
+        # Disabled → no startup options → falls back to the default exclusive worker.
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False):
+            assert _duckgres_backfill_options() == ""
+
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_never_sets_statement_timeout(self, _label, enabled):
+        # The 5-minute statement_timeout was removed deliberately; it must never
+        # reappear in the options on either path (long OLAP backfills are the point).
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", enabled):
+            assert "statement_timeout" not in _duckgres_backfill_options()

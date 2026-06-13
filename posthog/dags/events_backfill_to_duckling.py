@@ -216,6 +216,16 @@ _CONNECTION_DROPPED_SQLSTATES = {
     "57P03",  # cannot_connect_now
 }
 
+# Transport/connection-loss phrases ONLY. Deliberately NOT "flight execute":
+# duckgres prefixes essentially every worker-side SQL error with "flight execute"
+# (server/flightclient/flight_executor.go), so matching it would treat genuine,
+# non-retryable engine errors as recoverable — most dangerously a worker OOM
+# ("Out of Memory Error", mapped to XX000 → psycopg.InternalError), which is more
+# likely now that backfills run on small 16Gi colocated workers, and must NOT be
+# retried 4x. A real transport drop still carries one of these gRPC/libpq phrases
+# (e.g. the observed "flight execute update: rpc error: code = Unavailable desc =
+# error reading from server: EOF" matches on "code = unavailable" +
+# "error reading from server"), so dropping the prefix marker loses no coverage.
 _CONNECTION_DROPPED_MARKERS = (
     "broken pipe",
     "code = unavailable",
@@ -227,7 +237,6 @@ _CONNECTION_DROPPED_MARKERS = (
     "consuming input failed",
     "eof detected",
     "error reading from server",
-    "flight execute",
     "server closed the connection",
     "terminating connection due to administrator command",
     "transport:",
@@ -267,14 +276,26 @@ class _DuckgresSession:
     """A duckgres connection that transparently reconnects to a fresh worker when
     the current worker drops mid-statement.
 
-    Duckling backfill duckgres ops (partition DELETE, file registration, table
-    DDL) are idempotent and transactional, so replaying one on a new worker after
-    a mid-statement worker death is safe: an uncommitted DuckLake transaction
-    leaves no trace, and re-running a day's DELETE/register reproduces the same
-    state. A worker pod can disappear under a long-running statement for many
-    reasons (node consolidation, a control-plane rollout, an engine crash); the
-    backfill should survive that by re-acquiring a worker, not fail the whole
-    partition on the first blip.
+    A worker pod can disappear under a long-running statement for many reasons
+    (node consolidation, a control-plane rollout, an engine crash); the backfill
+    should survive that by re-acquiring a worker, not fail the whole partition on
+    the first blip. run() replays the op on a fresh connection when that happens.
+
+    Replay safety is the caller's responsibility — an op handed to run() MUST be
+    idempotent, because a worker can die in the at-least-once window (it COMMITTED
+    the DuckLake transaction, then the connection dropped before the client saw
+    the ack), in which case the replay re-runs an already-applied op. The backfill
+    ops satisfy this:
+      - the ranged partition DELETE is idempotent (re-deleting an emptied range
+        is a 0-row no-op);
+      - CREATE TABLE/SCHEMA IF NOT EXISTS, SET PARTITIONED BY, and the read-only
+        schema validation are idempotent;
+      - file registration via `ducklake_add_data_files` is NOT idempotent on its
+        own (it APPENDS a data-file entry with no dedup-by-path, so a replay would
+        double-register the file → duplicate rows). The register ops are therefore
+        wrapped so the replay unit is "DELETE the day's range, then add the file":
+        re-running that reproduces exactly the day's file regardless of where the
+        prior attempt died. Never hand a bare `ducklake_add_data_files` to run().
     """
 
     MAX_ATTEMPTS = 4
@@ -1018,13 +1039,18 @@ def delete_events_partition_data(
     except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         context.log.debug(f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}")
         return 0
-    except Exception:
-        context.log.exception(f"Failed to delete events for team_id={team_id}, date={date_str}")
-        logger.exception(
-            "duckling_events_delete_failed",
-            team_id=team_id,
-            date=date_str,
-        )
+    except Exception as exc:
+        # A worker/connection drop here is transparently retried by the caller
+        # (_DuckgresSession.run reconnects + replays), so don't emit a loud
+        # ERROR/_failed log + false alert for a failure that will recover — let it
+        # propagate quietly. Only a genuine failure gets the loud log.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to delete events for team_id={team_id}, date={date_str}")
+            logger.exception(
+                "duckling_events_delete_failed",
+                team_id=team_id,
+                date=date_str,
+            )
         raise
 
 
@@ -1086,13 +1112,16 @@ def delete_persons_partition_data(
     except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
         return 0
-    except Exception:
-        context.log.exception(f"Failed to delete persons for team_id={team_id}, date={date_label}")
-        logger.exception(
-            "duckling_persons_delete_failed",
-            team_id=team_id,
-            date=date_label,
-        )
+    except Exception as exc:
+        # Connection drops are retried by the caller (_DuckgresSession.run); only
+        # log loudly for genuine failures so a recovered drop doesn't false-alert.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to delete persons for team_id={team_id}, date={date_label}")
+            logger.exception(
+                "duckling_persons_delete_failed",
+                team_id=team_id,
+                date=date_label,
+            )
         raise
 
 
@@ -1227,13 +1256,16 @@ def register_file_with_duckling(
                 psql.Literal(s3_path),
             )
         )
-    except Exception:
-        context.log.exception(f"Failed to register file {s3_path}")
-        logger.exception(
-            "duckling_file_registration_failed",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
+    except Exception as exc:
+        # Connection drops are retried by the caller (_DuckgresSession.run); only
+        # log loudly for genuine failures so a recovered drop doesn't false-alert.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to register file {s3_path}")
+            logger.exception(
+                "duckling_file_registration_failed",
+                s3_path=s3_path,
+                team_id=catalog.team_id,
+            )
         raise
 
     context.log.info(f"Successfully registered: {s3_path}")
@@ -1421,13 +1453,16 @@ def register_persons_file_with_duckling(
                 psql.Literal(s3_path),
             )
         )
-    except Exception:
-        context.log.exception(f"Failed to register persons file {s3_path}")
-        logger.exception(
-            "duckling_persons_file_registration_failed",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
+    except Exception as exc:
+        # Connection drops are retried by the caller (_DuckgresSession.run); only
+        # log loudly for genuine failures so a recovered drop doesn't false-alert.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to register persons file {s3_path}")
+            logger.exception(
+                "duckling_persons_file_registration_failed",
+                s3_path=s3_path,
+                team_id=catalog.team_id,
+            )
         raise
 
     context.log.info(f"Successfully registered persons: {s3_path}")
@@ -1570,7 +1605,18 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                 s3_paths.append(s3_path)
                 if session is not None:
 
-                    def register_events_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                    def register_events_file(
+                        conn: psycopg.Connection[Any],
+                        path: str = s3_path,
+                        date: datetime = partition_date,
+                    ) -> bool:
+                        # Idempotent replay unit: ducklake_add_data_files APPENDS with no
+                        # dedup-by-path, so if a prior attempt committed the registration
+                        # but the worker died before the client saw the ack, re-clear the
+                        # day's range first (idempotent DELETE) then re-add — the net state
+                        # is exactly this file for the day, wherever the prior attempt died.
+                        if config.cleanup_existing_partition_data:
+                            delete_events_partition_data(context, catalog, team_id, date, conn=conn)
                         return register_file_with_duckling(context, catalog, path, config, conn)
 
                     if session.run(f"register events file {date_str}", register_events_file):
@@ -1735,6 +1781,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             if s3_path and session is not None:
 
                 def register_full_persons_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                    # Idempotent replay unit (see _DuckgresSession): re-clear all of the
+                    # team's persons (idempotent DELETE) then re-add, so a replay after a
+                    # committed-but-unacked registration can't double-register the file.
+                    if config.cleanup_existing_partition_data:
+                        delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=conn)
                     return register_persons_file_with_duckling(context, catalog, path, config, conn)
 
                 if session.run("register persons file (full)", register_full_persons_file):
@@ -1804,7 +1855,16 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                     total_exported += 1
                     if session is not None:
 
-                        def register_persons_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                        def register_persons_file(
+                            conn: psycopg.Connection[Any],
+                            path: str = s3_path,
+                            date: datetime = partition_date,
+                        ) -> bool:
+                            # Idempotent replay unit (see _DuckgresSession): re-clear the
+                            # day's range (idempotent DELETE) then re-add, so a replay after
+                            # a committed-but-unacked registration can't double-register.
+                            if config.cleanup_existing_partition_data:
+                                delete_persons_partition_data(context, catalog, team_id, date, conn=conn)
                             return register_persons_file_with_duckling(context, catalog, path, config, conn)
 
                         if session.run(f"register persons file {date_str}", register_persons_file):
