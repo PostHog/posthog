@@ -1392,6 +1392,78 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('sandbox prewarm', () => {
+        const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+        function idleSandboxConversation(): ConversationDetail {
+            return {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Sandbox chat',
+                user: MOCK_DEFAULT_BASIC_USER,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                type: ConversationType.Assistant,
+                agent_runtime: 'sandbox',
+                task: { id: 'task-1', current_run_id: null },
+                messages: [],
+            }
+        }
+
+        async function mountIdleSandbox(): Promise<void> {
+            logic.unmount()
+            jest.spyOn(api.conversations, 'get').mockResolvedValue(idleSandboxConversation())
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                panelId: 'test',
+                conversation: idleSandboxConversation(),
+            })
+            logic.mount()
+            await flush()
+        }
+
+        it('releases a warm sandbox abandoned while the warm POST was still in flight', async () => {
+            await mountIdleSandbox()
+
+            let resolvePrewarm: () => void = () => {}
+            const prewarmSpy = jest
+                .spyOn(api.conversations, 'prewarm')
+                .mockReturnValue(new Promise<void>((resolve) => (resolvePrewarm = resolve)) as any)
+            const releaseSpy = jest.spyOn(api.conversations, 'prewarmRelease').mockResolvedValue(undefined as any)
+
+            // Warm starts; the POST is in flight (not yet resolved).
+            logic.actions.prewarmSandbox()
+            await flush()
+            expect(prewarmSpy).toHaveBeenCalledTimes(1)
+
+            // User abandons the input before the warm resolves — the release can't issue a DELETE
+            // yet (nothing is warm), so it must be deferred, not dropped.
+            logic.actions.releaseSandboxPrewarm()
+            await flush()
+            expect(releaseSpy).not.toHaveBeenCalled()
+
+            // The warm POST resolves — the deferred release fires so the sandbox isn't leaked.
+            resolvePrewarm()
+            await flush()
+            await flush()
+            expect(releaseSpy).toHaveBeenCalledTimes(1)
+            expect(releaseSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+        })
+
+        it('does not release a warm that resolved with no pending abandon', async () => {
+            await mountIdleSandbox()
+
+            jest.spyOn(api.conversations, 'prewarm').mockResolvedValue(undefined as any)
+            const releaseSpy = jest.spyOn(api.conversations, 'prewarmRelease').mockResolvedValue(undefined as any)
+
+            logic.actions.prewarmSandbox()
+            await flush()
+            await flush()
+
+            expect(releaseSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('filteredCommands runtime filter', () => {
         function setRuntime(runtime: 'langgraph' | 'sandbox'): void {
             logic.actions.setConversation({

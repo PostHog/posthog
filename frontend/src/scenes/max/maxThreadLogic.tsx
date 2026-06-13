@@ -1010,9 +1010,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             cache.prewarming = true
+            cache.pendingRelease = false
             try {
                 await api.conversations.prewarm(values.conversationId)
                 cache.prewarmed = true
+                // If the user abandoned the input while this POST was in flight, the blur/empty
+                // release hit the early-exit (nothing was warm yet). Honor it now so the freshly
+                // warmed sandbox isn't leaked until the agent-server's idle self-cancel.
+                if (cache.pendingRelease) {
+                    cache.pendingRelease = false
+                    actions.releaseSandboxPrewarm()
+                }
             } catch (e) {
                 // Pre-warming is best-effort latency optimization; a failure just means the first
                 // message takes the cold path. Don't surface it to the user.
@@ -1025,6 +1033,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             cache.disposables.dispose('prewarm-debounce')
             cache.disposables.dispose('prewarm-release')
             if (!cache.prewarmed || !values.conversationId) {
+                // A warm POST may still be in flight — record the intent so its success handler
+                // releases the sandbox instead of dropping the request on the floor.
+                if (cache.prewarming) {
+                    cache.pendingRelease = true
+                }
                 cache.prewarmed = false
                 return
             }
@@ -1172,6 +1185,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             cache.disposables.dispose('prewarm-debounce')
             cache.disposables.dispose('prewarm-release')
             cache.prewarmed = false
+            // A sent message consumes the warm — drop any in-flight release intent so the
+            // run the message follows up on isn't cancelled out from under it.
+            cache.pendingRelease = false
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
             // not just when active. Otherwise a typed turn following a spoken one inherits
