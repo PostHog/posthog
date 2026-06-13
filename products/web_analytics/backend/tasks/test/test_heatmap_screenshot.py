@@ -1,4 +1,5 @@
 import os
+import tempfile
 from contextlib import contextmanager
 from typing import Any
 
@@ -615,10 +616,12 @@ class TestLaunchLocalBrowser(SimpleTestCase):
             assert p.chromium.launch.call_args.kwargs["executable_path"] is None
 
     def test_uses_chrome_bin_when_it_points_at_an_existing_path(self) -> None:
-        with patch.dict(os.environ, {"CHROME_BIN": __file__}):
-            p = MagicMock()
-            _launch_local_browser(p)
-            assert p.chromium.launch.call_args.kwargs["executable_path"] == __file__
+        with tempfile.NamedTemporaryFile() as chrome_bin:
+            os.chmod(chrome_bin.name, 0o755)
+            with patch.dict(os.environ, {"CHROME_BIN": chrome_bin.name}):
+                p = MagicMock()
+                _launch_local_browser(p)
+                assert p.chromium.launch.call_args.kwargs["executable_path"] == chrome_bin.name
 
     def test_raises_config_error_when_chrome_bin_points_at_missing_path(self) -> None:
         with patch.dict(os.environ, {"CHROME_BIN": "/nonexistent/chromium"}):

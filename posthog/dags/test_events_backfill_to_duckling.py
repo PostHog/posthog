@@ -19,6 +19,8 @@ from posthog.dags.events_backfill_to_duckling import (
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
+    _connection_dropped,
+    _DuckgresSession,
     _get_cluster,
     _set_table_partitioning,
     _validate_identifier,
@@ -728,3 +730,111 @@ class TestDucklingConcurrencyTags:
     def test_backfill_carries_shared_concurrency_key(self, _name, tag_dict):
         ((shared_key, shared_value),) = DUCKLING_BACKFILL_CONCURRENCY_TAG.items()
         assert tag_dict[shared_key] == shared_value
+
+
+class TestConnectionDropped:
+    """_connection_dropped decides which errors mean "the worker/connection went
+    away, reconnect to a fresh worker" vs. a real SQL error that must propagate.
+    """
+
+    @parameterized.expand(
+        [
+            ("connection_exception", psycopg.errors.ConnectionException()),
+            ("server_closed", psycopg.OperationalError("server closed the connection unexpectedly")),
+            ("connection_lost", psycopg.OperationalError("connection to server was lost")),
+        ]
+    )
+    def test_operational_error_connection_loss_is_dropped(self, _label, exc):
+        assert _connection_dropped(exc) is True
+
+    @parameterized.expand(
+        [
+            # The exact shape the control plane surfaced when the backfill worker
+            # pod died mid-DELETE (gRPC Unavailable wrapping a reset socket).
+            ("reset", "flight execute update: rpc error: code = Unavailable desc = ...: connection reset by peer"),
+            ("refused", "transport: Error while dialing: dial tcp 10.0.0.1:8816: connect: connection refused"),
+            ("unavailable", "rpc error: code = Unavailable"),
+            ("reading", "error reading from server"),
+        ]
+    )
+    def test_internal_error_worker_gone_is_dropped(self, _label, msg):
+        assert _connection_dropped(psycopg.InternalError(msg)) is True
+
+    @parameterized.expand(
+        [
+            ("constraint", "Constraint Error: duplicate key value"),
+            ("generic_unavailable", "Catalog Error: schema unavailable for team"),
+        ]
+    )
+    def test_internal_error_real_sql_error_is_not_dropped(self, _label, msg):
+        # A genuine engine error (not a transport failure) must propagate, not retry.
+        assert _connection_dropped(psycopg.InternalError(msg)) is False
+
+    @parameterized.expand(
+        [
+            ("disk_full", psycopg.errors.DiskFull()),
+            ("undefined_table", psycopg.errors.UndefinedTable()),
+            ("value_error", ValueError("nope")),
+        ]
+    )
+    def test_non_connection_errors_are_not_dropped(self, _label, exc):
+        assert _connection_dropped(exc) is False
+
+
+class TestDuckgresSessionRetry:
+    """_DuckgresSession reconnects to a fresh worker on a mid-statement connection
+    drop and replays the (idempotent) op, giving up only after MAX_ATTEMPTS.
+    """
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_success_runs_once_without_reconnect(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(return_value="ok")
+
+        assert session.run("op", op) == "ok"
+        assert op.call_count == 1
+        assert mock_connect.call_count == 1  # only the initial connect
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_reconnects_then_succeeds(self, mock_connect, _sleep):
+        mock_connect.side_effect = [MagicMock(), MagicMock(), MagicMock()]
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(
+            side_effect=[
+                psycopg.OperationalError("server closed the connection unexpectedly"),
+                psycopg.InternalError("connection reset by peer"),
+                "ok",
+            ]
+        )
+
+        assert session.run("op", op) == "ok"
+        assert op.call_count == 3
+        assert mock_connect.call_count == 3  # 1 initial + 2 reconnects
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_gives_up_and_reraises_after_max_attempts(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=psycopg.OperationalError("connection to server was lost"))
+
+        with pytest.raises(psycopg.OperationalError):
+            session.run("op", op)
+        assert op.call_count == _DuckgresSession.MAX_ATTEMPTS
+        # initial connect + (MAX_ATTEMPTS - 1) reconnects; the last attempt does not reconnect
+        assert mock_connect.call_count == _DuckgresSession.MAX_ATTEMPTS
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_non_connection_error_propagates_immediately(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=psycopg.InternalError("Constraint Error: duplicate key value"))
+
+        with pytest.raises(psycopg.InternalError):
+            session.run("op", op)
+        assert op.call_count == 1
+        assert mock_connect.call_count == 1  # no reconnect on a real SQL error
