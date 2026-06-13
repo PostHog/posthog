@@ -228,14 +228,15 @@ export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is
     return filter?.type === PropertyFilterType.Cohort
 }
 
-// A Group-type filter identifies one specific group by its key under two key
-// names: '$group_key' in event/insight property filters, and 'id' in the
-// groups-list query. ('id' is also the Cohort key, so the Group type gate
-// matters.) Group *property* filters (industry, name, ...) use other keys.
-export function isGroupIdentityFilterKey(
-    key: string | number | undefined,
-    type: PropertyFilterType | undefined
-): boolean {
+// Filter keys whose value we offer a read-only group-info card for on hover.
+// '$group_key' is the group's true identity (always a group key). 'id' is a
+// group *property* that conventionally holds the group key (e.g. CRM-imported
+// groups), so a card is a useful confirmation there too — but it is display
+// only: the lookup falls back to the plain label when the value isn't a real
+// group key, and we deliberately do NOT swap the value editor for these (only
+// the true '$group_key' identity gets the group picker). 'id' is also the
+// Cohort key, so the Group type gate matters.
+export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
     return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
 }
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {

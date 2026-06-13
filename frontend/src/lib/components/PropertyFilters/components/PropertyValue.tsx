@@ -18,10 +18,7 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import {
-    isGroupIdentityFilterKey,
-    propertyFilterTypeToPropertyDefinitionType,
-} from 'lib/components/PropertyFilters/utils'
+import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -108,7 +105,7 @@ export function PropertyValue({
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
     const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
-    const isGroupIdentityProperty = isGroupIdentityFilterKey(propertyKey, type) && groupTypeIndex != null
+    const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
     const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
 
     // TODO: Add semver input validation when a semver operator is selected.
@@ -144,7 +141,7 @@ export function PropertyValue({
     // preload values if preloadValues prop is set
     useEffect(() => {
         if (
-            !isGroupIdentityProperty &&
+            !isGroupKeyProperty &&
             !isDistinctIdProperty &&
             !isAssigneeProperty &&
             preloadValues &&
@@ -153,19 +150,12 @@ export function PropertyValue({
         ) {
             load('')
         }
-    }, [
-        preloadValues,
-        load,
-        propertyOptions?.status,
-        isGroupIdentityProperty,
-        isDistinctIdProperty,
-        isAssigneeProperty,
-    ])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isDistinctIdProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
-            !isGroupIdentityProperty &&
+            !isGroupKeyProperty &&
             !isDistinctIdProperty &&
             !isAssigneeProperty &&
             !isDateTimeProperty &&
@@ -177,7 +167,7 @@ export function PropertyValue({
     }, [
         propertyKey,
         isDateTimeProperty,
-        isGroupIdentityProperty,
+        isGroupKeyProperty,
         isDistinctIdProperty,
         isAssigneeProperty,
         load,
@@ -291,7 +281,7 @@ export function PropertyValue({
         )
     }
 
-    if (isGroupIdentityProperty && editable) {
+    if (isGroupKeyProperty && editable) {
         return (
             <GroupKeySelect
                 value={value ?? null}
@@ -323,7 +313,7 @@ export function PropertyValue({
     )
 
     if (!editable) {
-        if (isGroupIdentityProperty && groupKeyNames) {
+        if (isGroupKeyProperty && groupKeyNames) {
             const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
                 String
             )

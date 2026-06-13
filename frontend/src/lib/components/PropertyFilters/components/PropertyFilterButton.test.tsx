@@ -21,7 +21,7 @@ describe('PropertyFilterButton', () => {
 
     it.each([
         {
-            description: 'a $group_key group filter (event/insight form)',
+            description: 'a $group_key group filter (the group identity)',
             item: {
                 key: '$group_key',
                 type: PropertyFilterType.Group,
@@ -29,10 +29,9 @@ describe('PropertyFilterButton', () => {
                 value: ['01953d33-82a2-0000-f577-8dcc2987f5ce'],
                 operator: PropertyOperator.Exact,
             },
-            expectRichTooltip: true,
         },
         {
-            description: 'an id group filter (groups-list form)',
+            description: 'an id group filter (a group property that often holds the key)',
             item: {
                 key: 'id',
                 type: PropertyFilterType.Group,
@@ -51,7 +50,7 @@ describe('PropertyFilterButton', () => {
         expect(document.querySelector('.PropertyFilterButton-content')).toBeInTheDocument()
         // Native title is suppressed; the formatted-card Tooltip is used instead.
         // (The inverse — group *property* keys not triggering the card — is
-        // covered by the isGroupIdentityFilterKey() unit tests.)
+        // covered by the isGroupCardFilterKey() unit tests.)
         expect(contentTitle()).toBeNull()
     })
 })

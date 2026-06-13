@@ -3,7 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
-    isGroupIdentityFilterKey,
+    isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
@@ -25,7 +25,7 @@ import {
 } from '../../../types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
-describe('isGroupIdentityFilterKey()', () => {
+describe('isGroupCardFilterKey()', () => {
     it.each([
         { key: '$group_key', type: PropertyFilterType.Group, expected: true },
         { key: 'id', type: PropertyFilterType.Group, expected: true },
@@ -38,7 +38,7 @@ describe('isGroupIdentityFilterKey()', () => {
         { key: '$group_key', type: undefined, expected: false },
         { key: undefined, type: PropertyFilterType.Group, expected: false },
     ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
-        expect(isGroupIdentityFilterKey(key, type)).toBe(expected)
+        expect(isGroupCardFilterKey(key, type)).toBe(expected)
     })
 })
 
