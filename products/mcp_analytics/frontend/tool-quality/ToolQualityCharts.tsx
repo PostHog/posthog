@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
@@ -7,9 +7,6 @@ import {
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
-    type TooltipContext,
-    TooltipSurface,
-    TooltipSwatch,
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
 
@@ -19,6 +16,8 @@ import { Card, CardState } from '../dashboard/Card'
 import { formatMsAsSeconds, formatNumber } from '../dashboard/formatters'
 import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
+// The built-in tooltip formats each value with the y-axis tick formatter, so the
+// tooltip and axis agree and we don't need a custom tooltip component.
 function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
         yAxis: { showGrid: false, ...yAxis },
@@ -27,32 +26,6 @@ function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis'
         showCrosshair: true,
         tooltip: { placement: 'cursor' },
     }
-}
-
-// Same layout as quill's DefaultTooltip (label header + swatch rows), with the
-// value run through a formatter — which the default tooltip doesn't support.
-function FormattedSeriesTooltip({
-    ctx,
-    formatValue,
-    footer,
-}: {
-    ctx: TooltipContext
-    formatValue: (value: number) => string
-    footer?: React.ReactNode
-}): JSX.Element {
-    return (
-        <TooltipSurface>
-            <div className="font-semibold mb-1">{ctx.label}</div>
-            {ctx.seriesData.map((s) => (
-                <div key={s.series.key} className="flex items-center gap-2">
-                    <TooltipSwatch color={s.color} />
-                    <span>{s.series.label}:</span>
-                    <strong>{formatValue(s.value)}</strong>
-                </div>
-            ))}
-            {footer}
-        </TooltipSurface>
-    )
 }
 
 function ChartCard({
@@ -121,31 +94,25 @@ export function ToolQualityCharts({
     )
 
     const countsConfig = useMemo(() => buildConfig(timezone), [timezone])
-    const percentConfig = useMemo(
-        () => buildConfig(timezone, { tickFormatter: (value: number) => formatPercentage(value, { compact: true }) }),
-        [timezone]
-    )
-    const latencyConfig = useMemo(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
-
-    const successTooltip = useCallback(
-        (ctx: TooltipContext): JSX.Element => (
-            <FormattedSeriesTooltip
-                ctx={ctx}
-                formatValue={(value) => (isFinite(value) ? formatPercentage(value, { compact: true }) : '—')}
-                footer={
+    const percentConfig = useMemo<TimeSeriesLineChartConfig>(() => {
+        const base = buildConfig(timezone, {
+            tickFormatter: (value: number) => formatPercentage(value, { compact: true }),
+        })
+        return {
+            ...base,
+            // Footer with the underlying call/error counts behind each day's success rate.
+            tooltip: {
+                ...base.tooltip,
+                renderExtra: (ctx) => (
                     <div className="mt-1 opacity-70">
                         {formatNumber(data.calls[ctx.dataIndex] ?? 0)} calls ·{' '}
                         {formatNumber(data.errors[ctx.dataIndex] ?? 0)} errors
                     </div>
-                }
-            />
-        ),
-        [data]
-    )
-    const latencyTooltip = useCallback(
-        (ctx: TooltipContext): JSX.Element => <FormattedSeriesTooltip ctx={ctx} formatValue={formatMsAsSeconds} />,
-        []
-    )
+                ),
+            },
+        }
+    }, [timezone, data])
+    const latencyConfig = useMemo(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
 
     return (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -164,7 +131,6 @@ export function ToolQualityCharts({
                     labels={data.labels}
                     config={percentConfig}
                     theme={theme}
-                    tooltip={successTooltip}
                     dataAttr="mcp-tool-quality-success-rate-chart"
                 />
             </ChartCard>
@@ -175,7 +141,6 @@ export function ToolQualityCharts({
                         labels={data.labels}
                         config={latencyConfig}
                         theme={theme}
-                        tooltip={latencyTooltip}
                         dataAttr="mcp-tool-quality-latency-chart"
                     />
                 </ChartLegend>
