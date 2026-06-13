@@ -131,6 +131,46 @@ Events:
         ),
     ),
     EvalCase(
+        input="show me a pie chart of pageviews broken down by browser",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- $pageview
+    - math operation: total count
+
+Breakdown by:
+- entity: event
+- property name: $browser
+
+Display as a pie chart.
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsPie",
+                    showLegend=True,
+                ),
+                breakdownFilter=AssistantTrendsBreakdownFilter(
+                    breakdowns=[
+                        AssistantGenericMultipleBreakdownFilter(
+                            property="$browser",
+                            type=AssistantEventMultipleBreakdownFilterType.EVENT,
+                        )
+                    ]
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="$pageview",
+                        math="total",
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
         input="i want to see a ratio of identify divided by page views",
         expected=PlanAndQueryOutput(
             plan="""

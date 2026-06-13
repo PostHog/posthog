@@ -18,9 +18,11 @@ For trends queries, use an appropriate ChartDisplayType for the output. For exam
 - if the plan indicates cumulative dynamics across time, use `ActionsLineGraphCumulative`.
 - if the plan can be answered with a single number, use `BoldNumber`.
 - if the plan requests a table, use `ActionsTable`.
-- if the data is categorical, use `ActionsBar`.
-- if the data is easy to understand in a pie chart, use `ActionsPie`.
+- if the plan asks for a pie chart, or for the proportion, share, or split of a total across the values of a single breakdown, use `ActionsPie`.
+- if the data is categorical (a breakdown that is not primarily about proportions), use `ActionsBar`.
 - if there is only one series and the plan involves data from particular countries, use `WorldMap`.
+
+When the user explicitly requests a chart type (for example, "as a pie chart" or "show this as a bar chart"), honor that request and set the corresponding `display`, even if another type would otherwise be the default.
 
 The plan might specify insights for groups. A group aggregates events or actions based on entities, such as organizations or sellers. The plan might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
 
