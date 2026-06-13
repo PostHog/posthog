@@ -152,12 +152,12 @@ const MENU_HEADER_BORDER_PX = 1 // MenuFilterHeader `border-b`
 const SEARCH_ROW_PADDING_PX = 8 // search-field row `p-2` (one side)
 const PANEL_BORDER_PX = 1 // PopoverContent border
 
-/** Panel-top → search-field-top: the header (padding + button + border) plus the
+/** Panel-top to search-field-top: the header (padding + button + border) plus the
  *  search row's top padding. */
 const INPUT_TRIGGER_PANEL_HEADER_OFFSET =
     MENU_HEADER_PADDING_Y_PX + MENU_HEADER_BUTTON_HEIGHT_PX + MENU_HEADER_BORDER_PX + SEARCH_ROW_PADDING_PX
 
-/** Panel-left → search-field-left: the panel border plus the search row's left
+/** Panel-left to search-field-left: the panel border plus the search row's left
  *  padding. */
 const INPUT_TRIGGER_PANEL_LEFT_INSET = PANEL_BORDER_PX + SEARCH_ROW_PADDING_PX
 

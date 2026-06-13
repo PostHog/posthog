@@ -1047,7 +1047,8 @@ interface AutocompleteLemonInputProps {
  * so we strip the props we drive ourselves and pass the rest through. Keeping the
  * adapter in one named place (rather than inline in the combobox render) means a
  * base-ui upgrade that changes how it drives the input has exactly one site to
- * update. Validated against `@base-ui/react` 1.5.
+ * update — the typed destructure below and the input-trigger tests are what guard
+ * the contract.
  */
 function AutocompleteLemonInput({
     value,
