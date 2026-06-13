@@ -1145,8 +1145,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.PageviewUrls,
                         endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
                         searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
+                        getName: (option: SimpleOption | QuickFilterItem) => option.name,
+                        // The collapsed "URL contains <query>" row is a QuickFilterItem whose
+                        // selection value is the typed query, so generic consumers reading the
+                        // committed value get the query (matching the rebuild menu), not the label.
+                        getValue: (option: SimpleOption | QuickFilterItem) =>
+                            isQuickFilterItem(option) ? option.filterValue : option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
                         searchDescription: 'URLs seen on pageview events',
@@ -1843,6 +1847,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
+                        // Mirrors the rebuild menu's `wasUrlContainsShortcut` so contains-shortcut
+                        // adoption is comparable across arms, not muddied with keyword shortcuts.
+                        wasUrlContainsShortcut: item.isContainsShortcut === true,
                     }),
                 })
 

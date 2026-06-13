@@ -186,6 +186,7 @@ export function TaxonomicPropertyFilter({
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
+            collapseUrlsToContainsRow
         />
     )
 
