@@ -353,8 +353,11 @@ class ConversationViewSet(
         return False
 
     def check_throttles(self, request: Request):
-        # Only apply custom throttling for message-sending actions
-        if self.action not in ("create", "sandbox"):
+        # Apply the AI throttles to message-sending actions and to sandbox prewarm POSTs —
+        # warming provisions a real sandbox, so it must share the same rate limit. Release
+        # (DELETE) frees resources and keeps the default throttles.
+        is_prewarm_warm = self.action == "prewarm" and request.method == "POST"
+        if self.action not in ("create", "sandbox") and not is_prewarm_warm:
             return super().check_throttles(request)
 
         # Skip throttling in local development
@@ -736,6 +739,14 @@ class ConversationViewSet(
         if request.method == "DELETE":
             service.prewarm_release()
         else:
+            # Same billing gate as message-sending — warming launches a Run, so a quota-limited
+            # team must not be able to keep provisioning sandboxes via prewarm.
+            if is_team_limited(
+                self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            ):
+                raise QuotaLimitExceeded(
+                    "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
+                )
             service.prewarm()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
