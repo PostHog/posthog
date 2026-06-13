@@ -125,5 +125,40 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             // The tool value must never be interpolated into the HogQL string.
             expect(newCalls[0].query).not.toContain('DROP TABLE')
         })
+
+        // Tool-quality row tuple as returned by the query (tool, calls, errors, then unused cols)
+        const toolRowResult = (tool: string): unknown[] => [tool, 1, 0, 0, 0, 0, 0, 0, 0, '', '']
+
+        it('clears the selected tool when a reload no longer includes it', async () => {
+            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a')] })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedTool('tool_a')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.selectedTool).toBe('tool_a')
+
+            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_b')] })
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedCategories(['some-category'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBeNull()
+        })
+
+        it('keeps the selected tool when a reload still includes it', async () => {
+            mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a'), toolRowResult('tool_b')] })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedTool('tool_a')
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedCategories(['some-category'])
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectedTool).toBe('tool_a')
+        })
     })
 })
