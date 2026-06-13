@@ -184,9 +184,10 @@ export interface TaxonomicFilterProps {
     /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
      *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
      *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
-     *  so hosts must handle `isQuickFilterItem(item)` in onChange (the property- and
-     *  universal-filter hosts do). Only the rebuild-eligible wrappers opt in, so the
-     *  paths picker keeps its full URL list. */
+     *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
+     *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
+     *  behind it) opts in — that covers every current pageview-URL consumer — so the paths
+     *  picker keeps its full URL list. */
     collapseUrlsToContainsRow?: boolean
 }
 
