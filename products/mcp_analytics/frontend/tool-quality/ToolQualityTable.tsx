@@ -183,7 +183,7 @@ export function ToolQualityTable(): JSX.Element {
                     </InputGroup>
                 </div>
             </CardHeader>
-            <Table fullWidth>
+            <Table fullWidth stickyHeader className="max-h-[26rem]">
                 <TableHeader>
                     <TableRow>
                         <TableHead expand>Tool</TableHead>
