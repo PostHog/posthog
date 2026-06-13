@@ -108,7 +108,7 @@ export function PropertyValue({
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
     const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
-    const isGroupKeyProperty = isGroupIdentityFilterKey(propertyKey, type) && groupTypeIndex != null
+    const isGroupIdentityProperty = isGroupIdentityFilterKey(propertyKey, type) && groupTypeIndex != null
     const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
 
     // TODO: Add semver input validation when a semver operator is selected.
@@ -144,7 +144,7 @@ export function PropertyValue({
     // preload values if preloadValues prop is set
     useEffect(() => {
         if (
-            !isGroupKeyProperty &&
+            !isGroupIdentityProperty &&
             !isDistinctIdProperty &&
             !isAssigneeProperty &&
             preloadValues &&
@@ -153,12 +153,19 @@ export function PropertyValue({
         ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isDistinctIdProperty, isAssigneeProperty])
+    }, [
+        preloadValues,
+        load,
+        propertyOptions?.status,
+        isGroupIdentityProperty,
+        isDistinctIdProperty,
+        isAssigneeProperty,
+    ])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
-            !isGroupKeyProperty &&
+            !isGroupIdentityProperty &&
             !isDistinctIdProperty &&
             !isAssigneeProperty &&
             !isDateTimeProperty &&
@@ -170,7 +177,7 @@ export function PropertyValue({
     }, [
         propertyKey,
         isDateTimeProperty,
-        isGroupKeyProperty,
+        isGroupIdentityProperty,
         isDistinctIdProperty,
         isAssigneeProperty,
         load,
@@ -284,7 +291,7 @@ export function PropertyValue({
         )
     }
 
-    if (isGroupKeyProperty && editable) {
+    if (isGroupIdentityProperty && editable) {
         return (
             <GroupKeySelect
                 value={value ?? null}
@@ -316,7 +323,7 @@ export function PropertyValue({
     )
 
     if (!editable) {
-        if (isGroupKeyProperty && groupKeyNames) {
+        if (isGroupIdentityProperty && groupKeyNames) {
             const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
                 String
             )

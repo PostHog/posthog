@@ -66,7 +66,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         // confirm they picked the right group (e.g. after pasting a UUID).
         // Restricted to a single value so hovering only ever looks up the one
         // group under the mouse — never a fan-out across an "is one of" list.
-        const isGroupKeyFilter =
+        const isGroupIdentityFilter =
             isGroupIdentityFilterKey(item.key, item.type) &&
             groupTypeIndex !== null &&
             groupTypeIndex !== undefined &&
@@ -90,7 +90,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 type={ButtonComponent === 'button' ? 'button' : undefined}
             >
                 <PropertyFilterIcon type={item.type} />
-                <span className="PropertyFilterButton-content" title={isGroupKeyFilter ? undefined : label}>
+                <span className="PropertyFilterButton-content" title={isGroupIdentityFilter ? undefined : label}>
                     {midEllipsis(label, 32)}
                 </span>
                 {closable && !disabledReason && (
@@ -114,7 +114,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             return <Tooltip title={disabledReason}>{button}</Tooltip>
         }
 
-        if (isGroupKeyFilter) {
+        if (isGroupIdentityFilter) {
             return (
                 <Tooltip
                     interactive

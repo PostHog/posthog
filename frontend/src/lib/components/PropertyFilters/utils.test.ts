@@ -27,8 +27,6 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilt
 
 describe('isGroupIdentityFilterKey()', () => {
     it.each([
-        // A group is identified by its key under '$group_key' (event/insight filters)
-        // and 'id' (the groups-list query).
         { key: '$group_key', type: PropertyFilterType.Group, expected: true },
         { key: 'id', type: PropertyFilterType.Group, expected: true },
         // 'id' is also the Cohort key — must not match there.
