@@ -150,7 +150,7 @@ export const HoveringInterior: Story = {
 }
 
 /** The built-in tooltip formats values via `config.tooltip.valueFormatter` and appends a
- *  contextual footer via `config.tooltip.renderExtra` — no custom tooltip component needed. */
+ *  contextual footer via `config.tooltip.renderFooter` — no custom tooltip component needed. */
 export const FormattedTooltip: Story = {
     parameters: { layout: 'fullscreen' },
     render: () => {
@@ -161,7 +161,7 @@ export const FormattedTooltip: Story = {
             yTickFormatter: (v) => `${v}ms`,
             tooltip: {
                 valueFormatter: (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`),
-                renderExtra: (ctx) => (
+                renderFooter: (ctx) => (
                     <div className="mt-1 opacity-70">{DAYS[ctx.dataIndex]} · p50 / p95 / p99</div>
                 ),
             },

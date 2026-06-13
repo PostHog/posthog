@@ -127,7 +127,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
         valueFormatter: tooltipValueFormatter,
-        renderExtra: tooltipRenderExtra,
+        renderFooter: tooltipRenderFooter,
     } = tooltipConfig ?? {}
 
     const margins = useChartMargins({
@@ -289,7 +289,7 @@ export function Chart<Meta = unknown>({
 
                     {tooltipCtx && showTooltip && (
                         <Tooltip
-                            context={{ ...tooltipCtx, formatValue: formatTooltipValueFn, renderExtra: tooltipRenderExtra }}
+                            context={{ ...tooltipCtx, formatValue: formatTooltipValueFn, renderFooter: tooltipRenderFooter }}
                             renderTooltip={renderTooltip}
                             placement={tooltipPlacement}
                         />

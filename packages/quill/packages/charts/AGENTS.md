@@ -83,14 +83,14 @@ The built-in tooltip handles most cases — **reach for a custom `tooltip` rende
       // Override only to format the tooltip differently from the axis; otherwise omit.
       valueFormatter: (ms) => formatMs(ms),
       // Append a contextual footer without rebuilding the whole tooltip.
-      renderExtra: (ctx) => <div className="mt-1 opacity-70">{ctx.dataIndex} calls</div>,
+      renderFooter: (ctx) => <div className="mt-1 opacity-70">{ctx.dataIndex} calls</div>,
     },
   }}
 />
 ```
 
 - `config.tooltip.valueFormatter` — defaults to the resolved y-axis formatter; set it only to diverge from the axis. Non-finite values always render as `—` (don't special-case NaN yourself).
-- `config.tooltip.renderExtra(ctx)` — extra content below the series rows (footers, context).
+- `config.tooltip.renderFooter(ctx)` — extra content below the series rows (footers, context).
 - A custom `tooltip` render prop still gets `ctx.formatValue` for axis-consistent formatting.
 
 ## Maintenance

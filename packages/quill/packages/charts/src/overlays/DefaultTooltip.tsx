@@ -3,7 +3,7 @@ import { formatTooltipValue } from '../core/tooltipFormat'
 import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
 
 export function DefaultTooltip(ctx: TooltipContext): React.ReactElement {
-    const { label, seriesData, formatValue, renderExtra } = ctx
+    const { label, seriesData, formatValue, renderFooter } = ctx
     const format = formatValue ?? ((value: number): string => formatTooltipValue(value))
     return (
         <TooltipSurface>
@@ -15,7 +15,7 @@ export function DefaultTooltip(ctx: TooltipContext): React.ReactElement {
                     <strong>{format(s.value)}</strong>
                 </div>
             ))}
-            {renderExtra?.(ctx)}
+            {renderFooter?.(ctx)}
         </TooltipSurface>
     )
 }

@@ -146,9 +146,9 @@ export interface TooltipContext<Meta = unknown> {
      *  custom tooltips can call it for axis-consistent formatting. */
     formatValue?: (value: number) => string
     /** Extra content rendered by {@link DefaultTooltip} below the series rows — populated from
-     *  {@link TooltipConfig.renderExtra}. Lets consumers add a contextual footer without
+     *  {@link TooltipConfig.renderFooter}. Lets consumers add a contextual footer without
      *  replacing the whole tooltip. */
-    renderExtra?: (ctx: TooltipContext) => ReactNode
+    renderFooter?: (ctx: TooltipContext) => ReactNode
 }
 
 /** Computed layout dimensions of the chart, derived from container size and margins. */
@@ -241,7 +241,7 @@ export interface TooltipConfig {
      *  footer like "120 calls · 3 errors". Receives the full tooltip context. Avoids hand-rolling
      *  a whole custom tooltip just to append a line. The context's `Meta` is erased here (plain
      *  `TooltipContext`) to keep this config non-generic — cast `series.meta` if you need it typed. */
-    renderExtra?: (ctx: TooltipContext) => ReactNode
+    renderFooter?: (ctx: TooltipContext) => ReactNode
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
