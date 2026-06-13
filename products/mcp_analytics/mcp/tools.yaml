@@ -14,82 +14,80 @@ tools:
         enabled: true
         scopes:
             - mcp_analytics:write
-        feature_flag: mcp-analytics
-        requires_ai_consent: true
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
         title: Recompute intent clusters
         description: >
-            Trigger an asynchronous recompute of the intent-cluster snapshot: embed the project's recorded
-            agent intents and re-cluster them. Returns immediately with status 'computing'; poll
+            Trigger an asynchronous recompute of the intent-cluster snapshot: embed the project's recorded agent intents
+            and re-cluster them. Returns immediately with status 'computing'; poll
             mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').
+        requires_ai_consent: true
+        feature_flag: mcp-analytics
     mcp-analytics-intent-clusters-retrieve:
         operation: mcp_analytics_intent_clusters_retrieve
         enabled: true
         scopes:
             - mcp_analytics:read
-        feature_flag: mcp-analytics
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
         title: Get intent cluster snapshot
         description: >
-            Return the most recent intent-clustering snapshot for the project: clusters of similar agent
-            intents, each with its tool distribution, error rate, routing entropy, and journey paths. Returns
-            an empty idle snapshot when no clustering run has happened yet — trigger one with
-            mcp-analytics-intent-clusters-recompute.
+            Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents, each
+            with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot
+            when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.
+        feature_flag: mcp-analytics
     mcp-analytics-sessions-generate-intent:
         operation: mcp_analytics_sessions_generate_intent
         enabled: true
         scopes:
             - mcp_analytics:write
-        feature_flag: mcp-analytics
-        requires_ai_consent: true
         annotations:
             readOnly: false
             destructive: false
             idempotent: true
         title: Generate session intent summary
         description: >
-            Generate (or return the cached) LLM summary of the agent's goal for a session, derived from the
-            session's recorded intents. The first call summarises and persists the result; subsequent calls
-            return the stored summary.
+            Generate (or return the cached) LLM summary of the agent's goal for a session, derived from the session's
+            recorded intents. The first call summarises and persists the result; subsequent calls return the stored
+            summary.
+        requires_ai_consent: true
+        feature_flag: mcp-analytics
     mcp-analytics-sessions-list:
         operation: mcp_analytics_sessions_list
         enabled: true
         scopes:
             - mcp_analytics:read
-        feature_flag: mcp-analytics
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List MCP sessions
         description: >
-            List MCP sessions for the current project, derived by grouping mcp_tool_call events by session.
-            Each row summarises one session: tool-call count, tools used, start/end, duration, client, and the
-            acting user. Supports `search` (case-insensitive substring over session id, distinct id, client
-            name, and tools used) and `order_by`. Use it to find sessions worth drilling into with
-            mcp-analytics-sessions-tool-calls.
-        list: true
+            List MCP sessions for the current project, derived by grouping mcp_tool_call events by session. Each row
+            summarises one session: tool-call count, tools used, start/end, duration, client, and the acting user.
+            Supports `search` (case-insensitive substring over session id, distinct id, client name, and tools used) and
+            `order_by`. Use it to find sessions worth drilling into with mcp-analytics-sessions-tool-calls.
+        feature_flag: mcp-analytics
     mcp-analytics-sessions-tool-calls:
         operation: mcp_analytics_sessions_tool_calls
         enabled: true
         scopes:
             - mcp_analytics:read
-        feature_flag: mcp-analytics
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
         title: List tool calls in a session
         description: >
-            List every mcp_tool_call event in a session in chronological order, including tool name, stated
-            intent, error flag, error message, and duration. Use after mcp-analytics-sessions-list to inspect
-            exactly what an agent did within one session.
+            List every mcp_tool_call event in a session in chronological order, including tool name, stated intent,
+            error flag, error message, and duration. Use after mcp-analytics-sessions-list to inspect exactly what an
+            agent did within one session.
+        feature_flag: mcp-analytics
     mcp-feedback-list:
         operation: mcp_analytics_feedback_list
         enabled: false
