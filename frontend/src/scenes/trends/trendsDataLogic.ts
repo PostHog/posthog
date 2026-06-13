@@ -196,7 +196,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         indexedResults: [
             (s) => [s.results, s.display, s.lifecycleFilter],
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
-                const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
+                const defaultLifecyclesOrder = ['new', 'returning', 'resurrecting', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
 
                 // want the previous bars to show before current bars

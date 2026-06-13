@@ -5242,6 +5242,12 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    lifecycleOrdering: list[LifecycleToggle] | None = Field(
+        default=None,
+        description=(
+            "Custom display order for lifecycle series. Defaults to ['new', 'returning', 'resurrecting', 'dormant']."
+        ),
+    )
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,

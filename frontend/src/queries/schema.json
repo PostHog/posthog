@@ -24358,6 +24358,13 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "lifecycleOrdering": {
+                    "description": "Custom display order for lifecycle series. Defaults to ['new', 'returning', 'resurrecting', 'dormant'].",
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                },
                 "showLegend": {
                     "default": false,
                     "type": "boolean"
