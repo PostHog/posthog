@@ -173,3 +173,23 @@ FROM numbers(3600)"
 1. **Internal-infra project** — which project receives scraped cluster metrics in each environment? Recommend a dedicated `posthog-internal-infra` project with its own `team_id` so `team_has_metrics` doesn't flip on the dogfood project. Cap budget separately from customer billing.
 2. **Naming convention** — keep Prometheus `snake_case_total` for scraped metrics (preserves dashboard expressions) and use OTel dotted (`http.server.duration`) for new SDK-emitted metrics. Document; do not mix.
 3. **Token sensitivity** — existing `argocd/otel-collector/values/values.dev.yaml` exposes `Bearer sTMFPsFhdP1Ssg` in plain YAML for the traces pipeline. Confirm: that's a project public capture token, not a personal API key. Apply the same model to the new `otlphttp/posthog-metrics` exporter.
+
+---
+
+## Status addendum (2026-06-12)
+
+The query-layer scope of this doc (P0–P7) has shipped as a 13-PR stack ending at
+`posthog-code/metrics-investigation-skill`, with two deltas from the plan above:
+
+- **INFRA-A pivoted** from a scrape-receiver on the collector daemonset to a vmagent
+  second-`remote_write` fan-out (charts#11808) — a daemonset scrape receiver would have
+  ingested N duplicate copies. INFRA-B is posthog#63134 (the exemption also bypasses the
+  always-on billing-quota stage, which the plan missed); INFRA-C/D are charts#12021/#12020.
+- **P8–P13 (widget/dashboard UI) were deferred** in favor of the MCP investigation
+  surface (`query-metrics`, `metric-names-list`, `characterize-metric-anomaly` plus the
+  `investigating-metric-anomalies` skill). Side-by-side dashboard comparison happens in
+  Grafana via Snuffle (charts#12022) until widgets are prioritized.
+
+The deferred non-goal #1 (storage layout) is now in scope: see
+[schema-v2.md](./schema-v2.md) for the series+samples design. `attribute_field()`
+remains the only seam the rewrite touches in the query layer.
