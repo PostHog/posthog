@@ -325,11 +325,13 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
+            triggerVariant="input"
             triggerButtonProps={{
                 type: 'secondary',
                 size,
                 truncate: true,
                 sideIcon: null,
+                fullWidth: true,
                 icon: !valuePresent ? <IconPlusSmall /> : undefined,
             }}
         />

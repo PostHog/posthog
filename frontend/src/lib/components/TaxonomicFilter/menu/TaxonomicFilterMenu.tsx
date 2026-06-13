@@ -25,7 +25,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconFilter } from '@posthog/icons'
 import {
     Button,
     cn,
@@ -40,6 +40,7 @@ import {
 } from '@posthog/quill'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -53,6 +54,7 @@ import { filterPinnedForContext, filterRecentsForContext } from '../utils/sugges
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
+import { MenuInputTrigger } from './InputTrigger'
 import { taxonomicTriggerWrapperClassName } from './triggerLayout'
 import {
     CommitFn,
@@ -106,6 +108,22 @@ export interface TaxonomicFilterMenuProps {
      * callers don't need to add another positioned ancestor of their own.
      */
     triggerAccessory?: import('react').ReactNode
+    /**
+     * Trigger presentation. `'button'` (default) is the single dropdown
+     * button. `'input'` renders a replay-style search box with a leading
+     * filter-icon button: focusing/typing in the box opens the combobox,
+     * clicking the icon opens the dropdown menu. Only takes effect while
+     * nothing is `selected` (the add-filter case) — an existing selection
+     * still renders the button so its label is visible.
+     */
+    triggerVariant?: 'button' | 'input'
+    /**
+     * Where `defaultOpen` lands. Defaults to `resolveOpenState()` (menu when
+     * nothing is selected). The input trigger uses this so an open driven by
+     * the search box arrives directly on the combobox while one driven by the
+     * filter icon arrives on the dropdown menu.
+     */
+    defaultOpenState?: 'menu' | 'combobox'
 }
 
 export interface TriggerState {
@@ -122,6 +140,18 @@ type MenuOption = 'new' | 'recent' | 'pinned' | 'dwh' | 'hogql'
 // first trigger click). Heuristic only — shared across all triggers.
 let lastMenuClosedAtMs: number | null = null
 const QUICK_REOPEN_MS = 3000
+
+/** Distance from the input-trigger panel's top to its search field: the
+ *  `MenuFilterHeader` (px-3 py-2 + sm button + border ≈ 41px) plus the input
+ *  row's top padding (p-2 = 8px). Used to shift the panel up so the field lands
+ *  over the trigger row. */
+const INPUT_TRIGGER_PANEL_HEADER_OFFSET = 49
+
+/** The input-trigger panel's search field is inset from the panel's left edge
+ *  by its border + the input row's left padding. Shift the panel left by this
+ *  much so the field's box lands over the trigger box — the input appears not
+ *  to move horizontally, only widen. */
+const INPUT_TRIGGER_PANEL_LEFT_INSET = 9
 
 /** Mirrors legacy `taxonomicFilterLogic`: staleness only applies to event /
  *  custom-event definitions that carry `last_seen_at`; `undefined` for every
@@ -150,8 +180,10 @@ export function TaxonomicFilterMenu({
     fullWidthTrigger = false,
     defaultOpen = false,
     triggerAccessory,
+    triggerVariant = 'button',
+    defaultOpenState,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps, searchQuery, selectingKeyOnly, excludedOperators } =
+    const { groups, selectItem, inputProps, searchQuery, setSearchQuery, selectingKeyOnly, excludedOperators } =
         useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>({ kind: 'closed' })
 
@@ -263,7 +295,13 @@ export function TaxonomicFilterMenu({
     // Runs once — opening is a one-shot mount concern, not reactive.
     useEffect(() => {
         if (defaultOpen) {
-            setState(resolveOpenState())
+            setState(
+                defaultOpenState === 'combobox'
+                    ? { kind: 'combobox', drillTo: 'all' }
+                    : defaultOpenState === 'menu'
+                      ? { kind: 'menu' }
+                      : resolveOpenState()
+            )
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -372,6 +410,18 @@ export function TaxonomicFilterMenu({
     const triggerEl: ReactElement =
         typeof trigger === 'function' ? trigger(triggerState) : (trigger ?? <Button variant="outline">{label}</Button>)
 
+    // Replay-style input trigger — only while nothing is selected, so an
+    // existing selection keeps showing its label in the button. The icon is
+    // the dropdown-menu anchor; the input opens (and seeds) the combobox.
+    const useInputTrigger = triggerVariant === 'input' && !selected
+    const inputTriggerPlaceholder = triggerLabel || inputProps.placeholder || 'Add filter'
+
+    // When the input-trigger combobox is open, the popover panel renders the
+    // live search field (header above it, results below) and is shifted up so
+    // that field lands over the trigger row — the chrome wraps the input. The
+    // shared ref lets the popover focus that field on open.
+    const comboboxInputRef = useRef<HTMLInputElement | null>(null)
+
     // -- Popover open derives from state. The dropdown menu is a separate
     // overlay (DropdownMenu); the popover is open for any non-menu,
     // non-closed kind.
@@ -383,6 +433,31 @@ export function TaxonomicFilterMenu({
     // the dialog returns to `dwh-pick` and the popover re-opens at the
     // table list.
     const popoverOpen = state.kind === 'combobox' || state.kind === 'dwh-pick' || state.kind === 'hogql-edit'
+
+    // The combobox (the only popover state that renders a search field) is what
+    // hosts the portaled input. In those states the trigger box yields its
+    // input slot; otherwise it shows its own plain input.
+    const externalInput = useInputTrigger && (state.kind === 'combobox' || state.kind === 'dwh-pick')
+
+    // Filter-icon menu anchor, styled to match the scene (LemonButton). Lives
+    // as the field's prefix — in the resting trigger box, and in the combobox's
+    // portaled field while open — so it stays put as the menu opens around it.
+    const inputTriggerIcon = (
+        <DropdownMenuTrigger
+            render={
+                <LemonButton
+                    size="small"
+                    icon={<IconFilter />}
+                    aria-label="Open filter menu"
+                    data-attr="taxonomic-filter-menu-trigger"
+                    // Stop the click bubbling to the LemonInput wrapper, whose
+                    // onClick focuses the input — that would open the combobox
+                    // instead of the icon's dropdown menu.
+                    onClick={(e) => e.stopPropagation()}
+                />
+            }
+        />
+    )
 
     // Manual outside-click handling. base-ui Popover's automatic dismiss
     // can't reliably distinguish a click on the visible trigger (the
@@ -522,7 +597,28 @@ export function TaxonomicFilterMenu({
                 }}
             >
                 <span ref={triggerWrapRef} className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
-                    <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
+                    {useInputTrigger ? (
+                        <MenuInputTrigger
+                            iconButton={inputTriggerIcon}
+                            fullWidth={fullWidthTrigger}
+                            placeholder={inputTriggerPlaceholder}
+                            value={searchQuery}
+                            spacerOnly={externalInput}
+                            onChange={(next) => {
+                                setSearchQuery(next)
+                                if (state.kind !== 'combobox') {
+                                    openCombobox('all')
+                                }
+                            }}
+                            onFocus={() => {
+                                if (state.kind === 'closed') {
+                                    openCombobox('all')
+                                }
+                            }}
+                        />
+                    ) : (
+                        <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
+                    )}
                     <PopoverTrigger
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
@@ -531,8 +627,30 @@ export function TaxonomicFilterMenu({
                 <PopoverContent
                     align="start"
                     side="bottom"
-                    sideOffset={4}
-                    container={popoverContainer}
+                    // Input trigger: shift the panel up by (trigger height +
+                    // header + input-row padding) so the panel's search field
+                    // lands over the trigger row — header pops above, results
+                    // below, the input appears to stay put and just widen. Keep
+                    // the side fixed so it can't flip away from that alignment.
+                    // Button trigger: a normal dropdown below the button.
+                    sideOffset={
+                        externalInput ? ({ anchor }) => -(anchor.height + INPUT_TRIGGER_PANEL_HEADER_OFFSET) : 4
+                    }
+                    // Pull the panel left so its inset search field aligns with
+                    // the trigger box horizontally (input appears not to move).
+                    alignOffset={externalInput ? -INPUT_TRIGGER_PANEL_LEFT_INSET : 0}
+                    // Input trigger: pin both axes so the field stays over the
+                    // trigger (no collision shift can break the alignment).
+                    // Button trigger: keep it on the vertical axis, never beside.
+                    collisionAvoidance={
+                        externalInput
+                            ? { side: 'none', align: 'none' }
+                            : { side: 'flip', align: 'shift', fallbackAxisSide: 'none' }
+                    }
+                    container={popoverContainer ?? undefined}
+                    // Focus the panel's search field on open (it's outside the
+                    // popover's default focusable flow until rendered).
+                    initialFocus={externalInput ? comboboxInputRef : undefined}
                     className={cn(
                         'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]'
                     )}
@@ -559,6 +677,8 @@ export function TaxonomicFilterMenu({
                             selectedEntry={selected ?? null}
                             onCommit={handleCommit}
                             onBack={openMenu}
+                            inputRef={comboboxInputRef}
+                            iconButton={useInputTrigger ? inputTriggerIcon : undefined}
                         />
                     )}
                     {(state.kind === 'dwh-pick' || state.kind === 'dwh-config') && (
@@ -576,6 +696,8 @@ export function TaxonomicFilterMenu({
                             }
                             onCommit={(entry) => openDwhConfig(entry.item, entry.group, 'dwh-pick')}
                             onBack={openMenu}
+                            inputRef={comboboxInputRef}
+                            iconButton={useInputTrigger ? inputTriggerIcon : undefined}
                         />
                     )}
                     {state.kind === 'hogql-edit' && (
@@ -612,16 +734,20 @@ export function TaxonomicFilterMenu({
                 />
             )}
             <DropdownMenuContent align="start" className="min-w-[240px]">
-                <DropdownMenuItem
-                    onClick={() => selectMenuOption('new', () => openCombobox('all'))}
-                    data-attr="taxonomic-filter-menu-new"
-                >
-                    New filter…
-                    <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
-                </DropdownMenuItem>
+                {/* The input-trigger box already does "type to make a new filter",
+                    so the explicit "New filter…" row would be redundant there. */}
+                {!useInputTrigger && (
+                    <DropdownMenuItem
+                        onClick={() => selectMenuOption('new', () => openCombobox('all'))}
+                        data-attr="taxonomic-filter-menu-new"
+                    >
+                        New filter…
+                        <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
+                    </DropdownMenuItem>
+                )}
                 {recentEntries.length > 0 && (
                     <>
-                        <DropdownMenuSeparator />
+                        {!useInputTrigger && <DropdownMenuSeparator />}
                         <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
                             Recent
                             <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
