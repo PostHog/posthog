@@ -571,7 +571,9 @@ describe('MenuFilterCombobox', () => {
 
             // The contains shortcut leads the whole list, ahead of recents/pinned/events.
             expect(shortcutIdx).toBe(0)
-            expect(recentIdx).toBeGreaterThan(shortcutIdx)
+            // Assert both rows are actually present (findIndex returns -1 when absent) so a
+            // regression that drops the recent/pinned row fails loudly, not on index arithmetic.
+            expect(recentIdx).toBeGreaterThan(0)
             expect(pinnedIdx).toBeGreaterThan(recentIdx)
             // and the raw matched URLs are collapsed away into the single shortcut.
             expect(rows.some((t) => t.includes('https://app.posthog.com/replay'))).toBe(false)

@@ -27,8 +27,13 @@ export function urlContainsRowLabel(query: string): string {
  *  same filter the per-URL value picker used to — without listing every matching URL.
  *
  *  For the `PageviewEvents` (series) group the shortcut also carries `eventName:
- *  '$pageview'` so the host expands it into a `$pageview` event plus the property
- *  filter, rather than a bare property filter. */
+ *  '$pageview'`. How that's consumed differs by host, all reaching the same filter:
+ *   - series host (`ActionFilterRow`) expands it into a `$pageview` event + the
+ *     `$current_url IContains` property filter (reads `eventName`);
+ *   - property/universal hosts intentionally ignore `eventName` (a property filter
+ *     can't sprout an event) and commit the bare `$current_url IContains` filter;
+ *   - the rebuild menu commits PageviewEvents via the group `type`, not `eventName`
+ *     (its synthetic row is a plain item, not this QuickFilterItem). */
 export function buildUrlContainsShortcut(query: string, groupType?: TaxonomicFilterGroupType): QuickFilterItem {
     return {
         _type: 'quick_filter',
@@ -42,7 +47,23 @@ export function buildUrlContainsShortcut(query: string, groupType?: TaxonomicFil
     }
 }
 
-/** A row that is the synthetic "URL contains <query>" shortcut (tagged on the item). */
+/** A row that is the synthetic "URL contains <query>" shortcut. Deliberately checks the
+ *  tag directly rather than via `isQuickFilterItem`, because the rebuild menu's shortcut
+ *  is a plain item (not a QuickFilterItem) while the legacy list's is a QuickFilterItem —
+ *  both carry `isContainsShortcut`. */
 export function isContainsShortcutItem(item: unknown): boolean {
     return !!item && typeof item === 'object' && (item as { isContainsShortcut?: boolean }).isContainsShortcut === true
+}
+
+/** Split a list so the synthetic "URL contains <query>" shortcut(s) come first.
+ *  `getItem` maps a list element to its underlying definition item — the rebuild wraps it
+ *  in a `{ item }` entry, the legacy list holds the item directly. Returns `[shortcuts, rest]`
+ *  so callers can either lead with the shortcut or splice other rows (recents/pinned) between. */
+export function partitionContainsShortcuts<T>(list: T[], getItem: (entry: T) => unknown): [T[], T[]] {
+    const shortcuts: T[] = []
+    const rest: T[] = []
+    for (const entry of list) {
+        ;(isContainsShortcutItem(getItem(entry)) ? shortcuts : rest).push(entry)
+    }
+    return [shortcuts, rest]
 }

@@ -1176,6 +1176,20 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    it('reopens on the selected category when no Suggested-filters surface is present (control)', async () => {
+        // Guards the activeTab fallback: hosts without a Suggested filters ("All") surface
+        // (control variant, or any picker that doesn't inject it) must still reopen on the
+        // selected item's own category rather than an absent All tab.
+        renderFilter({
+            groupType: TaxonomicFilterGroupType.Events,
+            value: '$pageview',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+        })
+
+        await waitFor(() => expect(screen.getByTestId('taxonomic-tab-events')).toBeInTheDocument())
+        expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-actions')
+    })
+
     // Spec for the insight series picker in the pill variant: searching a term that matches
     // pageview URLs should make ONE "url contains <query>" shortcut the first row of the
     // aggregated Suggested filters ("All") tab — ahead of raw URL/event rows. Fails today

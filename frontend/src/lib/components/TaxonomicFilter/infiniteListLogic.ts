@@ -33,7 +33,7 @@ import {
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
-    isContainsShortcutItem,
+    partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -935,10 +935,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
                 // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
                 // suggestion first. Everything else keeps its existing order.
-                const shortcutItems = orderedBase.filter((item) => isContainsShortcutItem(item))
-                const orderedResults = shortcutItems.length
-                    ? [...shortcutItems, ...orderedBase.filter((item) => !isContainsShortcutItem(item))]
-                    : orderedBase
+                const [shortcutItems, otherItems] = partitionContainsShortcuts(orderedBase, (item) => item)
+                const orderedResults = shortcutItems.length ? [...shortcutItems, ...otherItems] : orderedBase
                 return {
                     results: orderedResults,
                     count:
