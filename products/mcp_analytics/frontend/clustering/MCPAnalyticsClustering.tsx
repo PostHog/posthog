@@ -1,12 +1,23 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconSparkles, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { Progress, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import { Tooltip } from '@posthog/lemon-ui'
+import {
+    Badge,
+    Button,
+    Progress,
+    Skeleton,
+    Spinner,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
 import { ClusterJourneySankey } from './ClusterJourneySankey'
@@ -23,18 +34,14 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     if (entropy < 0.3) {
         return (
             <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
-                <LemonTag type="success" size="small">
-                    Concentrated · {entropy.toFixed(2)}
-                </LemonTag>
+                <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
             </Tooltip>
         )
     }
     if (entropy < 0.6) {
         return (
             <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
-                <LemonTag type="warning" size="small">
-                    Mixed · {entropy.toFixed(2)}
-                </LemonTag>
+                <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
             </Tooltip>
         )
     }
@@ -42,9 +49,7 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
         <Tooltip
             title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
         >
-            <LemonTag type="danger" size="small">
-                Spread · {entropy.toFixed(2)}
-            </LemonTag>
+            <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>
         </Tooltip>
     )
 }
@@ -162,14 +167,14 @@ function SortHeader(): JSX.Element {
         <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted">Sort clusters by</span>
             {(Object.keys(SORT_LABELS) as ClusterSortKey[]).map((key) => (
-                <LemonButton
+                <Button
                     key={key}
-                    size="xsmall"
-                    type={sortKey === key ? 'primary' : 'tertiary'}
+                    size="sm"
+                    variant={sortKey === key ? 'default' : 'outline'}
                     onClick={() => setSortKey(key)}
                 >
                     {SORT_LABELS[key]}
-                </LemonButton>
+                </Button>
             ))}
         </div>
     )
@@ -329,18 +334,16 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <EntropyBadge entropy={cluster.routing_entropy} />
-                        <LemonTag type={cluster.error_rate_pct > 5 ? 'danger' : 'muted'} size="small">
+                        <Badge variant={cluster.error_rate_pct > 5 ? 'destructive' : 'default'}>
                             {cluster.error_rate_pct.toFixed(1)}% errors
-                        </LemonTag>
-                        <LemonTag type="muted" size="small">
-                            {cluster.call_count.toLocaleString()} calls
-                        </LemonTag>
-                        <LemonTag type="muted" size="small">
+                        </Badge>
+                        <Badge variant="default">{cluster.call_count.toLocaleString()} calls</Badge>
+                        <Badge variant="default">
                             {cluster.session_count} session{cluster.session_count === 1 ? '' : 's'}
-                        </LemonTag>
-                        <LemonTag type="muted" size="small">
+                        </Badge>
+                        <Badge variant="default">
                             {cluster.intent_count} intent{cluster.intent_count === 1 ? '' : 's'}
-                        </LemonTag>
+                        </Badge>
                     </div>
                 </div>
                 {worstTool && worstTool.error_rate_pct > 0 ? (
@@ -456,15 +459,15 @@ function StatusRow(): JSX.Element | null {
                         </>
                     ) : null}
                 </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconRefresh />}
+                <Button
+                    variant="outline"
+                    size="sm"
                     onClick={recompute}
                     data-attr="mcp-analytics-intent-clusters-recompute"
                 >
+                    <IconRefresh />
                     Recompute
-                </LemonButton>
+                </Button>
             </div>
         )
     }
@@ -475,7 +478,10 @@ function EmptyState(): JSX.Element {
     const { recompute } = useActions(mcpClusteringLogic)
     const { snapshotLoading } = useValues(mcpClusteringLogic)
     return (
-        <div className="bg-surface-primary border rounded p-8 flex flex-col items-center text-center gap-3 max-w-2xl mx-auto">
+        <div
+            className="bg-surface-primary border rounded p-8 flex flex-col items-center text-center gap-3 max-w-2xl mx-auto"
+            data-quill
+        >
             <IconSparkles className="text-4xl text-accent" />
             <h3 className="text-lg font-semibold">No intent clusters yet</h3>
             <p className="text-sm text-muted max-w-md">
@@ -483,9 +489,10 @@ function EmptyState(): JSX.Element {
                 routes to. It surfaces whether your MCP sends similar goals to the same tools, and which routes are the
                 most error-prone.
             </p>
-            <LemonButton type="primary" icon={<IconSparkles />} onClick={recompute} loading={snapshotLoading}>
+            <Button variant="default" onClick={recompute} disabled={snapshotLoading}>
+                {snapshotLoading ? <Spinner /> : <IconSparkles />}
                 Compute intent clusters
-            </LemonButton>
+            </Button>
             <span className="text-xs text-muted">
                 Needs sessions with a summarized intent — usually a few minutes after sessions are recorded.
             </span>
@@ -497,12 +504,12 @@ function ComputingSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <LemonSkeleton className="h-24 w-full" />
-                <LemonSkeleton className="h-24 w-full" />
-                <LemonSkeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
             </div>
-            <LemonSkeleton className="h-96 w-full" />
-            <LemonSkeleton className="h-48 w-full" />
+            <Skeleton className="h-96 w-full" />
+            <Skeleton className="h-48 w-full" />
         </div>
     )
 }
@@ -527,7 +534,7 @@ export function MCPAnalyticsClustering(): JSX.Element {
 
     if (isComputing || (snapshotLoading && !hasSnapshot)) {
         return (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4" data-quill>
                 <StatusRow />
                 <ComputingSkeleton />
             </div>
@@ -535,7 +542,7 @@ export function MCPAnalyticsClustering(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4" data-quill>
             <StatusRow />
             <Scorecards />
             <SortHeader />
