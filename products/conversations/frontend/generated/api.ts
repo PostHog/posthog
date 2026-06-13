@@ -208,6 +208,42 @@ export const conversationsPermissionCreate = async (
     })
 }
 
+export const getConversationsPrewarmCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/prewarm/`
+}
+
+/**
+ * Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. Both idempotent and sandbox runtime only.
+ */
+export const conversationsPrewarmCreate = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsPrewarmCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getConversationsPrewarmDestroyUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/prewarm/`
+}
+
+/**
+ * Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. Both idempotent and sandbox runtime only.
+ */
+export const conversationsPrewarmDestroy = async (
+    projectId: string,
+    conversation: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsPrewarmDestroyUrl(projectId, conversation), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getConversationsQueueRetrieveUrl = (projectId: string, conversation: string) => {
     return `/api/projects/${projectId}/conversations/${conversation}/queue/`
 }

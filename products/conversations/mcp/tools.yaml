@@ -27,6 +27,12 @@ tools:
     conversations-permission-create:
         operation: conversations_permission_create
         enabled: false
+    conversations-prewarm-create:
+        operation: conversations_prewarm_create
+        enabled: false
+    conversations-prewarm-destroy:
+        operation: conversations_prewarm_destroy
+        enabled: false
     conversations-queue-clear-create:
         operation: conversations_queue_clear_create
         enabled: false

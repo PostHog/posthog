@@ -353,8 +353,11 @@ class ConversationViewSet(
         return False
 
     def check_throttles(self, request: Request):
-        # Only apply custom throttling for message-sending actions
-        if self.action not in ("create", "sandbox"):
+        # Apply the AI throttles to message-sending actions and to sandbox prewarm POSTs —
+        # warming provisions a real sandbox, so it must share the same rate limit. Release
+        # (DELETE) frees resources and keeps the default throttles.
+        is_prewarm_warm = self.action == "prewarm" and request.method == "POST"
+        if self.action not in ("create", "sandbox") and not is_prewarm_warm:
             return super().check_throttles(request)
 
         # Skip throttling in local development
@@ -707,6 +710,45 @@ class ConversationViewSet(
         )
         # attached_context_count is internal telemetry plumbing — keep it out of the response body.
         return Response(result.model_dump(exclude={"attached_context_count"}), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Sandbox warmed (booting or ready), or already warm / released."),
+            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
+        },
+        description=(
+            "Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. "
+            "POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. "
+            "Both idempotent and sandbox runtime only."
+        ),
+    )
+    @action(detail=True, methods=["POST", "DELETE"], url_path="prewarm")
+    def prewarm(self, request: Request, *args, **kwargs):
+        """Per-conversation eager sandbox warm.
+
+        Sandbox runtime only. POST delegates to the in-process products/tasks warm
+        path; DELETE cancels a warm Run. No HTTP-to-self, no provisioning reimplemented.
+        """
+        conversation = self.get_object()
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
+
+        user = cast(User, request.user)
+        service = MessageRoutingService(conversation, user)
+        if request.method == "DELETE":
+            service.prewarm_release()
+        else:
+            # Same billing gate as message-sending — warming launches a Run, so a quota-limited
+            # team must not be able to keep provisioning sandboxes via prewarm.
+            if is_team_limited(
+                self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            ):
+                raise QuotaLimitExceeded(
+                    "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
+                )
+            service.prewarm()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         description="Cancel the conversation's in-progress run (sandbox or LangGraph).",

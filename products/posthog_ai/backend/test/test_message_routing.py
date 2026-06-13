@@ -384,3 +384,190 @@ class TestLockConversationForFollowup(APIBaseTest):
 
         with lock_conversation_for_followup(str(conversation.id), self.team.id) as locked:
             self.assertEqual(locked.id, conversation.id)
+
+
+class TestSandboxPrewarm(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+    def _service(self) -> MessageRoutingService:
+        return MessageRoutingService(self.conversation, self.user)
+
+    def _stub_task(self) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        run = task.create_run(mode="interactive")
+        return task, run
+
+    def test_prewarm_first_creates_warm_run_without_pending_message(self):
+        task, run = self._stub_task()
+        with (
+            patch.object(Task, "create_and_run", return_value=task) as m_car,
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            self._service().prewarm()
+
+        m_car.assert_called_once()
+
+        run.refresh_from_db()
+        assert run.state["systemPrompt"] == "SYS"
+        assert run.state["await_user_message"] is True
+        # No pending message / attached context: the session boots and idles awaiting input.
+        assert "pending_user_message" not in run.state
+        assert "attached_context" not in run.state
+
+        self.conversation.refresh_from_db()
+        assert self.conversation.task_id == task.id
+        m_workflow.assert_called_once()
+
+    def test_prewarm_is_noop_when_run_already_in_progress(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        self.conversation.task = task
+        self.conversation.save(update_fields=["task"])
+
+        with (
+            patch.object(Task, "create_and_run") as m_car,
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            self._service().prewarm()
+
+        m_car.assert_not_called()
+        m_workflow.assert_not_called()
+
+    def test_prewarm_rewarms_after_terminal_run(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self.conversation.task = task
+        self.conversation.save(update_fields=["task"])
+
+        with (
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            self._service().prewarm()
+
+        self.conversation.refresh_from_db()
+        new_run = self.conversation.current_run
+        assert new_run is not None
+        assert new_run.id != run.id
+        assert new_run.state["await_user_message"] is True
+        assert new_run.state["resume_from_run_id"] == str(run.id)
+        m_workflow.assert_called_once()
+
+    def test_release_cancels_warm_run(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        self.conversation.task = task
+        self.conversation.save(update_fields=["task"])
+
+        with patch(f"{ROUTING}.send_cancel") as m_cancel:
+            self._service().prewarm_release()
+
+        m_cancel.assert_called_once()
+
+    def test_release_without_task_is_noop(self):
+        with patch(f"{ROUTING}.send_cancel") as m_cancel:
+            self._service().prewarm_release()
+        m_cancel.assert_not_called()
+
+    def test_release_terminal_run_is_noop(self):
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self.conversation.task = task
+        self.conversation.save(update_fields=["task"])
+
+        with patch(f"{ROUTING}.send_cancel") as m_cancel:
+            self._service().prewarm_release()
+        m_cancel.assert_not_called()
+
+    def _warm_run(self, *, created_by=None) -> TaskRun:
+        """A non-terminal sandbox run that counts toward the prewarm caps."""
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=created_by or self.user,
+        )
+        return task.create_run(mode="interactive")  # QUEUED
+
+    def test_prewarm_skips_when_user_at_capacity(self):
+        for _ in range(MessageRoutingService._PREWARM_MAX_PER_USER):
+            self._warm_run()
+
+        with (
+            patch.object(Task, "create_and_run") as m_car,
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            self._service().prewarm()
+
+        m_car.assert_not_called()
+        m_workflow.assert_not_called()
+        self.conversation.refresh_from_db()
+        assert self.conversation.task_id is None
+
+    def test_prewarm_skips_when_org_at_capacity(self):
+        other = self._create_user("warmer@posthog.com")
+        # Stay under the per-user cap (a different creator) but fill the org cap.
+        for _ in range(MessageRoutingService._PREWARM_MAX_PER_ORG):
+            self._warm_run(created_by=other)
+
+        with (
+            patch.object(Task, "create_and_run") as m_car,
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            self._service().prewarm()
+
+        m_car.assert_not_called()
+        m_workflow.assert_not_called()
+
+    def test_prewarm_ignores_terminal_runs_for_capacity(self):
+        # Terminal runs don't hold a sandbox, so they must not count toward the cap.
+        for _ in range(MessageRoutingService._PREWARM_MAX_PER_USER + 1):
+            run = self._warm_run()
+            run.status = TaskRun.Status.COMPLETED
+            run.save(update_fields=["status"])
+
+        task, run = self._stub_task()
+        with (
+            patch.object(Task, "create_and_run", return_value=task) as m_car,
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch.object(PromptService, "build", return_value="SYS"),
+        ):
+            self._service().prewarm()
+
+        m_car.assert_called_once()
+        m_workflow.assert_called_once()
+
+    def test_prewarm_first_serializes_on_conversation_lock(self):
+        # The first warm runs under the same row lock as a terminal resume, so a second
+        # concurrent warm can't create a duplicate Task on a task-less conversation.
+        task, _ = self._stub_task()
+        with (
+            patch.object(Task, "create_and_run", return_value=task),
+            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch.object(PromptService, "build", return_value="SYS"),
+            patch(f"{ROUTING}.lock_conversation_for_followup", wraps=lock_conversation_for_followup) as m_lock,
+        ):
+            self._service().prewarm()
+
+        m_lock.assert_called_once_with(str(self.conversation.id), self.team.pk)

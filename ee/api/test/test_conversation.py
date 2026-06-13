@@ -10,6 +10,8 @@ from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
+from rest_framework.exceptions import Throttled
+from rest_framework.test import APIRequestFactory
 
 from posthog.schema import (
     AgentMode,
@@ -27,6 +29,7 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
@@ -1386,3 +1389,103 @@ class TestConversationSandboxRoute(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_telemetry.assert_not_called()
+
+    def test_prewarm_post_delegates_to_warm_handler(self):
+        conversation = self._sandbox_conversation()
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # The service receives the resolved conversation, and POST warms (never releases).
+        passed_conversation = m_service.call_args[0][0]
+        self.assertEqual(passed_conversation.id, conversation.id)
+        m_service.return_value.prewarm.assert_called_once()
+        m_service.return_value.prewarm_release.assert_not_called()
+
+    def test_prewarm_delete_delegates_to_release_handler(self):
+        conversation = self._sandbox_conversation()
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        m_service.return_value.prewarm_release.assert_called_once()
+        m_service.return_value.prewarm.assert_not_called()
+
+    def test_prewarm_rejects_langgraph_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_service.assert_not_called()
+
+    def test_prewarm_post_blocked_when_quota_limited(self):
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.is_team_limited", return_value=True),
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        m_service.return_value.prewarm.assert_not_called()
+
+    def test_prewarm_release_is_not_quota_gated(self):
+        # Releasing frees a sandbox — a quota-limited team must still be able to do it.
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.is_team_limited", return_value=True),
+            patch("ee.api.conversation.MessageRoutingService") as m_service,
+        ):
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        m_service.return_value.prewarm_release.assert_called_once()
+
+    @override_settings(DEBUG=False)
+    def test_prewarm_post_applies_ai_throttles(self):
+        # Warming provisions a sandbox, so the POST takes the AI-throttle branch and is rejected
+        # once the burst throttle denies.
+        viewset = ConversationViewSet()
+        viewset.action = "prewarm"
+        viewset.team_id = self.team.id
+        viewset.organization = self.organization
+
+        warm = APIRequestFactory().post("/")
+        with (
+            patch.object(ConversationViewSet, "_is_research_request", return_value=False) as m_research,
+            patch.object(AIBurstRateThrottle, "allow_request", return_value=False),
+            patch.object(AIBurstRateThrottle, "wait", return_value=30),
+        ):
+            with self.assertRaises(Throttled):
+                viewset.check_throttles(warm)
+        m_research.assert_called_once()
+
+    @override_settings(DEBUG=False)
+    def test_prewarm_delete_uses_default_throttles(self):
+        # Release (DELETE) frees resources, so it falls through to the default throttles instead
+        # of the AI rate limit.
+        viewset = ConversationViewSet()
+        viewset.action = "prewarm"
+        viewset.team_id = self.team.id
+        viewset.organization = self.organization
+
+        release = APIRequestFactory().delete("/")
+        with (
+            patch.object(ConversationViewSet, "_is_research_request") as m_research,
+            patch("rest_framework.views.APIView.check_throttles") as m_super,
+        ):
+            viewset.check_throttles(release)
+        m_research.assert_not_called()
+        m_super.assert_called_once()
