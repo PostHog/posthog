@@ -3,6 +3,8 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import hash_key_value
 
 
 class TestLiveDebuggerBreakpointAPI(APIBaseTest):
@@ -301,6 +303,30 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         self.assertEqual(len(breakpoints), 1)
         self.assertEqual(breakpoints[0]["filename"], "enabled.py")
         self.assertEqual(breakpoints[0]["line_number"], 100)
+
+    def test_active_breakpoints_endpoint_with_psak(self):
+        token = "phs_live_debugger_psak"
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="live-debugger",
+            secure_value=hash_key_value(token),
+            scopes=["live_debugger:read"],
+        )
+        LiveDebuggerBreakpoint.objects.create(
+            team=self.team,
+            repository="PostHog/posthog",
+            filename="enabled.py",
+            line_number=100,
+            enabled=True,
+        )
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/live_debugger_breakpoints/active/",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
 
     def test_active_breakpoints_filter_by_filename(self):
         LiveDebuggerBreakpoint.objects.create(
