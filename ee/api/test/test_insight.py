@@ -422,6 +422,36 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
+    def test_non_admin_user_cannot_create_an_insight_on_a_restricted_dashboard(
+        self,
+    ) -> None:
+        self._require_access_control()
+        self._set_project_default_member_access()
+        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
+        )
+
+        # a user with no permissions on the dashboard cannot create an insight attached to it
+        user_without_permissions = User.objects.create_and_join(
+            organization=self.organization,
+            email="no_access_user@posthog.com",
+            password=None,
+        )
+        self.client.force_login(user_without_permissions)
+
+        self.dashboard_api.create_insight(
+            data={"name": "blocked on create", "dashboards": [dashboard_restricted_id]},
+            expected_status=status.HTTP_403_FORBIDDEN,
+        )
+        assert not DashboardTile.objects.filter(dashboard_id=dashboard_restricted_id).exists()
+
+        # the dashboard owner can still create an insight attached to it
+        self.client.force_login(self.user)
+        self.dashboard_api.create_insight(
+            data={"name": "allowed on create", "dashboards": [dashboard_restricted_id]},
+        )
+        assert DashboardTile.objects.filter(dashboard_id=dashboard_restricted_id).exists()
+
     def test_admin_user_can_add_an_insight_to_a_restricted_dashboard(self) -> None:
         self._require_access_control()
         # create insight and dashboard separately with default user

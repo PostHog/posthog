@@ -624,6 +624,14 @@ class InsightSerializer(InsightBasicSerializer):
             # in validate(); see InsightSerializer.validate above.
             # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
+                # Mirror the update path: adding a tile is an edit of the dashboard, so a
+                # restricted dashboard the user can't edit must not be writable on create either.
+                if (
+                    self.user_permissions.dashboard(dashboard).effective_privilege_level
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
+                ):
+                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
