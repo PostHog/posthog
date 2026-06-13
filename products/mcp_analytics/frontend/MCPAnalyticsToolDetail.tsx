@@ -9,6 +9,7 @@ import {
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -22,7 +23,6 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Query } from '~/queries/Query/Query'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { HarnessPill } from './dashboard/harness'
@@ -30,6 +30,7 @@ import {
     type DailyChartData,
     IntentCoverage,
     MCPAnalyticsToolDetailLogicProps,
+    type ResultRows,
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
@@ -104,31 +105,94 @@ function Stat({
 // Renderer for the "person" column in the Top users table. The query selects
 // `argMax(tuple(distinct_id, person.created_at, person.properties), timestamp)`,
 // which deserialises as a 3-element array. Wrap it back into the shape PersonDisplay expects.
-const topUserPersonColumn = {
-    title: 'User',
-    render: function RenderPerson({ value }: { value: unknown }) {
-        if (!Array.isArray(value) || value.length === 0) {
-            return <span className="text-muted">—</span>
+function renderPersonCell(value: unknown): JSX.Element {
+    if (!Array.isArray(value) || value.length === 0) {
+        return <span className="text-muted">—</span>
+    }
+    const [distinctId, , propertiesRaw] = value as [string, unknown, unknown]
+    let properties: Record<string, unknown> | undefined
+    if (propertiesRaw && typeof propertiesRaw === 'object') {
+        properties = propertiesRaw as Record<string, unknown>
+    } else if (typeof propertiesRaw === 'string') {
+        try {
+            properties = JSON.parse(propertiesRaw)
+        } catch {
+            properties = undefined
         }
-        const [distinctId, , propertiesRaw] = value as [string, unknown, unknown]
-        let properties: Record<string, unknown> | undefined
-        if (propertiesRaw && typeof propertiesRaw === 'object') {
-            properties = propertiesRaw as Record<string, unknown>
-        } else if (typeof propertiesRaw === 'string') {
-            try {
-                properties = JSON.parse(propertiesRaw)
-            } catch {
-                properties = undefined
-            }
-        }
-        return (
-            <PersonDisplay
-                person={{ distinct_id: distinctId, properties: properties ?? {} }}
-                withIcon
-                noPopover={false}
-            />
-        )
-    },
+    }
+    return (
+        <PersonDisplay person={{ distinct_id: distinctId, properties: properties ?? {} }} withIcon noPopover={false} />
+    )
+}
+
+interface ResultColumn {
+    header: string
+    align?: 'left' | 'right'
+    expand?: boolean
+    render: (row: unknown[]) => React.ReactNode
+}
+
+const neighborColumns: ResultColumn[] = [
+    { header: 'Tool', expand: true, render: (r) => <span className="font-mono">{String(r[0] ?? '')}</span> },
+    { header: 'In same conversation', align: 'right', render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)) },
+]
+
+// Renders raw HogQL result rows (positional columns) as a quill table, with loading/empty states.
+function ResultTable({
+    rows,
+    loading,
+    columns,
+    emptyMessage = 'No data for the last 7 days.',
+}: {
+    rows: ResultRows
+    loading: boolean
+    columns: ResultColumn[]
+    emptyMessage?: string
+}): JSX.Element {
+    return (
+        <div data-quill>
+            <Table fullWidth>
+                <TableHeader>
+                    <TableRow>
+                        {columns.map((col, i) => (
+                            <TableHead key={i} align={col.align} expand={col.expand}>
+                                {col.header}
+                            </TableHead>
+                        ))}
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {loading && rows.length === 0 ? (
+                        <TableRow>
+                            <TableCell colSpan={columns.length}>
+                                <div className="space-y-2 py-1">
+                                    {Array.from({ length: 4 }).map((_, i) => (
+                                        <LemonSkeleton key={i} className="h-3.5 w-full" />
+                                    ))}
+                                </div>
+                            </TableCell>
+                        </TableRow>
+                    ) : rows.length === 0 ? (
+                        <TableRow>
+                            <TableCell colSpan={columns.length} align="center" className="py-6 text-secondary">
+                                {emptyMessage}
+                            </TableCell>
+                        </TableRow>
+                    ) : (
+                        rows.map((row, i) => (
+                            <TableRow key={i}>
+                                {columns.map((col, ci) => (
+                                    <TableCell key={ci} align={col.align} expand={col.expand}>
+                                        {col.render(row)}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))
+                    )}
+                </TableBody>
+            </Table>
+        </div>
+    )
 }
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }): JSX.Element {
@@ -336,14 +400,20 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         descriptionsLoading,
         dailyChartData,
         dailyStatsLoading,
-        failuresQuery,
-        sampleIntentsQuery,
+        failureRows,
+        failureRowsLoading,
+        sampleIntentRows,
+        sampleIntentRowsLoading,
         intentCoverage,
         intentCoverageLoading,
-        neighborsBeforeQuery,
-        neighborsAfterQuery,
-        byHarnessQuery,
-        topUsersQuery,
+        neighborsBeforeRows,
+        neighborsBeforeRowsLoading,
+        neighborsAfterRows,
+        neighborsAfterRowsLoading,
+        byHarnessRows,
+        byHarnessRowsLoading,
+        topUserRows,
+        topUserRowsLoading,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
@@ -420,14 +490,16 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             <span className="text-xs font-medium uppercase text-secondary">Sample intents</span>
                             <IntentCoverageTag coverage={intentCoverage} loading={intentCoverageLoading} />
                         </div>
-                        <Query
-                            query={sampleIntentsQuery}
-                            readOnly
-                            context={{
-                                columns: {
-                                    intent_source: { title: 'Intent source' },
-                                },
-                            }}
+                        <ResultTable
+                            rows={sampleIntentRows}
+                            loading={sampleIntentRowsLoading}
+                            emptyMessage="No intents captured in the last 7 days."
+                            columns={[
+                                { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
+                                { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
+                                { header: 'Intent source', render: (r) => <span>{String(r[2] ?? '')}</span> },
+                                { header: 'Harness', render: (r) => <span>{String(r[3] ?? '')}</span> },
+                            ]}
                         />
                     </div>
                     <div className="flex flex-col gap-3">
@@ -436,10 +508,11 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 <IconArrowLeft className="text-base" />
                                 Often called before (same conversation)
                             </div>
-                            <Query
-                                query={neighborsBeforeQuery}
-                                readOnly
-                                context={{ columns: { co_occurrences: { title: 'In same conversation' } } }}
+                            <ResultTable
+                                rows={neighborsBeforeRows}
+                                loading={neighborsBeforeRowsLoading}
+                                emptyMessage="No tools commonly precede this one."
+                                columns={neighborColumns}
                             />
                         </div>
                         <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
@@ -447,10 +520,11 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 <IconArrowRight className="text-base" />
                                 Often called after (same conversation)
                             </div>
-                            <Query
-                                query={neighborsAfterQuery}
-                                readOnly
-                                context={{ columns: { co_occurrences: { title: 'In same conversation' } } }}
+                            <ResultTable
+                                rows={neighborsAfterRows}
+                                loading={neighborsAfterRowsLoading}
+                                emptyMessage="No tools commonly follow this one."
+                                columns={neighborColumns}
                             />
                         </div>
                     </div>
@@ -464,38 +538,65 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
                         <span className="text-xs font-medium uppercase text-secondary">By harness</span>
-                        <Query
-                            query={byHarnessQuery}
-                            readOnly
-                            context={{
-                                columns: {
-                                    harness: {
-                                        title: 'Harness',
-                                        render: function RenderHarness({ value }) {
-                                            const raw = String(value ?? '')
-                                            if (!raw) {
-                                                return <span className="text-muted">Unknown</span>
-                                            }
-                                            return <HarnessPill category={categorizeHarness(raw)} title={raw} />
-                                        },
+                        <ResultTable
+                            rows={byHarnessRows}
+                            loading={byHarnessRowsLoading}
+                            columns={[
+                                {
+                                    header: 'Harness',
+                                    expand: true,
+                                    render: (r) => {
+                                        const raw = String(r[0] ?? '')
+                                        return raw ? (
+                                            <HarnessPill category={categorizeHarness(raw)} title={raw} />
+                                        ) : (
+                                            <span className="text-muted">Unknown</span>
+                                        )
                                     },
-                                    error_rate_pct: { title: 'Error rate (%)' },
                                 },
-                            }}
+                                {
+                                    header: 'Calls',
+                                    align: 'right',
+                                    render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                                },
+                                {
+                                    header: 'Errors',
+                                    align: 'right',
+                                    render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                                },
+                                { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
+                                {
+                                    header: 'Users',
+                                    align: 'right',
+                                    render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
+                                },
+                            ]}
                         />
                     </div>
                     <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
                         <span className="text-xs font-medium uppercase text-secondary">Top users</span>
-                        <Query
-                            query={topUsersQuery}
-                            readOnly
-                            context={{
-                                columns: {
-                                    person: topUserPersonColumn,
-                                    error_rate_pct: { title: 'Error rate (%)' },
-                                    last_seen: { title: 'Last seen' },
+                        <ResultTable
+                            rows={topUserRows}
+                            loading={topUserRowsLoading}
+                            columns={[
+                                { header: 'User', expand: true, render: (r) => renderPersonCell(r[0]) },
+                                {
+                                    header: 'Calls',
+                                    align: 'right',
+                                    render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
                                 },
-                            }}
+                                {
+                                    header: 'Errors',
+                                    align: 'right',
+                                    render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                                },
+                                { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
+                                {
+                                    header: 'Harnesses',
+                                    render: (r) => <span className="text-secondary">{String(r[4] ?? '')}</span>,
+                                },
+                                { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
+                            ]}
                         />
                     </div>
                 </div>
@@ -508,7 +609,28 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                     title="Failures"
                     subtitle="Top exception messages paired with this tool. Sourced from $exception events."
                 />
-                <Query query={failuresQuery} readOnly context={{ columns: { last_seen: { title: 'Last seen' } } }} />
+                <ResultTable
+                    rows={failureRows}
+                    loading={failureRowsLoading}
+                    emptyMessage="No exceptions recorded for this tool in the last 7 days."
+                    columns={[
+                        {
+                            header: 'Message',
+                            expand: true,
+                            render: (r) => <span className="font-mono text-xs">{String(r[0] ?? '')}</span>,
+                        },
+                        {
+                            header: 'Occurrences',
+                            align: 'right',
+                            render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                        },
+                        { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
+                        {
+                            header: 'Harnesses',
+                            render: (r) => <span className="text-secondary">{String(r[3] ?? '')}</span>,
+                        },
+                    ]}
+                />
             </div>
         </SceneContent>
     )

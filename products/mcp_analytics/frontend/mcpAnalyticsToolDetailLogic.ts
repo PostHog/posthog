@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { DataTableNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
 
@@ -46,6 +46,9 @@ export interface DailyChartData {
 }
 
 const EMPTY_CHART_DATA: DailyChartData = { labels: [], calls: [], errors: [], p50: [], p95: [] }
+
+// Raw HogQL result rows (positional columns), rendered by the tool detail tables.
+export type ResultRows = unknown[][]
 
 // Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
 // Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
@@ -218,28 +221,13 @@ ORDER BY day
                 },
             },
         ],
-    })),
-
-    selectors({
-        toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
-
-        toolFilterClause: [
-            (s) => [s.toolName],
-            (toolName: string) => `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}' AND ${NEW_SDK_FILTER}`,
-        ],
-
-        dailyChartData: [
-            (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
-        ],
-
-        failuresQuery: [
-            (s) => [s.toolName],
-            (toolName: string): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
+        failureRows: [
+            [] as ResultRows,
+            {
+                loadFailureRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
 SELECT
     substring(toString(properties.$exception_message), 1, 200) AS message,
     count() AS occurrences,
@@ -248,26 +236,25 @@ SELECT
 FROM events
 WHERE event = '$exception'
     AND timestamp >= now() - INTERVAL 7 DAY
-    AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(toolName)}'
+    AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(props.toolName)}'
     AND notEmpty(toString(properties.$exception_message))
 GROUP BY message
 ORDER BY occurrences DESC
 LIMIT 20
 `,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []) as ResultRows
                 },
-                columns: ['message', 'occurrences', 'last_seen', 'harnesses'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+            },
         ],
-
-        sampleIntentsQuery: [
-            (s) => [s.toolFilterClause],
-            (toolFilter): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
+        sampleIntentRows: [
+            [] as ResultRows,
+            {
+                loadSampleIntentRows: async (): Promise<ResultRows> => {
+                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
 SELECT
     timestamp,
     toString(properties.$mcp_intent) AS intent,
@@ -282,20 +269,18 @@ WHERE event = 'mcp_tool_call'
 ORDER BY timestamp DESC
 LIMIT 5
 `,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []) as ResultRows
                 },
-                columns: ['timestamp', 'intent', 'source', 'harness'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+            },
         ],
-
-        neighborsBeforeQuery: [
-            (s) => [s.toolName],
-            (toolName: string): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
+        neighborsBeforeRows: [
+            [] as ResultRows,
+            {
+                loadNeighborsBeforeRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
 WITH tool_calls AS (
     SELECT
         coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
@@ -307,9 +292,7 @@ WITH tool_calls AS (
         AND ${NEW_SDK_FILTER}
         AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
 )
-SELECT
-    prev_tool AS tool,
-    count() AS co_occurrences
+SELECT prev_tool AS tool, count() AS co_occurrences
 FROM (
     SELECT
         conv_id,
@@ -317,28 +300,23 @@ FROM (
         lagInFrame(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_tool
     FROM tool_calls
 )
-WHERE tool = '${escapeHogQLString(toolName)}'
-    AND prev_tool IS NOT NULL
-    AND prev_tool != ''
-    AND prev_tool != tool
+WHERE tool = '${escapeHogQLString(props.toolName)}' AND prev_tool IS NOT NULL AND prev_tool != '' AND prev_tool != tool
 GROUP BY prev_tool
 ORDER BY co_occurrences DESC
 LIMIT 5
 `,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []) as ResultRows
                 },
-                columns: ['tool', 'co_occurrences'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+            },
         ],
-
-        neighborsAfterQuery: [
-            (s) => [s.toolName],
-            (toolName: string): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
+        neighborsAfterRows: [
+            [] as ResultRows,
+            {
+                loadNeighborsAfterRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
 WITH tool_calls AS (
     SELECT
         coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
@@ -350,9 +328,7 @@ WITH tool_calls AS (
         AND ${NEW_SDK_FILTER}
         AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
 )
-SELECT
-    next_tool AS tool,
-    count() AS co_occurrences
+SELECT next_tool AS tool, count() AS co_occurrences
 FROM (
     SELECT
         conv_id,
@@ -360,28 +336,24 @@ FROM (
         leadInFrame(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_tool
     FROM tool_calls
 )
-WHERE tool = '${escapeHogQLString(toolName)}'
-    AND next_tool IS NOT NULL
-    AND next_tool != ''
-    AND next_tool != tool
+WHERE tool = '${escapeHogQLString(props.toolName)}' AND next_tool IS NOT NULL AND next_tool != '' AND next_tool != tool
 GROUP BY next_tool
 ORDER BY co_occurrences DESC
 LIMIT 5
 `,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []) as ResultRows
                 },
-                columns: ['tool', 'co_occurrences'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+            },
         ],
-
-        byHarnessQuery: [
-            (s) => [s.toolFilterClause],
-            (toolFilter): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
+        byHarnessRows: [
+            [] as ResultRows,
+            {
+                loadByHarnessRows: async (): Promise<ResultRows> => {
+                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
 SELECT
     toString(properties.$mcp_client_name) AS harness,
     count() AS calls,
@@ -397,20 +369,19 @@ GROUP BY harness
 ORDER BY calls DESC
 LIMIT 10
 `,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []) as ResultRows
                 },
-                columns: ['harness', 'calls', 'errors', 'error_rate_pct', 'users'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+            },
         ],
-
-        topUsersQuery: [
-            (s) => [s.toolFilterClause],
-            (toolFilter): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
+        topUserRows: [
+            [] as ResultRows,
+            {
+                loadTopUserRows: async (): Promise<ResultRows> => {
+                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
 SELECT
     argMax(tuple(distinct_id, person.created_at, person.properties), timestamp) AS person,
     count() AS calls,
@@ -426,11 +397,19 @@ GROUP BY distinct_id
 ORDER BY calls DESC
 LIMIT 10
 `,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []) as ResultRows
                 },
-                columns: ['person', 'calls', 'errors', 'error_rate_pct', 'harnesses', 'last_seen'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+            },
+        ],
+    })),
+
+    selectors({
+        toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
+
+        dailyChartData: [
+            (s) => [s.dailyStats],
+            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
         ],
     }),
 
@@ -439,5 +418,11 @@ LIMIT 10
         actions.loadDescriptions()
         actions.loadIntentCoverage()
         actions.loadDailyStats()
+        actions.loadFailureRows()
+        actions.loadSampleIntentRows()
+        actions.loadNeighborsBeforeRows()
+        actions.loadNeighborsAfterRows()
+        actions.loadByHarnessRows()
+        actions.loadTopUserRows()
     }),
 ])

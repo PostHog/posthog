@@ -24,6 +24,32 @@ TOOL_NAMES = [
     "error_tracking_issue_get",
 ]
 
+# Marks events as coming from the new MCP SDK — the tool detail page filters on this.
+NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+# $mcp_tool_category powers the dashboard "share of calls by category" and the tool quality scope filter.
+TOOL_CATEGORIES = {
+    "query_run": "Querying",
+    "insight_get": "Product analytics",
+    "dashboard_get": "Product analytics",
+    "feature_flag_get": "Feature flags",
+    "experiment_get": "Experiments",
+    "person_get": "Persons",
+    "session_recording_get": "Session replay",
+    "error_tracking_issue_get": "Error tracking",
+}
+
+TOOL_DESCRIPTIONS = {
+    "query_run": "Run a HogQL query against the project's events and return rows.",
+    "insight_get": "Fetch a saved insight's definition and computed results.",
+    "dashboard_get": "Fetch a dashboard and the insights tiled on it.",
+    "feature_flag_get": "Look up a feature flag's configuration and rollout conditions.",
+    "experiment_get": "Fetch an experiment's setup and current results.",
+    "person_get": "Look up a person and their properties by distinct id.",
+    "session_recording_get": "Fetch metadata for a session recording.",
+    "error_tracking_issue_get": "Fetch an error-tracking issue and its impact.",
+}
+
 # Raw $mcp_client_name values that categorizeHarness() folds into the popular, logo-backed
 # harness buckets (Claude Code, OpenAI Codex, Cursor, Claude.ai, VS Code). Weighted toward the
 # most common agents so the breakdown looks realistic.
@@ -246,7 +272,10 @@ class Command(BaseCommand):
                     properties={
                         "$session_id": session_id,
                         "$mcp_session_id": mcp_session_id,
+                        "$mcp_source": NEW_SDK_SOURCE,
                         "$mcp_tool_name": tool_name,
+                        "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
+                        "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
                         "$mcp_intent": intent,
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
                         "$mcp_client_name": client_name,
