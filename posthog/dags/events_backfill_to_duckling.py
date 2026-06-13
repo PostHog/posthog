@@ -40,7 +40,9 @@ Iceberg dual-write:
 
 import os
 import json
+import time
 import calendar
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -105,30 +107,38 @@ def iceberg_enabled_for_team(team_id: int) -> bool:
     return team_id in ICEBERG_BACKFILL_TEAM_IDS
 
 
-# Duckgres connection timeouts: connect_timeout bounds the TCP+TLS handshake;
-# statement_timeout bounds query execution to prevent hung Dagster workers.
-# A backfill connection may have to wait for duckgres to spin up a fresh worker
-# (a cold worker can require provisioning a new node, which takes minutes), so
-# the handshake budget is generous and `_connect_duckgres` retries with backoff.
+# Duckgres connect timeout bounds the TCP+TLS handshake only. A backfill
+# connection may have to wait for duckgres to spin up a fresh worker (a cold
+# worker can require provisioning a new node, which takes minutes), so the
+# handshake budget is generous and `_connect_duckgres` retries with backoff.
 # Must exceed the binding duckgres server-side wait, which is the OUTER
 # workerQueueTimeout (5m) — not warmAcquireTimeout (4m). On a warm-pool miss the
 # CP blocks the connect server-side waiting for a colocated worker (which may need
 # a cold node) instead of bouncing us with "no warm worker available"; that whole
 # block is bounded by workerQueueTimeout. 360s gives margin over the 300s server
 # block + TLS/handshake. Ladder: warmAcquire 4m < workerQueueTimeout 5m < 360s.
+#
+# We deliberately set NO statement_timeout. Duckling backfills are long-running
+# OLAP statements (a partition DELETE / file registration over an event-day) —
+# running long is the whole point of an OLAP engine, so capping them at 5 minutes
+# (or any value) is wrong. A worker that disappears mid-statement is handled by
+# reconnect-and-retry (`_DuckgresSession`), not by pre-emptively killing the query.
 DUCKGRES_CONNECT_TIMEOUT = 360  # seconds
-DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
 
-# Worker-profile opt-in. When enabled, a backfill connection asks duckgres for a
-# small COLOCATED (bin-packed) worker via libpq startup options, so it bursts
-# into a ready pod instead of contending for the big exclusive shared workers
-# (the cause of the backfill ConnectionTimeouts). Gated so it stays off until
-# duckgres has the colocated warm pool deployed and the server gate is on.
+# Worker-profile control. When enabled, a backfill connection asks duckgres for a
+# small COLOCATED (bin-packed) worker via libpq startup options, so it bursts into
+# a right-sized pod instead of contending for the big exclusive shared workers
+# (270GB / 46-thread). A metadata-only DuckLake register/DELETE has no use for
+# that much worker, and grabbing one made the backfill both wasteful and fragile —
+# a single shared worker dying mid-statement took out the partition. The server
+# gate (DUCKGRES_K8S_ALLOW_CLIENT_WORKER_PROFILE) is on in prod, so this defaults
+# ON; set DUCKGRES_WORKER_PROFILE_ENABLED=0 to put a deployment back on the big
+# exclusive workers.
 #
 # Evaluated once at process startup, not per connection/partition — toggling it
 # (including rollback) requires redeploying the Dagster code location so the
 # process restarts and re-reads the env, not just unsetting the variable.
-DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "").strip().lower() in (
+DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "true").strip().lower() in (
     "1",
     "true",
     "yes",
@@ -146,24 +156,28 @@ DUCKGRES_ICEBERG_BACKFILL_COLOCATE_MEMORY = "48Gi"
 def _duckgres_backfill_options(team_id: int) -> str:
     """libpq startup `options` for a backfill connection.
 
-    Always bounds statement execution; when the worker-profile feature is
-    enabled, additionally requests a small colocated worker shape (larger for
-    Iceberg-allowlisted orgs). Returns a single space-joined `-c key=value` string
-    — psycopg forwards it as the startup `options` parameter, which duckgres
-    parses to size/schedule the worker.
+    When the worker-profile feature is enabled (the default), requests a small
+    colocated worker shape (larger for Iceberg-allowlisted orgs, which dual-write
+    via a memory-heavier `INSERT ... SELECT read_parquet`). Returns a single
+    space-joined `-c key=value` string — psycopg forwards it as the startup
+    `options` parameter, which duckgres parses to size/schedule the worker. No
+    statement_timeout is set (see DUCKGRES_CONNECT_TIMEOUT note above). Returns ""
+    when the profile is disabled, so the connection falls back to the default
+    exclusive worker with no extra startup options.
     """
-    opts = [f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}"]
-    if DUCKGRES_WORKER_PROFILE_ENABLED:
-        if iceberg_enabled_for_team(team_id):
-            cpu, memory = DUCKGRES_ICEBERG_BACKFILL_COLOCATE_CPU, DUCKGRES_ICEBERG_BACKFILL_COLOCATE_MEMORY
-        else:
-            cpu, memory = DUCKGRES_BACKFILL_COLOCATE_CPU, DUCKGRES_BACKFILL_COLOCATE_MEMORY
-        opts += [
+    if not DUCKGRES_WORKER_PROFILE_ENABLED:
+        return ""
+    if iceberg_enabled_for_team(team_id):
+        cpu, memory = DUCKGRES_ICEBERG_BACKFILL_COLOCATE_CPU, DUCKGRES_ICEBERG_BACKFILL_COLOCATE_MEMORY
+    else:
+        cpu, memory = DUCKGRES_BACKFILL_COLOCATE_CPU, DUCKGRES_BACKFILL_COLOCATE_MEMORY
+    return " ".join(
+        [
             "-c duckgres.colocate=true",
             f"-c duckgres.worker_cpu={cpu}",
             f"-c duckgres.worker_memory={memory}",
         ]
-    return " ".join(opts)
+    )
 
 
 @retry(
@@ -190,7 +204,8 @@ def _get_cluster() -> ClickhouseCluster:
     # or the CP giving up after its block): the delay cap must exceed one full
     # attempt so a second one can actually run, hence 780s (~2 attempts) rather
     # than 360s (which a single 360s attempt would exhaust, making retries a no-op).
-    # statement_timeout (set per connection) is separate.
+    # This guards only the initial connect; a worker that drops mid-statement is
+    # handled separately by _DuckgresSession's reconnect-and-retry.
     stop=stop_after_delay(780) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
@@ -227,6 +242,108 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
         connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
         options=_duckgres_backfill_options(catalog.team_id),
     )
+
+
+def _connection_dropped(exc: BaseException) -> bool:
+    """True when `exc` means the duckgres worker/connection went away mid-statement
+    (worker pod died, control plane lost the Flight stream), as opposed to a
+    SQL/logic error. Recoverable by reconnecting to a fresh worker and replaying
+    the (idempotent, transactional) duckgres metadata op.
+    """
+    # A dropped socket / closed connection surfaces as OperationalError
+    # (psycopg.errors.ConnectionException, AdminShutdown, etc. are subclasses).
+    if isinstance(exc, psycopg.OperationalError):
+        return True
+    # The control plane surfaces a worker-side Flight RPC failure — e.g. the
+    # worker pod dying mid-DELETE — back through the PG wire as InternalError
+    # wrapping a gRPC status string ("Unavailable", "connection reset by peer",
+    # "connection refused", "transport: ...", "error reading from server").
+    if isinstance(exc, psycopg.InternalError):
+        msg = str(exc).lower()
+        return any(
+            marker in msg
+            for marker in (
+                "connection reset",
+                "connection refused",
+                "unavailable",
+                "broken pipe",
+                "transport:",
+                "flight execute",
+                "error reading from server",
+            )
+        )
+    return False
+
+
+class _DuckgresSession:
+    """A duckgres connection that transparently reconnects to a fresh worker when
+    the current worker drops mid-statement.
+
+    Duckling backfill duckgres ops (partition DELETE, file registration, table
+    DDL) are idempotent and transactional, so replaying one on a new worker after
+    a mid-statement worker death is safe: an uncommitted DuckLake transaction
+    leaves no trace, and re-running a day's DELETE/register reproduces the same
+    state. A worker pod can disappear under a long-running statement for many
+    reasons (node consolidation, a control-plane rollout, an engine crash); the
+    backfill should survive that by re-acquiring a worker, not fail the whole
+    partition on the first blip.
+    """
+
+    MAX_ATTEMPTS = 4
+
+    def __init__(self, context: AssetExecutionContext, catalog: DuckLakeCatalog) -> None:
+        self._context = context
+        self._catalog = catalog
+        self._conn = _connect_duckgres(catalog)
+
+    @property
+    def conn(self) -> psycopg.Connection[Any]:
+        return self._conn
+
+    def run(self, what: str, op: Callable[[psycopg.Connection[Any]], Any]) -> Any:
+        """Run `op(conn)`, reconnecting to a fresh worker and retrying if the
+        worker/connection drops mid-statement. Non-connection errors propagate
+        immediately (no retry); the last connection error is re-raised once the
+        attempt budget is exhausted.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            try:
+                return op(self._conn)
+            except Exception as exc:
+                if not _connection_dropped(exc):
+                    raise
+                last_exc = exc
+                if attempt == self.MAX_ATTEMPTS:
+                    break
+                self._context.log.warning(
+                    f"duckgres worker/connection dropped during {what} "
+                    f"(attempt {attempt}/{self.MAX_ATTEMPTS}); reconnecting to a fresh worker: {exc}"
+                )
+                logger.warning(
+                    "duckling_duckgres_reconnect",
+                    what=what,
+                    attempt=attempt,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                self._reconnect()
+                time.sleep(min(2**attempt, 30))
+        assert last_exc is not None  # only reached after a connection-drop break
+        raise last_exc
+
+    def _reconnect(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = _connect_duckgres(self._catalog)
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
 
 
 # Columns to export from ClickHouse events table for duckling backfill.
@@ -1627,15 +1744,18 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
     should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
-    conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
+    session = _DuckgresSession(context, catalog) if should_use_duckgres else None
     iceberg_enabled = False
     try:
-        if conn is not None:
+        if session is not None:
             # Delete events table if requested (dangerous - loses all data)
             if config.delete_tables:
                 context.log.warning("delete_tables=True: Deleting events table...")
                 try:
-                    conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events")
+                    session.run(
+                        "drop events table",
+                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events"),
+                    )
                 except Exception:
                     context.log.exception(f"Failed to drop events table for team_id={team_id}")
                     logger.exception(
@@ -1646,28 +1766,31 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                     raise
                 # Keep Iceberg in sync with the DuckLake wipe (best-effort)
                 if iceberg_enabled_for_team(team_id):
-                    drop_iceberg_table(context, conn, "events")
+                    drop_iceberg_table(context, session.conn, "events")
 
             # Create events table if it doesn't exist
             if config.create_tables_if_missing:
                 context.log.info("Ensuring events table exists in duckling catalog...")
-                ensure_events_table_exists(context, catalog, conn)
+                session.run("ensure events table", lambda c: ensure_events_table_exists(context, catalog, c))
 
             # Validate schema before starting export
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling schema compatibility...")
-                validate_duckling_schema(context, catalog, conn)
+                session.run("validate events schema", lambda c: validate_duckling_schema(context, catalog, c))
 
             # Dual-write to Iceberg for allowlisted teams (best-effort, non-fatal)
             if iceberg_enabled_for_team(team_id):
                 context.log.info(f"Iceberg dual-write enabled for team_id={team_id}; ensuring Iceberg events table...")
-                iceberg_enabled = ensure_iceberg_table_exists(
-                    context,
-                    conn,
-                    "events",
-                    EVENTS_TABLE_DDL,
-                    team_id=team_id,
-                    partition_expr=ICEBERG_EVENTS_PARTITION_EXPR,
+                iceberg_enabled = session.run(
+                    "ensure iceberg events table",
+                    lambda c: ensure_iceberg_table_exists(
+                        context,
+                        c,
+                        "events",
+                        EVENTS_TABLE_DDL,
+                        team_id=team_id,
+                        partition_expr=ICEBERG_EVENTS_PARTITION_EXPR,
+                    ),
                 )
 
         # Prepare ClickHouse settings
@@ -1692,8 +1815,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             context.log.info(f"Processing date {date_str}...")
 
             # Delete existing DuckLake data for this partition before re-processing
-            if conn is not None and config.cleanup_existing_partition_data:
-                delete_events_partition_data(context, catalog, team_id, partition_date, conn=conn)
+            if session is not None and config.cleanup_existing_partition_data:
+                session.run(
+                    f"delete events partition {date_str}",
+                    lambda c, d=partition_date: delete_events_partition_data(context, catalog, team_id, d, conn=c),
+                )
 
             def do_export(client: Client, date: datetime = partition_date) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
@@ -1718,11 +1844,14 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             if s3_path:
                 total_exported += 1
                 s3_paths.append(s3_path)
-                if conn is not None and register_file_with_duckling(context, catalog, s3_path, config, conn):
+                if session is not None and session.run(
+                    f"register events file {date_str}",
+                    lambda c, p=s3_path: register_file_with_duckling(context, catalog, p, config, c),
+                ):
                     total_registered += 1
-                if iceberg_enabled and conn is not None:
+                if iceberg_enabled and session is not None:
                     if write_partition_to_iceberg(
-                        context, conn, "events", s3_path, team_id, "timestamp", partition_date
+                        context, session.conn, "events", s3_path, team_id, "timestamp", partition_date
                     ):
                         total_iceberg += 1
 
@@ -1751,8 +1880,8 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         )
 
     finally:
-        if conn is not None:
-            conn.close()
+        if session is not None:
+            session.close()
 
 
 @asset(
@@ -1813,15 +1942,18 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
     should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
-    conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
+    session = _DuckgresSession(context, catalog) if should_use_duckgres else None
     iceberg_enabled = False
     try:
-        if conn is not None:
+        if session is not None:
             # Delete persons table if requested (dangerous - loses all data)
             if config.delete_tables:
                 context.log.warning("delete_tables=True: Deleting persons table...")
                 try:
-                    conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons")
+                    session.run(
+                        "drop persons table",
+                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons"),
+                    )
                 except Exception:
                     context.log.exception(f"Failed to drop persons table for team_id={team_id}")
                     logger.exception(
@@ -1832,27 +1964,32 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                     raise
                 # Keep Iceberg in sync with the DuckLake wipe (best-effort)
                 if iceberg_enabled_for_team(team_id):
-                    drop_iceberg_table(context, conn, "persons")
+                    drop_iceberg_table(context, session.conn, "persons")
 
             # Create persons table if it doesn't exist
             if config.create_tables_if_missing:
                 context.log.info("Ensuring persons table exists in duckling catalog...")
-                ensure_persons_table_exists(context, catalog, conn)
+                session.run("ensure persons table", lambda c: ensure_persons_table_exists(context, catalog, c))
 
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling persons schema compatibility...")
-                validate_duckling_persons_schema(context, catalog, conn)
+                session.run(
+                    "validate persons schema", lambda c: validate_duckling_persons_schema(context, catalog, c)
+                )
 
             # Dual-write to Iceberg for allowlisted teams (best-effort, non-fatal)
             if iceberg_enabled_for_team(team_id):
                 context.log.info(f"Iceberg dual-write enabled for team_id={team_id}; ensuring Iceberg persons table...")
-                iceberg_enabled = ensure_iceberg_table_exists(
-                    context,
-                    conn,
-                    "persons",
-                    ICEBERG_PERSONS_TABLE_DDL,
-                    team_id=team_id,
-                    partition_expr=ICEBERG_PERSONS_PARTITION_EXPR,
+                iceberg_enabled = session.run(
+                    "ensure iceberg persons table",
+                    lambda c: ensure_iceberg_table_exists(
+                        context,
+                        c,
+                        "persons",
+                        ICEBERG_PERSONS_TABLE_DDL,
+                        team_id=team_id,
+                        partition_expr=ICEBERG_PERSONS_PARTITION_EXPR,
+                    ),
                 )
 
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -1870,8 +2007,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             context.log.info(f"Full export mode: exporting all persons for team_id={team_id}")
 
             # Delete all existing persons data for this team before full re-export
-            if conn is not None and config.cleanup_existing_partition_data:
-                delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=conn)
+            if session is not None and config.cleanup_existing_partition_data:
+                session.run(
+                    "delete all persons",
+                    lambda c: delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=c),
+                )
 
             def do_full_export(client: Client) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
@@ -1894,11 +2034,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             files_exported = 1 if s3_path else 0
             files_registered = 0
             files_iceberg_written = 0
-            if s3_path and conn is not None:
-                if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
+            if s3_path and session is not None:
+                if session.run(
+                    "register persons file (full)",
+                    lambda c, p=s3_path: register_persons_file_with_duckling(context, catalog, p, config, c),
+                ):
                     files_registered = 1
                 if iceberg_enabled and write_partition_to_iceberg(
-                    context, conn, "persons", s3_path, team_id, "_timestamp", None
+                    context, session.conn, "persons", s3_path, team_id, "_timestamp", None
                 ):
                     files_iceberg_written = 1
 
@@ -1936,8 +2079,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                 context.log.info(f"Processing persons for date {date_str}...")
 
                 # Delete existing DuckLake data for this partition before re-processing
-                if conn is not None and config.cleanup_existing_partition_data:
-                    delete_persons_partition_data(context, catalog, team_id, partition_date, conn=conn)
+                if session is not None and config.cleanup_existing_partition_data:
+                    session.run(
+                        f"delete persons partition {date_str}",
+                        lambda c, d=partition_date: delete_persons_partition_data(context, catalog, team_id, d, conn=c),
+                    )
 
                 def do_export(client: Client, date: datetime = partition_date) -> str | None:
                     with tags_context(kind="dagster", dagster=tags):
@@ -1960,13 +2106,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
                 if s3_path:
                     total_exported += 1
-                    if conn is not None and register_persons_file_with_duckling(
-                        context, catalog, s3_path, config, conn
+                    if session is not None and session.run(
+                        f"register persons file {date_str}",
+                        lambda c, p=s3_path: register_persons_file_with_duckling(context, catalog, p, config, c),
                     ):
                         total_registered += 1
-                    if iceberg_enabled and conn is not None:
+                    if iceberg_enabled and session is not None:
                         if write_partition_to_iceberg(
-                            context, conn, "persons", s3_path, team_id, "_timestamp", partition_date
+                            context, session.conn, "persons", s3_path, team_id, "_timestamp", partition_date
                         ):
                             total_iceberg += 1
 
@@ -1997,8 +2144,8 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             )
 
     finally:
-        if conn is not None:
-            conn.close()
+        if session is not None:
+            session.close()
 
 
 @sensor(
