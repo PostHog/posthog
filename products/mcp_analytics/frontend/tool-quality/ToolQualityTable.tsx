@@ -4,6 +4,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Card,
+    CardFooter,
     CardHeader,
     CardTitle,
     Table,
@@ -26,6 +27,20 @@ import { type SortState, type ToolQualityRow, mcpAnalyticsToolQualityLogic } fro
 const DESTRUCTIVE_ERROR_PCT = 5
 
 const COLUMN_COUNT = 9
+
+// LIMIT in tool_quality.sql — when the fetched set hits this, more tools may exist.
+const TOOL_ROW_LIMIT = 200
+
+function formatToolCount(filtered: number, total: number): string {
+    const plural = (n: number): string => `${n} tool${n === 1 ? '' : 's'}`
+    if (filtered < total) {
+        return `Showing ${filtered} of ${plural(total)}`
+    }
+    if (total >= TOOL_ROW_LIMIT) {
+        return `Showing first ${plural(total)}`
+    }
+    return plural(total)
+}
 
 interface ColumnSpec {
     key: keyof ToolQualityRow
@@ -154,7 +169,7 @@ function ToolRows(): JSX.Element {
 }
 
 export function ToolQualityTable(): JSX.Element {
-    const { toolQualitySort } = useValues(mcpAnalyticsToolQualityLogic)
+    const { toolQualitySort, toolRows, filteredRows, toolRowsLoading } = useValues(mcpAnalyticsToolQualityLogic)
     const { setToolQualitySort } = useActions(mcpAnalyticsToolQualityLogic)
 
     return (
@@ -162,7 +177,7 @@ export function ToolQualityTable(): JSX.Element {
             <CardHeader className="border-b border-border pb-3">
                 <CardTitle>All tools</CardTitle>
             </CardHeader>
-            <Table fullWidth stickyHeader className="max-h-[26rem]">
+            <Table fullWidth stickyHeader className="max-h-[44rem]">
                 <TableHeader>
                     <TableRow>
                         <TableHead expand>Tool</TableHead>
@@ -180,6 +195,11 @@ export function ToolQualityTable(): JSX.Element {
                     <ToolRows />
                 </TableBody>
             </Table>
+            {!toolRowsLoading && toolRows.length > 0 && (
+                <CardFooter className="border-t border-border py-2 text-xs text-secondary">
+                    {formatToolCount(filteredRows.length, toolRows.length)}
+                </CardFooter>
+            )}
         </Card>
     )
 }
