@@ -124,18 +124,9 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-quill>
             <FilterBar />
-            <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-                <ToolQualityTable />
-                <div className="flex min-w-0 flex-col gap-3">
-                    <ChartsScopeHeader />
-                    <ToolQualityCharts
-                        data={dailyChartData}
-                        loading={dailyStatsLoading}
-                        theme={theme}
-                        timezone={timezone}
-                    />
-                </div>
-            </div>
+            <ChartsScopeHeader />
+            <ToolQualityCharts data={dailyChartData} loading={dailyStatsLoading} theme={theme} timezone={timezone} />
+            <ToolQualityTable />
         </div>
     )
 }
