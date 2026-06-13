@@ -32,7 +32,6 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
@@ -2090,13 +2089,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json(), '{"test": true}')
 
     def test_remote_config_with_psak(self):
-        token = "phs_remote_config_psak"
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="remote-config",
-            secure_value=hash_key_value(token),
-            scopes=["feature_flag:read"],
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "remote-config", "scopes": ["feature_flag:read"]},
         )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        token = response.json()["value"]
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
