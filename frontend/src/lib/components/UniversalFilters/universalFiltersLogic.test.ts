@@ -85,6 +85,44 @@ describe('universalFiltersLogic', () => {
                 taxonomicPropertyFilterGroupTypes: kept ? [groupType] : [],
             })
         })
+
+        it('replay scene taxonomicGroupTypes yields correct property-filterable subset', async () => {
+            const groups0 = `${TaxonomicFilterGroupType.GroupsPrefix}_0` as TaxonomicFilterGroupType
+            const replaySceneGroupTypes = [
+                TaxonomicFilterGroupType.SuggestedFilters,
+                TaxonomicFilterGroupType.Replay,
+                TaxonomicFilterGroupType.ReplaySavedFilters,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.SessionProperties,
+                groups0,
+                TaxonomicFilterGroupType.AutocaptureEvents,
+            ]
+
+            const scopedLogic = universalFiltersLogic({
+                rootKey: 'replay-regression',
+                group: defaultFilter,
+                taxonomicGroupTypes: replaySceneGroupTypes,
+                onChange: () => {},
+            })
+            scopedLogic.mount()
+
+            await expectLogic(scopedLogic).toMatchValues({
+                taxonomicPropertyFilterGroupTypes: [
+                    TaxonomicFilterGroupType.Replay,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
+                    groups0,
+                ],
+            })
+        })
     })
 
     it('setGroupType', async () => {
