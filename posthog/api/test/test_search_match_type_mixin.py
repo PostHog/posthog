@@ -7,6 +7,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin
 from products.cdp.backend.api.hog_function import HogFunctionMinimalSerializer, HogFunctionSerializer
 from products.dashboards.backend.api.dashboard import DashboardBasicSerializer
 from products.product_analytics.backend.api.insight import InsightBasicSerializer, InsightSerializer
+from products.product_tours.backend.api.product_tour import ProductTourSerializer
 from products.surveys.backend.api.survey import SurveySerializer
 
 # Each product that migrates its saved-list search onto apply_trigram_search appends its
@@ -19,6 +20,7 @@ SEARCH_LIST_SERIALIZERS = [
     ("hog_function_minimal", HogFunctionMinimalSerializer),
     ("hog_function", HogFunctionSerializer),
     ("survey", SurveySerializer),
+    ("product_tour", ProductTourSerializer),
 ]
 
 
