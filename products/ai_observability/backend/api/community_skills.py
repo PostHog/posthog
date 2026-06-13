@@ -7,6 +7,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -76,14 +77,14 @@ class CommunitySkillViewSet(
         # Deliberately bypasses team/parent filtering: CommunitySkill is a shared, instance-global
         # catalog with no team_id. Access is gated by the feature-flag permission above.
         user = cast(User, self.request.user)
-        return (
-            CommunitySkill.objects.filter(deleted=False)
-            .prefetch_related("files")
-            .annotate(
-                vote_count=Count("votes", distinct=True),
-                has_voted=Exists(CommunitySkillVote.objects.filter(skill=OuterRef("pk"), user=user)),
-            )
+        queryset = CommunitySkill.objects.filter(deleted=False).annotate(
+            vote_count=Count("votes", distinct=True),
+            has_voted=Exists(CommunitySkillVote.objects.filter(skill=OuterRef("pk"), user=user)),
         )
+        # Only the detail serializer renders the files manifest — skip the extra query on list.
+        if self.action != "list":
+            queryset = queryset.prefetch_related("files")
+        return queryset
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -100,12 +101,14 @@ class CommunitySkillViewSet(
         queryset = self.get_queryset()
         search = params.validated_data.get("search", "").strip()
         if search:
+            # tags is a JSONField array — use `contains` for exact element membership, not a
+            # substring match against the serialized JSON.
             queryset = queryset.filter(
-                Q(name__icontains=search) | Q(description__icontains=search) | Q(tags__icontains=search)
+                Q(name__icontains=search) | Q(description__icontains=search) | Q(tags__contains=[search])
             )
         tag = params.validated_data.get("tag", "").strip()
         if tag:
-            queryset = queryset.filter(tags__icontains=tag)
+            queryset = queryset.filter(tags__contains=[tag])
         trust_tier = params.validated_data.get("trust_tier")
         if trust_tier:
             queryset = queryset.filter(trust_tier=trust_tier)
@@ -123,6 +126,15 @@ class CommunitySkillViewSet(
     @extend_schema(request=CommunitySkillInstallSerializer, responses={201: LLMSkillSerializer})
     @action(methods=["POST"], detail=True)
     def install(self, request: Request, slug: str = "", **kwargs) -> Response:
+        # Installing creates a durable LLMSkill in the team, so it must require the same write
+        # access as LLMSkillViewSet's create (resource-level "editor" on llm_skill). The viewset
+        # is scope_object="INTERNAL", so the shared AccessControlPermission only checks project
+        # membership — enforce skill-write access imperatively here. Catalog reads (list/retrieve)
+        # stay global and unaffected, and we avoid object-level AC checks against CommunitySkill
+        # (which has no team and is not an LLMSkill).
+        if not self.user_access_control.check_access_level_for_resource("llm_skill", "editor"):
+            raise PermissionDenied("You do not have permission to install skills in this project.")
+
         payload = CommunitySkillInstallSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
