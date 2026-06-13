@@ -112,4 +112,39 @@ describe('QuestionInput', () => {
         fireEvent.change(input, { target: { value: '/' } })
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
     })
+
+    describe('stop button cancel state', () => {
+        const sendButton = (): HTMLElement | null => document.querySelector('[data-attr="max-send-message"]')
+        const stopButton = (): HTMLElement | null => document.querySelector('[data-attr="max-stop-generation"]')
+
+        it('shows the stop affordance while streaming and not cancelling', async () => {
+            threadLogicInstance.actions.reconnectToStream()
+            await waitFor(() => expect(stopButton()).not.toBeNull())
+            expect(sendButton()).toBeNull()
+        })
+
+        it('shows send (not stop) while cancelLoading is true', async () => {
+            threadLogicInstance.actions.reconnectToStream()
+            threadLogicInstance.actions.setCancelLoading(true)
+
+            await waitFor(() => expect(sendButton()).not.toBeNull())
+            expect(stopButton()).toBeNull()
+            // The composer button reads "Cancelling…" via disabledReason, never "Let's bail".
+            expect(screen.queryByText("Let's bail")).not.toBeInTheDocument()
+        })
+
+        it('returns to send (not stop) after cancel resolves and loading clears', async () => {
+            threadLogicInstance.actions.reconnectToStream()
+            threadLogicInstance.actions.setCancelLoading(true)
+            await waitFor(() => expect(sendButton()).not.toBeNull())
+
+            // Cancel resolves: streaming ends and cancelLoading clears -> threadLoading false.
+            threadLogicInstance.actions.endStreaming()
+            threadLogicInstance.actions.setCancelLoading(false)
+
+            await waitFor(() => expect(sendButton()).not.toBeNull())
+            expect(stopButton()).toBeNull()
+            expect(screen.queryByText("Let's bail")).not.toBeInTheDocument()
+        })
+    })
 })
