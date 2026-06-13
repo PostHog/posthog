@@ -66,6 +66,40 @@ from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPP
 
 logger = structlog.get_logger(__name__)
 
+# Mirrors the values accepted by `sync_frequency_to_sync_frequency_interval`.
+SYNC_FREQUENCY_CHOICES = [
+    ("never", "never"),
+    ("1min", "1min"),
+    ("5min", "5min"),
+    ("15min", "15min"),
+    ("30min", "30min"),
+    ("1hour", "1hour"),
+    ("6hour", "6hour"),
+    ("12hour", "12hour"),
+    ("24hour", "24hour"),
+    ("7day", "7day"),
+    ("30day", "30day"),
+]
+
+
+class SyncFrequencyField(serializers.ChoiceField):
+    """Writable sync-cadence field for saved queries.
+
+    The cadence is stored on the model as a `sync_frequency_interval` duration, so reads derive
+    the cadence string from it; writes are validated against the choices and consumed by the
+    serializer's `update()`. Declaring it as a real (non read-only) field is what lets the
+    cadence flow into the generated PATCH body and MCP tool schema.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("choices", SYNC_FREQUENCY_CHOICES)
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_null", True)
+        super().__init__(**kwargs)
+
+    def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
+        return sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError, delete_node_from_dag
@@ -205,7 +239,12 @@ class DataWarehouseSavedQuerySerializer(
     query = QueryDefinitionField(
         help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}',
     )
-    sync_frequency = serializers.SerializerMethodField()
+    sync_frequency = SyncFrequencyField(
+        help_text=(
+            "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', "
+            "'6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization."
+        ),
+    )
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
@@ -310,6 +349,9 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
         dag_id = validated_data.pop("dag_id", None)
+        # Sync cadence is configured via materialization, not on creation — drop it so it
+        # isn't passed to the model constructor.
+        validated_data.pop("sync_frequency", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -398,7 +440,7 @@ class DataWarehouseSavedQuerySerializer(
         except DataWarehouseSavedQuery.DoesNotExist:
             before_update = None
 
-        sync_frequency = self.context["request"].data.get("sync_frequency", None)
+        sync_frequency = validated_data.pop("sync_frequency", None)
 
         if sync_frequency and posthoganalytics.feature_enabled(
             "data-modeling-backend-v2",
