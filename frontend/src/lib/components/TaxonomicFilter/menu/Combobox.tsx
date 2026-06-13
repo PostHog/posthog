@@ -13,7 +13,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactElement, RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
 import {
@@ -136,8 +136,9 @@ export interface MenuFilterComboboxProps {
     title?: string
     /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
     selectedEntry?: MenuFilterEntry | null
-    /** Shared ref to the search input so the popover can target it for focus. */
-    inputRef?: RefObject<HTMLInputElement | null>
+    /** Shared ref to the search input so the popover can target it for focus.
+     *  Mutable because the adapter assigns the input element onto it. */
+    inputRef?: MutableRefObject<HTMLInputElement | null>
     /**
      * Filter-icon menu button shown as the field's prefix in input-trigger
      * mode (where the field is a `LemonInput` in the trigger row). Omitted in
@@ -1026,7 +1027,7 @@ interface AutocompleteLemonInputProps {
     onValueChange: (value: string) => void
     /** Set alongside base-ui's own ref, so callers (popover `initialFocus`,
      *  category-select refocus) can reach the input element. */
-    sharedInputRef?: RefObject<HTMLInputElement | null>
+    sharedInputRef?: MutableRefObject<HTMLInputElement | null>
     prefix?: ReactElement
     suffix?: ReactElement
     placeholder?: string
@@ -1084,7 +1085,7 @@ function AutocompleteLemonInput({
                         ;(ref as React.MutableRefObject<HTMLInputElement | null>).current = el
                     }
                     if (sharedInputRef) {
-                        ;(sharedInputRef as React.MutableRefObject<HTMLInputElement | null>).current = el
+                        sharedInputRef.current = el
                     }
                 }
                 return (
