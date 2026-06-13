@@ -1,15 +1,25 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import {
+    type ChartTheme,
+    type Series,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+} from '@posthog/quill-charts'
 
+import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
@@ -17,6 +27,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { HarnessPill } from './dashboard/harness'
 import {
+    type DailyChartData,
     IntentCoverage,
     MCPAnalyticsToolDetailLogicProps,
     ToolSummary,
@@ -242,14 +253,89 @@ function DescriptionBlock({
     )
 }
 
+function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
+    return {
+        yAxis: { showGrid: false, ...yAxis },
+        showAxisLines: true,
+        xAxis: { interval: 'day', timezone },
+        showCrosshair: true,
+        tooltip: { placement: 'cursor' },
+    }
+}
+
+type TrendSeriesKey = 'calls' | 'errors' | 'p50' | 'p95'
+const SERIES_META: Record<TrendSeriesKey, { label: string; colorIndex: number }> = {
+    calls: { label: 'Calls', colorIndex: 0 },
+    errors: { label: 'Errors', colorIndex: 4 },
+    p50: { label: 'p50', colorIndex: 1 },
+    p95: { label: 'p95', colorIndex: 0 },
+}
+
+function seriesFor(data: DailyChartData, theme: ChartTheme, keys: TrendSeriesKey[]): Series[] {
+    return keys.map((key) => ({
+        key,
+        label: SERIES_META[key].label,
+        color: theme.colors[SERIES_META[key].colorIndex],
+        data: data[key],
+    }))
+}
+
+function formatMsAxis(ms: number): string {
+    if (!isFinite(ms)) {
+        return '—'
+    }
+    return ms < 1000 ? `${Math.round(ms)}ms` : `${Math.round(ms / 100) / 10}s`
+}
+
+function TrendChart({
+    title,
+    series,
+    labels,
+    config,
+    theme,
+    loading,
+    dataAttr,
+}: {
+    title: string
+    series: Series[]
+    labels: string[]
+    config: TimeSeriesLineChartConfig
+    theme: ChartTheme
+    loading: boolean
+    dataAttr: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col rounded border bg-bg-light p-2" style={{ height: 240 }} data-quill>
+            <div className="mb-1 px-2 pt-1 text-xs font-medium uppercase text-secondary">{title}</div>
+            <div className="flex min-h-0 flex-1 flex-col">
+                {loading && labels.length === 0 ? (
+                    <LemonSkeleton className="flex-1" />
+                ) : labels.length === 0 ? (
+                    <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
+                        No data for the last 7 days.
+                    </div>
+                ) : (
+                    <TimeSeriesLineChart
+                        series={series}
+                        labels={labels}
+                        config={config}
+                        theme={theme}
+                        dataAttr={dataAttr}
+                    />
+                )}
+            </div>
+        </div>
+    )
+}
+
 export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
     const {
         summary,
         summaryLoading,
         descriptions,
         descriptionsLoading,
-        callsTrendQuery,
-        latencyTrendQuery,
+        dailyChartData,
+        dailyStatsLoading,
         failuresQuery,
         sampleIntentsQuery,
         intentCoverage,
@@ -259,6 +345,21 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         byHarnessQuery,
         topUsersQuery,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { timezone } = useValues(teamLogic)
+
+    // buildTheme() reads CSS vars from the DOM; isDarkModeOn forces a recompute on theme flip.
+    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const callsSeries = useMemo<Series[]>(
+        () => seriesFor(dailyChartData, theme, ['calls', 'errors']),
+        [dailyChartData, theme]
+    )
+    const latencySeries = useMemo<Series[]>(
+        () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
+        [dailyChartData, theme]
+    )
+    const countsConfig = useMemo(() => trendChartConfig(timezone), [timezone])
+    const latencyConfig = useMemo(() => trendChartConfig(timezone, { tickFormatter: formatMsAxis }), [timezone])
 
     return (
         <SceneContent>
@@ -288,22 +389,24 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <SectionHeader title="Reliability" subtitle="Last 7 days" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="flex flex-col bg-bg-light border rounded p-2" style={{ height: 240 }}>
-                        <div className="text-secondary text-xs font-medium uppercase mb-1 px-2 pt-1">
-                            Calls (broken down by error)
-                        </div>
-                        <div className="InsightCard__viz">
-                            <Query query={callsTrendQuery} readOnly embedded />
-                        </div>
-                    </div>
-                    <div className="flex flex-col bg-bg-light border rounded p-2" style={{ height: 240 }}>
-                        <div className="text-secondary text-xs font-medium uppercase mb-1 px-2 pt-1">
-                            Duration (p50 / p95)
-                        </div>
-                        <div className="InsightCard__viz">
-                            <Query query={latencyTrendQuery} readOnly embedded />
-                        </div>
-                    </div>
+                    <TrendChart
+                        title="Calls and errors"
+                        series={callsSeries}
+                        labels={dailyChartData.labels}
+                        config={countsConfig}
+                        theme={theme}
+                        loading={dailyStatsLoading}
+                        dataAttr="mcp-tool-detail-calls-chart"
+                    />
+                    <TrendChart
+                        title="Duration (p50 / p95)"
+                        series={latencySeries}
+                        labels={dailyChartData.labels}
+                        config={latencyConfig}
+                        theme={theme}
+                        loading={dailyStatsLoading}
+                        dataAttr="mcp-tool-detail-latency-chart"
+                    />
                 </div>
             </div>
 

@@ -2,9 +2,9 @@ import { afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
-import { DataTableNode, HogQLQueryResponse, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType } from '~/types'
+import { DataTableNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
 
@@ -29,13 +29,51 @@ export interface IntentCoverage {
     total: number
 }
 
+export interface DailyToolStat {
+    day: string
+    calls: number
+    errors: number
+    p50: number
+    p95: number
+}
+
+export interface DailyChartData {
+    labels: string[]
+    calls: number[]
+    errors: number[]
+    p50: number[]
+    p95: number[]
+}
+
+const EMPTY_CHART_DATA: DailyChartData = { labels: [], calls: [], errors: [], p50: [], p95: [] }
+
+// Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
+// Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
+function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+    if (rows.length === 0) {
+        return EMPTY_CHART_DATA
+    }
+    const byDay = new Map(rows.map((r) => [r.day, r]))
+    const end = dayjs(rows[rows.length - 1].day)
+    const labels: string[] = []
+    for (let day = dayjs(rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
+        labels.push(day.format('YYYY-MM-DD'))
+    }
+    const at = labels.map((day) => byDay.get(day))
+    return {
+        labels,
+        calls: at.map((r) => r?.calls ?? 0),
+        errors: at.map((r) => r?.errors ?? 0),
+        p50: at.map((r) => (r ? r.p50 : NaN)),
+        p95: at.map((r) => (r ? r.p95 : NaN)),
+    }
+}
+
 export interface MCPAnalyticsToolDetailLogicProps {
     toolName: string
 }
 
 const NEW_SDK_SOURCE = 'posthog_mcp_analytics'
-
-const DATE_FROM_CURRENT = '-7d'
 
 // HogQL expression that resolves to the *effective* tool name for new-SDK events:
 // the inner tool when the call went through the single-exec wrapper, otherwise
@@ -148,6 +186,38 @@ WHERE event = 'mcp_tool_call'
                 },
             },
         ],
+        dailyStats: [
+            [] as DailyToolStat[],
+            {
+                loadDailyStats: async (): Promise<DailyToolStat[]> => {
+                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+SELECT
+    toDate(timestamp) AS day,
+    count() AS calls,
+    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+FROM events
+WHERE event = 'mcp_tool_call'
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND ${toolFilter}
+GROUP BY day
+ORDER BY day
+`,
+                    })) as HogQLQueryResponse
+                    return (response.results ?? []).map((r) => ({
+                        day: String(r[0] ?? ''),
+                        calls: Number(r[1] ?? 0),
+                        errors: Number(r[2] ?? 0),
+                        p50: Number(r[3] ?? 0),
+                        p95: Number(r[4] ?? 0),
+                    }))
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -158,82 +228,9 @@ WHERE event = 'mcp_tool_call'
             (toolName: string) => `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}' AND ${NEW_SDK_FILTER}`,
         ],
 
-        callsTrendQuery: [
-            (s) => [s.toolName],
-            (toolName: string): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'Calls',
-                            math: BaseMathType.TotalCount,
-                            properties: [
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}'`,
-                                },
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: NEW_SDK_FILTER,
-                                },
-                            ],
-                        },
-                    ],
-                    breakdownFilter: {
-                        breakdown_type: 'event',
-                        breakdown: '$mcp_is_error',
-                    },
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                    },
-                    dateRange: { date_from: DATE_FROM_CURRENT, date_to: null },
-                },
-            }),
-        ],
-
-        latencyTrendQuery: [
-            (s) => [s.toolName],
-            (toolName: string): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'p95 duration (ms)',
-                            math: PropertyMathType.P95,
-                            math_property: '$mcp_duration_ms',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}'`,
-                                },
-                                { type: PropertyFilterType.HogQL, key: NEW_SDK_FILTER },
-                            ],
-                        },
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'p50 duration (ms)',
-                            math: PropertyMathType.Median,
-                            math_property: '$mcp_duration_ms',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}'`,
-                                },
-                                { type: PropertyFilterType.HogQL, key: NEW_SDK_FILTER },
-                            ],
-                        },
-                    ],
-                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                    dateRange: { date_from: DATE_FROM_CURRENT, date_to: null },
-                },
-            }),
+        dailyChartData: [
+            (s) => [s.dailyStats],
+            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
         ],
 
         failuresQuery: [
@@ -441,5 +438,6 @@ LIMIT 10
         actions.loadSummary()
         actions.loadDescriptions()
         actions.loadIntentCoverage()
+        actions.loadDailyStats()
     }),
 ])
