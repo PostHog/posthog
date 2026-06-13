@@ -30,6 +30,10 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import {
+    buildUrlContainsShortcut,
+    COLLAPSED_TO_CONTAINS_ROW,
+} from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -850,6 +854,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
+                (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
                 remoteItems,
@@ -861,8 +866,27 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 contextFilteredPinnedItems,
                 suggestedPinnedMatches,
                 suggestedRecentMatches,
-                keywordShortcutItems
+                keywordShortcutItems,
+                collapseUrlsToContainsRow
             ) => {
+                // Collapse URL groups to a single "URL contains <query>" shortcut row
+                // (mirrors the rebuild menu's `COLLAPSED_TO_CONTAINS_ROW`). Only once
+                // the remote fetch for the *current* query has returned at least one
+                // match — otherwise the list is empty and the standard empty/loading
+                // states apply.
+                if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
+                    const trimmed = (searchQuery ?? '').trim()
+                    const remoteIsFresh = (remoteItems.searchQuery ?? '').trim() === trimmed
+                    const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
+                    const results = hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
+                    return {
+                        results,
+                        count: results.length,
+                        searchQuery: remoteItems.searchQuery,
+                        queryChanged: remoteItems.queryChanged,
+                        first: remoteItems.first,
+                    }
+                }
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []

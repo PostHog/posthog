@@ -177,6 +177,13 @@ export interface TaxonomicFilterProps {
      *  - `TaxonomicPropertyFilter` hides the operator+value pair on rows whose group is key-only.
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
+    /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
+     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
+     *  so hosts must handle `isQuickFilterItem(item)` in onChange (the property- and
+     *  universal-filter hosts do). Only the rebuild-eligible wrappers opt in, so the
+     *  paths picker keeps its full URL list. */
+    collapseUrlsToContainsRow?: boolean
 }
 
 export interface DataWarehousePopoverField {
