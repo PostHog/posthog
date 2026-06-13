@@ -1056,18 +1056,21 @@ mod tests {
         let cohorts = vec![cohort];
         let static_cohort_matches = HashMap::new();
 
-        let mut target_properties = HashMap::new();
-        target_properties.insert("tenantId".to_string(), json!("B"));
-        let result =
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
-                .unwrap();
-        assert!(result, "User with a listed tenantId should match");
+        let test_cases = [
+            (json!("B"), true),  // listed tenantId should match
+            (json!("Z"), false), // unlisted tenantId should NOT match
+        ];
 
-        target_properties.insert("tenantId".to_string(), json!("Z"));
-        let result =
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
-                .unwrap();
-        assert!(!result, "User with an unlisted tenantId should NOT match");
+        for (tenant_id, expected) in test_cases {
+            let target_properties = HashMap::from([("tenantId".to_string(), tenant_id.clone())]);
+            let result =
+                evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
+                    .unwrap();
+            assert_eq!(
+                result, expected,
+                "tenantId={tenant_id} should evaluate to {expected}"
+            );
+        }
     }
 
     #[test]
@@ -1143,23 +1146,20 @@ mod tests {
         let cohorts = vec![inner_cohort, outer_cohort];
         let static_cohort_matches = HashMap::new();
 
-        let mut target_properties = HashMap::new();
-        target_properties.insert("email".to_string(), json!("someone@posthog.com"));
-        let result =
-            evaluate_dynamic_cohorts(2, &target_properties, &cohorts, &static_cohort_matches)
-                .unwrap();
-        assert!(
-            !result,
-            "User in the negated cohort should NOT match the outer cohort"
-        );
+        let test_cases = [
+            (json!("someone@posthog.com"), false), // in the negated cohort -> should NOT match
+            (json!("someone@example.com"), true),  // outside the negated cohort -> should match
+        ];
 
-        target_properties.insert("email".to_string(), json!("someone@example.com"));
-        let result =
-            evaluate_dynamic_cohorts(2, &target_properties, &cohorts, &static_cohort_matches)
-                .unwrap();
-        assert!(
-            result,
-            "User outside the negated cohort should match the outer cohort"
-        );
+        for (email, expected) in test_cases {
+            let target_properties = HashMap::from([("email".to_string(), email.clone())]);
+            let result =
+                evaluate_dynamic_cohorts(2, &target_properties, &cohorts, &static_cohort_matches)
+                    .unwrap();
+            assert_eq!(
+                result, expected,
+                "email={email} should evaluate to {expected}"
+            );
+        }
     }
 }
