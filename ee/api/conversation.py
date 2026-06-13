@@ -276,6 +276,37 @@ class SandboxCancelResponseSerializer(serializers.Serializer):
     run_status = serializers.CharField(help_text="Status of the Run after the cancel command was issued.")
 
 
+class RefreshMcpRequestSerializer(serializers.Serializer):
+    """Request body for `POST /conversations/{id}/refresh_mcp/`.
+
+    Carries NO server list. The trusted `mcpServers` payload (URLs + bearer headers) is
+    rebuilt entirely server-side from the user's current MCP-store installs — the browser
+    is only the trigger, never the source of the server list.
+    """
+
+    source = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=["mcp_store_install", "mcp_store_uninstall", "manual"],
+        help_text="Optional telemetry tag describing what prompted the refresh. Has no effect on the rebuilt server list.",
+    )
+
+
+class RefreshMcpResponseSerializer(serializers.Serializer):
+    """Response for `POST /conversations/{id}/refresh_mcp/` — the targeted Run and whether a refresh was dispatched."""
+
+    task_id = serializers.CharField(help_text="The products/tasks Task backing the conversation.")
+    run_id = serializers.CharField(
+        allow_blank=True, help_text="The Run targeted for the MCP refresh. Empty when no live run exists."
+    )
+    run_status = serializers.CharField(
+        allow_blank=True, help_text="Status of the targeted Run. Empty when no live run exists."
+    )
+    refresh_requested = serializers.BooleanField(
+        help_text="True when a refresh command was delivered to a live run; false for an idempotent no-op (no/terminal run)."
+    )
+
+
 @extend_schema(tags=["max"])
 class ConversationViewSet(
     TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
@@ -875,6 +906,53 @@ class ConversationViewSet(
             )
 
         return Response(PermissionResponseResultSerializer({"status": "ok"}).data)
+
+    @extend_schema(
+        request=RefreshMcpRequestSerializer,
+        responses={
+            200: RefreshMcpResponseSerializer,
+            400: OpenApiResponse(description="Conversation is not on the sandbox runtime, or has no backing task."),
+            409: OpenApiResponse(description="The agent is mid-turn; retry once the run goes idle."),
+            502: OpenApiResponse(description="Sandbox agent unreachable or rejected the refresh command."),
+        },
+        description=(
+            "Hot-reload the conversation's live sandbox with the user's current MCP install set. The browser is "
+            "only the trigger; the trusted `mcpServers` payload (URLs + bearer headers) is rebuilt server-side, never "
+            "supplied by the client. Idempotent: a conversation with no live run is a 200 no-op."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="refresh_mcp")
+    def refresh_mcp(self, request: Request, *args, **kwargs):
+        """Sandbox-runtime MCP hot-reload trigger.
+
+        Resolves the conversation's backing Run and delegates in-process to
+        `MessageRoutingService.refresh_mcp`, which rebuilds the trusted server list from
+        the user's MCP-store installs and pushes it via `_posthog/refresh_session`.
+        """
+        conversation = self.get_object()
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
+
+        serializer = RefreshMcpRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source = serializer.validated_data.get("source")
+
+        user = cast(User, request.user)
+        result = MessageRoutingService(conversation, user).refresh_mcp()
+
+        if result.refresh_requested and user.distinct_id:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="mcp_refresh_requested",
+                properties={
+                    "conversation_id": str(conversation.id),
+                    "run_id": result.run_id,
+                    "execution_type": "sandbox",
+                    "source": source,
+                },
+            )
+
+        return Response(RefreshMcpResponseSerializer(result.model_dump()).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         description="Delete a conversation.",

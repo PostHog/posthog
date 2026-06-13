@@ -35,8 +35,11 @@ from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agent_command import send_cancel
+from products.tasks.backend.services.agent_command import CommandResult, send_cancel, send_refresh_session
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
+from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.process_task.utils import build_sandbox_mcp_servers
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +73,35 @@ class SandboxCommandError(exceptions.APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_detail = "Failed to deliver the command to the sandbox agent."
     default_code = "sandbox_command_failed"
+
+
+class SandboxBusyError(exceptions.APIException):
+    """The sandbox agent is mid-turn and cannot rebind its MCP session right now.
+
+    A `_posthog/refresh_session` must be dispatched between turns; the agent-server
+    replies with JSON-RPC error -32002 when a prompt is in flight. Map it to a
+    soft, retryable 409 so the frontend can re-attempt once the run goes idle
+    rather than treating a normal timing condition as a hard failure.
+    """
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "The agent is mid-turn — new tools will load after the current turn."
+    default_code = "sandbox_busy"
+
+
+# JSON-RPC error code the agent-server returns when a refresh arrives while a prompt is in flight.
+REFRESH_PROMPT_IN_FLIGHT_CODE = -32002
+
+
+class SandboxRefreshMcpResult(BaseModel):
+    """Outcome of requesting an MCP hot-reload on the conversation's current sandbox Run."""
+
+    task_id: str
+    run_id: str
+    run_status: str
+    # True only when a refresh command was actually delivered to a live run (not an
+    # already-terminal / no-run idempotent no-op), so the action emits telemetry once per real refresh.
+    refresh_requested: bool = False
 
 
 @contextmanager
@@ -112,6 +144,11 @@ class MessageRoutingService(BaseSandboxService):
 
     # Run statuses that accept a follow-up signal without creating a successor Run.
     _IN_PROGRESS_STATUSES: frozenset[str] = frozenset({TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS})
+
+    # PostHog AI runs are always launched with write scopes (the agent creates insights,
+    # dashboards, notebooks), so an MCP refresh must mint the same "full"-scoped token a
+    # follow-up turn would — read-only here would silently strip the agent's write tools.
+    _MCP_SCOPES: str = "full"
 
     # Caps on concurrent non-terminal sandbox Runs reachable via prewarm, bounding resource use
     # from repeated warm / re-warm calls. Message-sending paths are separately quota-gated.
@@ -197,6 +234,69 @@ class MessageRoutingService(BaseSandboxService):
             run_status=run.status,
             cancel_requested=True,
         )
+
+    def refresh_mcp(self) -> SandboxRefreshMcpResult:
+        """Hot-reload the conversation's live sandbox with the current MCP install set.
+
+        The browser is the trigger only: it says "my MCP installs may have changed,
+        re-sync this conversation's sandbox." The server rebuilds the trusted
+        `mcpServers` list from PostHog state (PostHog MCP + the user's MCP-store
+        installs, minting fresh OAuth tokens) and pushes it via
+        `_posthog/refresh_session`. No client-supplied URLs or bearer headers ever
+        reach the sandbox — that is why this is a conversation action and not on the
+        relay allowlist (see `TaskRunCommandRequestSerializer.ALLOWED_METHODS`).
+
+        Idempotent: a conversation with no backing run / a terminal run is a 200 no-op.
+        A refresh that arrives while a prompt is in flight raises `SandboxBusyError`
+        (409) so the frontend can retry once the run goes idle; transport failures
+        raise `SandboxCommandError` (502).
+        """
+        if self.conversation.task_id is None:
+            raise exceptions.ValidationError("This conversation has no backing task to refresh.")
+
+        run = self.conversation.current_run
+        if run is None or run.is_terminal:
+            # Nothing live to refresh — report idempotently, no telemetry, no token minting.
+            return SandboxRefreshMcpResult(
+                task_id=str(self.conversation.task_id),
+                run_id=str(run.id) if run is not None else "",
+                run_status=run.status if run is not None else "",
+            )
+
+        # Mint fresh tokens server-side every time — never reuse a possibly-stale token from
+        # run state. The OAuth access token is embedded in the mcpServers headers; the
+        # connection JWT authenticates the transport to the sandbox (Modal-tunnel runs need it).
+        task = run.task
+        access_token = create_oauth_access_token(task, scopes=self._MCP_SCOPES)
+        mcp_servers = build_sandbox_mcp_servers(run, token=access_token, scopes=self._MCP_SCOPES)
+
+        connection_token: str | None = None
+        created_by = task.created_by
+        if created_by and created_by.id:
+            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+            connection_token = create_sandbox_connection_token(run, user_id=created_by.id, distinct_id=distinct_id)
+
+        result = send_refresh_session(run, mcp_servers, auth_token=connection_token)
+        if not result.success:
+            if self._is_prompt_in_flight(result):
+                raise SandboxBusyError()
+            raise SandboxCommandError(f"Failed to refresh the run's MCP session: {result.error}")
+
+        return SandboxRefreshMcpResult(
+            task_id=str(self.conversation.task_id),
+            run_id=str(run.id),
+            run_status=run.status,
+            refresh_requested=True,
+        )
+
+    @staticmethod
+    def _is_prompt_in_flight(result: CommandResult) -> bool:
+        """True if the agent rejected the refresh because a prompt is mid-turn (JSON-RPC -32002)."""
+        data = result.data
+        if not isinstance(data, dict):
+            return False
+        error = data.get("error")
+        return isinstance(error, dict) and error.get("code") == REFRESH_PROMPT_IN_FLIGHT_CODE
 
     def prewarm(self) -> None:
         """Eagerly provision a sandbox Run while the user is typing.

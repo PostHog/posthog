@@ -23,8 +23,7 @@ from products.tasks.backend.services.staged_artifacts import get_task_run_artifa
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import (
-    get_sandbox_ph_mcp_configs,
-    get_user_mcp_server_configs,
+    build_sandbox_mcp_servers,
     mark_mcp_token_issued,
     should_refresh_mcp_token,
 )
@@ -137,27 +136,11 @@ def _refresh_sandbox_mcp(
         logger.warning("refresh_mcp_token_mint_failed", run_id=run_id, error=str(e))
         return
 
-    mcp_configs = get_sandbox_ph_mcp_configs(
-        token=access_token,
-        project_id=task_run.team_id,
-        scopes=scopes,
-        interaction_origin=(task_run.state or {}).get("interaction_origin"),
-    )
-    if task.created_by_id:
-        user_mcp_configs = get_user_mcp_server_configs(
-            token=access_token,
-            team_id=task_run.team_id,
-            user_id=task.created_by_id,
-            interaction_origin=(task_run.state or {}).get("interaction_origin"),
-        )
-        if user_mcp_configs:
-            mcp_configs = mcp_configs + user_mcp_configs
+    mcp_servers = build_sandbox_mcp_servers(task_run, token=access_token, scopes=scopes)
 
-    if not mcp_configs:
+    if not mcp_servers:
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)
         return
-
-    mcp_servers = [config.to_dict() for config in mcp_configs]
 
     result = send_refresh_session(
         task_run,

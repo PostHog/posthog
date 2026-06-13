@@ -109,6 +109,29 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
+ * Hot-reload the conversation's live sandbox with the user's current MCP install set. The browser is only the trigger; the trusted `mcpServers` payload (URLs + bearer headers) is rebuilt server-side, never supplied by the client. Idempotent: a conversation with no live run is a 200 no-op.
+ */
+export const ConversationsRefreshMcpCreateBody = /* @__PURE__ */ zod
+    .object({
+        source: zod
+            .union([
+                zod
+                    .enum(['mcp_store_install', 'mcp_store_uninstall', 'manual'])
+                    .describe(
+                        '\* `mcp_store_install` - mcp_store_install\n\* `mcp_store_uninstall` - mcp_store_uninstall\n\* `manual` - manual'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional telemetry tag describing what prompted the refresh. Has no effect on the rebuilt server list.\n\n\* `mcp_store_install` - mcp_store_install\n\* `mcp_store_uninstall` - mcp_store_uninstall\n\* `manual` - manual'
+            ),
+    })
+    .describe(
+        "Request body for `POST \/conversations\/{id}\/refresh_mcp\/`.\n\nCarries NO server list. The trusted `mcpServers` payload (URLs + bearer headers) is\nrebuilt entirely server-side from the user's current MCP-store installs — the browser\nis only the trigger, never the source of the server list."
+    )
+
+/**
  * Non-streaming routing endpoint for sandbox-runtime conversations. Wraps + dedupes the message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream via the unchanged `/stream/` path.
  */
 export const conversationsSandboxCreateBodyContentMax = 40000

@@ -427,6 +427,50 @@ export interface PermissionResponseResultApi {
 }
 
 /**
+ * * `mcp_store_install` - mcp_store_install
+ * * `mcp_store_uninstall` - mcp_store_uninstall
+ * * `manual` - manual
+ */
+export type RefreshMcpRequestSourceEnumApi =
+    (typeof RefreshMcpRequestSourceEnumApi)[keyof typeof RefreshMcpRequestSourceEnumApi]
+
+export const RefreshMcpRequestSourceEnumApi = {
+    McpStoreInstall: 'mcp_store_install',
+    McpStoreUninstall: 'mcp_store_uninstall',
+    Manual: 'manual',
+} as const
+
+/**
+ * Request body for `POST /conversations/{id}/refresh_mcp/`.
+ *
+ * Carries NO server list. The trusted `mcpServers` payload (URLs + bearer headers) is
+ * rebuilt entirely server-side from the user's current MCP-store installs — the browser
+ * is only the trigger, never the source of the server list.
+ */
+export interface RefreshMcpRequestApi {
+    /** Optional telemetry tag describing what prompted the refresh. Has no effect on the rebuilt server list.
+     *
+     * * `mcp_store_install` - mcp_store_install
+     * * `mcp_store_uninstall` - mcp_store_uninstall
+     * * `manual` - manual */
+    source?: RefreshMcpRequestSourceEnumApi | null
+}
+
+/**
+ * Response for `POST /conversations/{id}/refresh_mcp/` — the targeted Run and whether a refresh was dispatched.
+ */
+export interface RefreshMcpResponseApi {
+    /** The products/tasks Task backing the conversation. */
+    task_id: string
+    /** The Run targeted for the MCP refresh. Empty when no live run exists. */
+    run_id: string
+    /** Status of the targeted Run. Empty when no live run exists. */
+    run_status: string
+    /** True when a refresh command was delivered to a live run; false for an idempotent no-op (no/terminal run). */
+    refresh_requested: boolean
+}
+
+/**
  * * `action` - action
  * * `dashboard` - dashboard
  * * `error_tracking_issue` - error_tracking_issue

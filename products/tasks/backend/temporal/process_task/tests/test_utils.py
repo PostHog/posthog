@@ -9,6 +9,7 @@ from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
+    build_sandbox_mcp_servers,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_sandbox_github_token,
@@ -621,3 +622,96 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         )
 
         assert result == "ghs_team"
+
+
+class TestBuildSandboxMcpServers(TestCase):
+    TOKEN = "phx_minted_token"
+    TEAM_ID = 7
+    USER_ID = 42
+
+    MOCK_PH = "products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs"
+    MOCK_USER = "products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs"
+
+    def _make_task_run(self, *, created_by_id: int | None = USER_ID, state: dict | None = None) -> MagicMock:
+        task = MagicMock()
+        task.created_by_id = created_by_id
+        task_run = MagicMock()
+        task_run.id = "run-1"
+        task_run.team_id = self.TEAM_ID
+        task_run.task = task
+        task_run.state = state
+        return task_run
+
+    def _ph_config(self) -> McpServerConfig:
+        return McpServerConfig(
+            type="http",
+            name="posthog",
+            url="https://mcp.posthog.com/mcp",
+            headers=[{"name": "Authorization", "value": f"Bearer {self.TOKEN}"}],
+        )
+
+    def _user_config(self) -> McpServerConfig:
+        return McpServerConfig(
+            type="http",
+            name="Linear",
+            url="https://us.posthog.com/proxy",
+            headers=[{"name": "Authorization", "value": f"Bearer {self.TOKEN}"}],
+        )
+
+    @patch(MOCK_USER)
+    @patch(MOCK_PH)
+    def test_assembles_ph_plus_user_configs_with_minted_token(self, mock_ph, mock_user) -> None:
+        mock_ph.return_value = [self._ph_config()]
+        mock_user.return_value = [self._user_config()]
+        task_run = self._make_task_run(state={"interaction_origin": "slack"})
+
+        result = build_sandbox_mcp_servers(task_run, token=self.TOKEN, scopes="full")
+
+        mock_ph.assert_called_once_with(
+            token=self.TOKEN, project_id=self.TEAM_ID, scopes="full", interaction_origin="slack"
+        )
+        mock_user.assert_called_once_with(
+            token=self.TOKEN, team_id=self.TEAM_ID, user_id=self.USER_ID, interaction_origin="slack"
+        )
+        assert result == [self._ph_config().to_dict(), self._user_config().to_dict()]
+
+    @patch(MOCK_USER)
+    @patch(MOCK_PH)
+    def test_skips_user_configs_when_no_creator(self, mock_ph, mock_user) -> None:
+        mock_ph.return_value = [self._ph_config()]
+        task_run = self._make_task_run(created_by_id=None)
+
+        result = build_sandbox_mcp_servers(task_run, token=self.TOKEN, scopes="full")
+
+        mock_user.assert_not_called()
+        assert result == [self._ph_config().to_dict()]
+
+    @patch(MOCK_USER)
+    @patch(MOCK_PH)
+    def test_returns_empty_when_no_configs(self, mock_ph, mock_user) -> None:
+        mock_ph.return_value = []
+        mock_user.return_value = []
+
+        assert build_sandbox_mcp_servers(self._make_task_run(), token=self.TOKEN, scopes="full") == []
+
+    @patch(MOCK_USER)
+    @patch(MOCK_PH)
+    def test_interaction_origin_defaults_to_none(self, mock_ph, mock_user) -> None:
+        mock_ph.return_value = [self._ph_config()]
+        mock_user.return_value = []
+
+        build_sandbox_mcp_servers(self._make_task_run(state=None), token=self.TOKEN, scopes="read_only")
+
+        assert mock_ph.call_args.kwargs["interaction_origin"] is None
+
+    @patch(MOCK_USER)
+    @patch(MOCK_PH)
+    def test_preserves_ph_then_user_order(self, mock_ph, mock_user) -> None:
+        # The PostHog MCP config must always precede the user-install configs — the hot-loaded
+        # list and a follow-up turn's list must agree on ordering, not just membership.
+        mock_ph.return_value = [self._ph_config()]
+        mock_user.return_value = [self._user_config()]
+
+        result = build_sandbox_mcp_servers(self._make_task_run(), token=self.TOKEN, scopes="full")
+
+        assert [server["name"] for server in result] == ["posthog", "Linear"]

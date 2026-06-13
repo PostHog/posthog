@@ -53,12 +53,8 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
 
 class TestRefreshSandboxMcp:
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_success_path_single_call(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
         mock_oauth.return_value = "fresh-token"
@@ -84,12 +80,8 @@ class TestRefreshSandboxMcp:
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_retries_once_on_first_failure(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
@@ -109,12 +101,8 @@ class TestRefreshSandboxMcp:
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_two_failures_are_non_fatal(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
@@ -130,12 +118,8 @@ class TestRefreshSandboxMcp:
         assert mock_send_refresh.call_count == 2
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_token_mint_failure_is_non_fatal_and_skips_send(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
@@ -149,12 +133,8 @@ class TestRefreshSandboxMcp:
         mock_send_refresh.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_skips_send_when_no_mcp_configs_resolved(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
@@ -168,12 +148,8 @@ class TestRefreshSandboxMcp:
         mock_send_refresh.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_user_mcp_configs_skipped_when_no_creator(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
@@ -188,12 +164,8 @@ class TestRefreshSandboxMcp:
         mock_send_refresh.assert_called_once()
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_scopes_propagate_to_oauth_and_configs(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
@@ -209,6 +181,26 @@ class TestRefreshSandboxMcp:
         mock_ph_configs.assert_called_once_with(
             token="fresh-token", project_id=7, scopes="full", interaction_origin=None
         )
+
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
+    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    def test_delivers_exactly_build_sandbox_mcp_servers_output(self, mock_oauth, mock_send_refresh):
+        # Refactor-equivalence: the follow-up path must push byte-for-byte the same trusted
+        # server list `build_sandbox_mcp_servers` produces — the shared builder the web-layer
+        # refresh (message_routing.refresh_mcp) also uses, so the two paths cannot drift.
+        mock_oauth.return_value = "fresh-token"
+        mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
+        task_run = _make_task_run_mock(state={"interaction_origin": "slack"})
+
+        expected = [{"type": "http", "name": "posthog", "url": "https://mcp.posthog.com/mcp", "headers": []}]
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.build_sandbox_mcp_servers",
+            return_value=expected,
+        ) as mock_build:
+            _refresh_sandbox_mcp(task_run, "full", auth_token="jwt")
+
+        mock_build.assert_called_once_with(task_run, token="fresh-token", scopes="full")
+        assert mock_send_refresh.call_args.args[1] == expected
 
 
 class TestRefreshIntervalGate:
@@ -227,12 +219,8 @@ class TestRefreshIntervalGate:
         mock_send_refresh.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_marks_after_successful_refresh(self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
         mock_oauth.return_value = "fresh-token"
@@ -247,12 +235,8 @@ class TestRefreshIntervalGate:
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_marks_after_successful_retry(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep
@@ -271,12 +255,8 @@ class TestRefreshIntervalGate:
 
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_user_mcp_server_configs"
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
-    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_mcp_server_configs")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_sandbox_ph_mcp_configs")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
     def test_does_not_mark_after_two_failures(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _mock_sleep

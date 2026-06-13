@@ -10,6 +10,7 @@ from posthog.exceptions import Conflict
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
 from products.posthog_ai.backend.message_routing import (
     MessageRoutingService,
+    SandboxBusyError,
     SandboxCommandError,
     lock_conversation_for_followup,
 )
@@ -396,6 +397,128 @@ class TestHandleSandboxCancel(APIBaseTest):
     def test_cancel_without_task_raises(self):
         with self.assertRaises(exceptions.ValidationError):
             self._service().cancel()
+
+
+class TestHandleSandboxRefreshMcp(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+    def _service(self) -> MessageRoutingService:
+        return MessageRoutingService(self.conversation, self.user)
+
+    def _task_with_run(self, status: str) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        run = task.create_run(mode="interactive")
+        run.status = status
+        run.save(update_fields=["status"])
+        self.conversation.task = task
+        self.conversation.save(update_fields=["task"])
+        return task, run
+
+    @contextmanager
+    def _patched_refresh(self, refresh_result: CommandResult):
+        with (
+            patch(f"{ROUTING}.create_oauth_access_token", return_value="minted-token") as m_oauth,
+            patch(f"{ROUTING}.build_sandbox_mcp_servers", return_value=[{"name": "posthog"}]) as m_build,
+            patch(f"{ROUTING}.create_sandbox_connection_token", return_value="jwt") as m_conn,
+            patch(f"{ROUTING}.send_refresh_session", return_value=refresh_result) as m_refresh,
+        ):
+            yield m_oauth, m_build, m_conn, m_refresh
+
+    def test_refresh_delegates_with_trusted_list_and_full_scopes(self):
+        task, run = self._task_with_run(TaskRun.Status.IN_PROGRESS)
+
+        with self._patched_refresh(CommandResult(success=True, status_code=200)) as (
+            m_oauth,
+            m_build,
+            _m_conn,
+            m_refresh,
+        ):
+            result = self._service().refresh_mcp()
+
+        # PostHog AI runs always use write scopes — the refresh must mint a "full"-scoped token.
+        m_oauth.assert_called_once_with(task, scopes="full")
+        _, build_kwargs = m_build.call_args
+        assert build_kwargs["token"] == "minted-token"
+        assert build_kwargs["scopes"] == "full"
+        assert m_build.call_args.args[0].id == run.id
+        m_refresh.assert_called_once()
+        # The server-minted connection JWT is the transport auth, never a client value.
+        assert m_refresh.call_args.kwargs["auth_token"] == "jwt"
+        assert m_refresh.call_args.args[1] == [{"name": "posthog"}]
+
+        assert result.task_id == str(task.id)
+        assert result.run_id == str(run.id)
+        assert result.run_status == TaskRun.Status.IN_PROGRESS
+        assert result.refresh_requested is True
+
+    def test_refresh_no_run_is_idempotent_noop(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        self.conversation.task = task
+        self.conversation.save(update_fields=["task"])
+
+        with patch(f"{ROUTING}.send_refresh_session") as m_refresh:
+            result = self._service().refresh_mcp()
+
+        m_refresh.assert_not_called()
+        assert result.refresh_requested is False
+        assert result.run_id == ""
+
+    def test_refresh_terminal_run_is_idempotent_noop(self):
+        task, run = self._task_with_run(TaskRun.Status.COMPLETED)
+
+        with patch(f"{ROUTING}.send_refresh_session") as m_refresh:
+            result = self._service().refresh_mcp()
+
+        m_refresh.assert_not_called()
+        assert result.refresh_requested is False
+        assert result.run_status == TaskRun.Status.COMPLETED
+
+    def test_refresh_without_task_raises(self):
+        with self.assertRaises(exceptions.ValidationError):
+            self._service().refresh_mcp()
+
+    def test_refresh_prompt_in_flight_raises_409(self):
+        self._task_with_run(TaskRun.Status.IN_PROGRESS)
+
+        in_flight = CommandResult(
+            success=False,
+            status_code=200,
+            data={"error": {"code": -32002, "message": "Prompt in flight"}},
+            error="Prompt in flight",
+        )
+        with self._patched_refresh(in_flight):
+            with self.assertRaises(SandboxBusyError) as ctx:
+                self._service().refresh_mcp()
+
+        assert ctx.exception.status_code == 409
+
+    def test_refresh_transport_failure_raises_502(self):
+        self._task_with_run(TaskRun.Status.IN_PROGRESS)
+
+        failure = CommandResult(success=False, status_code=502, error="connection refused")
+        with self._patched_refresh(failure):
+            with self.assertRaises(SandboxCommandError) as ctx:
+                self._service().refresh_mcp()
+
+        assert ctx.exception.status_code == 502
 
 
 class TestLockConversationForFollowup(APIBaseTest):

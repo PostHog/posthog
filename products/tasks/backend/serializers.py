@@ -1381,6 +1381,12 @@ TaskRunCreateRequestSchemaSerializer = PolymorphicProxySerializer(
 class TaskRunCommandRequestSerializer(serializers.Serializer):
     """JSON-RPC request to send a command to the agent server in the sandbox."""
 
+    # `_posthog/refresh_session` is intentionally NOT relay-exposed. The relay forwards `params`
+    # verbatim, and a refresh payload carries outbound MCP `url`s + `Authorization: Bearer` headers
+    # the sandbox trusts as-is — letting the browser supply them would be a credential-injection /
+    # SSRF-amplification surface. MCP hot-loading is routed server-side instead, via
+    # `products/posthog_ai` `message_routing.refresh_mcp` → `send_refresh_session`, which rebuilds the
+    # trusted server list from PostHog state. Keep this allowlist free of network-destination verbs.
     ALLOWED_METHODS = [
         "user_message",
         "cancel",

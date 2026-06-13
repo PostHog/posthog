@@ -30,6 +30,8 @@ import type {
     PatchedTicketApi,
     PermissionResponseApi,
     PermissionResponseResultApi,
+    RefreshMcpRequestApi,
+    RefreshMcpResponseApi,
     SandboxCancelResponseApi,
     SandboxMessageApi,
     SandboxMessageResponseApi,
@@ -327,6 +329,27 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsRefreshMcpCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/refresh_mcp/`
+}
+
+/**
+ * Hot-reload the conversation's live sandbox with the user's current MCP install set. The browser is only the trigger; the trusted `mcpServers` payload (URLs + bearer headers) is rebuilt server-side, never supplied by the client. Idempotent: a conversation with no live run is a 200 no-op.
+ */
+export const conversationsRefreshMcpCreate = async (
+    projectId: string,
+    conversation: string,
+    refreshMcpRequestApi?: RefreshMcpRequestApi,
+    options?: RequestInit
+): Promise<RefreshMcpResponseApi> => {
+    return apiMutator<RefreshMcpResponseApi>(getConversationsRefreshMcpCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(refreshMcpRequestApi),
     })
 }
 

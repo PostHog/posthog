@@ -6192,7 +6192,16 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_command_rejects_posthog_prefixed_methods(self):
+    @parameterized.expand(
+        [
+            ("posthog_prefixed_user_message", "_posthog/user_message"),
+            # refresh_session is deliberately off the relay allowlist — it carries outbound MCP
+            # URLs + bearer headers and is routed server-side via message_routing.refresh_mcp.
+            ("posthog_prefixed_refresh_session", "_posthog/refresh_session"),
+            ("bare_refresh_session", "refresh_session"),
+        ]
+    )
+    def test_command_rejects_posthog_prefixed_methods(self, _name, method):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -6200,7 +6209,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             self._command_url(task, run),
             {
                 "jsonrpc": "2.0",
-                "method": "_posthog/user_message",
+                "method": method,
                 "params": {"content": "Hello via posthog prefix"},
             },
             format="json",

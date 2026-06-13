@@ -21,7 +21,7 @@ from products.tasks.backend.redis import get_tasks_cache
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.tasks.backend.models import Task
+    from products.tasks.backend.models import Task, TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +366,44 @@ def _resolve_mcp_url() -> str | None:
         return "http://host.docker.internal:8787/mcp"
 
     return None
+
+
+def build_sandbox_mcp_servers(
+    task_run: TaskRun,
+    *,
+    token: str,
+    scopes: PosthogMcpScopes,
+) -> list[dict[str, Any]]:
+    """Assemble the trusted `mcpServers` list a sandbox agent-server should bind to.
+
+    Single source of truth for the server list pushed via `_posthog/refresh_session`:
+    the single-exec PostHog MCP config plus the task creator's MCP-store installs, each
+    carrying the server-minted OAuth `token` in its `Authorization` header. Both the
+    follow-up-turn refresh (`send_followup_to_sandbox._refresh_sandbox_mcp`) and the
+    web-layer `message_routing.refresh_mcp` call this so the two paths cannot drift —
+    a hot-loaded server list must match what a follow-up turn would produce.
+
+    `interaction_origin` is read from `task_run.state`; `scopes` is supplied by the
+    caller (the run's persisted MCP scopes), never read from `task_run.state`.
+    """
+    interaction_origin = (task_run.state or {}).get("interaction_origin")
+    configs = get_sandbox_ph_mcp_configs(
+        token=token,
+        project_id=task_run.team_id,
+        scopes=scopes,
+        interaction_origin=interaction_origin,
+    )
+    if task_run.task.created_by_id:
+        user_configs = get_user_mcp_server_configs(
+            token=token,
+            team_id=task_run.team_id,
+            user_id=task_run.task.created_by_id,
+            interaction_origin=interaction_origin,
+        )
+        if user_configs:
+            configs = configs + user_configs
+
+    return [config.to_dict() for config in configs]
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
