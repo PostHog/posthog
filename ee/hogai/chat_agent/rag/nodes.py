@@ -27,8 +27,8 @@ from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
-NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
-NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
+NEXT_RAG_NODES = ["trends", "funnel", "retention", "paths", "sql", "end"]
+NextRagNode = Literal["trends", "funnel", "retention", "paths", "sql", "end"]
 
 RAG_EMBEDDING_TIMING_HISTOGRAM = Histogram(
     "posthog_ai_rag_embedding_duration_seconds",

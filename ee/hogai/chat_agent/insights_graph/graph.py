@@ -5,6 +5,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
 
 from ..funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
+from ..paths.nodes import PathsGeneratorNode, PathsGeneratorToolsNode
 from ..query_executor.nodes import QueryExecutorNode
 from ..query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ..rag.nodes import InsightRagContextNode
@@ -87,10 +88,29 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
 
         return self
 
+    def add_paths_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
+        paths_generator = PathsGeneratorNode(self._team, self._user)
+        self.add_node(AssistantNodeName.PATHS_GENERATOR, paths_generator)
+
+        paths_generator_tools = PathsGeneratorToolsNode(self._team, self._user)
+        self.add_node(AssistantNodeName.PATHS_GENERATOR_TOOLS, paths_generator_tools)
+
+        self._graph.add_edge(AssistantNodeName.PATHS_GENERATOR_TOOLS, AssistantNodeName.PATHS_GENERATOR)
+        self._graph.add_conditional_edges(
+            AssistantNodeName.PATHS_GENERATOR,
+            paths_generator.router,
+            path_map={
+                "tools": AssistantNodeName.PATHS_GENERATOR_TOOLS,
+                "next": next_node,
+            },
+        )
+
+        return self
+
     def add_query_planner(
         self,
         path_map: Optional[
-            dict[Literal["trends", "funnel", "retention", "sql", "continue", "end"], AssistantNodeName]
+            dict[Literal["trends", "funnel", "retention", "paths", "sql", "continue", "end"], AssistantNodeName]
         ] = None,
     ):
         query_planner = QueryPlannerNode(self._team, self._user)
@@ -108,6 +128,7 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
                 "trends": AssistantNodeName.TRENDS_GENERATOR,
                 "funnel": AssistantNodeName.FUNNEL_GENERATOR,
                 "retention": AssistantNodeName.RETENTION_GENERATOR,
+                "paths": AssistantNodeName.PATHS_GENERATOR,
                 "sql": AssistantNodeName.SQL_GENERATOR,
                 "end": AssistantNodeName.END,
             },
@@ -148,6 +169,7 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
             .add_trends_generator(next_node=next_node)
             .add_funnel_generator(next_node=next_node)
             .add_retention_generator(next_node=next_node)
+            .add_paths_generator(next_node=next_node)
             .add_sql_generator(next_node=next_node)
         )
 

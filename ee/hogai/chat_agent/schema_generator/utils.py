@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     DataVisualizationNode,
@@ -16,6 +17,7 @@ Q = TypeVar(
     AssistantTrendsQuery,
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
+    AssistantPathsQuery,
     DataVisualizationNode,
 )
 

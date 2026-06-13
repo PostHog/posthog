@@ -24,6 +24,7 @@ from posthog.schema import (
     AssistantHogQLQuery,
     AssistantLifecycleQuery,
     AssistantMessage,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -99,6 +100,7 @@ AnyAssistantGeneratedQuery = (
     | AssistantFunnelsQuery
     | AssistantLifecycleQuery
     | AssistantRetentionQuery
+    | AssistantPathsQuery
     | AssistantHogQLQuery
     | DataVisualizationNode
 )
@@ -259,7 +261,12 @@ class InsightArtifact(TaskArtifact):
     """
 
     query: Union[
-        AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery, DataVisualizationNode
+        AssistantTrendsQuery,
+        AssistantFunnelsQuery,
+        AssistantRetentionQuery,
+        AssistantPathsQuery,
+        AssistantHogQLQuery,
+        DataVisualizationNode,
     ]
 
 
@@ -539,6 +546,8 @@ class AssistantNodeName(StrEnum):
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
     RETENTION_GENERATOR = "retention_generator"
     RETENTION_GENERATOR_TOOLS = "retention_generator_tools"
+    PATHS_GENERATOR = "paths_generator"
+    PATHS_GENERATOR_TOOLS = "paths_generator_tools"
     QUERY_PLANNER = "query_planner"
     QUERY_PLANNER_TOOLS = "query_planner_tools"
     SQL_GENERATOR = "sql_generator"

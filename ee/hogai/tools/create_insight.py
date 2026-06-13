@@ -28,7 +28,7 @@ Follow these guidelines when retrieving data:
 - If analysis results have been provided, use them to answer the user's question. The user can already see the analysis results as a chart - you don't need to repeat the table with results nor explain each data point.
 - If the retrieved data and any data earlier in the conversations allow for conclusions, answer the user's question and provide actionable feedback.
 - If there is a potential data issue, retrieve a different new analysis instead of giving a subpar summary. Note: empty data is NOT a potential data issue.
-- If the query cannot be answered with a UI-built insight type - trends, funnels, retention - choose the SQL type to answer the question (e.g. for listing events or aggregating in ways that aren't supported in trends/funnels/retention).
+- If the query cannot be answered with a UI-built insight type - trends, funnels, retention, paths - choose the SQL type to answer the question (e.g. for listing events or aggregating in ways that aren't supported in trends/funnels/retention/paths).
 
 Remember: do NOT retrieve data for the same query more than 3 times in a row.
 Important: If the user request is about analysis of entities that are not collected data (events, properties, etc) like data warehouse entities, use SQL.
@@ -92,6 +92,22 @@ Examples of use cases include:
 - How many users come back and perform an action after their first visit.
 - How many users come back to perform action X after performing action Y.
 - How often users return to use a specific feature.
+
+## Paths
+
+A paths insight visualizes the most common sequences of events or pages that users navigate through, shown as a directed graph. They're useful for understanding user flows and where users drop off.
+
+The paths insights have the following features:
+- Scope the analysis to specific event types (page views, screen views, custom events).
+- Filter to paths that start from or end at a specific step.
+- Exclude noisy events and group or clean dynamic URLs.
+- Filter and sample data.
+
+Examples of use cases include:
+- What do users do after signing up?
+- What pages do users visit before making a purchase?
+- What are the most common navigation flows on the website?
+- Where do users drop off in a particular flow?
 
 # Data narrowing
 
@@ -453,6 +469,51 @@ Filters: - property filter 1: - entity - property name - property type - operato
 Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.
 </plan_example>
 
+# Paths guidelines
+
+<general_knowledge>
+Paths show the most common sequences of events or pages that users navigate through, visualized as a directed graph. Events are grouped into path sessions with a 30-minute inactivity threshold.
+
+They're useful for answering questions like:
+
+- What do users do after signing up?
+- What pages do users visit before making a purchase?
+- Where do users drop off in a flow?
+</general_knowledge>
+
+<paths_plan>
+Plans of paths insights must specify which event types to include:
+
+- `$pageview` for web navigation (the default for website flow questions), `$screen` for mobile, or `custom_event` for custom-tracked flows. Types can be combined.
+
+Optionally, the plan can specify:
+
+- A start point (only show paths beginning at this step) and/or an end point (only show paths ending at this step). For `$pageview`, use the URL format as stored (often a path like `/pricing`); for `custom_event`, use the event name.
+- Events to exclude from the visualization to reduce noise.
+- Path groupings or cleaning rules to collapse dynamic URL segments (e.g. `/product/*` or `/user/:id`).
+</paths_plan>
+
+<plan_example>
+Event types:
+
+- one or more of: `$pageview`, `$screen`, `custom_event`
+
+(if a start point is used)
+Start point: the step paths must begin from (e.g. `/` or `user signed up`)
+
+(if an end point is used)
+End point: the step paths must end at (e.g. `/pricing`)
+
+(if exclusions are used)
+Exclude: list of path item values to exclude (e.g. `/health-check`)
+
+(if filters are used)
+Filters: - property filter 1: - entity - property name - property type - operator - property value - property filter 2... Repeat for each property filter.
+
+(if a time period is explicitly mentioned)
+Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`.
+</plan_example>
+
 # Reminders
 
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
@@ -511,7 +572,7 @@ The agent has encountered an unknown error while creating an insight.
 {{{system_reminder}}}
 """.strip()
 
-InsightType = Literal["trends", "funnel", "retention"]
+InsightType = Literal["trends", "funnel", "retention", "paths"]
 
 
 class CreateInsightToolArgs(BaseModel):
@@ -568,6 +629,10 @@ class CreateInsightTool(MaxTool):
             case "retention":
                 graph_builder.add_retention_generator().add_edge(
                     AssistantNodeName.START, AssistantNodeName.RETENTION_GENERATOR
+                )
+            case "paths":
+                graph_builder.add_paths_generator().add_edge(
+                    AssistantNodeName.START, AssistantNodeName.PATHS_GENERATOR
                 )
 
         graph = graph_builder.add_query_executor().compile()

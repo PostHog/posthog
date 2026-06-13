@@ -14,6 +14,7 @@ from pydantic import Field, ValidationError, create_model
 
 from posthog.schema import (
     AssistantFunnelsQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
@@ -120,6 +121,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
                 "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
                 "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
+                "paths_json_schema": dereference_schema(AssistantPathsQuery.model_json_schema()),
             },
             config,
         )

@@ -36,7 +36,7 @@ from ee.hogai.chat_agent.taxonomy.tools import (
 )
 from ee.hogai.utils.prompt import format_prompt_string
 
-MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
+MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "paths", "sql"]
 
 
 class final_answer(BaseModel):
