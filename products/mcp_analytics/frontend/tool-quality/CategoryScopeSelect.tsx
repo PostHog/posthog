@@ -9,7 +9,7 @@ import {
     ComboboxList,
     ComboboxValue,
     useComboboxAnchor,
-} from '@posthog/quill'
+} from '@posthog/quill-primitives'
 
 interface CategoryScopeSelectProps {
     categories: string[]

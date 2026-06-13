@@ -2,16 +2,13 @@ import { useState } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 import {
-    Button,
     CUSTOM_RANGE,
     DateTimePicker,
     type DateTimeRangeName,
     type DateTimeValue,
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
     quickRanges,
-} from '@posthog/quill'
+} from '@posthog/quill-components'
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
 
 import { dayjs } from 'lib/dayjs'
 

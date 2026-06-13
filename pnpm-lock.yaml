@@ -3177,12 +3177,12 @@ importers:
 
   products/mcp_analytics:
     dependencies:
-      '@posthog/quill':
-        specifier: workspace:*
-        version: link:../../packages/quill/packages/quill
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
