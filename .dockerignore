@@ -103,6 +103,10 @@ products/**/*_test.py
 products/**/*.test.*
 products/**/*.spec.*
 products/**/*.stories.*
+posthog/**/test_*.py
+posthog/**/*_test.py
+ee/**/test_*.py
+ee/**/*_test.py
 frontend/src/**/*.test.*
 frontend/src/**/*.spec.*
 frontend/src/**/*.stories.*

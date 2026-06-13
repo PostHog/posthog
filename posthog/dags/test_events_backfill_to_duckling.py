@@ -932,8 +932,15 @@ class TestConnectionDropped:
     away, reconnect to a fresh worker" vs. a real SQL error that must propagate.
     """
 
-    def test_operational_error_is_dropped(self):
-        assert _connection_dropped(psycopg.OperationalError("server closed the connection")) is True
+    @parameterized.expand(
+        [
+            ("connection_exception", psycopg.errors.ConnectionException()),
+            ("server_closed", psycopg.OperationalError("server closed the connection unexpectedly")),
+            ("connection_lost", psycopg.OperationalError("connection to server was lost")),
+        ]
+    )
+    def test_operational_error_connection_loss_is_dropped(self, _label, exc):
+        assert _connection_dropped(exc) is True
 
     @parameterized.expand(
         [
@@ -948,12 +955,19 @@ class TestConnectionDropped:
     def test_internal_error_worker_gone_is_dropped(self, _label, msg):
         assert _connection_dropped(psycopg.InternalError(msg)) is True
 
-    def test_internal_error_real_sql_error_is_not_dropped(self):
+    @parameterized.expand(
+        [
+            ("constraint", "Constraint Error: duplicate key value"),
+            ("generic_unavailable", "Catalog Error: schema unavailable for team"),
+        ]
+    )
+    def test_internal_error_real_sql_error_is_not_dropped(self, _label, msg):
         # A genuine engine error (not a transport failure) must propagate, not retry.
-        assert _connection_dropped(psycopg.InternalError("Constraint Error: duplicate key value")) is False
+        assert _connection_dropped(psycopg.InternalError(msg)) is False
 
     @parameterized.expand(
         [
+            ("disk_full", psycopg.errors.DiskFull()),
             ("undefined_table", psycopg.errors.UndefinedTable()),
             ("value_error", ValueError("nope")),
         ]
@@ -985,7 +999,7 @@ class TestDuckgresSessionRetry:
         session = _DuckgresSession(MagicMock(), MagicMock())
         op = MagicMock(
             side_effect=[
-                psycopg.OperationalError("worker gone"),
+                psycopg.OperationalError("server closed the connection unexpectedly"),
                 psycopg.InternalError("connection reset by peer"),
                 "ok",
             ]
@@ -1000,7 +1014,7 @@ class TestDuckgresSessionRetry:
     def test_gives_up_and_reraises_after_max_attempts(self, mock_connect, _sleep):
         mock_connect.return_value = MagicMock()
         session = _DuckgresSession(MagicMock(), MagicMock())
-        op = MagicMock(side_effect=psycopg.OperationalError("still gone"))
+        op = MagicMock(side_effect=psycopg.OperationalError("connection to server was lost"))
 
         with pytest.raises(psycopg.OperationalError):
             session.run("op", op)

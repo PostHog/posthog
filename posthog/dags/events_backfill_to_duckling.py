@@ -244,34 +244,56 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
     )
 
 
+_CONNECTION_DROPPED_SQLSTATES = {
+    "57P01",  # admin_shutdown
+    "57P02",  # crash_shutdown
+    "57P03",  # cannot_connect_now
+}
+
+_CONNECTION_DROPPED_MARKERS = (
+    "broken pipe",
+    "code = unavailable",
+    "code=unavailable",
+    "connection refused",
+    "connection reset",
+    "connection to server was closed",
+    "connection to server was lost",
+    "consuming input failed",
+    "eof detected",
+    "error reading from server",
+    "flight execute",
+    "server closed the connection",
+    "terminating connection due to administrator command",
+    "transport:",
+)
+
+
 def _connection_dropped(exc: BaseException) -> bool:
     """True when `exc` means the duckgres worker/connection went away mid-statement
     (worker pod died, control plane lost the Flight stream), as opposed to a
     SQL/logic error. Recoverable by reconnecting to a fresh worker and replaying
     the (idempotent, transactional) duckgres metadata op.
     """
-    # A dropped socket / closed connection surfaces as OperationalError
-    # (psycopg.errors.ConnectionException, AdminShutdown, etc. are subclasses).
-    if isinstance(exc, psycopg.OperationalError):
+    msg = str(exc).lower()
+    if isinstance(exc, psycopg.errors.ConnectionException):
         return True
+
+    sqlstate = getattr(exc, "sqlstate", None)
+    if isinstance(sqlstate, str) and (sqlstate.startswith("08") or sqlstate in _CONNECTION_DROPPED_SQLSTATES):
+        return True
+
+    # psycopg.OperationalError also covers permanent operational failures (for
+    # example SQLSTATE class 53 resource exhaustion), so only retry the message
+    # shapes that are clearly connection/transport loss.
+    if isinstance(exc, psycopg.OperationalError):
+        return any(marker in msg for marker in _CONNECTION_DROPPED_MARKERS)
+
     # The control plane surfaces a worker-side Flight RPC failure — e.g. the
     # worker pod dying mid-DELETE — back through the PG wire as InternalError
-    # wrapping a gRPC status string ("Unavailable", "connection reset by peer",
-    # "connection refused", "transport: ...", "error reading from server").
+    # wrapping transport-specific gRPC text ("code = Unavailable", "connection
+    # reset by peer", "transport: ...", "error reading from server").
     if isinstance(exc, psycopg.InternalError):
-        msg = str(exc).lower()
-        return any(
-            marker in msg
-            for marker in (
-                "connection reset",
-                "connection refused",
-                "unavailable",
-                "broken pipe",
-                "transport:",
-                "flight execute",
-                "error reading from server",
-            )
-        )
+        return any(marker in msg for marker in _CONNECTION_DROPPED_MARKERS)
     return False
 
 
@@ -1239,6 +1261,9 @@ def register_file_with_duckling(
 
     DuckLake transaction conflicts are retried server-side by duckgres. Connection
     retries live in the caller — this helper operates on a connection it doesn't own.
+    The caller may replay this call after losing the client connection before it
+    sees the server result; DuckLake file registration must therefore remain
+    idempotent for a duplicate file path within the same table.
 
     Args:
         context: Dagster asset execution context.
@@ -1443,6 +1468,9 @@ def register_persons_file_with_duckling(
 
     DuckLake transaction conflicts are retried server-side by duckgres. Connection
     retries live in the caller — this helper operates on a connection it doesn't own.
+    The caller may replay this call after losing the client connection before it
+    sees the server result; DuckLake file registration must therefore remain
+    idempotent for a duplicate file path within the same table.
     """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
@@ -1973,9 +2001,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling persons schema compatibility...")
-                session.run(
-                    "validate persons schema", lambda c: validate_duckling_persons_schema(context, catalog, c)
-                )
+                session.run("validate persons schema", lambda c: validate_duckling_persons_schema(context, catalog, c))
 
             # Dual-write to Iceberg for allowlisted teams (best-effort, non-fatal)
             if iceberg_enabled_for_team(team_id):
