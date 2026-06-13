@@ -18,6 +18,7 @@ import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
+import { maxPreferencesLogic } from 'scenes/max/maxPreferencesLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -31,6 +32,7 @@ function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, enterAiMode, startHandsFreeChat } = useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { sendWithCmdEnter } = useValues(maxPreferencesLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
     const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -88,11 +90,12 @@ function IdleInput(): JSX.Element {
                                 submitQuery('search')
                             }
                             if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                if (e.shiftKey) {
-                                    // Allow default behavior to insert newline
+                                // Shift+Enter always inserts a newline. With the Cmd/Ctrl+Enter
+                                // preference on, plain Enter also inserts a newline and only
+                                // Cmd/Ctrl+Enter submits — matching the Max chat input.
+                                if (e.shiftKey || (sendWithCmdEnter && !(e.metaKey || e.ctrlKey))) {
                                     return
                                 }
-                                // Prevent newline, let form submit handle it
                                 e.preventDefault()
                                 if (query.trim()) {
                                     posthog.capture('homepage query submitted', { mode: 'ai' })

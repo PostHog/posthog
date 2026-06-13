@@ -179,6 +179,7 @@ export type SettingId =
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'marketing-settings'
+    | 'max-send-with-cmd-enter'
     | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'

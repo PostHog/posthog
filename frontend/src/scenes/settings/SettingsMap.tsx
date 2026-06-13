@@ -153,6 +153,7 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { MaxSendShortcutSetting } from './user/MaxSendShortcutSetting'
 import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
@@ -1859,6 +1860,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Enable the PostHog hedgehog companion that follows you around the app.',
                 component: <HedgehogModeSettings />,
                 keywords: ['hedgehog', 'mascot', 'fun', 'companion', 'hog'],
+            },
+            {
+                id: 'max-send-with-cmd-enter',
+                title: 'PostHog AI send shortcut',
+                description:
+                    'Choose how to send a message in the PostHog AI chat. By default, Enter sends and Shift+Enter inserts a new line. Enable this to require Cmd/Ctrl+Enter to send, with plain Enter inserting a new line instead — handy for writing multi-line prompts.',
+                component: <MaxSendShortcutSetting />,
+                keywords: ['max', 'ai', 'chat', 'enter', 'cmd', 'ctrl', 'send', 'newline', 'shortcut'],
             },
             {
                 id: 'customization-irl',

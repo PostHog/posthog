@@ -21,6 +21,7 @@ import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
+import { maxPreferencesLogic } from '../maxPreferencesLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
 import { HandsFreeButton } from './HandsFreeButton'
@@ -144,6 +145,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { sendWithCmdEnter } = useValues(maxPreferencesLogic)
     const { question, panelId: maxPanelId } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -184,6 +186,19 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const hasQuestion = question.trim().length > 0
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission
+
+    const submitMessage = (): void => {
+        if (hasQuestion && !submissionDisabledReason && (!threadLoading || queueingEnabled)) {
+            onSubmit?.()
+            askMax(question)
+        }
+    }
+    // When the user opts into Cmd/Ctrl+Enter to send, plain Enter inserts a newline instead.
+    // The two callbacks are mutually exclusive on LemonTextArea, so swap which one we pass.
+    const enterHandlerProps = sendWithCmdEnter
+        ? { onPressCmdEnter: submitMessage }
+        : { onPressEnter: submitMessage }
+    const submitShortcut = sendWithCmdEnter ? <KeyboardShortcut command enter /> : <KeyboardShortcut enter />
 
     // Update autocomplete visibility when question changes
     useEffect(() => {
@@ -327,16 +342,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ref={textAreaRef}
                                         value={isSharedThread ? '' : question}
                                         onChange={(value) => setQuestion(value)}
-                                        onPressEnter={() => {
-                                            if (
-                                                hasQuestion &&
-                                                !submissionDisabledReason &&
-                                                (!threadLoading || queueingEnabled)
-                                            ) {
-                                                onSubmit?.()
-                                                askMax(question)
-                                            }
-                                        }}
+                                        {...enterHandlerProps}
                                         onKeyDown={(event) => {
                                             if (
                                                 event.key === 'ArrowUp' &&
@@ -456,13 +462,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 Let's bail <KeyboardShortcut enter />
                                             </>
                                         ) : isQueueingSubmission ? (
-                                            <>
-                                                Queue message <KeyboardShortcut enter />
-                                            </>
+                                            <>Queue message {submitShortcut}</>
                                         ) : (
-                                            <>
-                                                Let's go! <KeyboardShortcut enter />
-                                            </>
+                                            <>Let's go! {submitShortcut}</>
                                         )
                                     }
                                     loading={threadLoading && !dataProcessingAccepted}
