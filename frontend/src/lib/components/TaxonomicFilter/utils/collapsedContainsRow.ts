@@ -28,5 +28,6 @@ export function buildUrlContainsShortcut(query: string): QuickFilterItem {
         operator: PropertyOperator.IContains,
         propertyKey: '$current_url',
         propertyFilterType: PropertyFilterType.Event,
+        isContainsShortcut: true,
     }
 }

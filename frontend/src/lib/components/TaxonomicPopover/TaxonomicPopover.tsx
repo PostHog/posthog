@@ -165,7 +165,6 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     suggestedFiltersLabel={suggestedFiltersLabel}
                     enableKeywordShortcuts={enableKeywordShortcuts}
                     selectingKeyOnly={selectingKeyOnly}
-                    collapseUrlsToContainsRow
                     width={width}
                 />
             }

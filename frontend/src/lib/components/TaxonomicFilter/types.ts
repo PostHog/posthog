@@ -39,6 +39,10 @@ export interface QuickFilterItem {
     propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
+    /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
+     *  measure contains-shortcut adoption, matching the rebuild menu's
+     *  `wasUrlContainsShortcut`. */
+    isContainsShortcut?: boolean
 }
 
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {

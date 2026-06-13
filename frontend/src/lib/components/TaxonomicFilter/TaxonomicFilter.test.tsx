@@ -1102,6 +1102,9 @@ describe('TaxonomicFilter', () => {
                     operator: PropertyOperator.IContains,
                     filterValue: 'pricing',
                     propertyFilterType: PropertyFilterType.Event,
+                    // Tagged so commit telemetry can distinguish the URL-contains shortcut
+                    // from keyword shortcuts (parity with the rebuild's wasUrlContainsShortcut).
+                    isContainsShortcut: true,
                 })
             )
         })

@@ -876,6 +876,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // states apply.
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = (searchQuery ?? '').trim()
+                    // The remote fetch is debounced and lags the typed query, so guard against a
+                    // stale match from the previous query producing a shortcut for the new one.
                     const remoteIsFresh = (remoteItems.searchQuery ?? '').trim() === trimmed
                     const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
                     const results = hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
