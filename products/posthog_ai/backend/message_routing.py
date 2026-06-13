@@ -78,8 +78,8 @@ class SandboxCommandError(exceptions.APIException):
 class SandboxBusyError(exceptions.APIException):
     """The sandbox agent is mid-turn and cannot rebind its MCP session right now.
 
-    A `_posthog/refresh_session` must be dispatched between turns; the agent-server
-    replies with JSON-RPC error -32002 when a prompt is in flight. Map it to a
+    A `_posthog/refresh_session` must be dispatched between turns; the agent
+    adapter throws JSON-RPC error -32002 when a prompt is in flight. Map it to a
     soft, retryable 409 so the frontend can re-attempt once the run goes idle
     rather than treating a normal timing condition as a hard failure.
     """
@@ -89,8 +89,12 @@ class SandboxBusyError(exceptions.APIException):
     default_code = "sandbox_busy"
 
 
-# JSON-RPC error code the agent-server returns when a refresh arrives while a prompt is in flight.
+# The adapter throws RequestError(-32002, ...) when a refresh arrives mid-turn, but the
+# agent-server's /command handler catches every error and re-serializes it as code -32000
+# with only the message preserved. So the numeric code is unreliable on the HTTP path; the
+# message substring is what survives. Match on either to cover both transports.
 REFRESH_PROMPT_IN_FLIGHT_CODE = -32002
+REFRESH_PROMPT_IN_FLIGHT_MESSAGE = "prompt turn is in flight"
 
 
 class SandboxRefreshMcpResult(BaseModel):
@@ -291,12 +295,22 @@ class MessageRoutingService(BaseSandboxService):
 
     @staticmethod
     def _is_prompt_in_flight(result: CommandResult) -> bool:
-        """True if the agent rejected the refresh because a prompt is mid-turn (JSON-RPC -32002)."""
+        """True if the agent rejected the refresh because a prompt is mid-turn.
+
+        The adapter throws JSON-RPC -32002, but the agent-server flattens it to -32000 on
+        the /command HTTP path while preserving the message, so we match on either the code
+        or the message substring — otherwise a mid-turn refresh would surface as a hard 502.
+        """
         data = result.data
         if not isinstance(data, dict):
             return False
         error = data.get("error")
-        return isinstance(error, dict) and error.get("code") == REFRESH_PROMPT_IN_FLIGHT_CODE
+        if not isinstance(error, dict):
+            return False
+        if error.get("code") == REFRESH_PROMPT_IN_FLIGHT_CODE:
+            return True
+        message = error.get("message")
+        return isinstance(message, str) and REFRESH_PROMPT_IN_FLIGHT_MESSAGE in message
 
     def prewarm(self) -> None:
         """Eagerly provision a sandbox Run while the user is typing.

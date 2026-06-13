@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import exceptions
 
 from posthog.exceptions import Conflict
@@ -495,14 +496,26 @@ class TestHandleSandboxRefreshMcp(APIBaseTest):
         with self.assertRaises(exceptions.ValidationError):
             self._service().refresh_mcp()
 
-    def test_refresh_prompt_in_flight_raises_409(self):
+    @parameterized.expand(
+        [
+            # Direct ACP path: the adapter's RequestError code survives.
+            ("direct_acp_code", {"code": -32002, "message": "Cannot refresh session while a prompt turn is in flight"}),
+            # /command HTTP path: the agent-server flattens every error to -32000, preserving only
+            # the message — this is the shape the sandbox actually returns on a mid-turn refresh.
+            (
+                "flattened_http_code",
+                {"code": -32000, "message": "Cannot refresh session while a prompt turn is in flight"},
+            ),
+        ]
+    )
+    def test_refresh_prompt_in_flight_raises_409(self, _name: str, error: dict):
         self._task_with_run(TaskRun.Status.IN_PROGRESS)
 
         in_flight = CommandResult(
             success=False,
             status_code=200,
-            data={"error": {"code": -32002, "message": "Prompt in flight"}},
-            error="Prompt in flight",
+            data={"error": error},
+            error=error["message"],
         )
         with self._patched_refresh(in_flight):
             with self.assertRaises(SandboxBusyError) as ctx:
