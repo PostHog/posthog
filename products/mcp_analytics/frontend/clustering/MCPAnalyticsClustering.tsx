@@ -34,14 +34,18 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     if (entropy < 0.3) {
         return (
             <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
-                <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
+                <span>
+                    <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
+                </span>
             </Tooltip>
         )
     }
     if (entropy < 0.6) {
         return (
             <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
-                <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
+                <span>
+                    <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
+                </span>
             </Tooltip>
         )
     }
@@ -49,7 +53,9 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
         <Tooltip
             title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
         >
-            <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>
+            <span>
+                <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>
+            </span>
         </Tooltip>
     )
 }
