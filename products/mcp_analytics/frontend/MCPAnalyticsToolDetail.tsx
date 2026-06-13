@@ -9,7 +9,7 @@ import {
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import { Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -167,7 +167,7 @@ function ResultTable({
                             <TableCell colSpan={columns.length}>
                                 <div className="space-y-2 py-1">
                                     {Array.from({ length: 4 }).map((_, i) => (
-                                        <LemonSkeleton key={i} className="h-3.5 w-full" />
+                                        <Skeleton key={i} className="h-3.5 w-full" />
                                     ))}
                                 </div>
                             </TableCell>
@@ -373,7 +373,7 @@ function TrendChart({
             <div className="mb-1 px-2 pt-1 text-xs font-medium uppercase text-secondary">{title}</div>
             <div className="flex min-h-0 flex-1 flex-col">
                 {loading && labels.length === 0 ? (
-                    <LemonSkeleton className="flex-1" />
+                    <Skeleton className="flex-1" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
                         No data for the last 7 days.
