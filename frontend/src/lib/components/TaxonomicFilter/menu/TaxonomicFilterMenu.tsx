@@ -651,12 +651,15 @@ export function TaxonomicFilterMenu({
                     // Pull the panel left so its inset search field aligns with
                     // the trigger box horizontally (input appears not to move).
                     alignOffset={comboboxOverlaysTrigger ? -INPUT_TRIGGER_PANEL_LEFT_INSET : 0}
-                    // Input trigger: pin both axes so the field stays over the
-                    // trigger (no collision shift can break the alignment).
+                    // Input trigger: pin the vertical axis so the field stays over
+                    // the trigger row, but allow horizontal `shift` so the wide
+                    // panel slides left to stay on-screen when the trigger sits near
+                    // the right edge (e.g. web-analytics filters) — losing a few px
+                    // of horizontal alignment there beats clipping off-screen.
                     // Button trigger: keep it on the vertical axis, never beside.
                     collisionAvoidance={
                         comboboxOverlaysTrigger
-                            ? { side: 'none', align: 'none' }
+                            ? { side: 'none', align: 'shift' }
                             : { side: 'flip', align: 'shift', fallbackAxisSide: 'none' }
                     }
                     container={popoverContainer ?? undefined}
