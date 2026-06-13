@@ -470,6 +470,88 @@ describe('MenuFilterCombobox', () => {
         })
     })
 
+    // Spec for the insight series picker (e.g. funnel steps include Pageview events):
+    // opening the menu shows "All" with event-context recents/pinned; searching a term
+    // that matches pageview URLs surfaces ONE "url contains <query>" shortcut as the very
+    // first row — ahead of recents, pinned, and event rows. These fail today because the
+    // series (PageviewEvents) group is not collapsed and the shortcut never leads the list.
+    describe('pageview url-contains shortcut leads the series picker All surface', () => {
+        const mockUrlValues = (urls: string[]): void => {
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('events/values') && url.includes('current_url')) {
+                    return Promise.resolve(urls.map((name) => ({ name })))
+                }
+                return Promise.resolve({ results: [], count: 0 })
+            })
+        }
+
+        it('defaults to the All scope with event-context recents and pinned shown', async () => {
+            mockUrlValues([])
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.PageviewEvents, TaxonomicFilterGroupType.Events],
+                recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'recent_signup', 'Events')],
+                pinnedEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pinned_purchase', 'Events')],
+            })
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('recent_signup'))).toBe(true))
+            expect(rowTexts().some((t) => t.includes('pinned_purchase'))).toBe(true)
+            expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
+        })
+
+        it('opens focused on All, not the selected item category, when an event is already selected', async () => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            // Reopening the series picker on an existing `$pageview` selection: the menu
+            // should land on the "All" scope, not jump to the Events category.
+            const selectedEntry = makeEntry(TaxonomicFilterGroupType.Events, '$pageview', 'Events')
+            render(
+                <Provider>
+                    <TaxonomicFilterHeadless.Root
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                        onChange={jest.fn()}
+                    >
+                        <MenuFilterCombobox
+                            drillTo="all"
+                            selectedEntry={selectedEntry}
+                            onCommit={jest.fn()}
+                            onBack={jest.fn()}
+                        />
+                    </TaxonomicFilterHeadless.Root>
+                </Provider>
+            )
+
+            const category = await screen.findByRole('combobox', { name: 'Filter category' })
+            // Wait for the Select to paint its active-category label before asserting.
+            await waitFor(() => expect(category.textContent || '').toMatch(/All|Events/))
+            expect(category).toHaveTextContent('All')
+            expect(category).not.toHaveTextContent('Events')
+        })
+
+        it('puts the "url contains <query>" shortcut first, then recent, then pinned', async () => {
+            mockUrlValues(['https://app.posthog.com/replay', 'https://app.posthog.com/replay/home'])
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.PageviewEvents, TaxonomicFilterGroupType.Events],
+                recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'replay_recent', 'Events')],
+                pinnedEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'replay_pinned', 'Events')],
+                searchQuery: 'replay',
+            })
+
+            // Wait on a stable post-search signal (a matching recent) so the ordering
+            // assertions fail fast rather than timing out waiting for a row that never renders.
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('replay_recent'))).toBe(true))
+            const rows = rowTexts()
+            const shortcutIdx = rows.findIndex((t) => /contains/i.test(t) && /replay/i.test(t))
+            const recentIdx = rows.findIndex((t) => t.includes('replay_recent'))
+            const pinnedIdx = rows.findIndex((t) => t.includes('replay_pinned'))
+
+            // The contains shortcut leads the whole list, ahead of recents/pinned/events.
+            expect(shortcutIdx).toBe(0)
+            expect(recentIdx).toBeGreaterThan(shortcutIdx)
+            expect(pinnedIdx).toBeGreaterThan(recentIdx)
+            // and the raw matched URLs are collapsed away into the single shortcut.
+            expect(rows.some((t) => t.includes('https://app.posthog.com/replay'))).toBe(false)
+        })
+    })
+
     it('drops the recents/pinned prefix once the query no longer matches them', async () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
 

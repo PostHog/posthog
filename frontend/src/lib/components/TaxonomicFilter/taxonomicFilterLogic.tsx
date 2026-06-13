@@ -1659,13 +1659,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
                     return explicitActiveTab
                 }
-                // If there's an existing filter type (e.g., SQL expression being edited),
-                // use that instead of defaulting to SuggestedFilters
-                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                // A SQL/HogQL expression being edited has no category "value" to land on,
+                // so reopen on its own tab rather than the All surface.
+                if (
+                    propsGroupType === TaxonomicFilterGroupType.HogQLExpression &&
+                    groupTypes.includes(propsGroupType)
+                ) {
                     return propsGroupType
                 }
+                // Otherwise lead with the All (Suggested filters) surface so reopening on an
+                // existing selection still shows recents/pinned + a cross-category search,
+                // rather than jumping to the selected item's category.
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
+                }
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
                 }
                 return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
             },

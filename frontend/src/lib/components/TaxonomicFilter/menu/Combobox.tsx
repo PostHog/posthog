@@ -43,7 +43,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
-import { COLLAPSED_TO_CONTAINS_ROW, urlContainsRowLabel } from '../utils/collapsedContainsRow'
+import { COLLAPSED_TO_CONTAINS_ROW, isContainsShortcutItem, urlContainsRowLabel } from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
@@ -157,15 +157,11 @@ export function MenuFilterCombobox({
     // selection exists, start on the matching chip so the user lands on
     // their selection's category by default — they can still tab back to
     // "All" or any other chip without leaving the combobox.
-    const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
-        // Collapsed groups (e.g. Pageview URLs) aren't navigable categories, so a
-        // selection from one lands on "All" — its row still surfaces there via the
-        // selected-entry prepend — instead of stranding the user in a hidden scope.
-        if (drillTo === 'all' && selectedEntry && !COLLAPSED_TO_CONTAINS_ROW.has(selectedEntry.group.type)) {
-            return selectedEntry.group.type
-        }
-        return drillTo
-    })
+    // Always open on the drill scope ("All" for the default surface). Reopening with a
+    // committed selection used to jump to that item's category; we now lead with "All" so
+    // the user lands on recents/pinned + a cross-category search every time (the selection
+    // still surfaces via the selected-entry prepend).
+    const [activeChip, setActiveChip] = useState<DrillCategory>(drillTo)
     // The scope the user is actually looking at: the active chip when chips show
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
@@ -494,9 +490,15 @@ export function MenuFilterCombobox({
         if (scope === 'all') {
             const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
+            // The "URL contains <query>" shortcut leads the whole list — ahead of
+            // recents/pinned/content — because a URL search almost always means the user
+            // wants the contains match. Everything else keeps the recents-then-pinned order.
+            const shortcuts = content.filter((e) => isContainsShortcutItem(e.item))
+            const rest = content.filter((e) => !isContainsShortcutItem(e.item))
             return [
+                ...shortcuts,
                 ...recentsPinnedPrefix,
-                ...promoteMatchingBy(content, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
+                ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
         }
         return base

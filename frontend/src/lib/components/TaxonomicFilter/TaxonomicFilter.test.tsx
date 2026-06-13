@@ -1176,6 +1176,77 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    // Spec for the insight series picker in the pill variant: searching a term that matches
+    // pageview URLs should make ONE "url contains <query>" shortcut the first row of the
+    // aggregated Suggested filters ("All") tab — ahead of raw URL/event rows. Fails today
+    // because the series (PageviewEvents) group isn't collapsed and the shortcut never leads.
+    describe('series picker: pageview url-contains shortcut leads (pill variant)', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/environments/:team/events/values': [
+                        { name: 'https://app.posthog.com/replay' },
+                        { name: 'https://app.posthog.com/replay/home' },
+                    ],
+                },
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        it('opens focused on the All tab, not Events, when an event is already selected', async () => {
+            renderFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                value: '$pageview',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            })
+
+            // In the pill variant the active category shows in the dropdown trigger; reopening
+            // on an existing event selection should read "All", not "Events".
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            // Wait for the dropdown trigger to paint its active-category label before asserting.
+            await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Events|Suggestions/))
+            expect(trigger).toHaveTextContent('All')
+            expect(trigger).not.toHaveTextContent('Events')
+        })
+
+        it('makes the "url contains <query>" shortcut the first Suggested-filters row', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+                collapseUrlsToContainsRow: true,
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'replay')
+
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            // The leading aggregated row should be the single contains shortcut, not a raw URL.
+            expect(firstRow.textContent || '').toMatch(/contains.*replay|replay.*contains/i)
+            expect(firstRow.textContent || '').not.toContain('https://app.posthog.com/replay')
+        })
+    })
+
     describe('category dropdown A/B test', () => {
         let unmountFeatureFlagLogic: (() => void) | null = null
 
