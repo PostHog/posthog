@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconSearch, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import { type ChartTheme } from '@posthog/quill-charts'
-import { Button, InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@posthog/quill-primitives'
+import { Button } from '@posthog/quill-primitives'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
@@ -20,9 +20,8 @@ import { ToolQualityDateFilter } from './tool-quality/ToolQualityDateFilter'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
 function FilterBar(): JSX.Element {
-    const { availableCategories, selectedCategories, scopeShare, dateFilter, searchTerm } =
-        useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedCategories, setDateFilter, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
+    const { availableCategories, selectedCategories, scopeShare, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedCategories, setDateFilter } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
     const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
@@ -44,20 +43,6 @@ function FilterBar(): JSX.Element {
                 dateTo={dateFilter.dateTo}
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
             />
-            <InputGroup className="w-[220px]">
-                <InputGroupAddon align="inline-start">
-                    <InputGroupText>
-                        <IconSearch />
-                    </InputGroupText>
-                </InputGroupAddon>
-                <InputGroupInput
-                    type="search"
-                    placeholder="Search tools"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    data-attr="mcp-tool-quality-search"
-                />
-            </InputGroup>
             {hasScope && sharePct !== null ? (
                 <Tooltip
                     title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls in the last 7 days were in the selected categories`}

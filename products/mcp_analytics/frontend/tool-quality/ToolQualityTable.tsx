@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSearch } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
@@ -8,6 +9,10 @@ import {
     CardFooter,
     CardHeader,
     CardTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
     Table,
     TableBody,
     TableCell,
@@ -175,13 +180,28 @@ function ToolRows(): JSX.Element {
 }
 
 export function ToolQualityTable(): JSX.Element {
-    const { toolQualitySort, toolRows, filteredRows, toolRowsLoading } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setToolQualitySort } = useActions(mcpAnalyticsToolQualityLogic)
+    const { toolQualitySort, toolRows, filteredRows, toolRowsLoading, searchTerm } =
+        useValues(mcpAnalyticsToolQualityLogic)
+    const { setToolQualitySort, setSearchTerm } = useActions(mcpAnalyticsToolQualityLogic)
 
     return (
         <Card size="sm" className="gap-0">
-            <CardHeader className="border-b border-border pb-3">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                 <CardTitle>All tools</CardTitle>
+                <InputGroup className="w-[220px]">
+                    <InputGroupAddon align="inline-start">
+                        <InputGroupText>
+                            <IconSearch />
+                        </InputGroupText>
+                    </InputGroupAddon>
+                    <InputGroupInput
+                        type="search"
+                        placeholder="Search tools"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        data-attr="mcp-tool-quality-search"
+                    />
+                </InputGroup>
             </CardHeader>
             <Table fullWidth stickyHeader className="max-h-[44rem]">
                 <TableHeader>
