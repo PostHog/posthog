@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import * as toolbarPosthogJS from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -872,6 +873,41 @@ describe('toolbar toolbarConfigLogic', () => {
 
             expect(logic.values.accessToken).toBeNull()
             expect(logic.values.isAuthenticated).toBe(false)
+        })
+
+        // A 4xx from the refresh endpoint means the refresh token is simply
+        // expired/revoked — handled gracefully via tokenExpired(). It must not be
+        // reported to error tracking, otherwise it floods the toolbar's issues with
+        // benign re-auth noise. Only genuinely unexpected 5xx failures are captured.
+        it.each([
+            [400, false],
+            [401, false],
+            [500, true],
+        ])('refresh failure status %i → captures exception: %s', async (refreshStatus, shouldCapture) => {
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'captureToolbarException').mockImplementation(() => {})
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (url.includes('toolbar_oauth_refresh')) {
+                    return Promise.resolve({ ok: false, status: refreshStatus, json: () => Promise.resolve({}) })
+                }
+                return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+            })
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(logic.values.isAuthenticated).toBe(false)
+            if (shouldCapture) {
+                expect(captureSpy).toHaveBeenCalled()
+            } else {
+                expect(captureSpy).not.toHaveBeenCalled()
+            }
+            captureSpy.mockRestore()
         })
 
         it('does not retry when response is not 401', async () => {
