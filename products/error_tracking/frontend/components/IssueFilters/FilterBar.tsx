@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo } from 'react'
 
-import { IconCheck, IconFilter, IconSort, IconTriangleDown, IconTriangleUp } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconFilter, IconSort } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import {
@@ -459,7 +459,7 @@ const SortDirectionButton = (): JSX.Element => {
         <LemonButton
             size="small"
             type="tertiary"
-            icon={orderDirection === 'DESC' ? <IconTriangleDown /> : <IconTriangleUp />}
+            icon={<IconArrowRight className={orderDirection === 'DESC' ? 'rotate-90' : '-rotate-90'} />}
             onClick={() => setOrderDirection(orderDirection === 'DESC' ? 'ASC' : 'DESC')}
             tooltip={
                 orderDirection === 'DESC'

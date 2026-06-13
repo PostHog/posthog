@@ -279,7 +279,8 @@ export const IssueFilterChips = (): JSX.Element | null => {
     const { status, assignee } = useValues(issueQueryOptionsLogic)
     const { setStatus, setAssignee } = useActions(issueQueryOptionsLogic)
 
-    const showStatus = status && status !== 'active'
+    const resolvedStatus = status ?? 'active'
+    const showStatus = resolvedStatus !== 'all'
     const showAssignee = !!assignee
 
     if (!showStatus && !showAssignee) {
@@ -289,7 +290,9 @@ export const IssueFilterChips = (): JSX.Element | null => {
     return (
         <>
             {showStatus && (
-                <FilterChip onClear={() => setStatus('active')}>Status is {capitalizeFirstLetter(status)}</FilterChip>
+                <FilterChip onClear={() => setStatus('all')}>
+                    Status is {capitalizeFirstLetter(resolvedStatus)}
+                </FilterChip>
             )}
             {showAssignee && (
                 <AssigneeResolver assignee={assignee}>
