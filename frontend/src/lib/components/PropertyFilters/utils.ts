@@ -227,6 +227,17 @@ export function isValidPropertyFilter(
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
 }
+
+// A Group-type filter identifies one specific group by its key under two key
+// names: '$group_key' in event/insight property filters, and 'id' in the
+// groups-list query. ('id' is also the Cohort key, so the Group type gate
+// matters.) Group *property* filters (industry, name, ...) use other keys.
+export function isGroupIdentityFilterKey(
+    key: string | number | undefined,
+    type: PropertyFilterType | undefined
+): boolean {
+    return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
+}
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }

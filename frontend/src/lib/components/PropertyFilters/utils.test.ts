@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    isGroupIdentityFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
@@ -23,6 +24,25 @@ import {
     SessionPropertyFilter,
 } from '../../../types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+
+describe('isGroupIdentityFilterKey()', () => {
+    it.each([
+        // A group is identified by its key under '$group_key' (event/insight filters)
+        // and 'id' (the groups-list query).
+        { key: '$group_key', type: PropertyFilterType.Group, expected: true },
+        { key: 'id', type: PropertyFilterType.Group, expected: true },
+        // 'id' is also the Cohort key — must not match there.
+        { key: 'id', type: PropertyFilterType.Cohort, expected: false },
+        // Group *property* filters use other keys.
+        { key: 'industry', type: PropertyFilterType.Group, expected: false },
+        // '$group_key' only makes sense for a Group-type filter.
+        { key: '$group_key', type: PropertyFilterType.Event, expected: false },
+        { key: '$group_key', type: undefined, expected: false },
+        { key: undefined, type: PropertyFilterType.Group, expected: false },
+    ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
+        expect(isGroupIdentityFilterKey(key, type)).toBe(expected)
+    })
+})
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {

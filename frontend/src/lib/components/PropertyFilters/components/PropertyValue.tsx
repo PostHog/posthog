@@ -18,7 +18,10 @@ import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupK
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import {
+    isGroupIdentityFilterKey,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -105,7 +108,7 @@ export function PropertyValue({
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
     const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
-    const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
+    const isGroupKeyProperty = isGroupIdentityFilterKey(propertyKey, type) && groupTypeIndex != null
     const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
 
     // TODO: Add semver input validation when a semver operator is selected.
