@@ -158,25 +158,28 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         taxonomicPropertyFilterGroupTypes: [
             (_, p) => [p.taxonomicGroupTypes],
             (types) =>
-                types.filter((t) =>
-                    [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        TaxonomicFilterGroupType.FeatureFlags,
-                        TaxonomicFilterGroupType.PageviewUrls,
-                        TaxonomicFilterGroupType.Screens,
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        TaxonomicFilterGroupType.Logs,
-                        TaxonomicFilterGroupType.LogAttributes,
-                        TaxonomicFilterGroupType.LogResourceAttributes,
-                        TaxonomicFilterGroupType.Spans,
-                        TaxonomicFilterGroupType.SpanAttributes,
-                        TaxonomicFilterGroupType.SpanResourceAttributes,
-                    ].includes(t)
+                types.filter(
+                    (t) =>
+                        [
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                            TaxonomicFilterGroupType.FeatureFlags,
+                            TaxonomicFilterGroupType.PageviewUrls,
+                            TaxonomicFilterGroupType.Screens,
+                            TaxonomicFilterGroupType.EmailAddresses,
+                            TaxonomicFilterGroupType.SessionProperties,
+                            TaxonomicFilterGroupType.Replay,
+                            TaxonomicFilterGroupType.Logs,
+                            TaxonomicFilterGroupType.LogAttributes,
+                            TaxonomicFilterGroupType.LogResourceAttributes,
+                            TaxonomicFilterGroupType.Spans,
+                            TaxonomicFilterGroupType.SpanAttributes,
+                            TaxonomicFilterGroupType.SpanResourceAttributes,
+                        ].includes(t) || t.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
                 ),
         ],
     }),

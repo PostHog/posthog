@@ -59,6 +59,34 @@ describe('universalFiltersLogic', () => {
         })
     })
 
+    describe('taxonomicPropertyFilterGroupTypes', () => {
+        it.each([
+            { groupType: TaxonomicFilterGroupType.EventProperties, kept: true },
+            { groupType: TaxonomicFilterGroupType.PersonProperties, kept: true },
+            { groupType: TaxonomicFilterGroupType.SessionProperties, kept: true },
+            { groupType: TaxonomicFilterGroupType.Replay, kept: true },
+            { groupType: TaxonomicFilterGroupType.Cohorts, kept: true },
+            { groupType: `${TaxonomicFilterGroupType.GroupsPrefix}_0` as TaxonomicFilterGroupType, kept: true },
+            { groupType: TaxonomicFilterGroupType.Events, kept: false },
+            { groupType: TaxonomicFilterGroupType.Actions, kept: false },
+            { groupType: TaxonomicFilterGroupType.AutocaptureEvents, kept: false },
+            { groupType: TaxonomicFilterGroupType.ReplaySavedFilters, kept: false },
+            { groupType: TaxonomicFilterGroupType.SuggestedFilters, kept: false },
+        ])('editing a pill keeps=$kept for $groupType', async ({ groupType, kept }) => {
+            const scopedLogic = universalFiltersLogic({
+                rootKey: 'scoped',
+                group: defaultFilter,
+                taxonomicGroupTypes: [groupType],
+                onChange: () => {},
+            })
+            scopedLogic.mount()
+
+            await expectLogic(scopedLogic).toMatchValues({
+                taxonomicPropertyFilterGroupTypes: kept ? [groupType] : [],
+            })
+        })
+    })
+
     it('setGroupType', async () => {
         await expectLogic(logic, () => {
             logic.actions.setGroupType(FilterLogicalOperator.Or)
