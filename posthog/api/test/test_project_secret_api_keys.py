@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.test.base import APIBaseTest
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
@@ -57,10 +59,17 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def test_create_project_secret_api_key(self):
-        label = "the key to rule them all"
+    @pytest.mark.parametrize(
+        "label,scope",
+        [
+            ("the key to rule them all", "endpoint:read"),
+            ("feature-flag-key", "feature_flag:read"),
+        ],
+    )
+    def test_create_project_secret_api_key(self, label, scope):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys", {"label": label, "scopes": ["endpoint:read"]}
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": label, "scopes": [scope]},
         )
         assert response.status_code == 201
         data = response.json()
@@ -68,7 +77,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key = ProjectSecretAPIKey.objects.get(id=data["id"])
         assert data["id"] == key.id
         assert data["label"] == label
-        assert data["scopes"] == ["endpoint:read"]
+        assert data["scopes"] == [scope]
         assert data["last_rolled_at"] is None
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
@@ -115,14 +124,6 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400
         assert "can not be assigned" in response.json()["detail"]
-
-    def test_feature_flag_read_scope_is_allowed(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "feature-flag-key", "scopes": ["feature_flag:read"]},
-        )
-        assert response.status_code == 201
-        assert response.json()["scopes"] == ["feature_flag:read"]
 
     def test_invalid_scope_format_rejected(self):
         response = self.client.post(
