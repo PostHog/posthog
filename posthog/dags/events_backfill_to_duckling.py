@@ -1713,6 +1713,7 @@ def write_partition_to_iceberg(
 
     context.log.info(f"Iceberg dual-write succeeded for {table} team_id={team_id} from {s3_path}")
     logger.info("duckling_iceberg_write_success", table=table, team_id=team_id, s3_path=s3_path)
+    return True
 
 
 @asset(
