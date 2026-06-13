@@ -36,7 +36,15 @@ export function MenuInputTrigger({
 }: MenuInputTriggerProps): JSX.Element {
     if (spacerOnly) {
         return (
-            <LemonInput fullWidth={fullWidth} size="small" disabled placeholder={placeholder} className="invisible" />
+            <div aria-hidden="true">
+                <LemonInput
+                    fullWidth={fullWidth}
+                    size="small"
+                    disabled
+                    placeholder={placeholder}
+                    className="invisible"
+                />
+            </div>
         )
     }
     return (
