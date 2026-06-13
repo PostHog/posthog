@@ -11,6 +11,7 @@ import {
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
+    mergeResourceProducts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
     resolveToolKey,
@@ -1086,6 +1087,255 @@ describe('sandboxStreamLogic', () => {
                     notification('_posthog/progress', { sessionId: 's', detail: 'PostHog/posthog @ master' })
                 )
             }).toMatchValues({ currentProgress: 'PostHog/posthog @ master' })
+        })
+    })
+
+    describe('mergeResourceProducts', () => {
+        it('unions by id, preserves first-seen order, and tolerates empty/idless input', () => {
+            const first = mergeResourceProducts([], [{ id: 'product_analytics', label: 'Product analytics' }])
+            expect(first).toEqual([{ id: 'product_analytics', label: 'Product analytics' }])
+
+            const second = mergeResourceProducts(first, [
+                { id: 'product_analytics', label: 'dup' },
+                { id: 'session_replay', label: 'Session replay' },
+                { label: 'no id' },
+                { id: '' },
+            ])
+            expect(second.map((p) => p.id)).toEqual(['product_analytics', 'session_replay'])
+            // First-seen label wins for an id already present.
+            expect(second[0].label).toEqual('Product analytics')
+        })
+    })
+
+    describe('_posthog/resources_used handling', () => {
+        it('unions products into resourcesUsed by id in first-seen order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/resources_used', {
+                        products: [
+                            { id: 'product_analytics', label: 'Product analytics' },
+                            { id: 'session_replay', label: 'Session replay' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/resources_used', {
+                        products: [
+                            { id: 'session_replay', label: 'Session replay' },
+                            { id: 'sql', label: 'SQL' },
+                        ],
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics', 'session_replay', 'sql'])
+        })
+
+        it('survives bootstrap replay without double-counting (same frame twice → one entry set)', async () => {
+            const frame = notification('_posthog/resources_used', {
+                products: [{ id: 'product_analytics', label: 'Product analytics' }],
+            })
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame as any, frame as any])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // Content-dedup drops the identical replay; the union would dedup by id regardless.
+            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics'])
+        })
+    })
+
+    describe('_posthog/usage_update handling', () => {
+        it('folds the Codex split frames (used + cost, then breakdown) into contextUsage', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/usage_update', {
+                        used: { inputTokens: 100, outputTokens: 20 },
+                        cost: { amount: 0.42, currency: 'USD' },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/usage_update', { breakdown: { systemPrompt: 10, tools: 5 } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage?.tokens).toEqual({ inputTokens: 100, outputTokens: 20 })
+            expect(logic.values.contextUsage?.cost).toEqual(0.42)
+            expect(logic.values.contextUsage?.breakdown).toEqual({ systemPrompt: 10, tools: 5 })
+        })
+
+        it('folds the Claude combined frame (used + numeric cost + breakdown) into contextUsage', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/usage_update', {
+                        used: { inputTokens: 5000, outputTokens: 600 },
+                        cost: 0.18,
+                        breakdown: { conversation: 9000 },
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage?.tokens).toEqual({ inputTokens: 5000, outputTokens: 600 })
+            expect(logic.values.contextUsage?.cost).toEqual(0.18)
+            expect(logic.values.contextUsage?.breakdown).toEqual({ conversation: 9000 })
+        })
+
+        it('lands the numeric used/size aggregate from a session/update-framed usage_update', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'usage_update',
+                        used: 168000,
+                        size: 200000,
+                        cost: { amount: 1.2, currency: 'USD' },
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage?.used).toEqual(168000)
+            expect(logic.values.contextUsage?.size).toEqual(200000)
+            expect(logic.values.contextUsage?.cost).toEqual(1.2)
+            // The aggregate must not be misrouted into a thread item.
+            expect(logic.values.threadItems).toEqual([])
+        })
+
+        it('merges the aggregate ring numbers with the ext-notification tokens/breakdown', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/usage_update', {
+                        used: { inputTokens: 100 },
+                        breakdown: { tools: 5 },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'usage_update', used: 12000, size: 200000 })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage).toEqual({
+                tokens: { inputTokens: 100 },
+                breakdown: { tools: 5 },
+                used: 12000,
+                size: 200000,
+            })
+        })
+    })
+
+    describe('_posthog/status + compact_boundary inline items', () => {
+        it('pushes a status item for an in-progress compaction', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'compacting' }))
+            }).toFinishAllListeners()
+
+            const item = logic.values.threadItems.find((i) => i.type === 'status')
+            expect(item).toEqual(expect.objectContaining({ type: 'status', status: 'compacting', isComplete: false }))
+        })
+
+        it('pushes nothing for a completed compaction status', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/status', { status: 'compacting', isComplete: true })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+        })
+
+        it('pushes a compact_boundary item carrying trigger/preTokens/contextSize', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/compact_boundary', {
+                        trigger: 'auto',
+                        preTokens: 168000,
+                        contextSize: 54000,
+                    })
+                )
+            }).toFinishAllListeners()
+
+            const item = logic.values.threadItems.find((i) => i.type === 'compact_boundary')
+            expect(item).toEqual(
+                expect.objectContaining({
+                    type: 'compact_boundary',
+                    trigger: 'auto',
+                    preTokens: 168000,
+                    contextSize: 54000,
+                })
+            )
+        })
+    })
+
+    describe('_posthog/task_notification inline item', () => {
+        it('pushes a task_notification item carrying status + summary', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/task_notification', {
+                        status: 'completed',
+                        summary: 'Analysis written to report.md',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            const item = logic.values.threadItems.find((i) => i.type === 'task_notification')
+            expect(item).toEqual(
+                expect.objectContaining({
+                    type: 'task_notification',
+                    status: 'completed',
+                    summary: 'Analysis written to report.md',
+                })
+            )
+        })
+    })
+
+    describe('_posthog/sdk_session handling', () => {
+        it('stashes the adapter/session identity without rendering UI', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/sdk_session', {
+                        taskRunId: 'run-1',
+                        sessionId: 'sess_a1b2c3',
+                        adapter: 'claude',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.sdkSession).toEqual({ sessionId: 'sess_a1b2c3', adapter: 'claude' })
+            expect(logic.values.threadItems).toEqual([])
+        })
+    })
+
+    describe('reset clears notification state', () => {
+        it('clears resourcesUsed, contextUsage, and sdkSession on reset', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
+                logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.resourcesUsed).toHaveLength(1)
+            expect(logic.values.contextUsage).not.toBeNull()
+            expect(logic.values.sdkSession).not.toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.reset()
+            }).toFinishAllListeners()
+
+            expect(logic.values.resourcesUsed).toEqual([])
+            expect(logic.values.contextUsage).toBeNull()
+            expect(logic.values.sdkSession).toBeNull()
+        })
+
+        it('keeps resourcesUsed across markTurnComplete (accumulates over the session)', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
+                )
+                logic.actions.markTurnComplete()
+            }).toFinishAllListeners()
+
+            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['sql'])
         })
     })
 

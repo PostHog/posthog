@@ -8,9 +8,10 @@ import {
     isPermissionRequestFrame,
     isPosthogNotification,
     isSessionUpdateNotification,
+    isSessionUpdateUsage,
     isTaskRunStateFrame,
-    isUsageUpdateBreakdownParams,
-    isUsageUpdateUsedParams,
+    hasUsageBreakdown,
+    hasUsageUsed,
 } from './sandboxWireTypes'
 
 const TIMESTAMP = '2026-06-11T09:00:00.000000+00:00'
@@ -68,6 +69,13 @@ const NOTIFICATION_PARAMS_BY_METHOD: { [M in keyof PosthogNotificationParamsByMe
                 subagents: 0,
                 conversation: 20410,
             },
+        },
+        {
+            // Claude combined frame: used + cost (a bare number) + breakdown together.
+            sessionId: 'sess_a1b2c3',
+            used: { inputTokens: 5000, outputTokens: 600, cachedReadTokens: 100, cachedWriteTokens: 0 },
+            cost: 0.18,
+            breakdown: { systemPrompt: 2000, tools: 4000, conversation: 9000 },
         },
     ],
     '_posthog/status': [
@@ -261,25 +269,37 @@ describe('sandboxWireTypes guards', () => {
         expect(isSessionUpdateNotification(wireNotification)).toBe(false)
     })
 
-    it('narrows the two usage_update forms exclusively', () => {
-        const [used, usedNullCost, breakdown] = NOTIFICATION_PARAMS_BY_METHOD['_posthog/usage_update'].map((params) =>
-            notificationOf(notification('_posthog/usage_update', params))
+    it('tolerates the Codex split frames and the Claude combined frame with "has field" checks', () => {
+        const [used, usedNullCost, breakdown, combined] = NOTIFICATION_PARAMS_BY_METHOD['_posthog/usage_update'].map(
+            (params) => notificationOf(notification('_posthog/usage_update', params))
         )
         for (const wireNotification of [used, usedNullCost]) {
             if (!isPosthogNotification(wireNotification, '_posthog/usage_update')) {
                 throw new Error('expected usage_update notification')
             }
-            expect(isUsageUpdateUsedParams(wireNotification.params)).toBe(true)
-            expect(isUsageUpdateBreakdownParams(wireNotification.params)).toBe(false)
-            if (isUsageUpdateUsedParams(wireNotification.params)) {
-                expect(wireNotification.params.used.inputTokens).toEqual(expect.any(Number))
-            }
+            expect(hasUsageUsed(wireNotification.params)).toBe(true)
+            expect(hasUsageBreakdown(wireNotification.params)).toBe(false)
+            expect(wireNotification.params?.used?.inputTokens).toEqual(expect.any(Number))
         }
         if (!isPosthogNotification(breakdown, '_posthog/usage_update')) {
             throw new Error('expected usage_update notification')
         }
-        expect(isUsageUpdateBreakdownParams(breakdown.params)).toBe(true)
-        expect(isUsageUpdateUsedParams(breakdown.params)).toBe(false)
+        expect(hasUsageBreakdown(breakdown.params)).toBe(true)
+        expect(hasUsageUsed(breakdown.params)).toBe(false)
+
+        // Claude combined frame: both fields present, plus a numeric cost.
+        if (!isPosthogNotification(combined, '_posthog/usage_update')) {
+            throw new Error('expected usage_update notification')
+        }
+        expect(hasUsageUsed(combined.params)).toBe(true)
+        expect(hasUsageBreakdown(combined.params)).toBe(true)
+        expect(combined.params?.cost).toEqual(0.18)
+    })
+
+    it('recognizes the session/update-framed usage aggregate', () => {
+        expect(isSessionUpdateUsage({ sessionUpdate: 'usage_update', used: 168000, size: 200000 })).toBe(true)
+        expect(isKnownSessionUpdate({ sessionUpdate: 'usage_update', used: 168000, size: 200000 })).toBe(false)
+        expect(isSessionUpdateUsage({ sessionUpdate: 'agent_message' })).toBe(false)
     })
 
     it('exposes typed progress params after narrowing', () => {

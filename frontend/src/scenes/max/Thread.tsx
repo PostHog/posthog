@@ -43,7 +43,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { inStorybookTestRunner, pluralize } from 'lib/utils'
+import { humanFriendlyNumber, inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -72,6 +72,8 @@ import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
+import { SandboxContextUsage } from './components/SandboxContextUsage'
+import { SandboxResourcesBar } from './components/SandboxResourcesBar'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -100,6 +102,7 @@ import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
+import type { ThreadItem } from './types/sandboxStreamTypes'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -230,6 +233,15 @@ function SandboxThread(): JSX.Element {
                         </MessageTemplate>
                     )
                 }
+                if (item.type === 'status') {
+                    return <SandboxStatusItem key={item.id} item={item} />
+                }
+                if (item.type === 'compact_boundary') {
+                    return <SandboxCompactBoundaryItem key={item.id} item={item} />
+                }
+                if (item.type === 'task_notification') {
+                    return <SandboxTaskNotificationItem key={item.id} item={item} />
+                }
                 return null
             })}
             {streamPhase === 'provisioning' && <SandboxProvisioningIndicator progress={currentProgress} />}
@@ -270,6 +282,60 @@ function SandboxThinkingIndicator({ progress }: { progress: string | null }): JS
                 <span>{message}</span>
             </div>
         </MessageTemplate>
+    )
+}
+
+/** Inline `_posthog/status` item — a spinner while compacting, a generic status line otherwise. */
+function SandboxStatusItem({ item }: { item: ThreadItem }): JSX.Element {
+    const isCompacting = item.status === 'compacting' && !item.isComplete
+    return (
+        <div className="flex items-center justify-center gap-2 py-1 text-xs text-muted">
+            {isCompacting ? (
+                <>
+                    <Spinner className="size-3" />
+                    <span>Compacting conversation history…</span>
+                </>
+            ) : (
+                <span>Status: {item.status}</span>
+            )}
+        </div>
+    )
+}
+
+/** Inline `_posthog/compact_boundary` item — the post-compaction rule. */
+function SandboxCompactBoundaryItem({ item }: { item: ThreadItem }): JSX.Element {
+    return (
+        <div className="flex items-center gap-2 py-1 text-xs text-muted">
+            <div className="h-px grow bg-border" />
+            <span className="shrink-0">
+                Conversation compacted
+                {item.trigger ? ` (${item.trigger})` : ''}
+                {typeof item.preTokens === 'number'
+                    ? ` · ~${humanFriendlyNumber(item.preTokens)} tokens summarized`
+                    : ''}
+            </span>
+            <div className="h-px grow bg-border" />
+        </div>
+    )
+}
+
+/** Inline `_posthog/task_notification` item — a colored rule by status (completed/failed/stopped). */
+function SandboxTaskNotificationItem({ item }: { item: ThreadItem }): JSX.Element {
+    const colorClass =
+        item.status === 'completed' ? 'text-success' : item.status === 'failed' ? 'text-danger' : 'text-warning'
+    const icon =
+        item.status === 'completed' ? (
+            <IconCheck className="size-3" />
+        ) : item.status === 'failed' ? (
+            <IconX className="size-3" />
+        ) : (
+            <IconWarning className="size-3" />
+        )
+    return (
+        <div className={cn('flex items-center justify-center gap-1.5 py-1 text-xs', colorClass)}>
+            {icon}
+            <span>{item.summary || `Task ${item.status}`}</span>
+        </div>
     )
 }
 
@@ -486,6 +552,30 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
             <NotFound object="conversation" className="m-0" />
         </div>
     ) : null
+}
+
+/**
+ * Persistent sandbox surfaces mounted between the thread and the sticky composer: the
+ * "PostHog resources used" bar and the context-usage indicator. Both read `sandboxStreamLogic`
+ * values directly, so this binds the same logic instance `Thread`'s sandbox path uses. Renders
+ * nothing for non-sandbox conversations; the inner components hide themselves when empty.
+ */
+export function SandboxComposerSurfaces(): JSX.Element | null {
+    const { conversation, sandboxConversationKey } = useValues(maxThreadLogic)
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
+
+    if (conversation?.agent_runtime !== 'sandbox' || !sandboxModeEnabled || !sandboxConversationKey) {
+        return null
+    }
+
+    return (
+        <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+            <div className="w-full max-w-180 self-center mx-auto">
+                <SandboxResourcesBar />
+                <SandboxContextUsage />
+            </div>
+        </BindLogic>
+    )
 }
 
 function SandboxActivityPanel({ entries }: { entries: LogEntry[] }): JSX.Element | null {
