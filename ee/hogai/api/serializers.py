@@ -49,6 +49,63 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
+async def aget_conversation_state(
+    conversation: Conversation, team: Any, user: Any
+) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
+    """Compile the LangGraph graph, replay the checkpoint, and validate the typed state.
+
+    Single source of truth for the LangGraph history read path — both the conversation
+    serializer (history-load) and the legacy-history converter (products/posthog_ai) call this so
+    the graph-compile + checkpoint-replay logic is never duplicated.
+
+    Returns (state, has_unsupported_content, interrupt_payloads). `state` is None for sandbox
+    conversations (no checkpoint) and on any read/validation error — errors degrade gracefully
+    and are captured rather than raised so a bad checkpoint can't 500 a conversation load.
+    """
+    # Sandbox conversations have no LangGraph checkpoint — their state lives in S3 ACP logs.
+    if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+        return None, False, {}
+
+    try:
+        graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
+        graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()
+        snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}})
+        state = state_class.model_validate(snapshot.values)
+
+        # Extract interrupt payloads from pending tasks — the single source of truth for payload data.
+        interrupt_payloads: dict[str, dict[str, Any]] = {}
+        for task in snapshot.tasks:
+            for interrupt in task.interrupts:
+                if isinstance(interrupt.value, dict) and interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
+                    proposal_id = interrupt.value.get("proposal_id")
+                    if proposal_id:
+                        interrupt_payloads[proposal_id] = interrupt.value
+
+        return state, False, interrupt_payloads
+    except pydantic.ValidationError as e:
+        capture_exception(
+            e,
+            additional_properties={
+                "tag": "max_ai",
+                "exception_type": "ValidationError",
+                "conversation_id": str(conversation.id),
+            },
+        )
+        return None, True, {}
+    except Exception as e:
+        # Broad exception handler to gracefully degrade UI instead of 500s.
+        # Captures all errors (context access, graph compilation, validation, etc.) to PostHog.
+        capture_exception(
+            e,
+            additional_properties={
+                "tag": "max_ai",
+                "exception_type": type(e).__name__,
+                "conversation_id": str(conversation.id),
+            },
+        )
+        return None, False, {}
+
+
 class ConversationTaskSerializer(TaskSerializer):
     """The products/tasks Task backing a sandbox conversation.
 
@@ -213,50 +270,4 @@ class ConversationSerializer(ConversationMinimalSerializer):
             Tuple of (state, has_unsupported_content, interrupt_payloads).
             interrupt_payloads is a dict mapping proposal_id to the interrupt value (including payload).
         """
-        # Sandbox conversations have no LangGraph checkpoint — their state lives in S3 ACP logs.
-        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-            return None, False, {}
-
-        try:
-            team = self.context["team"]
-            user = self.context["user"]
-            graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
-            graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()
-            snapshot = await graph.aget_state(
-                {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
-            )
-            state = state_class.model_validate(snapshot.values)
-
-            # Extract interrupt payloads from pending tasks
-            # This is the single source of truth for payload data
-            interrupt_payloads: dict[str, dict[str, Any]] = {}
-            for task in snapshot.tasks:
-                for interrupt in task.interrupts:
-                    if isinstance(interrupt.value, dict) and interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
-                        proposal_id = interrupt.value.get("proposal_id")
-                        if proposal_id:
-                            interrupt_payloads[proposal_id] = interrupt.value
-
-            return state, False, interrupt_payloads
-        except pydantic.ValidationError as e:
-            capture_exception(
-                e,
-                additional_properties={
-                    "tag": "max_ai",
-                    "exception_type": "ValidationError",
-                    "conversation_id": str(conversation.id),
-                },
-            )
-            return None, True, {}
-        except Exception as e:
-            # Broad exception handler to gracefully degrade UI instead of 500s
-            # Captures all errors (context access, graph compilation, validation, etc.) to PostHog
-            capture_exception(
-                e,
-                additional_properties={
-                    "tag": "max_ai",
-                    "exception_type": type(e).__name__,
-                    "conversation_id": str(conversation.id),
-                },
-            )
-            return None, False, {}
+        return await aget_conversation_state(conversation, self.context["team"], self.context["user"])

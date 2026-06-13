@@ -54,6 +54,7 @@ from posthog.temporal.ai.research_agent import (
 )
 
 from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
+from products.posthog_ai.backend.conversion_service import LegacyConversionService
 from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
@@ -67,7 +68,7 @@ from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
+from ee.hogai.utils.feature_flags import has_convert_legacy_history_feature_flag, has_sandbox_mode_feature_flag
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 
@@ -423,6 +424,37 @@ class ConversationViewSet(
         context["user"] = cast(User, self.request.user)
         return context
 
+    def retrieve(self, request: Request, *args, **kwargs):
+        # Convert a legacy LangGraph thread to sandbox on open, before serializing, so the
+        # response reflects the converted (sandbox) shape on this very request. Flag-gated and
+        # idempotent; subsequent opens skip it (the conversation is already sandbox).
+        conversation = self.get_object()
+        self._maybe_convert_legacy_history(request, conversation)
+        serializer = self.get_serializer(conversation)
+        return Response(serializer.data)
+
+    def _maybe_convert_legacy_history(self, request: Request, conversation: Conversation) -> None:
+        """On-demand convert an idle LangGraph conversation to sandbox when both flags are on.
+
+        Layered gate: the user must already be on `phai-sandbox-mode` and have
+        `phai-convert-legacy-history` enabled. The seeder is idempotent and serializes concurrent
+        opens under the conversation row lock, so a double-submit cannot create two Tasks. Any
+        failure degrades to leaving the conversation on LangGraph — it never blocks the open.
+        """
+        if conversation.agent_runtime != Conversation.AgentRuntime.LANGGRAPH or conversation.task_id is not None:
+            return
+        user = cast(User, request.user)
+        if not has_sandbox_mode_feature_flag(self.team, user):
+            return
+        if not has_convert_legacy_history_feature_flag(self.team, user):
+            return
+        try:
+            LegacyConversionService(conversation, user).convert_if_needed()
+        except Exception as e:
+            # A failed conversion must not break the conversation load — the thread stays on
+            # LangGraph (still fully readable) and the next open can retry.
+            capture_exception(e)
+
     def create(self, request: Request, *args, **kwargs):
         """
         Unified endpoint that handles both conversation creation and streaming.
@@ -482,12 +514,21 @@ class ConversationViewSet(
             )
             is_new_conversation = True
 
+        # Convert a reopened legacy LangGraph thread to sandbox before routing, so the message
+        # below takes the sandbox path. Flag-gated, idempotent, and a no-op for new / non-idle /
+        # already-sandbox conversations.
+        if not is_new_conversation:
+            self._maybe_convert_legacy_history(request, conversation)
+
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
         is_sandbox = (
             serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+            # A just-converted thread is sandbox now even if the request wasn't flagged sandbox —
+            # route the message through the sandbox path so it lands on the new Task.
+            or conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
         )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:

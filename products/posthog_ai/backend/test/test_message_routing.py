@@ -3,13 +3,18 @@ from contextlib import contextmanager
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from rest_framework import exceptions
+
+from posthog.schema import AssistantMessage, HumanMessage
 
 from posthog.exceptions import Conflict
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
+from products.posthog_ai.backend.conversion_service import LegacyConversionService
 from products.posthog_ai.backend.message_routing import (
     MessageRoutingService,
     SandboxCommandError,
@@ -22,7 +27,10 @@ from products.tasks.backend.services.agent_command import CommandResult
 from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
+from ee.hogai.utils.types import AssistantState
+
 ROUTING = "products.posthog_ai.backend.message_routing"
+CONVERSION = "products.posthog_ai.backend.conversion_service"
 
 
 class TestHandleSandboxMessage(APIBaseTest):
@@ -624,3 +632,177 @@ class TestSandboxPrewarm(APIBaseTest):
             self._service().prewarm()
 
         m_lock.assert_called_once_with(str(self.conversation.id), self.team.pk)
+
+
+class TestLegacyConversionService(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Why did checkout drop?",
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+            status=Conversation.Status.IDLE,
+        )
+
+    def _state(self, messages=None):
+        if messages is None:
+            messages = [
+                HumanMessage(content="Why did checkout drop?"),
+                AssistantMessage(content="Let me check.", id="m1"),
+            ]
+        return AssistantState(messages=messages)
+
+    @contextmanager
+    def _seeder_patches(self, state=None, storage=None):
+        storage_map = storage if storage is not None else {}
+
+        def _read(url, missing_ok=False):
+            return storage_map.get(url)
+
+        def _write(url, content):
+            storage_map[url] = content
+
+        async def _aget(conversation, team, user):
+            return self._state() if state is None else state, False, {}
+
+        with (
+            patch(f"{CONVERSION}.aget_conversation_state", side_effect=_aget),
+            patch("products.tasks.backend.models.object_storage.read", side_effect=_read),
+            patch("products.tasks.backend.models.object_storage.write", side_effect=_write),
+            patch("products.tasks.backend.models.object_storage.tag"),
+            patch(f"{CONVERSION}.posthoganalytics.capture") as m_capture,
+        ):
+            yield storage_map, m_capture
+
+    def _service(self) -> LegacyConversionService:
+        return LegacyConversionService(self.conversation, self.user)
+
+    def test_conversion_creates_one_task_and_one_terminal_run(self):
+        with self._seeder_patches():
+            converted = self._service().convert_if_needed()
+
+        assert converted is True
+        self.conversation.refresh_from_db()
+        assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+        assert self.conversation.task_id is not None
+
+        task = self.conversation.task
+        assert task.origin_product == Task.OriginProduct.POSTHOG_AI
+        assert task.runs.count() == 1
+        run = task.runs.first()
+        assert run.status == TaskRun.Status.COMPLETED
+
+    def test_conversion_seeds_log_with_mapped_frames(self):
+        with self._seeder_patches() as (storage, _):
+            self._service().convert_if_needed()
+
+        self.conversation.refresh_from_db()
+        run = self.conversation.task.runs.first()
+        content = storage[run.log_url]
+        lines = [line for line in content.splitlines() if line]
+        assert len(lines) == 2
+        import json as _json
+
+        first = _json.loads(lines[0])
+        assert first["notification"]["method"] == "_posthog/user_message"
+        second = _json.loads(lines[1])
+        assert second["notification"]["method"] == "session/update"
+        assert second["notification"]["params"]["update"]["sessionUpdate"] == "agent_message"
+
+    def test_conversion_does_not_inherit_default_ttl(self):
+        with (
+            self._seeder_patches(),
+            patch("products.tasks.backend.models.object_storage.tag") as m_tag,
+        ):
+            self._service().convert_if_needed()
+
+        # Converted history must never be tagged for the 30-day expiry.
+        m_tag.assert_not_called()
+
+    def test_conversion_does_not_start_workflow(self):
+        with (
+            self._seeder_patches(),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as m_workflow,
+        ):
+            self._service().convert_if_needed()
+
+        m_workflow.assert_not_called()
+
+    def test_conversion_is_idempotent(self):
+        with self._seeder_patches():
+            first = self._service().convert_if_needed()
+            self.conversation.refresh_from_db()
+            second = LegacyConversionService(self.conversation, self.user).convert_if_needed()
+
+        assert first is True
+        assert second is False
+        assert Task.objects.filter(team=self.team).count() == 1
+
+    def test_conversion_skips_non_langgraph_conversation(self):
+        self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
+        self.conversation.save(update_fields=["agent_runtime"])
+
+        with self._seeder_patches():
+            converted = self._service().convert_if_needed()
+
+        assert converted is False
+        assert Task.objects.filter(team=self.team).count() == 0
+
+    def test_conversion_skips_non_idle_conversation(self):
+        self.conversation.status = Conversation.Status.IN_PROGRESS
+        self.conversation.save(update_fields=["status"])
+
+        with self._seeder_patches():
+            converted = self._service().convert_if_needed()
+
+        assert converted is False
+        self.conversation.refresh_from_db()
+        assert self.conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
+        assert self.conversation.task_id is None
+
+    def test_conversion_is_atomic_on_save_failure(self):
+        with self._seeder_patches():
+            with patch.object(Conversation, "save", side_effect=RuntimeError("boom")):
+                with self.assertRaises(RuntimeError):
+                    self._service().convert_if_needed()
+
+        # The flip failed, so the conversation must stay on LangGraph with no Task linked.
+        self.conversation.refresh_from_db()
+        assert self.conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
+        assert self.conversation.task_id is None
+
+    def test_conversion_emits_telemetry(self):
+        with self._seeder_patches() as (_, m_capture):
+            self._service().convert_if_needed()
+
+        # `posthoganalytics.capture` is shared, so Task creation also routes through this mock —
+        # isolate the conversion event.
+        conversion_calls = [c for c in m_capture.call_args_list if c.kwargs.get("event") == "phai_legacy_conversion"]
+        assert len(conversion_calls) == 1
+        props = conversion_calls[0].kwargs["properties"]
+        assert props["messages_total"] == 2
+        assert props["frames_total"] == 2
+        assert "frames_dropped_by_type" in props
+        assert "duration_ms" in props
+
+    def _conversion_query_count(self, message_count: int) -> int:
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="t",
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+            status=Conversation.Status.IDLE,
+        )
+        state = AssistantState(messages=[HumanMessage(content=f"q{i}") for i in range(message_count)])
+        with self._seeder_patches(state=state):
+            with CaptureQueriesContext(connection) as ctx:
+                LegacyConversionService(conversation, self.user).convert_if_needed()
+            return len(ctx.captured_queries)
+
+    def test_conversion_does_not_n_plus_one_over_messages(self):
+        # Conversion must run a bounded number of queries — the count for a long history must
+        # match a short one (the graph state read is mocked; only Task/Run create + the flip run).
+        small = self._conversion_query_count(2)
+        large = self._conversion_query_count(50)
+        assert small == large
