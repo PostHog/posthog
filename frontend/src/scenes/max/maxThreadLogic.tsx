@@ -279,6 +279,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setPendingApproval: (proposalId: string) => ({ proposalId }),
         clearPendingApproval: true,
         appendSandboxEntry: (entry: LogEntry) => ({ entry }),
+        prewarmSandbox: true,
+        releaseSandboxPrewarm: true,
         refreshSandboxEntries: true,
         resetSandboxEntries: true,
         continueAfterForm: (formAnswers: MultiQuestionFormAnswers) => ({
@@ -967,6 +969,87 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
         },
+        setQuestion: ({ question }) => {
+            // Sandbox pre-warming. Debounce on the first non-whitespace keystroke so the sandbox
+            // boots while the user is still typing; release if the input empties.
+            // LangGraph conversations are unaffected.
+            if (values.conversation?.agent_runtime !== 'sandbox') {
+                return
+            }
+            // Don't warm if a run is already active — the live Run is the desired state.
+            if (values.threadLoading) {
+                return
+            }
+            if (question.trim() === '') {
+                // Input emptied — cancel a pending warm trigger and schedule release after 5s.
+                cache.disposables.dispose('prewarm-debounce')
+                if (cache.prewarmed) {
+                    cache.disposables.add(() => {
+                        const timer = setTimeout(() => actions.releaseSandboxPrewarm(), 5000)
+                        return () => clearTimeout(timer)
+                    }, 'prewarm-release')
+                }
+                return
+            }
+            // Non-empty input: cancel any pending release, then debounce the warm.
+            cache.disposables.dispose('prewarm-release')
+            if (cache.prewarmed) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timer = setTimeout(() => actions.prewarmSandbox(), 250)
+                return () => clearTimeout(timer)
+            }, 'prewarm-debounce')
+        },
+        prewarmSandbox: async () => {
+            cache.disposables.dispose('prewarm-debounce')
+            if (values.conversation?.agent_runtime !== 'sandbox' || !values.conversationId) {
+                return
+            }
+            // Guard against duplicate warms and warming over an active run.
+            if (cache.prewarmed || cache.prewarming || values.threadLoading) {
+                return
+            }
+            cache.prewarming = true
+            cache.pendingRelease = false
+            try {
+                await api.conversations.prewarm(values.conversationId)
+                cache.prewarmed = true
+                // If the user abandoned the input while this POST was in flight, the blur/empty
+                // release hit the early-exit (nothing was warm yet). Honor it now so the freshly
+                // warmed sandbox isn't leaked until the agent-server's idle self-cancel.
+                if (cache.pendingRelease) {
+                    cache.pendingRelease = false
+                    actions.releaseSandboxPrewarm()
+                }
+            } catch (e) {
+                // Pre-warming is best-effort latency optimization; a failure just means the first
+                // message takes the cold path. Don't surface it to the user.
+                posthog.captureException(e)
+            } finally {
+                cache.prewarming = false
+            }
+        },
+        releaseSandboxPrewarm: async () => {
+            cache.disposables.dispose('prewarm-debounce')
+            cache.disposables.dispose('prewarm-release')
+            if (!cache.prewarmed || !values.conversationId) {
+                // A warm POST may still be in flight — record the intent so its success handler
+                // releases the sandbox instead of dropping the request on the floor.
+                if (cache.prewarming) {
+                    cache.pendingRelease = true
+                }
+                cache.prewarmed = false
+                return
+            }
+            // A warm consumed by a sent message must not be released — only release on abandon.
+            cache.prewarmed = false
+            try {
+                await api.conversations.prewarmRelease(values.conversationId)
+            } catch (e) {
+                posthog.captureException(e)
+            }
+        },
         enqueueQueuedMessage: async ({ content, contextualTools, uiContext, billingContext, agentMode }) => {
             if (!values.queueingEnabled || !values.conversation?.id) {
                 actions.setQueuedMessages([])
@@ -1097,6 +1180,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (values.conversationId !== values.activeThreadKey) {
                 return
             }
+            // A sent message consumes any sandbox pre-warm: the warm Run is the in-progress run the
+            // sandbox routing follows up on, so cancel pending timers and clear the flag WITHOUT
+            // issuing a release/DELETE.
+            cache.disposables.dispose('prewarm-debounce')
+            cache.disposables.dispose('prewarm-release')
+            cache.prewarmed = false
+            // A sent message consumes the warm — drop any in-flight release intent so the
+            // run the message follows up on isn't cancelled out from under it.
+            cache.pendingRelease = false
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
             // not just when active. Otherwise a typed turn following a spoken one inherits
@@ -1797,12 +1889,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext, s.conversation],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
-                billingContext: MaxBillingContext | null
+                billingContext: MaxBillingContext | null,
+                conversation: Conversation | null
             ): SlashCommand[] => {
                 const hasPaidPlan =
                     billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
@@ -1810,12 +1903,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     billingContext?.trial?.is_active ||
                     process.env.NODE_ENV === 'development'
 
+                // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
+                const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
+
                 return MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
                         (!command.flag || featureFlags[command.flag]) &&
                         (!command.requiresIdle || !threadLoading) &&
-                        (!command.requiresPaidPlan || hasPaidPlan)
+                        (!command.requiresPaidPlan || hasPaidPlan) &&
+                        (!command.hiddenInSandbox || !isSandboxRuntime)
                 )
             },
         ],
