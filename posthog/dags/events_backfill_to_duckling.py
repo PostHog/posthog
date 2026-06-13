@@ -1836,10 +1836,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 
             # Delete existing DuckLake data for this partition before re-processing
             if session is not None and config.cleanup_existing_partition_data:
-                session.run(
-                    f"delete events partition {date_str}",
-                    lambda c, d=partition_date: delete_events_partition_data(context, catalog, team_id, d, conn=c),
-                )
+
+                def delete_events_partition(conn: psycopg.Connection[Any], date: datetime = partition_date) -> None:
+                    delete_events_partition_data(context, catalog, team_id, date, conn=conn)
+
+                session.run(f"delete events partition {date_str}", delete_events_partition)
 
             def do_export(client: Client, date: datetime = partition_date) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
@@ -1864,10 +1865,15 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             if s3_path:
                 total_exported += 1
                 s3_paths.append(s3_path)
-                if session is not None and session.run(
-                    f"register events file {date_str}",
-                    lambda c, p=s3_path: register_file_with_duckling(context, catalog, p, config, c),
-                ):
+                if session is not None:
+
+                    def register_events_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                        return register_file_with_duckling(context, catalog, path, config, conn)
+
+                    registered_events_file = session.run(f"register events file {date_str}", register_events_file)
+                else:
+                    registered_events_file = False
+                if registered_events_file:
                     total_registered += 1
                 if iceberg_enabled and session is not None:
                     if write_partition_to_iceberg(
@@ -2053,10 +2059,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             files_registered = 0
             files_iceberg_written = 0
             if s3_path and session is not None:
-                if session.run(
-                    "register persons file (full)",
-                    lambda c, p=s3_path: register_persons_file_with_duckling(context, catalog, p, config, c),
-                ):
+
+                def register_full_persons_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                    return register_persons_file_with_duckling(context, catalog, path, config, conn)
+
+                if session.run("register persons file (full)", register_full_persons_file):
                     files_registered = 1
                 if iceberg_enabled and write_partition_to_iceberg(
                     context, session.conn, "persons", s3_path, team_id, "_timestamp", None
@@ -2098,10 +2105,13 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
                 # Delete existing DuckLake data for this partition before re-processing
                 if session is not None and config.cleanup_existing_partition_data:
-                    session.run(
-                        f"delete persons partition {date_str}",
-                        lambda c, d=partition_date: delete_persons_partition_data(context, catalog, team_id, d, conn=c),
-                    )
+
+                    def delete_persons_partition(
+                        conn: psycopg.Connection[Any], date: datetime = partition_date
+                    ) -> None:
+                        delete_persons_partition_data(context, catalog, team_id, date, conn=conn)
+
+                    session.run(f"delete persons partition {date_str}", delete_persons_partition)
 
                 def do_export(client: Client, date: datetime = partition_date) -> str | None:
                     with tags_context(kind="dagster", dagster=tags):
@@ -2124,10 +2134,17 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
                 if s3_path:
                     total_exported += 1
-                    if session is not None and session.run(
-                        f"register persons file {date_str}",
-                        lambda c, p=s3_path: register_persons_file_with_duckling(context, catalog, p, config, c),
-                    ):
+                    if session is not None:
+
+                        def register_persons_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                            return register_persons_file_with_duckling(context, catalog, path, config, conn)
+
+                        registered_persons_file = session.run(
+                            f"register persons file {date_str}", register_persons_file
+                        )
+                    else:
+                        registered_persons_file = False
+                    if registered_persons_file:
                         total_registered += 1
                     if iceberg_enabled and session is not None:
                         if write_partition_to_iceberg(
