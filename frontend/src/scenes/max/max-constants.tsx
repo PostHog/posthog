@@ -45,6 +45,13 @@ export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
 }
 
+/**
+ * Shared class fragment for the centered chat column. Keeps the thread body and composer in lockstep
+ * so they read as a single chat surface. `max-w-180` is a max, not a fixed width, so the column
+ * collapses to the full available width on narrow viewports.
+ */
+export const MAX_CHAT_COLUMN = 'w-full max-w-180 self-center mx-auto'
+
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
     /** A user-friendly display name for the tool. Must be a verb phrase, like "Create surveys" or "Search docs" */

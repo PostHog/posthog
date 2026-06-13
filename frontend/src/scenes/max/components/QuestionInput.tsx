@@ -19,6 +19,7 @@ import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
+import { MAX_CHAT_COLUMN } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -229,7 +230,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         <div
             className={cn(
                 'w-full px-3',
-                (isSticky || isThreadVisible) && 'sticky bottom-0 z-10 max-w-180 self-center',
+                (isSticky || isThreadVisible) && cn('sticky bottom-0 z-10', MAX_CHAT_COLUMN),
                 // containerClassName last so callers can override (e.g. sidePanel's px-0).
                 containerClassName
             )}

@@ -10,6 +10,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { cn } from 'lib/utils/css-classes'
 
+import { MAX_CHAT_COLUMN } from '../max-constants'
 import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { InputFormArea, SandboxModeBadge } from './InputFormArea'
@@ -67,7 +68,7 @@ export function SidebarQuestionInput({
     // Show form area directly when there's a pending form/approval (even if showInput is false)
     if (activeMultiQuestionForm || hasApprovalToShow || hasSandboxPermissionToShow) {
         return (
-            <div className="w-full max-w-180 self-center px-3 mx-auto bg-[var(--scene-layout-background)]/50 backdrop-blur-sm">
+            <div className={cn(MAX_CHAT_COLUMN, 'px-3 bg-[var(--scene-layout-background)]/50 backdrop-blur-sm')}>
                 <div className="border border-primary rounded-lg bg-surface-primary">
                     <InputFormArea />
                 </div>

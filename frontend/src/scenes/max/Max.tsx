@@ -52,7 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
-            <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
+            <SceneContent className="px-2 md:px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
@@ -119,7 +119,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div
                         className={cn(
-                            '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
+                            '@container/max-welcome relative flex flex-col gap-4 px-2 md:px-4 pb-7 grow',
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]',
                             sidePanel && 'px-0'
                         )}
@@ -226,7 +226,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             </SidePanelContentContainer>
         </>
     ) : (
-        <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
+        <SceneContent className="pt-4 px-2 md:px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
             <SceneTitleSection
                 name={null}
                 resourceType={{ type: 'chat' }}

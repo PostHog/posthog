@@ -133,12 +133,19 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel])
 
-    const { windowSize } = useWindowSize()
+    const { windowSize, isWindowLessThan } = useWindowSize()
+
+    // On small screens the panel becomes a full-width overlay instead of a column squeezing the app.
+    // `lg` (992) matches the existing `lg:hidden` click-outside overlay below and agrees across the CSS
+    // and JS breakpoint systems.
+    const isMobile = isWindowLessThan('lg')
 
     const rawSidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
-          ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
+          ? isMobile
+              ? (windowSize.width ?? DEFAULT_WIDTH)
+              : Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
 
     const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
@@ -175,13 +182,16 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         >
             {sidePanelOpenAndAvailable && (
                 <>
-                    <Resizer
-                        {...resizerLogicProps}
-                        className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
-                            'left-0': sidePanelOpenAndAvailable,
-                            'top-0 h-full': sidePanelOpenAndAvailable,
-                        })}
-                    />
+                    {/* A full-screen overlay has nothing to resize against, so hide the resizer on mobile */}
+                    {!isMobile && (
+                        <Resizer
+                            {...resizerLogicProps}
+                            className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
+                                'left-0': sidePanelOpenAndAvailable,
+                                'top-0 h-full': sidePanelOpenAndAvailable,
+                            })}
+                        />
+                    )}
                     {/* Overlay for mobile to click outside to close the side panel */}
                     <div onClick={() => closeSidePanel()} className="lg:hidden fixed inset-0 -z-1" />
                 </>

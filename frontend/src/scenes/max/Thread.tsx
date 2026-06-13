@@ -76,7 +76,7 @@ import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { MarkdownMessage } from './MarkdownMessage'
-import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
+import { EnhancedToolCall, MAX_CHAT_COLUMN, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -254,10 +254,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         }
         return (
             <div
-                className={cn(
-                    '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-                    className
-                )}
+                className={cn('@container/thread flex flex-col items-stretch gap-1.5 grow', MAX_CHAT_COLUMN, className)}
             >
                 {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
                 <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
@@ -268,12 +265,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     }
 
     return (
-        <div
-            className={cn(
-                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-                className
-            )}
-        >
+        <div className={cn('@container/thread flex flex-col items-stretch gap-1.5 grow', MAX_CHAT_COLUMN, className)}>
             {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />

@@ -45,7 +45,7 @@ export function ChatHeader({
             <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
                 {children}
                 {chatTitle === null ? null : isTitleLoading ? (
-                    <div className="w-100">
+                    <div className="w-full max-w-100">
                         <SceneName name="New chat" isLoading />
                     </div>
                 ) : (
@@ -168,7 +168,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
 
             {/* Input - always in flow, mt-auto pushes to bottom when messages exist */}
             <div
-                className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out z-50 ${
+                className={`w-full max-w-3xl mx-auto px-2 md:px-4 transition-all duration-300 ease-out z-50 ${
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >

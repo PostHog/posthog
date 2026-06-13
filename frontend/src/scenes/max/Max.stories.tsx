@@ -3573,3 +3573,38 @@ export const ThreadWithSliderForm: Story = {
         },
     },
 }
+
+export const ThreadNarrowViewport: Story = {
+    render: () => {
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const { askMax } = useActions(
+            maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, panelId: 'storybook' })
+        )
+        const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+        useEffect(() => {
+            if (dataProcessingAccepted) {
+                setTimeout(() => {
+                    setConversationId(CONVERSATION_ID)
+                    askMax(humanMessage.content)
+                }, 0)
+            }
+        }, [dataProcessingAccepted, setConversationId, askMax])
+
+        if (!dataProcessingAccepted) {
+            return <></>
+        }
+
+        // Constrain the rendered width to phone size so the responsive chat column and composer
+        // are snapshotted at a narrow viewport.
+        return <Template className="max-w-[375px]" />
+    },
+    parameters: {
+        viewport: {
+            defaultViewport: 'mobile2',
+        },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
+}
