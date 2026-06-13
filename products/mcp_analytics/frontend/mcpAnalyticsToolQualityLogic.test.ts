@@ -37,6 +37,23 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         it('returns empty series for no rows', () => {
             expect(buildDailyChartData([]).labels).toEqual([])
         })
+
+        it('spans the full range when given one, zero-filling days outside the data', () => {
+            const data = buildDailyChartData(
+                [dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 })],
+                { start: '2026-06-05', end: '2026-06-08' }
+            )
+            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07', '2026-06-08'])
+            expect(data.calls).toEqual([0, 0, 50, 0])
+            expect(data.successRate[0]).toBeNaN()
+            expect(data.successRate[2]).toBeCloseTo(100)
+        })
+
+        it('zero-fills the whole range when there is no data at all', () => {
+            const data = buildDailyChartData([], { start: '2026-06-05', end: '2026-06-07' })
+            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07'])
+            expect(data.calls).toEqual([0, 0, 0])
+        })
     })
 
     describe('formatMsAsSeconds', () => {

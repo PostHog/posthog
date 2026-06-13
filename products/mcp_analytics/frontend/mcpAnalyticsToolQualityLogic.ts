@@ -4,6 +4,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
@@ -115,14 +117,27 @@ const EMPTY_CHART_DATA: DailyChartData = {
 // returns days that had events, so missing days are filled in to keep the x-axis
 // linear. Counts fill with 0 (genuinely no activity); rate and latency fill with
 // NaN so the chart skips the point instead of drawing a misleading dip to zero.
-export function buildDailyChartData(dailyStats: DailyToolStat[]): DailyChartData {
-    if (dailyStats.length === 0) {
+// `range` spans the axis over the full selected window (so empty leading/trailing
+// days still show); without it, the axis spans only the days that have data.
+export function buildDailyChartData(
+    dailyStats: DailyToolStat[],
+    range?: { start: string; end: string }
+): DailyChartData {
+    let startDay: string
+    let endDay: string
+    if (range) {
+        startDay = range.start
+        endDay = range.end
+    } else if (dailyStats.length > 0) {
+        startDay = dailyStats[0].day
+        endDay = dailyStats[dailyStats.length - 1].day
+    } else {
         return EMPTY_CHART_DATA
     }
     const byDay = new Map(dailyStats.map((r) => [r.day, r]))
-    const end = dayjs(dailyStats[dailyStats.length - 1].day)
+    const end = dayjs(endDay)
     const labels: string[] = []
-    for (let day = dayjs(dailyStats[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
+    for (let day = dayjs(startDay); !day.isAfter(end); day = day.add(1, 'day')) {
         labels.push(day.format('YYYY-MM-DD'))
     }
     const rows = labels.map((day) => byDay.get(day))
@@ -348,8 +363,16 @@ ORDER BY day
             },
         ],
         dailyChartData: [
-            (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
+            (s) => [s.dailyStats, s.dateFilter],
+            (dailyStats: DailyToolStat[], dateFilter: DateFilter): DailyChartData => {
+                const timezone = teamLogic.findMounted()?.values.timezone ?? 'UTC'
+                const start = dateStringToDayJs(dateFilter.dateFrom, timezone)
+                const end =
+                    (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : dayjs().tz(timezone)) ??
+                    dayjs()
+                const range = start ? { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } : undefined
+                return buildDailyChartData(dailyStats, range)
+            },
         ],
     }),
 
