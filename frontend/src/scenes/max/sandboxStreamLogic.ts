@@ -41,6 +41,17 @@ export interface SandboxStreamLogicProps {
 export const MAX_SSE_RECONNECT_ATTEMPTS = 5
 export const SSE_RECONNECT_BASE_DELAY_MS = 2_000
 export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
+/**
+ * Cumulative cap across all drops in a run — bounds runaway clean-EOF loops that keep dodging the
+ * per-drop counter (a connection that opens, immediately drops, and reopens resets `reconnectAttempt`
+ * to 0 every cycle, so only this counter catches the loop).
+ */
+export const MAX_CUMULATIVE_RECONNECT_ATTEMPTS = 30
+/** A connection open at least this long before dropping is healthy — its drop is forgiven. */
+export const SSE_HEALTHY_CONNECTION_MS = 60_000
+
+/** The crash-error string the in-sandbox agent server writes on a fatal exception. */
+const AGENT_CRASH_PREFIX = 'Agent server crashed'
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
@@ -464,11 +475,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         updateToolInvocation: (toolCallId: string, patch: Partial<ToolInvocation>) => ({ toolCallId, patch }),
         setCurrentMode: (mode: string) => ({ mode }),
         setCurrentProgress: (progress: string) => ({ progress }),
+        /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
+        setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
         markTurnComplete: true,
         /** Echoes the user's own message into the thread — the sandbox wire never replays it. */
         pushHumanMessage: (content: string) => ({ content }),
-        pushErrorItem: (errorMessage: string) => ({ errorMessage }),
+        pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         reset: true,
     }),
     reducers({
@@ -489,6 +502,17 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 sseReconnecting: (_, { attempt }) => attempt,
                 // A successful (re)connection clears the counter; bootstrapping a run starts fresh.
                 sseOpened: () => 0,
+                bootstrapRun: () => 0,
+                reset: () => 0,
+            },
+        ],
+        // Counts every drop in the run regardless of the per-drop counter (healthy-connection drops
+        // don't bump `reconnectAttempt`, and a clean-EOF reopen loop keeps resetting it). Bounds
+        // runaway loops via MAX_CUMULATIVE_RECONNECT_ATTEMPTS. Cleared only on a fresh bootstrap.
+        cumulativeReconnectAttempt: [
+            0,
+            {
+                sseReconnecting: (state) => state + 1,
                 bootstrapRun: () => 0,
                 reset: () => 0,
             },
@@ -604,9 +628,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     { id: `human-${state.length}`, type: 'human_message', text: content, complete: true },
                 ],
                 markTurnComplete: (state) => [...state, { id: `turn-${state.length}`, type: 'turn_separator' }],
-                pushErrorItem: (state, { errorMessage }) => [
+                pushErrorItem: (state, { errorMessage, variant }) => [
                     ...state,
-                    { id: `error-${state.length}`, type: 'error', errorMessage },
+                    { id: `error-${state.length}`, type: 'error', errorMessage, variant },
                 ],
                 reset: () => [],
             },
@@ -684,6 +708,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => null,
             },
         ],
+        // Optional `task_run_state.stage` — generally unset for PHAI runs, but cheap to track so a
+        // future richer status surface (G6) can render "research / plan / build" without re-touching
+        // this logic. No render consumes it yet.
+        currentStage: [
+            null as string | null,
+            {
+                setCurrentStage: (_, { stage }) => stage,
+                reset: () => null,
+            },
+        ],
         runStarted: [
             false,
             {
@@ -724,6 +758,26 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return runInFlight && !turnComplete
             },
         ],
+        /**
+         * Stream lifecycle phase for the pre-first-message status line. `provisioning` = the stream
+         * is opening or open but the agent hasn't started yet (the workflow is still setting up the
+         * sandbox and emitting `_posthog/progress`), so the thinking indicator's `run_started` gate
+         * would otherwise hide that progress; `thinking` = the agent is working a turn (mirrors
+         * `isThinking`); `idle` otherwise (terminal, errored, or not yet connecting).
+         */
+        streamPhase: [
+            (s) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus],
+            (runStarted, isThinking, currentRunStatus, sseStatus): 'provisioning' | 'thinking' | 'idle' => {
+                if (isThinking) {
+                    return 'thinking'
+                }
+                const connecting = sseStatus === 'connecting' || sseStatus === 'open' || sseStatus === 'reconnecting'
+                if (connecting && !runStarted && !isTerminalRunStatus(currentRunStatus)) {
+                    return 'provisioning'
+                }
+                return 'idle'
+            },
+        ],
     }),
     listeners(({ values, actions, cache, props }) => ({
         bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
@@ -732,6 +786,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
                 return
             }
+
+            // Persistent provisioning flag for disconnect telemetry: stays true across the async
+            // gap between bootstrap and the first connection/run_started, unlike `cache.bootstrapReplay`
+            // (which is only true inside the synchronous history-replay forEach). Cleared on the first
+            // `sseOpened`/`_posthog/run_started`.
+            cache.isBootstrapping = true
 
             // Fresh-run fast path: nothing historical to assemble — go straight to SSE.
             if (justCreatedRun) {
@@ -818,6 +878,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                                 actions.routePermissionRequest(record)
                             }
                         } else if (isTaskRunStateFrame(data)) {
+                            // `stage` is dropped by handleTerminalStatus's status-only path; track it
+                            // separately for a future richer status surface. Generally unset for PHAI.
+                            if (data.stage !== undefined) {
+                                actions.setCurrentStage(data.stage ?? null)
+                            }
                             actions.handleTerminalStatus({
                                 status: data.status as SandboxRunStatus,
                                 errorMessage: data.error_message ?? null,
@@ -853,6 +918,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
+        sseOpened: () => {
+            // Provisioning ends at the first successful connection; clear the flag the disconnect
+            // telemetry reads. Stamp the connection time for the healthy-connection rule in sseDropped.
+            cache.isBootstrapping = false
+            cache.sseConnectedAtMs = Date.now()
+        },
         sseDropped: async (_, breakpoint) => {
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             if (!activeRun) {
@@ -879,12 +950,28 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
+            // Cumulative cap — bounds runaway clean-EOF reopen loops that keep resetting the per-drop
+            // counter. The about-to-be-scheduled reconnect is the (cumulative + 1)th.
+            if (values.cumulativeReconnectAttempt + 1 > MAX_CUMULATIVE_RECONNECT_ATTEMPTS) {
+                actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                return
+            }
+
+            // Healthy-connection rule — a connection that stayed open ≥60s before dropping is not a
+            // flaky transport, so its drop is forgiven: schedule a reconnect but don't grow the
+            // per-drop budget. The cumulative counter still increments (via sseReconnecting) to
+            // bound pathological reopen loops.
+            const connectedAtMs = cache.sseConnectedAtMs as number | undefined
+            const wasHealthy = connectedAtMs !== undefined && Date.now() - connectedAtMs >= SSE_HEALTHY_CONNECTION_MS
+
             // Non-terminal → capped exponential backoff; attempts exhausted surface a retryable error.
-            const attempt = values.reconnectAttempt + 1
+            const attempt = wasHealthy ? values.reconnectAttempt : values.reconnectAttempt + 1
             if (attempt > MAX_SSE_RECONNECT_ATTEMPTS) {
                 actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
                 return
             }
+            // Backoff off the per-drop budget; a forgiven healthy drop (attempt 0) reconnects fast.
+            const delayMs = reconnectDelayMs(Math.max(attempt, 1))
             actions.sseReconnecting(attempt)
             // pauseOnPageHidden: false — the SSE connection survives tab hides, so a drop in a
             // hidden tab must also reconnect there; a paused timer would stall until refocus.
@@ -895,7 +982,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         // disconnected are re-delivered and the content-dedup drops the
                         // already-ingested ones, so the gap is filled losslessly.
                         actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: false })
-                    }, reconnectDelayMs(attempt))
+                    }, delayMs)
                     return () => clearTimeout(timer)
                 },
                 'reconnect-backoff',
@@ -999,6 +1086,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
+            // Crash/failure affordance: a failed run carrying an error_message otherwise just blanks
+            // the thinking indicator. Push a visible error item so the user sees why it stopped. The
+            // in-sandbox agent server writes "Agent server crashed: …" on a fatal exception — render
+            // that as a friendlier, retry-oriented `crash` variant; other failures show the raw line.
+            if (status === 'failed' && errorMessage) {
+                actions.pushErrorItem(errorMessage, errorMessage.startsWith(AGENT_CRASH_PREFIX) ? 'crash' : 'error')
+            }
+
             // TASK_RUN_TERMINATED telemetry. `duration_ms` is measured from the current turn's start
             // (run start for the first turn, the latest human message for a follow-up); absent if the
             // run terminated before either was seen.
@@ -1015,6 +1110,27 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
             })
         },
+        handleStreamError: ({ errorTitle, errorMessage, retryable }) => {
+            // The composer-unlock is already wired off this action in maxThreadLogic; today it
+            // unlocks silently. Push a visible, retryable error line so the user knows the stream
+            // dropped — and capture the disconnect telemetry that mirrors the cloud client's
+            // CLOUD_STREAM_DISCONNECTED (the relay can't see a client-side reconnect-budget exhaustion).
+            actions.pushErrorItem(errorMessage ? `${errorTitle}: ${errorMessage}` : errorTitle)
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            posthog.capture('sandbox_stream_disconnected', {
+                conversation_id: props.conversationId,
+                trace_id: values.traceId,
+                run_id: activeRun?.runId,
+                task_id: activeRun?.taskId,
+                error_title: errorTitle,
+                retryable,
+                reconnect_attempts: values.reconnectAttempt,
+                stream_error_attempts: 0,
+                cumulative_reconnect_attempts: values.cumulativeReconnectAttempt,
+                was_bootstrapping: cache.isBootstrapping === true,
+                execution_type: 'sandbox',
+            })
+        },
         closeSse: () => {
             cache.activeRun = undefined
             cache.disposables.dispose('reconnect-backoff')
@@ -1024,6 +1140,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.ingestedEntryHashes = new Set<string>()
+            cache.isBootstrapping = false
+            cache.sseConnectedAtMs = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
         },
@@ -1076,6 +1194,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         cold_start: true,
                     })
                 }
+                // Provisioning is over once the agent has started — clear the disconnect-telemetry flag.
+                cache.isBootstrapping = false
                 actions.markRunStarted()
                 return
             }

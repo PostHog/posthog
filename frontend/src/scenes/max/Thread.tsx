@@ -154,7 +154,7 @@ function toolInvocationToMessage(
 function SandboxThread(): JSX.Element {
     // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
     // message while the run is active, falling back to the canned rotation.
-    const { threadItems, toolInvocations, currentProgress, isThinking } = useValues(sandboxStreamLogic)
+    const { threadItems, toolInvocations, currentProgress, isThinking, streamPhase } = useValues(sandboxStreamLogic)
 
     return (
         <>
@@ -209,6 +209,21 @@ function SandboxThread(): JSX.Element {
                     )
                 }
                 if (item.type === 'error') {
+                    if (item.variant === 'crash') {
+                        return (
+                            <MessageTemplate key={item.id} type="ai" boxClassName="border-danger">
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-danger">
+                                        The agent encountered a fatal error and stopped. You can send a new message to
+                                        try again.
+                                    </span>
+                                    {item.errorMessage && (
+                                        <span className="text-xs text-muted">{item.errorMessage}</span>
+                                    )}
+                                </div>
+                            </MessageTemplate>
+                        )
+                    }
                     return (
                         <MessageTemplate key={item.id} type="ai" boxClassName="text-danger">
                             {item.errorMessage}
@@ -217,8 +232,26 @@ function SandboxThread(): JSX.Element {
                 }
                 return null
             })}
+            {streamPhase === 'provisioning' && <SandboxProvisioningIndicator progress={currentProgress} />}
             {isThinking && <SandboxThinkingIndicator progress={currentProgress} />}
         </>
+    )
+}
+
+/**
+ * Pre-first-message status line for sandbox conversations. While the workflow provisions the sandbox
+ * and starts the agent (before `_posthog/run_started`), the thinking indicator is gated off — so this
+ * surfaces the already-ingested `_posthog/progress` label with a setup-oriented fallback.
+ */
+function SandboxProvisioningIndicator({ progress }: { progress: string | null }): JSX.Element {
+    const message = progress?.trim() ? progress : 'Setting up your workspace…'
+    return (
+        <MessageTemplate type="ai">
+            <div className="flex items-center gap-2 text-muted">
+                <Spinner className="size-4" />
+                <span>{message}</span>
+            </div>
+        </MessageTemplate>
     )
 }
 

@@ -9,11 +9,14 @@ import { initKeaTests } from '~/test/init'
 
 import {
     mapHttpStatusToStreamError,
+    MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
     parsePermissionRequestFrame,
     reconnectDelayMs,
     resolveToolKey,
     sandboxStreamLogic,
+    SSE_HEALTHY_CONNECTION_MS,
+    SSE_RECONNECT_BASE_DELAY_MS,
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './sandboxStreamLogic'
 import type { PermissionRequestFrame, StoredLogEntry } from './types/sandboxWireTypes'
@@ -1252,6 +1255,192 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.currentRunStatus).toEqual('completed')
             const lifecycleEvents = ['task_run_started', 'task_run_terminated', 'tool_call_completed']
             expect(captureSpy.mock.calls.filter((c) => lifecycleEvents.includes(c[0] as string))).toEqual([])
+        })
+    })
+
+    describe('crash affordance', () => {
+        it('pushes a crash-variant error item and still captures task_run_terminated', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', traceId: 'trace-1' })
+
+            await expectLogic(logic, () => {
+                logic.actions.handleTerminalStatus({
+                    status: 'failed',
+                    errorMessage: 'Agent server crashed: boom',
+                })
+            }).toFinishAllListeners()
+
+            const errorItem = logic.values.threadItems.find((item) => item.type === 'error')
+            expect(errorItem?.variant).toEqual('crash')
+            expect(errorItem?.errorMessage).toEqual('Agent server crashed: boom')
+            // The existing termination telemetry is unchanged.
+            const terminated = captureSpy.mock.calls.find((c) => c[0] === 'task_run_terminated')
+            expect(terminated?.[1]).toEqual(
+                expect.objectContaining({ status: 'failed', error_message: 'Agent server crashed: boom' })
+            )
+        })
+
+        it('renders a plain failed run without the crash prefix as a raw error item', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+
+            await expectLogic(logic, () => {
+                logic.actions.handleTerminalStatus({ status: 'failed', errorMessage: 'usage limit reached' })
+            }).toFinishAllListeners()
+
+            const errorItem = logic.values.threadItems.find((item) => item.type === 'error')
+            expect(errorItem?.variant).toEqual('error')
+            expect(errorItem?.errorMessage).toEqual('usage limit reached')
+        })
+
+        it('does not push an error item for a failed run carrying no error message', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+
+            await expectLogic(logic, () => {
+                logic.actions.handleTerminalStatus({ status: 'failed' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(false)
+        })
+
+        it('does not push an error item for a failed run replayed from history', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.handleTerminalStatus({
+                    status: 'failed',
+                    errorMessage: 'Agent server crashed: old',
+                    replayedFromHistory: true,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(false)
+        })
+    })
+
+    describe('stream-disconnect telemetry', () => {
+        it('captures sandbox_stream_disconnected with attempt counters and pushes a visible error item', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', traceId: 'trace-1' })
+            // Drive the per-drop counter to the cap so the next drop exhausts the budget.
+            logic.actions.sseReconnecting(MAX_SSE_RECONNECT_ATTEMPTS)
+
+            logic.actions.sseDropped()
+            await flushPromises()
+
+            expect(logic.values.sseStatus).toEqual('error')
+            const disconnect = captureSpy.mock.calls.find((c) => c[0] === 'sandbox_stream_disconnected')
+            expect(disconnect?.[1]).toEqual(
+                expect.objectContaining({
+                    conversation_id: 'test-conversation',
+                    trace_id: 'trace-1',
+                    run_id: 'run-1',
+                    task_id: 'task-1',
+                    error_title: 'Cloud stream failed',
+                    retryable: true,
+                    reconnect_attempts: MAX_SSE_RECONNECT_ATTEMPTS,
+                    cumulative_reconnect_attempts: 1,
+                    was_bootstrapping: false,
+                    execution_type: 'sandbox',
+                })
+            )
+            expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(true)
+        })
+
+        it('reports was_bootstrapping=true when the run never connected before erroring', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            const disconnect = captureSpy.mock.calls.find((c) => c[0] === 'sandbox_stream_disconnected')
+            expect(disconnect?.[1]).toEqual(expect.objectContaining({ was_bootstrapping: true }))
+        })
+    })
+
+    describe('stream phase', () => {
+        it('is provisioning while the stream is open before run_started, then flips to thinking', async () => {
+            expect(logic.values.streamPhase).toEqual('idle')
+
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            MockEventSource.latest().emitOpen()
+
+            // SSE open, agent not started yet — provisioning, surfacing _posthog/progress.
+            logic.actions.ingestAcpFrame(notification('_posthog/progress', { label: 'Setting up sandbox' }))
+            expect(logic.values.streamPhase).toEqual('provisioning')
+            expect(logic.values.currentProgress).toEqual('Setting up sandbox')
+
+            // run_started arrives — phase flips to thinking.
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            expect(logic.values.streamPhase).toEqual('thinking')
+
+            // turn_complete ends the turn — back to idle.
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.streamPhase).toEqual('idle')
+        })
+
+        it('tracks the optional task_run_state stage off the wire', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            const source = MockEventSource.latest()
+            source.emitOpen()
+
+            await expectLogic(logic, () => {
+                source.onmessage?.({
+                    data: JSON.stringify({ type: 'task_run_state', status: 'in_progress', stage: 'build' }),
+                } as MessageEvent<string>)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentStage).toEqual('build')
+        })
+    })
+
+    describe('reconnect refinements', () => {
+        it('forgives a healthy connection drop — no reconnectAttempt increment but still schedules a reopen', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+
+            jest.useFakeTimers()
+            // sseOpened stamps cache.sseConnectedAtMs; advance past the healthy threshold before dropping.
+            source.emitOpen()
+            const beforeDrop = MockEventSource.instances.length
+            jest.advanceTimersByTime(SSE_HEALTHY_CONNECTION_MS + 1_000)
+
+            logic.actions.sseDropped()
+            await flushPromises()
+
+            // Healthy drop: per-drop budget untouched, but cumulative still grows and a reopen is scheduled.
+            expect(logic.values.reconnectAttempt).toEqual(0)
+            expect(logic.values.cumulativeReconnectAttempt).toEqual(1)
+            expect(logic.values.sseStatus).toEqual('reconnecting')
+
+            jest.advanceTimersByTime(SSE_RECONNECT_BASE_DELAY_MS)
+            expect(MockEventSource.instances.length).toEqual(beforeDrop + 1)
+            jest.useRealTimers()
+        })
+
+        it('fails on the cumulative cap even when the per-drop counter keeps resetting', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            MockEventSource.latest().emitOpen()
+            // Drive the cumulative counter to the cap without growing the per-drop counter, as a
+            // clean-EOF reopen loop would (every reopen resets reconnectAttempt to 0).
+            for (let i = 0; i < MAX_CUMULATIVE_RECONNECT_ATTEMPTS; i++) {
+                logic.actions.sseReconnecting(0)
+            }
+            expect(logic.values.cumulativeReconnectAttempt).toEqual(MAX_CUMULATIVE_RECONNECT_ATTEMPTS)
+
+            logic.actions.sseDropped()
+            await flushPromises()
+
+            // The (cumulative + 1)th reconnect crosses the bound → terminal error.
+            expect(logic.values.sseStatus).toEqual('error')
         })
     })
 
