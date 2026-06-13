@@ -38,6 +38,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
+    OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -141,15 +142,6 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
 
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
-
-/** Selection types that reopen on their own tab rather than the default "All" surface,
- *  because they're config/edit flows (an expression editor, a data-warehouse table/column
- *  picker) with no simple category value to verify at a glance. */
-const OPEN_AS_SELF_ON_REOPEN: ReadonlySet<TaxonomicFilterGroupType> = new Set([
-    TaxonomicFilterGroupType.HogQLExpression,
-    TaxonomicFilterGroupType.DataWarehouse,
-    TaxonomicFilterGroupType.DataWarehouseProperties,
-])
 
 const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
     '$virt_is_bot',

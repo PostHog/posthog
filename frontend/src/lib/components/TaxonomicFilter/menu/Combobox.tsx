@@ -42,7 +42,12 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import {
+    OPEN_AS_SELF_ON_REOPEN,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from '../types'
 import {
     COLLAPSED_TO_CONTAINS_ROW,
     partitionContainsShortcuts,
@@ -166,11 +171,17 @@ export function MenuFilterCombobox({
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
-    // Always open on the drill scope ("All" for the default surface). Reopening with a
-    // committed selection used to jump to that item's category; we now lead with "All" so
-    // the user lands on recents/pinned + a cross-category search every time (the selection
-    // still surfaces via the selected-entry prepend).
-    const [activeChip, setActiveChip] = useState<DrillCategory>(drillTo)
+    // Open on the drill scope ("All" for the default surface). Reopening with a committed
+    // selection used to jump to that item's category; we now lead with "All" so the user
+    // lands on recents/pinned + a cross-category search (the selection still surfaces via
+    // the selected-entry prepend). The exception is config/edit flows (data-warehouse
+    // columns reach the combobox as DataWarehouseProperties) — they reopen on their own
+    // chip so the user can reconfigure, mirroring the legacy `activeTab`.
+    const [activeChip, setActiveChip] = useState<DrillCategory>(() =>
+        drillTo === 'all' && selectedEntry && OPEN_AS_SELF_ON_REOPEN.has(selectedEntry.group.type)
+            ? selectedEntry.group.type
+            : drillTo
+    )
     // The scope the user is actually looking at: the active chip when chips show
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
