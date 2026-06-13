@@ -27751,6 +27751,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       form_content?: unknown;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedSurveyList {
