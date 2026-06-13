@@ -752,6 +752,25 @@ describe('CDP API', () => {
             expect(invocation.filterGlobals.$group_0).toEqual('org-1')
         })
 
+        it('does not 500 when the event has no properties', async () => {
+            // Regression: a test-run payload whose event omits `properties` must not crash the
+            // group resolution path. getGroupsForEvent runs for real here (no spy) and should
+            // return empty groups rather than dereferencing undefined properties.
+            getGroupsSpy.mockRestore()
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...groupGlobals, event: { ...groupGlobals.event!, properties: undefined } },
+                    mock_async_functions: true,
+                    configuration: {},
+                })
+
+            expect(res.status).toEqual(200)
+            // No $groups to resolve, so no group ends up on the filter globals
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.$group_0).toBeUndefined()
+        })
+
         it('does not override groups provided in the payload', async () => {
             const providedGroups = {
                 organization: { ...resolvedGroup, id: 'org-provided', properties: { plan: 'startup' } },

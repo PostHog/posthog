@@ -57,11 +57,11 @@ export class GroupsManagerService {
      */
     public async getGroupsForEvent(
         teamId: number,
-        eventProperties: Record<string, any>,
+        eventProperties: Record<string, any> | null | undefined,
         projectUrl: string
     ): Promise<Record<string, GroupType>> {
         // Early return - if there are no $groups on the event then we don't need to do anything
-        const groupsProperty = eventProperties['$groups']
+        const groupsProperty = eventProperties?.['$groups']
         if (typeof groupsProperty !== 'object' || groupsProperty === null || Object.keys(groupsProperty).length === 0) {
             return {}
         }

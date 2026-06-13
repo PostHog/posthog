@@ -254,6 +254,17 @@ describe('Groups Manager', () => {
         expect(mockFetchGroupsByKeys).not.toHaveBeenCalled()
     })
 
+    it.each([
+        { properties: undefined, desc: 'undefined' },
+        { properties: null, desc: 'null' },
+    ])('returns empty groups when event properties are $desc', async ({ properties }) => {
+        const groups = await groupsManager.getGroupsForEvent(1, properties as any, 'http://localhost:8000/project/1')
+
+        expect(groups).toEqual({})
+        expect(mockFetchGroupTypesByTeamIds).not.toHaveBeenCalled()
+        expect(mockFetchGroupsByKeys).not.toHaveBeenCalled()
+    })
+
     it('skips enrichment when groups already set', async () => {
         const existingGroups = { SomeGroup: { id: 'existing', index: 0, type: 'SomeGroup', url: '', properties: {} } }
         const globals = createHogExecutionGlobals({

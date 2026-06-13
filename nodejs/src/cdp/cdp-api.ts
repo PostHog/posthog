@@ -534,6 +534,10 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Missing event' })
             }
 
+            // Hand-edited test payloads may omit event properties entirely. Normalize to an empty
+            // object so downstream group resolution and filter conversion don't dereference undefined.
+            globals.event.properties = globals.event.properties ?? {}
+
             // We use the provided config if given, otherwise the flow's config
             const compoundConfiguration = {
                 ...hogFlow,
