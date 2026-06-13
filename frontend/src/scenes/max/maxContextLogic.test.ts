@@ -748,5 +748,28 @@ describe('maxContextLogic', () => {
                 expect.objectContaining({ feature: 'max_scene_context' })
             )
         })
+
+        it('does not report transient Kea unmount errors during scene transitions', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue({
+                selectors: {
+                    maxContext: () => {
+                        // Kea throws this when a keyed scene logic is unmounted mid-transition.
+                        throw new Error('[KEA] Can not find path "scenes.dashboard.dashboardLogic.445691" in the store.')
+                    },
+                },
+            } as any)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({}),
+                sceneParams: {},
+            } as any)
+
+            // Still returns empty context, but the transient race is not reported.
+            await expectLogic(logic).toMatchValues({ sceneContext: [] })
+
+            expect(captureException).not.toHaveBeenCalled()
+        })
     })
 })
