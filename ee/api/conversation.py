@@ -6,6 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models import OuterRef, Subquery
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -55,6 +56,7 @@ from posthog.temporal.ai.research_agent import (
 from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
 from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.agent_command import send_permission_response
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -324,6 +326,12 @@ class ConversationViewSet(
             queryset = queryset.order_by("-updated_at")
         if self.action == "list":
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
+            # Surface each sandbox conversation's latest-run id via one correlated subquery
+            # (constant, not per-row), so the list payload carries the bootstrap handle and
+            # the frontend doesn't have to retrieve each conversation. Yields None for
+            # LangGraph rows (null task FK → no matching runs).
+            latest_run = TaskRun.objects.filter(task=OuterRef("task_id")).order_by("-created_at")
+            queryset = queryset.annotate(current_run_id=Subquery(latest_run.values("id")[:1]))
         return queryset
 
     def get_throttles(self):

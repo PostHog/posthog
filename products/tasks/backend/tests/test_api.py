@@ -11,8 +11,10 @@ from urllib.parse import quote
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
 import jwt
@@ -780,6 +782,32 @@ class TestTaskAPI(BaseTaskAPITest):
         # task2 should have latest_run as None
         self.assertIn("latest_run", task2_data)
         self.assertIsNone(task2_data["latest_run"])
+
+    def test_list_tasks_latest_run_no_per_task_query(self):
+        # The list endpoint prefetches "runs"; latest_run must reuse that cache so the
+        # query count does not scale with the number of tasks (or runs per task).
+        url = "/api/projects/@current/tasks/"
+        task1 = self.create_task("Task 1")
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        # Warm the request first so one-time auth/access-control queries don't skew the count.
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        baseline = len(ctx.captured_queries)
+
+        # Add a second task with multiple runs; the query count must stay constant.
+        task2 = self.create_task("Task 2")
+        TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        with self.assertNumQueries(baseline):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
 
     def test_retrieve_task(self):
         task = self.create_task("Test Task")

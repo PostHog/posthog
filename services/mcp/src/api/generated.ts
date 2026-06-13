@@ -11800,6 +11800,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
+      readonly task: ConversationSandboxTask | null;
     }
 
     export interface ConversionGoalSummary {

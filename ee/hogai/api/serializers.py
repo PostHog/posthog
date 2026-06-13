@@ -61,10 +61,26 @@ class ConversationSandboxTaskSerializer(serializers.Serializer):
 class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = _conversation_fields
+        # `task` is exposed here (not in `_conversation_fields`) so it stays out of the full
+        # serializer's field list, which already appends `task` itself — listing it twice
+        # would raise a DRF duplicate-field error.
+        fields = [*_conversation_fields, "task"]
         read_only_fields = fields
 
     user = UserBasicSerializer(read_only=True)
+    task = serializers.SerializerMethodField()
+
+    @extend_schema_field(ConversationSandboxTaskSerializer(allow_null=True))
+    def get_task(self, conversation: Conversation) -> dict[str, Any] | None:
+        # Reads the row's `task_id` and the `current_run_id` subquery annotated by the list
+        # queryset — no extra query, never touches `current_run`/`latest_run`. Constant query
+        # count regardless of conversation count.
+        if conversation.task_id is None:
+            return None
+        return {
+            "id": str(conversation.task_id),
+            "current_run_id": (str(crid) if (crid := getattr(conversation, "current_run_id", None)) else None),
+        }
 
 
 class ConversationSerializer(ConversationMinimalSerializer):

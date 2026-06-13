@@ -115,6 +115,22 @@ export const ConversationTypeApi = {
     Slack: 'slack',
 } as const
 
+/**
+ * The products/tasks Task backing a sandbox conversation.
+ *
+ * Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
+ * the `logs/` history against. Null for LangGraph conversations.
+ */
+export interface ConversationSandboxTaskApi {
+    /** The backing products/tasks Task id. */
+    id: string
+    /**
+     * Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.
+     * @nullable
+     */
+    current_run_id: string | null
+}
+
 export interface ConversationMinimalApi {
     readonly id: string
     readonly status: ConversationStatusApi
@@ -156,6 +172,7 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
+    readonly task: ConversationSandboxTaskApi | null
 }
 
 export interface PaginatedConversationMinimalListApi {
@@ -236,22 +253,6 @@ export const AgentRuntimeEnumApi = {
     Langgraph: 'langgraph',
     Sandbox: 'sandbox',
 } as const
-
-/**
- * The products/tasks Task backing a sandbox conversation.
- *
- * Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
- * the `logs/` history against. Null for LangGraph conversations.
- */
-export interface ConversationSandboxTaskApi {
-    /** The backing products/tasks Task id. */
-    id: string
-    /**
-     * Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.
-     * @nullable
-     */
-    current_run_id: string | null
-}
 
 export interface ConversationApi {
     readonly id: string

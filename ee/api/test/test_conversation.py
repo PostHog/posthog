@@ -5,8 +5,10 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from rest_framework import status
@@ -35,6 +37,7 @@ from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAg
 
 from products.posthog_ai.backend.message_routing import SandboxCancelResult, SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.models import Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet
 
@@ -1489,3 +1492,76 @@ class TestConversationSandboxRoute(APIBaseTest):
             viewset.check_throttles(release)
         m_research.assert_not_called()
         m_super.assert_called_once()
+
+
+class TestConversationListTaskHandle(APIBaseTest):
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def _sandbox_conversation(self, title: str) -> TaskRun:
+        task = self._task()
+        latest = task.create_run(mode="interactive")
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title=title,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+        return latest
+
+    def test_list_surfaces_task_current_run_id(self):
+        latest = self._sandbox_conversation("Sandbox chat")
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["task"], {"id": str(latest.task_id), "current_run_id": str(latest.id)})
+
+    def test_list_reports_null_task_for_langgraph(self):
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="LangGraph chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["task"])
+
+    def test_list_query_count_does_not_scale_with_conversation_count(self):
+        url = f"/api/environments/{self.team.id}/conversations/"
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            # One sandbox conversation establishes the baseline query count. Warm the request
+            # first so one-time session/auth queries don't skew the comparison.
+            self._sandbox_conversation("Chat 1")
+            self.client.get(url)
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            baseline = len(ctx.captured_queries)
+
+            # More sandbox conversations (each with its own Task + runs) must not add per-row
+            # queries — the latest-run handle comes from one correlated subquery annotation.
+            self._sandbox_conversation("Chat 2")
+            self._sandbox_conversation("Chat 3")
+
+            with self.assertNumQueries(baseline):
+                response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 3)
