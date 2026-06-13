@@ -86,28 +86,26 @@ function ChartsScopeHeader(): JSX.Element {
     return (
         <div className="flex items-center gap-2">
             <span className="shrink-0 text-sm text-secondary">Trends for</span>
-            <span className="truncate font-mono text-sm font-semibold" title={selectedTool}>
+            <span className="max-w-[28rem] truncate font-mono text-sm font-semibold" title={selectedTool}>
                 {selectedTool}
             </span>
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    render={<LinkPrimitive to={urls.mcpAnalyticsTool(selectedTool)} />}
-                    data-attr="mcp-tool-quality-full-report"
-                >
-                    Full tool report
-                </Button>
-                <Button
-                    variant="link-muted"
-                    size="icon-sm"
-                    onClick={() => setSelectedTool(null)}
-                    title="Show all tools"
-                    data-attr="mcp-tool-quality-clear-tool"
-                >
-                    <IconX />
-                </Button>
-            </div>
+            <Button
+                variant="outline"
+                size="sm"
+                render={<LinkPrimitive to={urls.mcpAnalyticsTool(selectedTool)} />}
+                data-attr="mcp-tool-quality-full-report"
+            >
+                Full tool report
+            </Button>
+            <Button
+                variant="link-muted"
+                size="icon-sm"
+                onClick={() => setSelectedTool(null)}
+                title="Show all tools"
+                data-attr="mcp-tool-quality-clear-tool"
+            >
+                <IconX />
+            </Button>
         </div>
     )
 }
