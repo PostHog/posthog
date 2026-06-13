@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
+    Button,
     Card,
     CardFooter,
     CardHeader,
@@ -16,7 +17,7 @@ import {
 } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/lemon-ui/Link'
+import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -63,7 +64,8 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
 ]
 
 // Tool column + every sortable column, for the skeleton/empty-row colSpan
-const COLUMN_COUNT = SORTABLE_COLUMNS.length + 1
+// Tool column + every sortable column + the trailing "Full report" action
+const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
@@ -141,14 +143,7 @@ function ToolRows(): JSX.Element {
                     data-attr="mcp-tool-quality-row"
                 >
                     <TableCell expand>
-                        <Link
-                            to={urls.mcpAnalyticsTool(row.tool)}
-                            className="font-mono"
-                            onClick={(e) => e.stopPropagation()}
-                            data-attr="mcp-tool-quality-tool-link"
-                        >
-                            {row.tool}
-                        </Link>
+                        <span className="font-mono">{row.tool}</span>
                     </TableCell>
                     <TableCell align="right">{formatNumber(row.total_calls)}</TableCell>
                     <TableCell align="right">
@@ -161,6 +156,17 @@ function ToolRows(): JSX.Element {
                     <TableCell align="right">{formatNumber(row.sessions)}</TableCell>
                     <TableCell className="whitespace-nowrap">
                         <TZLabel time={row.last_seen} />
+                    </TableCell>
+                    <TableCell align="right">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            render={<LinkPrimitive to={urls.mcpAnalyticsTool(row.tool)} />}
+                            onClick={(e) => e.stopPropagation()}
+                            data-attr="mcp-tool-quality-full-report"
+                        >
+                            Full report
+                        </Button>
                     </TableCell>
                 </TableRow>
             ))}
@@ -189,6 +195,7 @@ export function ToolQualityTable(): JSX.Element {
                                 onSort={setToolQualitySort}
                             />
                         ))}
+                        <TableHead />
                     </TableRow>
                 </TableHeader>
                 <TableBody>
