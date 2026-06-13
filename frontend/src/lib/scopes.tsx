@@ -125,7 +125,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read']
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string

@@ -114,6 +114,14 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400
         assert "can not be assigned" in response.json()["detail"]
 
+    def test_feature_flag_read_scope_is_allowed(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "feature-flag-key", "scopes": ["feature_flag:read"]},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["feature_flag:read"]
+
     def test_invalid_scope_format_rejected(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
