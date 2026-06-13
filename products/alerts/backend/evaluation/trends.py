@@ -182,12 +182,7 @@ class TrendsExtractor:
 
         series: list[ComparableSeries] = []
         for result in results:
-            if is_non_time_series:
-                points = [SeriesPoint(date=None, value=result["aggregated_value"])]
-            else:
-                data = result["data"]
-                dates = result.get("dates") or result.get("days") or [None] * len(data)
-                points = [SeriesPoint(date=date, value=value) for date, value in zip(dates, data)]
+            points = self._result_to_points(result, is_non_time_series)
 
             # Anchor on the current (ongoing) interval, or the last complete one. On a series
             # shorter than expected this can go negative and wrap, which the comparator then
@@ -202,3 +197,22 @@ class TrendsExtractor:
                 )
             )
         return series
+
+    @staticmethod
+    def _result_to_points(result: dict[str, Any], is_non_time_series: bool) -> list[SeriesPoint]:
+        """Normalize a single trend result into series points, trusting its actual shape.
+
+        ``is_non_time_series`` comes from the display-type heuristic (``_is_non_time_series_trend``),
+        which reflects how the insight is configured — not what the query actually returned. A result
+        can diverge from it: a query whose display type implies a time series can still come back with
+        only an ``aggregated_value`` and no ``data`` array. So detect the shape from the result's own
+        keys and fall back to the aggregated value when ``data`` is absent, rather than subscripting a
+        key the heuristic only assumed was there (which raised ``KeyError`` on divergent results).
+        """
+        if not is_non_time_series and "data" in result:
+            data = result["data"]
+            dates = result.get("dates") or result.get("days") or [None] * len(data)
+            return [SeriesPoint(date=date, value=value) for date, value in zip(dates, data)]
+        # Either a configured non-time-series result, or one that diverged from its display type and
+        # carries no "data" — both reduce to a single aggregated point (value None if even that is absent).
+        return [SeriesPoint(date=None, value=result.get("aggregated_value"))]
