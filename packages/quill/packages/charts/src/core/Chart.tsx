@@ -15,8 +15,8 @@ import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
-import { formatTooltipValue } from './tooltipFormat'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
+import { formatTooltipValue } from './tooltipFormat'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -158,7 +158,7 @@ export function Chart<Meta = unknown>({
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
-    // Tooltip values format like the y-axis by default (overridable), with non-finite guarded.
+    // Matches the primary y-axis formatter; multi-axis (yAxisId) series also use it (see types.ts).
     const formatTooltipValueFn = useMemo<(value: number) => string>(() => {
         const base = tooltipValueFormatter ?? resolvedYFormatter
         return (value: number): string => formatTooltipValue(value, base)

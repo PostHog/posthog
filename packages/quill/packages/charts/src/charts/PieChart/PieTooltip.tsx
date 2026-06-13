@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { formatTooltipValue } from '../../core/tooltipFormat'
 import type { TooltipContext } from '../../core/types'
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 
@@ -9,17 +10,13 @@ export interface PieTooltipProps<Meta> {
     isPercent?: boolean
 }
 
-function defaultFormatter(v: number): string {
-    return v.toLocaleString()
-}
-
 function formatPercent(fraction: number): string {
     return `${Math.round(fraction * 1000) / 10}%`
 }
 
 export function PieTooltip<Meta>({
     ctx,
-    valueFormatter = defaultFormatter,
+    valueFormatter = formatTooltipValue,
     isPercent = false,
 }: PieTooltipProps<Meta>): React.ReactElement | null {
     const entry = ctx.seriesData[0]

@@ -140,8 +140,8 @@ export interface TooltipContext<Meta = unknown> {
     isPinned: boolean
     /** Callback to unpin (close) a pinned tooltip. Only present when the tooltip is pinned. */
     onUnpin?: () => void
-    /** Formats a series value for display. The chart engine populates this with the y-axis tick
-     *  formatter (so tooltip values match axis ticks) — or {@link TooltipConfig.valueFormatter}
+    /** Formats a series value for display. The chart engine populates this with the primary y-axis
+     *  tick formatter (so tooltip values match axis ticks) — or {@link TooltipConfig.valueFormatter}
      *  when set — guarding non-finite values as an em dash. {@link DefaultTooltip} uses it, and
      *  custom tooltips can call it for axis-consistent formatting. */
     formatValue?: (value: number) => string
@@ -232,13 +232,15 @@ export interface TooltipConfig {
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
-    /** Formats series values in the built-in tooltip. Defaults to the y-axis tick formatter so
-     *  the tooltip and axis agree (e.g. both show "1.5s" or "98%"); non-finite values always
-     *  render as an em dash. Set this only to format the tooltip differently from the axis. */
+    /** Formats series values in the built-in tooltip. Defaults to the primary y-axis tick formatter
+     *  so the tooltip and axis agree (e.g. both show "1.5s" or "98%"); non-finite values always
+     *  render as an em dash. On multi-axis (`yAxisId`) charts every row uses this primary formatter —
+     *  set `valueFormatter` to take over formatting if a secondary axis needs different units. */
     valueFormatter?: (value: number) => string
     /** Render extra content below the series rows in the built-in tooltip — e.g. a contextual
      *  footer like "120 calls · 3 errors". Receives the full tooltip context. Avoids hand-rolling
-     *  a whole custom tooltip just to append a line. */
+     *  a whole custom tooltip just to append a line. The context's `Meta` is erased here (plain
+     *  `TooltipContext`) to keep this config non-generic — cast `series.meta` if you need it typed. */
     renderExtra?: (ctx: TooltipContext) => ReactNode
 }
 

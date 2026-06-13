@@ -70,7 +70,7 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 
 ## Tooltips
 
-The built-in tooltip handles most cases — **reach for a custom `tooltip` render prop only when you need a fundamentally different layout.** By default it formats each value with the y-axis tick formatter (so tooltip and axis agree) and renders non-finite values (NaN gap points) as an em dash.
+The built-in tooltip handles most cases — **reach for a custom `tooltip` render prop only when you need a fundamentally different layout.** By default it formats each value with the primary y-axis tick formatter (so tooltip and axis agree) and renders non-finite values (NaN gap points) as an em dash. On multi-axis (`yAxisId`) charts every row uses the primary formatter — set `valueFormatter` if a secondary axis needs different units.
 
 ```tsx
 <TimeSeriesLineChart

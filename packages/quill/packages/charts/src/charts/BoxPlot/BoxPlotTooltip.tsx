@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { formatTooltipValue } from '../../core/tooltipFormat'
 import type { TooltipContext } from '../../core/types'
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { BoxPlotAdaptedMeta } from './BoxPlot'
@@ -26,9 +27,6 @@ export interface BoxPlotTooltipProps<Meta = unknown> {
     grouped: boolean
 }
 
-function defaultFormatValue(v: number): string {
-    return Number.isFinite(v) ? v.toLocaleString() : '—'
-}
 
 export function BoxPlotTooltip<Meta = unknown>({
     ctx,
@@ -76,7 +74,7 @@ export function BoxPlotTooltip<Meta = unknown>({
                                 <tr key={row.key}>
                                     <td className="pr-3 opacity-70">{row.label}</td>
                                     <td className="font-medium">
-                                        {defaultFormatValue(entry.datum[row.key] as number)}
+                                        {formatTooltipValue(entry.datum[row.key] as number)}
                                     </td>
                                 </tr>
                             ))}
