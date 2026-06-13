@@ -10,8 +10,11 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.event.util import create_event
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
+
+from products.mcp_analytics.backend.models import MCPSession
 
 TOOL_NAMES = [
     "query_run",
@@ -179,6 +182,8 @@ class Command(BaseCommand):
                 f"ALTER TABLE {EVENTS_DATA_TABLE()} DELETE WHERE team_id = %(team_id)s AND event = 'mcp_tool_call' SETTINGS mutations_sync=1",
                 {"team_id": team_id},
             )
+            with team_scope(team_id):
+                MCPSession.objects.filter(team=team).delete()
             self.stdout.write(self.style.WARNING(f"Cleared existing mcp_tool_call events for team {team_id}."))
 
         rng = random.Random(seed)
@@ -250,6 +255,10 @@ class Command(BaseCommand):
                 session_end_offset_min = rng.randint(31, 59)
             session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
 
+            # One coherent intent per session so the clustering page has themes to group.
+            primary_tool = rng.choice(TOOL_NAMES)
+            session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
+
             cumulative_offset_s = 0
             for call_idx in range(calls):
                 cumulative_offset_s += call_intervals[call_idx]
@@ -262,7 +271,6 @@ class Command(BaseCommand):
                 duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
                 if is_error:
                     duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
-                intent = rng.choice(INTENTS_BY_TOOL.get(tool_name, [DEFAULT_INTENT]))
                 create_event(
                     event_uuid=uuid.uuid4(),
                     event="mcp_tool_call",
@@ -276,7 +284,7 @@ class Command(BaseCommand):
                         "$mcp_tool_name": tool_name,
                         "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
                         "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
-                        "$mcp_intent": intent,
+                        "$mcp_intent": session_intent,
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
@@ -288,8 +296,13 @@ class Command(BaseCommand):
                 )
                 total_events += 1
 
-            # Don't write to MCPSession (it's dormant) — the listing derives sessions
-            # on the fly from the events we just captured, grouped by $mcp_session_id.
+            # The session listing derives sessions on the fly from the events above,
+            # but intent clustering reads MCPSession.intent (keyed by $session_id), so
+            # store one row per session to give the clustering page something to group.
+            with team_scope(team_id):
+                MCPSession.objects.update_or_create(
+                    team=team, session_id=session_id, defaults={"intent": session_intent}
+                )
             self.stdout.write(
                 f"  session {session_idx + 1}/{session_count}: {calls} tool calls (mcp_session_id={mcp_session_id})"
             )
