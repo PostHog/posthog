@@ -453,6 +453,41 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('_posthog/user_message replay', () => {
+        it('replays a persisted user message into the thread as a human item', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/user_message', { content: 'Why did signups drop?' })
+                )
+            }).toFinishAllListeners()
+
+            const humanItems = logic.values.threadItems.filter((item) => item.type === 'human_message')
+            expect(humanItems).toHaveLength(1)
+            expect(humanItems[0].text).toEqual('Why did signups drop?')
+        })
+
+        it('strips the posthog_context wrapper so a replayed prompt matches the live one', async () => {
+            const wrapped =
+                '<posthog_context>\nThe user attached the following PostHog entities.\n- Insight #1\n</posthog_context>\n\nWhy did signups drop?'
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: wrapped }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.find((item) => item.type === 'human_message')?.text).toEqual(
+                'Why did signups drop?'
+            )
+        })
+
+        it('ignores a non-string content payload', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: [{ text: 'x' }] }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(0)
+        })
+    })
+
     describe('per-conversation isolation', () => {
         it('keeps thread state independent between two mounted conversations', async () => {
             const otherLogic = sandboxStreamLogic({ conversationId: 'other-conversation' })
@@ -526,6 +561,47 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.toolInvocations.get('t2')?.error?.message).toEqual('sandbox crashed')
         })
+
+        it('falls back to the _meta decision reason when a denied update carries no error message', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't3',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: { command: 'call insight-create {}' },
+                    status: 'in_progress',
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't3',
+                    status: 'failed',
+                    _meta: { decision_reason: 'User rejected the operation' },
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.toolInvocations.get('t3')?.error?.message).toEqual('User rejected the operation')
+        })
+
+        it('upserts a renderable invocation from a terminal update whose tool_call frame was lost', async () => {
+            // A reconnect with ?start=latest can drop the creating frame; the terminal update must
+            // still render a card, and must not fire completion telemetry with an undefined name.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'orphan', status: 'completed' })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.toolInvocations.get('orphan')?.status).toEqual('completed')
+            expect(logic.values.threadItems.some((item) => item.toolCallId === 'orphan')).toEqual(true)
+            expect(captureSpy.mock.calls.filter((c) => c[0] === 'tool_call_completed')).toHaveLength(0)
+        })
     })
 
     describe('content dedup', () => {
@@ -540,7 +616,7 @@ describe('sandboxStreamLogic', () => {
             const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
             expect(assistantItems).toHaveLength(1)
             expect(assistantItems[0].text).toEqual('Hi')
-            expect(logic.values.ingestedEntryHashes.size).toEqual(1)
+            expect(logic.cache.ingestedEntryHashes.size).toEqual(1)
         })
 
         it('does not dedup distinct chunks of the same message', async () => {
@@ -623,6 +699,26 @@ describe('sandboxStreamLogic', () => {
 
             act()
             expect(logic.values.isThinking).toEqual(false)
+        })
+
+        it('re-raises on a follow-up turn opened by a human message, with no new run_started', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.isThinking).toEqual(false)
+
+            // A follow-up on the same run starts a new turn — no second run_started frame arrives.
+            logic.actions.pushHumanMessage('and the mobile funnel?')
+            expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('is on during the cold-boot queued window before the first run_started', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            // currentRunStatus is 'queued' and runStarted is still false — the indicator must show.
+            expect(logic.values.currentRunStatus).toEqual('queued')
+            expect(logic.values.isThinking).toEqual(true)
         })
     })
 
@@ -842,7 +938,7 @@ describe('sandboxStreamLogic', () => {
             } as MessageEvent<string>)
 
             expect(logic.values.threadItems).toEqual([])
-            expect(logic.values.ingestedEntryHashes.size).toEqual(0)
+            expect(logic.cache.ingestedEntryHashes.size).toEqual(0)
         })
     })
 
@@ -886,8 +982,8 @@ describe('sandboxStreamLogic', () => {
                 corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
             }).toFinishAllListeners()
 
-            // Dedup hashing operates on the raw entries — every distinct frame hashes exactly once.
-            expect(logic.values.ingestedEntryHashes.size).toEqual(corpus.length)
+            // Dedup hashing operates on the notification body — every distinct frame hashes once.
+            expect(logic.cache.ingestedEntryHashes.size).toEqual(corpus.length)
         })
     })
 

@@ -75,7 +75,7 @@ import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
-import { sandboxStreamLogic } from './sandboxStreamLogic'
+import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
@@ -671,6 +671,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // so the human message must be echoed there too to show up in the UI.
                 if (generationAttempt === 0 && streamData.content && addToThread) {
                     actions.pushSandboxHumanMessage(streamData.content)
+                    // Pull the current scene's `maxContext` into the sandbox attachments at send
+                    // (consumption) time so on-scene entities flow into `sandboxAttachments` below.
+                    // Nothing else dispatches this, so without it scene context never auto-attaches.
+                    posthogAiContextLogic({ conversationId: props.conversationId }).actions.syncSceneAttachments()
                 }
                 try {
                     const conversationId = values.conversation?.id || values.conversationId
@@ -939,7 +943,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         const sandboxStreamActionTypes = sandboxStreamLogic({ conversationId: props.conversationId }).actionTypes
         return {
             [sandboxStreamActionTypes.markTurnComplete]: () => cache.sandboxStreamRelease?.(),
-            [sandboxStreamActionTypes.handleTerminalStatus]: () => cache.sandboxStreamRelease?.(),
+            // handleTerminalStatus fires for every task_run_state frame, including the initial
+            // non-terminal queued/in_progress ones — only release the streaming lock on an actually
+            // terminal status, mirroring sandboxStreamLogic's own guard.
+            [sandboxStreamActionTypes.handleTerminalStatus]: ({ status }: { status: string }) => {
+                if (isTerminalRunStatus(status)) {
+                    cache.sandboxStreamRelease?.()
+                }
+            },
             [sandboxStreamActionTypes.handleStreamError]: () => cache.sandboxStreamRelease?.(),
         }
     }),

@@ -3185,6 +3185,29 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.decrActiveStreamingThreads()
         })
 
+        it('does not release the lock on a non-terminal task_run_state frame', async () => {
+            jest.spyOn(api.conversations, 'sandboxCreate').mockResolvedValue(sandboxRunResponse)
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['openSandboxSse'])
+
+            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+
+            // queued / in_progress frames arrive before the turn is done — the lock must stay held.
+            sandboxStreamInstance.actions.handleTerminalStatus({ status: 'queued' })
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
+            sandboxStreamInstance.actions.handleTerminalStatus({ status: 'in_progress' })
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
+
+            // Only an actually-terminal status releases it.
+            sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed' })
+            expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+        })
+
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
             jest.spyOn(api.conversations, 'sandboxCreate').mockRejectedValue(new Error('boom'))
 

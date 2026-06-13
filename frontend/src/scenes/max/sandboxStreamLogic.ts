@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -44,7 +44,7 @@ export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
-function isTerminalRunStatus(status: string | null | undefined): boolean {
+export function isTerminalRunStatus(status: string | null | undefined): boolean {
     return status != null && TERMINAL_RUN_STATUSES.has(status)
 }
 
@@ -79,9 +79,31 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
     }
 }
 
-/** Stable serialized-JSON hash of a StoredLogEntry for content-dedup. */
+/**
+ * Content-dedup identity for a StoredLogEntry. Hashes only the `notification` body and drops the
+ * top-level `timestamp`: the `logs/` (S3) copy and the live re-broadcast are independent writes
+ * that stamp their own per-write timestamps, so a timestamp-inclusive hash would miss the duplicate
+ * and double-append the same logical frame on a reconnect replay.
+ */
 function hashLogEntry(entry: StoredLogEntry): string {
-    return JSON.stringify(entry)
+    return JSON.stringify(entry.notification)
+}
+
+/**
+ * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The backend
+ * prepends a `<posthog_context>…</posthog_context>` block when attachments are present
+ * (`context_wrapper.wrap_user_message`); stripping it keeps a replayed prompt identical to the one
+ * the live send path echoed via `pushHumanMessage`.
+ */
+function unwrapUserMessageContent(content: string): string {
+    const closeTag = '</posthog_context>'
+    if (content.startsWith('<posthog_context>')) {
+        const closeIdx = content.indexOf(closeTag)
+        if (closeIdx !== -1) {
+            return content.slice(closeIdx + closeTag.length).replace(/^\n+/, '')
+        }
+    }
+    return content
 }
 
 /** Refetch the run's status; on failure return the mapped error envelope instead. */
@@ -307,8 +329,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         sseDropped: true,
         /** Frame ingestion — called by the SSE listener and by products/tasks `logs/` replay. */
         ingestAcpFrame: (entry: StoredLogEntry) => ({ entry }),
-        /** Internal: records an entry's serialized hash so reconnect replay can dedup it. */
-        markEntryIngested: (hash: string) => ({ hash }),
         /**
          * Surface a permission request. `replayedFromHistory` marks requests re-derived from the
          * `logs/` bootstrap — they restore card state but don't re-fire telemetry (the event
@@ -398,19 +418,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 sseOpened: () => 0,
                 bootstrapRun: () => 0,
                 reset: () => 0,
-            },
-        ],
-        // Serialized-JSON hashes of entries already ingested (from `logs/` replay or live SSE) so a
-        // reconnect with `?start=latest` doesn't double-fold history.
-        ingestedEntryHashes: [
-            new Set<string>(),
-            {
-                markEntryIngested: (state, { hash }) => {
-                    const next = new Set(state)
-                    next.add(hash)
-                    return next
-                },
-                reset: () => new Set<string>(),
             },
         ],
         currentRunStatus: [
@@ -615,7 +622,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             false,
             {
                 markTurnComplete: () => true,
+                // A run emits `_posthog/run_started` once; a follow-up message on the same run starts
+                // a fresh turn with no new run_started frame, so a human message also reopens the
+                // turn — otherwise the thinking indicator would stay off for the whole follow-up.
                 markRunStarted: () => false,
+                pushHumanMessage: () => false,
                 reset: () => false,
             },
         ],
@@ -625,11 +636,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.
          * Off once the turn completes, the run reaches a terminal status (a failed or cancelled
          * run may never emit `_posthog/turn_complete`), or the stream errors out.
+         *
+         * A run is "in flight" from the moment it is `queued` — keying off `currentRunStatus` as
+         * well as `runStarted` lights the indicator during the multi-second cold-boot window before
+         * the first `_posthog/run_started` frame, which `runStarted` alone misses.
          */
         isThinking: [
             (s) => [s.runStarted, s.turnComplete, s.currentRunStatus, s.sseStatus],
-            (runStarted, turnComplete, currentRunStatus, sseStatus): boolean =>
-                runStarted && !turnComplete && !isTerminalRunStatus(currentRunStatus) && sseStatus !== 'error',
+            (runStarted, turnComplete, currentRunStatus, sseStatus): boolean => {
+                if (sseStatus === 'error' || isTerminalRunStatus(currentRunStatus)) {
+                    return false
+                }
+                const runInFlight = runStarted || currentRunStatus === 'queued' || currentRunStatus === 'in_progress'
+                return runInFlight && !turnComplete
+            },
         ],
     }),
     listeners(({ values, actions, cache, props }) => ({
@@ -870,11 +890,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             try {
                 // PERMISSION_RESPONDED telemetry is emitted server-side by the /permission/ handler;
                 // forward the trace_id so it can correlate with the rest of this run's events.
+                // Forward the run id this SSE is streaming — the run that emitted the request — so a
+                // run transition (terminal resume, prewarm rewarm) between showing the card and
+                // answering it can't misroute the reply to a successor run.
+                const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
                 await api.conversations.permission(conversationId, {
                     requestId,
                     optionId,
                     customInput,
                     traceId: values.traceId ?? undefined,
+                    runId: activeRun?.runId,
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
@@ -903,10 +928,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
-            // TASK_RUN_TERMINATED telemetry. `duration_ms` is measured from the `_posthog/run_started`
-            // frame; absent if the run terminated before one was seen.
+            // TASK_RUN_TERMINATED telemetry. `duration_ms` is measured from the current turn's start
+            // (run start for the first turn, the latest human message for a follow-up); absent if the
+            // run terminated before either was seen.
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-            const startedAt = cache.runStartedAtMs as number | undefined
+            const startedAt = cache.turnStartedAtMs as number | undefined
             posthog.capture('task_run_terminated', {
                 conversation_id: props.conversationId,
                 trace_id: values.traceId,
@@ -925,9 +951,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         },
         reset: () => {
             cache.activeRun = undefined
-            cache.runStartedAtMs = undefined
+            cache.turnStartedAtMs = undefined
+            cache.ingestedEntryHashes = new Set<string>()
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
+        },
+        pushHumanMessage: () => {
+            // Stamp the start of the turn this message opens, so per-turn duration metrics on a
+            // follow-up aren't measured from the first turn's start. Skipped while replaying history
+            // (the stamp would be "now", not the historical turn time, and replay emits no telemetry).
+            if (cache.bootstrapReplay !== true) {
+                cache.turnStartedAtMs = Date.now()
+            }
         },
         ingestAcpFrame: ({ entry }) => {
             const notification = entry?.notification
@@ -935,13 +970,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             // Content-dedup: a reconnect with `?start=latest` may replay frames already folded in from
-            // the `logs/` bootstrap (Redis-stream IDs aren't comparable to S3-log IDs). Match on
-            // serialized JSON and drop repeats before they mutate thread state.
+            // the `logs/` bootstrap (Redis-stream IDs aren't comparable to S3-log IDs). Match on the
+            // serialized notification body and drop repeats before they mutate thread state. The hash
+            // set lives in a mutable cache ref (not a reducer) so the streaming hot path stays O(1)
+            // per frame instead of copying a growing Set on every token chunk.
+            if (!cache.ingestedEntryHashes) {
+                cache.ingestedEntryHashes = new Set<string>()
+            }
+            const ingestedHashes = cache.ingestedEntryHashes as Set<string>
             const hash = hashLogEntry(entry)
-            if (values.ingestedEntryHashes.has(hash)) {
+            if (ingestedHashes.has(hash)) {
                 return
             }
-            actions.markEntryIngested(hash)
+            ingestedHashes.add(hash)
             const method = notification.method
 
             // Custom `_posthog/*` notification namespace emitted by the agent-server.
@@ -952,7 +993,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 // still runs so the thread's started/thinking state stays correct.
                 if (!values.runStarted && cache.bootstrapReplay !== true) {
                     const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-                    cache.runStartedAtMs = Date.now()
+                    cache.turnStartedAtMs = Date.now()
                     posthog.capture('task_run_started', {
                         conversation_id: props.conversationId,
                         trace_id: values.traceId,
@@ -1000,6 +1041,21 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 const requestId = notification.params?.requestId
                 if (typeof requestId === 'string' && requestId) {
                     actions.markPermissionRequestResolved(requestId)
+                }
+                return
+            }
+            // The user's own prompts are persisted to the run log as `_posthog/user_message`
+            // (backend `_log_user_message`) and never re-emitted on the live SSE — `pushHumanMessage`
+            // only fires on the live send path and is wiped before a history replay. Without this
+            // branch a reopened conversation would replay assistant replies and tool cards but none
+            // of the user's questions, reading as one-sided.
+            if (isPosthogNotification(notification, '_posthog/user_message')) {
+                const content = notification.params?.content
+                if (typeof content === 'string') {
+                    const unwrapped = unwrapUserMessageContent(content)
+                    if (unwrapped) {
+                        actions.pushHumanMessage(unwrapped)
+                    }
                 }
                 return
             }
@@ -1066,17 +1122,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         break
                     }
                     const existing = values.toolInvocations.get(toolCallId)
-                    const mergedContent = existing
-                        ? [...existing.contentBlocks, ...(Array.isArray(update.content) ? update.content : [])]
-                        : Array.isArray(update.content)
-                          ? update.content
-                          : []
                     const status = mapAcpStatus(update.status ?? existing?.status)
-                    const errorMessage =
-                        update.error?.message ?? (status === 'failed' ? notification.error?.message : undefined)
-                    // The tool's args stream in across updates (e.g. an `exec` command or a tool's
-                    // input building up), so fold the latest rawInput in and re-resolve the registry
-                    // key from it rather than freezing the empty input the initial tool_call carried.
                     // Keep the runtime object checks — the wire payload is typed, not validated.
                     const rawInput =
                         update.rawInput && typeof update.rawInput === 'object'
@@ -1084,18 +1130,58 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             : update.input && typeof update.input === 'object'
                               ? update.input
                               : undefined
-                    const reResolved =
-                        rawInput && existing
-                            ? resolveToolKey(existing.rawServerName, existing.rawToolName, rawInput)
-                            : undefined
+                    // A rejected call carries its denial reason on `_meta` (ACP adapter v0.42+), not
+                    // `error` — fall back to it so the failed tool card explains why it was denied.
+                    const errorMessage =
+                        update.error?.message ??
+                        update._meta?.decision_reason ??
+                        update._meta?.message ??
+                        (status === 'failed' ? notification.error?.message : undefined)
+                    const updateContent = Array.isArray(update.content) ? update.content : []
+
+                    if (!existing) {
+                        // A reconnect with `?start=latest` can deliver a terminal update whose creating
+                        // `tool_call` frame was lost. Upsert a minimal invocation from the update so the
+                        // tool card still renders instead of silently vanishing. No completion telemetry
+                        // here — without the creation frame there's no reliable start time or tool name.
+                        const rawServerName = 'posthog'
+                        const rawToolName = String(update.title ?? '')
+                        const { resolvedKey, innerToolName, innerInput } = resolveToolKey(
+                            rawServerName,
+                            rawToolName,
+                            rawInput ?? {}
+                        )
+                        actions.upsertToolInvocation({
+                            toolCallId,
+                            rawServerName,
+                            rawToolName,
+                            innerToolName,
+                            resolvedKey,
+                            input: rawInput ?? {},
+                            innerInput,
+                            status,
+                            title: update.title,
+                            locations: update.locations,
+                            contentBlocks: updateContent,
+                            ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
+                        })
+                        break
+                    }
+
+                    // The tool's args stream in across updates (e.g. an `exec` command or a tool's
+                    // input building up), so fold the latest rawInput in and re-resolve the registry
+                    // key from it rather than freezing the empty input the initial tool_call carried.
+                    const reResolved = rawInput
+                        ? resolveToolKey(existing.rawServerName, existing.rawToolName, rawInput)
+                        : undefined
                     actions.updateToolInvocation(toolCallId, {
                         status,
-                        title: update.title ?? existing?.title,
-                        progress: update.progress ?? existing?.progress,
-                        output: update.rawOutput ?? existing?.output,
-                        locations: update.locations ?? existing?.locations,
-                        contentBlocks: mergedContent,
-                        error: errorMessage !== undefined ? { message: errorMessage } : existing?.error,
+                        title: update.title ?? existing.title,
+                        progress: update.progress ?? existing.progress,
+                        output: update.rawOutput ?? existing.output,
+                        locations: update.locations ?? existing.locations,
+                        contentBlocks: [...existing.contentBlocks, ...updateContent],
+                        error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
                         ...(rawInput ? { input: rawInput } : {}),
                         ...(reResolved
                             ? {
@@ -1106,21 +1192,23 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             : {}),
                     })
                     // TOOL_CALL_COMPLETED telemetry (optional) — emit once when a tool call first
-                    // transitions to a terminal status. `duration_ms` is measured from the run start
-                    // since per-tool start timing isn't carried on the wire. Suppressed while
-                    // replaying history so a reopen doesn't re-count tool calls from a prior session.
+                    // transitions to a terminal status. `duration_ms` is measured from the turn start
+                    // since per-tool start timing isn't carried on the wire. Suppressed while replaying
+                    // history so a reopen doesn't re-count prior-session tool calls; the missing-creation
+                    // case is handled above and never reaches here. Report the freshly re-resolved key
+                    // (e.g. an `exec`-wrapped inner tool) rather than the stale initial one.
                     if (
                         cache.bootstrapReplay !== true &&
                         (status === 'completed' || status === 'failed') &&
-                        existing?.status !== 'completed' &&
-                        existing?.status !== 'failed'
+                        existing.status !== 'completed' &&
+                        existing.status !== 'failed'
                     ) {
-                        const startedAt = cache.runStartedAtMs as number | undefined
+                        const startedAt = cache.turnStartedAtMs as number | undefined
                         posthog.capture('tool_call_completed', {
                             conversation_id: props.conversationId,
                             trace_id: values.traceId,
                             tool_call_id: toolCallId,
-                            tool_qualified_name: existing?.resolvedKey,
+                            tool_qualified_name: reResolved?.resolvedKey ?? existing.resolvedKey,
                             status,
                             duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
                             execution_type: 'sandbox',
@@ -1135,4 +1223,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
         },
     })),
+    afterMount(({ cache }) => {
+        // Mutable dedup-hash store (see `ingestAcpFrame`) — initialized eagerly so it's always a Set.
+        cache.ingestedEntryHashes = new Set<string>()
+    }),
 ])
