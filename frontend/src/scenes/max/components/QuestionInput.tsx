@@ -333,10 +333,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ref={textAreaRef}
                                         value={isSharedThread ? '' : question}
                                         onChange={(value) => setQuestion(value)}
-                                        onBlur={() => {
+                                        onBlur={(e) => {
                                             // Release any sandbox pre-warm when the user leaves the
                                             // input without sending. No-op on LangGraph / unwarmed
                                             // conversations.
+                                            //
+                                            // But clicking the send button blurs the textarea *before*
+                                            // its onClick fires the send — releasing here would cancel
+                                            // the very warm Run the send is about to consume. When focus
+                                            // moves to the send button, skip the release and let the send
+                                            // path consume the warm (it does so without a DELETE).
+                                            const next = e.relatedTarget as HTMLElement | null
+                                            if (next?.closest('[data-attr="max-send-message"]')) {
+                                                return
+                                            }
                                             releaseSandboxPrewarm()
                                         }}
                                         onPressEnter={() => {

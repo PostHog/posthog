@@ -21,3 +21,6 @@ class PostHogAIRunState(RunState):
 
     system_prompt: str | None = Field(default=None, alias="systemPrompt")
     attached_context: list[AttachedContext] | None = None
+    # Set on a pre-warmed Run created with no pending user message: it tells the agent-server to
+    # open the ACP session and idle awaiting the first ``user_message`` rather than starting a turn.
+    await_user_message: bool = False

@@ -212,6 +212,16 @@ class MessageRoutingService(BaseSandboxService):
         two tabs warming the same conversation cannot create two Runs. Idempotent: a
         non-terminal current Run is a no-op. Capped per user and per org.
         """
+        # Best-effort capacity guard. Counts cross-conversation runs that this conversation's row
+        # lock can't serialize anyway, so check it before taking the lock to keep the lock narrow.
+        if self._prewarm_at_capacity():
+            logger.info(
+                "sandbox_prewarm_capacity_reached",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return
+
         system_prompt = PromptService(self.team, self.user).build()
 
         # Decide + write the warm Run under the conversation lock; start the workflow only
@@ -220,13 +230,6 @@ class MessageRoutingService(BaseSandboxService):
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             current_run = locked.current_run
             if current_run is not None and current_run.status in self._IN_PROGRESS_STATUSES:
-                return
-            if self._prewarm_at_capacity():
-                logger.info(
-                    "sandbox_prewarm_capacity_reached",
-                    conversation_id=str(locked.id),
-                    user_id=self.user.pk,
-                )
                 return
             if locked.task_id is None:
                 dispatch = self._prewarm_first(locked, system_prompt)
@@ -308,15 +311,15 @@ class MessageRoutingService(BaseSandboxService):
         if task_run is None:
             raise exceptions.ValidationError("Failed to create sandbox prewarm run.")
 
-        run_state: dict[str, Any] = dict(task_run.state or {})
-        run_state.update(
-            {
-                "systemPrompt": system_prompt,
-                "initial_permission_mode": "default",
-                # No pending_user_message / attached_context: the session idles awaiting input.
-                "await_user_message": True,
-            }
+        # No pending_user_message / attached_context: the session idles awaiting input.
+        # `exclude_unset` keeps the merge to exactly these keys so model defaults don't leak.
+        ph_state = PostHogAIRunState(
+            system_prompt=system_prompt,
+            initial_permission_mode="default",
+            await_user_message=True,
         )
+        run_state: dict[str, Any] = dict(task_run.state or {})
+        run_state.update(ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True))
         task_run.state = run_state
         task_run.save(update_fields=["state"])
         conversation.task = task
@@ -336,11 +339,12 @@ class MessageRoutingService(BaseSandboxService):
         if task is None:
             return None
 
-        extra_state: dict[str, Any] = {
-            "systemPrompt": system_prompt,
-            "initial_permission_mode": "default",
-            "await_user_message": True,
-        }
+        ph_state = PostHogAIRunState(
+            system_prompt=system_prompt,
+            initial_permission_mode="default",
+            await_user_message=True,
+        )
+        extra_state: dict[str, Any] = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
         if current_run is not None:
             extra_state["resume_from_run_id"] = str(current_run.id)
             snapshot_external_id = (current_run.state or {}).get("snapshot_external_id")
