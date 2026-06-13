@@ -778,3 +778,31 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
+            # The signature also arrives wrapped in pymysql's OperationalError(2013) — we must
+            # still catch it without making the bare 2013/"Lost connection" text non-retryable.
+            "OperationalError: (2013, 'Lost connection to MySQL server during query "
+            "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))')",
+        ],
+    )
+    def test_ssl_wrong_version_number_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSL version mismatch should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A genuine transient connection drop (no SSL signature) must stay retryable.
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+            "Lost connection to MySQL server during query",
+        ],
+    )
+    def test_transient_lost_connection_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"

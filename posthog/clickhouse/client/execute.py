@@ -28,7 +28,6 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
-    AccessMethod,
     Feature,
     Product,
     QueryTags,
@@ -36,6 +35,7 @@ from posthog.clickhouse.query_tagging import (
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
@@ -314,18 +314,21 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
     tags = get_query_tags()
-    is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+    # Any programmatic key auth — personal API key, project secret API key, or legacy team secret
+    # token — routes to the offline cluster as the API ClickHouse user. User-facing session/OAuth
+    # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
+    is_api_key_auth = is_api_key_access_method(tags.access_method)
 
     # When someone uses an API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
+    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
     # Make sure we always have process_query_task on the online cluster
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
@@ -355,7 +358,7 @@ def sync_execute(
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
-        if is_personal_api_key:
+        if is_api_key_auth:
             ch_user = ClickHouseUser.API
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app

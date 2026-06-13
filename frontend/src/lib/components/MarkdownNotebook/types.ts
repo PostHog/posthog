@@ -9,6 +9,10 @@ export type NotebookInlineMark =
     | { type: 'strike' }
     | { type: 'code' }
     | { type: 'link'; href: string }
+    /** Anchors an inline chat to this text: `<ref id="x">text</ref>` pairs with `<Chat ref="x" />`. */
+    | { type: 'ref'; id: string }
+    /** A person mention: `<mention id="5">@Name</mention>` — the text is the display label. */
+    | { type: 'mention'; id: string }
 
 export type NotebookTextInlineNode = {
     type: 'text'
@@ -45,6 +49,8 @@ export type NotebookListItem = {
     depth: number
     ordered?: boolean
     start?: number
+    /** GFM task list state (`- [ ]` / `- [x]`); only bullet items can be tasks. */
+    checked?: boolean
 }
 
 export type NotebookListBlockNode = {

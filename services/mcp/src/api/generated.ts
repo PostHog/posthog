@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -6239,7 +6239,7 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
-      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently. */
       pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
@@ -6248,10 +6248,6 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
-      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
-      useQueryV2?: boolean | null;
-      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
-      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
@@ -7891,6 +7887,18 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
+    } as const;
+
+    /**
+     * * `oauth` - oauth
+     * * `credentials` - credentials
+     */
+    export type AuthMethodEnum = typeof AuthMethodEnum[keyof typeof AuthMethodEnum];
+
+
+    export const AuthMethodEnum = {
+      Oauth: 'oauth',
+      Credentials: 'credentials',
     } as const;
 
     export interface Author {
@@ -11564,6 +11572,22 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
+    export interface ContextGeneration {
+      /**
+         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ContextGenerationSet {
+      /**
+         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
     export type ConversationMessagesItem = { [key: string]: unknown };
 
     export type ConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -13587,6 +13611,12 @@ export namespace Schemas {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -13819,6 +13849,12 @@ export namespace Schemas {
       SapSuccessFactors: 'SapSuccessFactors',
       OracleEbs: 'OracleEbs',
       OracleFusion: 'OracleFusion',
+      AmazonSNS: 'AmazonSNS',
+      AmazonEventBridge: 'AmazonEventBridge',
+      AmazonSQS: 'AmazonSQS',
+      AmazonKinesis: 'AmazonKinesis',
+      AmazonCloudWatch: 'AmazonCloudWatch',
+      OpenAIAds: 'OpenAIAds',
       Custom: 'Custom',
     } as const;
 
@@ -14058,6 +14094,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -14725,12 +14767,63 @@ export namespace Schemas {
       text?: string | null;
     }
 
+    /**
+     * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+     */
+    export type EmailTemplateDesignCounters = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyRowsItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyHeadersItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyFootersItem = { [key: string]: unknown };
+
+    /**
+     * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+     */
+    export type EmailTemplateDesignBodyValues = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBody = {
+      /** Any unique string. */
+      id?: string;
+      /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+      rows: EmailTemplateDesignBodyRowsItem[];
+      headers?: EmailTemplateDesignBodyHeadersItem[];
+      footers?: EmailTemplateDesignBodyFootersItem[];
+      /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+      values?: EmailTemplateDesignBodyValues;
+    };
+
+    /**
+     * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+     */
+    export type EmailTemplateDesign = {
+      /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+      counters?: EmailTemplateDesignCounters;
+      /** Design schema version, e.g. 16. */
+      schemaVersion: number;
+      body: EmailTemplateDesignBody;
+    };
+
     export interface EmailTemplate {
+      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
+      /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
-      design?: unknown;
+      /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+      design?: EmailTemplateDesign;
     }
+
+    export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
+
+
+    export const EmbeddingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Disabled: 'disabled',
+    } as const;
 
     /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
@@ -18133,6 +18226,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -18924,6 +19023,109 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type FieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type FieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    /**
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed
+     */
+    export type FieldNoteStatusEnum = typeof FieldNoteStatusEnum[keyof typeof FieldNoteStatusEnum];
+
+
+    export const FieldNoteStatusEnum = {
+      Pending: 'pending',
+      Acknowledged: 'acknowledged',
+      Resolved: 'resolved',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface FieldNote {
+      readonly id: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: FieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: FieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
     }
 
     /**
@@ -22067,6 +22269,8 @@ export namespace Schemas {
       readonly next_refresh_at: string | null;
       /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
       readonly has_unsafe_documents: boolean;
+      /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+      readonly embedding_status: EmbeddingStatusEnum;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -23608,24 +23812,50 @@ export namespace Schemas {
       scores: MessageSentimentScores;
     }
 
+    /**
+     * * `liquid` - liquid
+     */
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
+
+
+    export const MessageTemplateContentTemplatingEnum = {
+      Liquid: 'liquid',
+    } as const;
+
     export interface MessageTemplateContent {
-      templating?: HogFunctionTemplatingEnum;
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+       *
+       * * `liquid` - liquid */
+      templating?: MessageTemplateContentTemplatingEnum;
+      /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
 
     export interface MessageTemplate {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -23945,6 +24175,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -23958,6 +24189,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -25269,6 +25501,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: FeatureFlag[];
+    }
+
+    export interface PaginatedFieldNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FieldNote[];
     }
 
     export interface PaginatedFileSystemList {
@@ -28896,7 +29137,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -30584,6 +30825,93 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
     }
 
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type PatchedFieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type PatchedFieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface PatchedFieldNote {
+      readonly id?: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment?: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host?: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector?: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: PatchedFieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: PatchedFieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
+    }
+
     export interface PatchedFileSystem {
       readonly id?: string;
       path?: string;
@@ -31463,17 +31791,29 @@ export namespace Schemas {
 
     export interface PatchedMessageTemplate {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name?: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -33806,6 +34146,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -40332,6 +40676,277 @@ export namespace Schemas {
       runs: SlackThreadContextRun[];
     }
 
+    export interface SourceConnectLink {
+      /** The source type the link is for. */
+      source_type: string;
+      /** What the user will do on the connect page: 'oauth' = authorize an account in their browser; 'credentials' = enter connection details (or pick OAuth where the source offers both). Either way secrets never pass through the agent, and the result is always a stored credential id.
+       *
+       * * `oauth` - oauth
+       * * `credentials` - credentials */
+      auth_method: AuthMethodEnum;
+      /** Full URL to share with the user. It opens the source's connection form in PostHog — credentials never pass through the agent or the chat. */
+      connect_url: string;
+      /** Next steps for the agent to relay to the user. */
+      instructions: string;
+    }
+
+    export interface SourceCredential {
+      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      credential_id: string;
+      /** The source type the stored credentials are for. */
+      source_type: string;
+      /** When the credentials were stored. */
+      created_at: string;
+      /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
+      expires_at: string;
+    }
+
+    /**
+     * Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.
+     */
+    export type SourceCredentialCreatePayload = { [key: string]: unknown };
+
+    export interface SourceCredentialCreate {
+      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
+       *
+       * * `Ashby` - Ashby
+       * * `Supabase` - Supabase
+       * * `CustomerIO` - CustomerIO
+       * * `Github` - Github
+       * * `Stripe` - Stripe
+       * * `Hubspot` - Hubspot
+       * * `Postgres` - Postgres
+       * * `Zendesk` - Zendesk
+       * * `Snowflake` - Snowflake
+       * * `Salesforce` - Salesforce
+       * * `MySQL` - MySQL
+       * * `MongoDB` - MongoDB
+       * * `MSSQL` - MSSQL
+       * * `Vitally` - Vitally
+       * * `BigQuery` - BigQuery
+       * * `Chargebee` - Chargebee
+       * * `Clerk` - Clerk
+       * * `GoogleAds` - GoogleAds
+       * * `GoogleSearchConsole` - GoogleSearchConsole
+       * * `TemporalIO` - TemporalIO
+       * * `DoIt` - DoIt
+       * * `GoogleSheets` - GoogleSheets
+       * * `MetaAds` - MetaAds
+       * * `Klaviyo` - Klaviyo
+       * * `Mailchimp` - Mailchimp
+       * * `Braze` - Braze
+       * * `Mailjet` - Mailjet
+       * * `Redshift` - Redshift
+       * * `Polar` - Polar
+       * * `RevenueCat` - RevenueCat
+       * * `LinkedinAds` - LinkedinAds
+       * * `RedditAds` - RedditAds
+       * * `TikTokAds` - TikTokAds
+       * * `BingAds` - BingAds
+       * * `Shopify` - Shopify
+       * * `Attio` - Attio
+       * * `SnapchatAds` - SnapchatAds
+       * * `Linear` - Linear
+       * * `Intercom` - Intercom
+       * * `Amplitude` - Amplitude
+       * * `Mixpanel` - Mixpanel
+       * * `Jira` - Jira
+       * * `ActiveCampaign` - ActiveCampaign
+       * * `Marketo` - Marketo
+       * * `Adjust` - Adjust
+       * * `AppsFlyer` - AppsFlyer
+       * * `Freshdesk` - Freshdesk
+       * * `GoogleAnalytics` - GoogleAnalytics
+       * * `Pipedrive` - Pipedrive
+       * * `SendGrid` - SendGrid
+       * * `Slack` - Slack
+       * * `PagerDuty` - PagerDuty
+       * * `Asana` - Asana
+       * * `Notion` - Notion
+       * * `Airtable` - Airtable
+       * * `Greenhouse` - Greenhouse
+       * * `BambooHR` - BambooHR
+       * * `Lever` - Lever
+       * * `GitLab` - GitLab
+       * * `Datadog` - Datadog
+       * * `Sentry` - Sentry
+       * * `Pendo` - Pendo
+       * * `FullStory` - FullStory
+       * * `AmazonAds` - AmazonAds
+       * * `PinterestAds` - PinterestAds
+       * * `AppleSearchAds` - AppleSearchAds
+       * * `QuickBooks` - QuickBooks
+       * * `Xero` - Xero
+       * * `NetSuite` - NetSuite
+       * * `WooCommerce` - WooCommerce
+       * * `BigCommerce` - BigCommerce
+       * * `PayPal` - PayPal
+       * * `Square` - Square
+       * * `Zoom` - Zoom
+       * * `Trello` - Trello
+       * * `Monday` - Monday
+       * * `ClickUp` - ClickUp
+       * * `Confluence` - Confluence
+       * * `Recurly` - Recurly
+       * * `SalesLoft` - SalesLoft
+       * * `Outreach` - Outreach
+       * * `Gong` - Gong
+       * * `Calendly` - Calendly
+       * * `Typeform` - Typeform
+       * * `Iterable` - Iterable
+       * * `ZohoCRM` - ZohoCRM
+       * * `Close` - Close
+       * * `Oracle` - Oracle
+       * * `DynamoDB` - DynamoDB
+       * * `Elasticsearch` - Elasticsearch
+       * * `Kafka` - Kafka
+       * * `LaunchDarkly` - LaunchDarkly
+       * * `Braintree` - Braintree
+       * * `Recharge` - Recharge
+       * * `HelpScout` - HelpScout
+       * * `Gorgias` - Gorgias
+       * * `Instagram` - Instagram
+       * * `YouTubeAnalytics` - YouTubeAnalytics
+       * * `FacebookPages` - FacebookPages
+       * * `TwitterAds` - TwitterAds
+       * * `Workday` - Workday
+       * * `ServiceNow` - ServiceNow
+       * * `Pardot` - Pardot
+       * * `Copper` - Copper
+       * * `Front` - Front
+       * * `ChartMogul` - ChartMogul
+       * * `Zuora` - Zuora
+       * * `Paddle` - Paddle
+       * * `CircleCI` - CircleCI
+       * * `CockroachDB` - CockroachDB
+       * * `Firebase` - Firebase
+       * * `AzureBlob` - AzureBlob
+       * * `GoogleDrive` - GoogleDrive
+       * * `OneDrive` - OneDrive
+       * * `SharePoint` - SharePoint
+       * * `Box` - Box
+       * * `SFTP` - SFTP
+       * * `MicrosoftTeams` - MicrosoftTeams
+       * * `Aircall` - Aircall
+       * * `Webflow` - Webflow
+       * * `Okta` - Okta
+       * * `Auth0` - Auth0
+       * * `Productboard` - Productboard
+       * * `Smartsheet` - Smartsheet
+       * * `Wrike` - Wrike
+       * * `Plaid` - Plaid
+       * * `SurveyMonkey` - SurveyMonkey
+       * * `Eventbrite` - Eventbrite
+       * * `RingCentral` - RingCentral
+       * * `Twilio` - Twilio
+       * * `Freshsales` - Freshsales
+       * * `Shortcut` - Shortcut
+       * * `ConvertKit` - ConvertKit
+       * * `Drip` - Drip
+       * * `CampaignMonitor` - CampaignMonitor
+       * * `MailerLite` - MailerLite
+       * * `Omnisend` - Omnisend
+       * * `Brevo` - Brevo
+       * * `Postmark` - Postmark
+       * * `Granola` - Granola
+       * * `BuildBetter` - BuildBetter
+       * * `Convex` - Convex
+       * * `ClickHouse` - ClickHouse
+       * * `Plain` - Plain
+       * * `Resend` - Resend
+       * * `PgAnalyze` - PgAnalyze
+       * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
+      payload: SourceCredentialCreatePayload;
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -40356,6 +40971,288 @@ export namespace Schemas {
       Auto: 'auto',
       Mapped: 'mapped',
     } as const;
+
+    /**
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     */
+    export type SourceSetupPayload = { [key: string]: unknown };
+
+    export interface SourceSetup {
+      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
+       *
+       * * `Ashby` - Ashby
+       * * `Supabase` - Supabase
+       * * `CustomerIO` - CustomerIO
+       * * `Github` - Github
+       * * `Stripe` - Stripe
+       * * `Hubspot` - Hubspot
+       * * `Postgres` - Postgres
+       * * `Zendesk` - Zendesk
+       * * `Snowflake` - Snowflake
+       * * `Salesforce` - Salesforce
+       * * `MySQL` - MySQL
+       * * `MongoDB` - MongoDB
+       * * `MSSQL` - MSSQL
+       * * `Vitally` - Vitally
+       * * `BigQuery` - BigQuery
+       * * `Chargebee` - Chargebee
+       * * `Clerk` - Clerk
+       * * `GoogleAds` - GoogleAds
+       * * `GoogleSearchConsole` - GoogleSearchConsole
+       * * `TemporalIO` - TemporalIO
+       * * `DoIt` - DoIt
+       * * `GoogleSheets` - GoogleSheets
+       * * `MetaAds` - MetaAds
+       * * `Klaviyo` - Klaviyo
+       * * `Mailchimp` - Mailchimp
+       * * `Braze` - Braze
+       * * `Mailjet` - Mailjet
+       * * `Redshift` - Redshift
+       * * `Polar` - Polar
+       * * `RevenueCat` - RevenueCat
+       * * `LinkedinAds` - LinkedinAds
+       * * `RedditAds` - RedditAds
+       * * `TikTokAds` - TikTokAds
+       * * `BingAds` - BingAds
+       * * `Shopify` - Shopify
+       * * `Attio` - Attio
+       * * `SnapchatAds` - SnapchatAds
+       * * `Linear` - Linear
+       * * `Intercom` - Intercom
+       * * `Amplitude` - Amplitude
+       * * `Mixpanel` - Mixpanel
+       * * `Jira` - Jira
+       * * `ActiveCampaign` - ActiveCampaign
+       * * `Marketo` - Marketo
+       * * `Adjust` - Adjust
+       * * `AppsFlyer` - AppsFlyer
+       * * `Freshdesk` - Freshdesk
+       * * `GoogleAnalytics` - GoogleAnalytics
+       * * `Pipedrive` - Pipedrive
+       * * `SendGrid` - SendGrid
+       * * `Slack` - Slack
+       * * `PagerDuty` - PagerDuty
+       * * `Asana` - Asana
+       * * `Notion` - Notion
+       * * `Airtable` - Airtable
+       * * `Greenhouse` - Greenhouse
+       * * `BambooHR` - BambooHR
+       * * `Lever` - Lever
+       * * `GitLab` - GitLab
+       * * `Datadog` - Datadog
+       * * `Sentry` - Sentry
+       * * `Pendo` - Pendo
+       * * `FullStory` - FullStory
+       * * `AmazonAds` - AmazonAds
+       * * `PinterestAds` - PinterestAds
+       * * `AppleSearchAds` - AppleSearchAds
+       * * `QuickBooks` - QuickBooks
+       * * `Xero` - Xero
+       * * `NetSuite` - NetSuite
+       * * `WooCommerce` - WooCommerce
+       * * `BigCommerce` - BigCommerce
+       * * `PayPal` - PayPal
+       * * `Square` - Square
+       * * `Zoom` - Zoom
+       * * `Trello` - Trello
+       * * `Monday` - Monday
+       * * `ClickUp` - ClickUp
+       * * `Confluence` - Confluence
+       * * `Recurly` - Recurly
+       * * `SalesLoft` - SalesLoft
+       * * `Outreach` - Outreach
+       * * `Gong` - Gong
+       * * `Calendly` - Calendly
+       * * `Typeform` - Typeform
+       * * `Iterable` - Iterable
+       * * `ZohoCRM` - ZohoCRM
+       * * `Close` - Close
+       * * `Oracle` - Oracle
+       * * `DynamoDB` - DynamoDB
+       * * `Elasticsearch` - Elasticsearch
+       * * `Kafka` - Kafka
+       * * `LaunchDarkly` - LaunchDarkly
+       * * `Braintree` - Braintree
+       * * `Recharge` - Recharge
+       * * `HelpScout` - HelpScout
+       * * `Gorgias` - Gorgias
+       * * `Instagram` - Instagram
+       * * `YouTubeAnalytics` - YouTubeAnalytics
+       * * `FacebookPages` - FacebookPages
+       * * `TwitterAds` - TwitterAds
+       * * `Workday` - Workday
+       * * `ServiceNow` - ServiceNow
+       * * `Pardot` - Pardot
+       * * `Copper` - Copper
+       * * `Front` - Front
+       * * `ChartMogul` - ChartMogul
+       * * `Zuora` - Zuora
+       * * `Paddle` - Paddle
+       * * `CircleCI` - CircleCI
+       * * `CockroachDB` - CockroachDB
+       * * `Firebase` - Firebase
+       * * `AzureBlob` - AzureBlob
+       * * `GoogleDrive` - GoogleDrive
+       * * `OneDrive` - OneDrive
+       * * `SharePoint` - SharePoint
+       * * `Box` - Box
+       * * `SFTP` - SFTP
+       * * `MicrosoftTeams` - MicrosoftTeams
+       * * `Aircall` - Aircall
+       * * `Webflow` - Webflow
+       * * `Okta` - Okta
+       * * `Auth0` - Auth0
+       * * `Productboard` - Productboard
+       * * `Smartsheet` - Smartsheet
+       * * `Wrike` - Wrike
+       * * `Plaid` - Plaid
+       * * `SurveyMonkey` - SurveyMonkey
+       * * `Eventbrite` - Eventbrite
+       * * `RingCentral` - RingCentral
+       * * `Twilio` - Twilio
+       * * `Freshsales` - Freshsales
+       * * `Shortcut` - Shortcut
+       * * `ConvertKit` - ConvertKit
+       * * `Drip` - Drip
+       * * `CampaignMonitor` - CampaignMonitor
+       * * `MailerLite` - MailerLite
+       * * `Omnisend` - Omnisend
+       * * `Brevo` - Brevo
+       * * `Postmark` - Postmark
+       * * `Granola` - Granola
+       * * `BuildBetter` - BuildBetter
+       * * `Convex` - Convex
+       * * `ClickHouse` - ClickHouse
+       * * `Plain` - Plain
+       * * `Resend` - Resend
+       * * `PgAnalyze` - PgAnalyze
+       * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      payload?: SourceSetupPayload;
+      /**
+         * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+         * @maxLength 100
+         * @nullable
+         */
+      prefix?: string | null;
+      /**
+         * Human-readable description.
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+    }
+
+    export interface SourceSetupWebhook {
+      /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
+      success: boolean;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /**
+         * Why webhook registration failed (e.g. the credentials lack webhook permissions).
+         * @nullable
+         */
+      error: string | null;
+      /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
+      pending_inputs: string[];
+    }
+
+    export interface SourceSetupResponse {
+      /** ID of the created external data source. */
+      id: string;
+      /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
+      webhook?: SourceSetupWebhook;
+    }
 
     /**
      * * `severity` - severity
@@ -43033,7 +43930,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *
@@ -43159,7 +44056,7 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -43171,7 +44068,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -44373,6 +45270,13 @@ export namespace Schemas {
       errors?: string[];
     };
 
+    export type EnvironmentsExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
+    };
+
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -44386,6 +45290,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
     };
 
     export type EnvironmentsFileDownloadBatchExportsListParams = {
@@ -44518,6 +45433,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type EnvironmentsGroupsRelatedRetrieveParams = {
@@ -48068,6 +48987,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -48147,6 +49067,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -48212,6 +49133,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -48279,6 +49201,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -50043,6 +50966,13 @@ export namespace Schemas {
       errors?: string[];
     };
 
+    export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
+    };
+
     export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -50056,6 +50986,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
     };
 
     export type FeatureFlagsListParams = {
@@ -50175,6 +51116,35 @@ export namespace Schemas {
      */
     groups?: string;
     };
+
+    export type FieldNotesListParams = {
+    /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    field_note_status?: FieldNotesListFieldNoteStatus;
+    /**
+     * Filter to field notes made on this hostname (e.g. `app.example.com`).
+     */
+    host?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type FieldNotesListFieldNoteStatus = typeof FieldNotesListFieldNoteStatus[keyof typeof FieldNotesListFieldNoteStatus];
+
+
+    export const FieldNotesListFieldNoteStatus = {
+      Acknowledged: 'acknowledged',
+      Dismissed: 'dismissed',
+      Pending: 'pending',
+      Resolved: 'resolved',
+    } as const;
 
     export type FileDownloadBatchExportsListParams = {
     /**
@@ -50313,6 +51283,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type GroupsRelatedRetrieveParams = {

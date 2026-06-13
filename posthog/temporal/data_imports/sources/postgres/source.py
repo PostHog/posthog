@@ -281,15 +281,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 schema=config.schema,
                 names=names,
             )
-            db_foreign_keys = get_postgres_foreign_keys(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                names=names,
-            )
+            # Foreign keys are advisory metadata (they pre-populate relationship hints in the
+            # table picker). The discovery query joins three `information_schema` views, which
+            # can be expensive enough to OOM the source database on schemas with many
+            # constraints. Degrade gracefully on any failure — like PK and index discovery
+            # below — so optional metadata never breaks schema listing or the import.
+            try:
+                db_foreign_keys = get_postgres_foreign_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    names=names,
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
+                db_foreign_keys = {}
 
             if with_counts:
                 row_counts = get_postgres_row_count(

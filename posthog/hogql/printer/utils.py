@@ -26,6 +26,10 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
+from posthog.hogql.transforms.geoip_dict_fallback import (
+    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved,
+    geoip_dict_fallback_enabled_for_team,
+)
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
@@ -77,7 +81,7 @@ def prepare_and_print_ast(
                 context.type_observability.result = "empty"
             return "", None
 
-        collect_hogql_type_coverage(prepared_ast, context.type_observability)
+        collect_hogql_type_coverage(prepared_ast, context.type_observability, context)
         collect_hogql_sql_shape(prepared_ast, context.type_observability)
 
         printed = print_prepared_ast(
@@ -211,6 +215,24 @@ def prepare_ast_for_printing(
         # mutation analyzer rejects table prefixes), so no extra marking is needed.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
+
+        # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
+        # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
+        # pass below routes to materialized columns. Operator-controlled via env only, per team. Decided exactly once
+        # per query, on the context, so the printer's `_lookupGeoip*` gate can never disagree with the transform.
+        # Never applies within_non_hogql_query: those fragments splice into DELETE mutations (data deletion requests)
+        # and legacy filters, where the matched row set must not depend on env/probe state and a missing dictionary
+        # would wedge the sticky mutation queue. Remove with the transform.
+        context.geoip_dict_fallback_enabled = (
+            not context.within_non_hogql_query and geoip_dict_fallback_enabled_for_team(context.team_id)
+        )
+        if context.geoip_dict_fallback_enabled:
+            with context.timings.measure("geoip_dict_fallback"):
+                node = (
+                    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(
+                        node, context
+                    )
+                )
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and

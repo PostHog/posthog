@@ -34,11 +34,12 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic } from 'kea'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconComment, IconSparkles } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
+import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
     NotebookComponentBlockNode,
     NotebookComponentDefinition,
@@ -55,6 +56,7 @@ import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import { NotebookAIChat, getNotebookAIChatTitle } from './MarkdownNotebookAIChat'
+import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
 
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
@@ -168,6 +170,28 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
         exclusiveEditPanel: true,
         hideModeActions: true,
         getTitle: getNotebookAIChatTitle,
+    },
+    {
+        // Overrides the default registry's authorial-note definition: the note flavor
+        // (`text`, stored as `<!-- … -->`) renders through CommentBlock before the registry
+        // is consulted, so this ViewComponent only ever sees the discussion flavor
+        // (`ref` + `replies`, Google Docs-style threads anchored to a highlight).
+        tagName: 'Comment',
+        label: 'Comment',
+        category: 'Text',
+        description: 'Inline note, stored as a markdown comment',
+        aliases: ['note', 'annotation', 'todo'],
+        icon: <IconComment />,
+        defaultProps: { text: '' },
+        ViewComponent: NotebookDiscussionComment,
+        EditComponent: NotebookDiscussionComment,
+        exclusiveEditPanel: true,
+        hideModeActions: true,
+        insertCommand: {},
+        getTitle: (node: NotebookComponentBlockNode) =>
+            isDiscussionCommentProps(node.props)
+                ? getNotebookDiscussionCommentTitle(node)
+                : (getUnknownStringProp(node.props.text) ?? 'Comment'),
     },
 ])
 
