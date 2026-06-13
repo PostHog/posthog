@@ -6,7 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-type ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+type ConstantDataType = Literal[
+    "int", "float", "str", "bool", "array", "tuple", "map", "date", "datetime", "uuid", "unknown"
+]
 type ConstantSupportedPrimitive = int | float | str | bool | date | datetime | UUID | None
 type ConstantSupportedData = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
@@ -46,9 +48,9 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
 
-type HogQLParserBackend = Literal["python", "cpp-json"]
+type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
 
 
 class LimitContext(StrEnum):
@@ -117,6 +119,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    grace_hash_join_initial_buckets: Optional[int] = None
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
@@ -144,6 +147,21 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
     # https://github.com/ClickHouse/ClickHouse/issues/64487
     optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
+    # A bugfix workaround for a distributed-planner crash under the new analyzer. ClickHouse rewrites
+    # `max(if(cond, <const>, NULL))` into `maxIf(<const>, cond)` (and similar for sum/avg/min, count(DISTINCT ...)),
+    # but the constant in the non-NULL branch is constant-folded to a different type on the initiator
+    # (`_CAST(1_UInt8, 'Nullable(UInt8)')`) than on the shards (`_CAST(1_Nullable(UInt8), 'Nullable(UInt8)')`),
+    # so distributed column matching fails with `Cannot find column maxIf(...)` (THERE_IS_NO_COLUMN).
+    # Disabling the rewrite avoids it with no perf cost (the rewrite benchmarks ~3-4% slower anyway).
+    # https://github.com/ClickHouse/ClickHouse/issues/82941
+    optimize_rewrite_aggregate_function_with_if: Optional[bool] = False
+    # The mirror image of the setting above, for `and(event != '1', event != '2', event != '3')` being optimized into
+    # `event NOT IN ('1', '2', '3')`. With transform_null_in=1 the new analyzer rewrites the synthesized notIn to
+    # notNullIn inconsistently between the shard (producing) and initiator (consuming) headers of a distributed query,
+    # so column matching fails with `Cannot find column minIf(..., notIn(...)) in source stream, there are only columns:
+    # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
+    # without touching NULL semantics (unlike transform_null_in).
+    optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
@@ -154,11 +172,4 @@ def get_default_hogql_global_settings(
     team_id: int | None = None,
     base: HogQLGlobalSettings | None = None,
 ) -> HogQLGlobalSettings:
-    settings = base.model_copy(deep=True) if base is not None else HogQLGlobalSettings()
-    # Only enable if not explicitly disabled (None = not set, False = explicitly disabled)
-    if settings.enable_analyzer is None and team_id is not None:
-        from posthog.settings.data_stores import is_enable_analyzer_team
-
-        if is_enable_analyzer_team(team_id):
-            settings.enable_analyzer = True
-    return settings
+    return base.model_copy(deep=True) if base is not None else HogQLGlobalSettings()

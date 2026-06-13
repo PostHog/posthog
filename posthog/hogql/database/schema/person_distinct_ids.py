@@ -2,6 +2,7 @@ from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.lazy_join_tags import PERSONS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     FieldOrTable,
@@ -13,17 +14,16 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
 
-PERSON_DISTINCT_IDS_FIELDS = {
+PERSON_DISTINCT_IDS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
     "person_id": StringDatabaseField(name="person_id", nullable=False),
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
-        join_function=join_with_persons_table,
+        resolver=PERSONS,
     ),
 }
 

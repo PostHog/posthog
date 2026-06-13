@@ -3,6 +3,7 @@ import 'whatwg-fetch'
 
 import { configure } from '@testing-library/react'
 import { TextDecoder, TextEncoder } from 'util'
+import { deserialize, serialize } from 'v8'
 
 // Jest/JSDom don't know about TextEncoder but the browsers we support do
 // https://github.com/jsdom/jsdom/issues/2524
@@ -64,6 +65,11 @@ if (typeof localStorage === 'undefined') {
     ;(global as any).localStorage = localStorageStub
 }
 
+// jsdom does not implement structuredClone — polyfill via Node's v8 serializer
+if (typeof globalThis.structuredClone !== 'function') {
+    globalThis.structuredClone = <T>(value: T): T => deserialize(serialize(value))
+}
+
 // jsdom does not implement AbortSignal.timeout — polyfill for tests
 if (typeof AbortSignal.timeout !== 'function') {
     AbortSignal.timeout = (ms: number): AbortSignal => {
@@ -83,6 +89,14 @@ if (typeof Element.prototype.scrollIntoView !== 'function') {
     Element.prototype.scrollIntoView = () => {}
 }
 
+// maplibre-gl probes window.URL.createObjectURL at module-eval time, but jsdom
+// doesn't implement it. Provide a noop so importing modules that transitively
+// pull in maplibre-gl (e.g. NotebookNodeMap) doesn't throw.
+if (typeof window !== 'undefined' && typeof window.URL.createObjectURL !== 'function') {
+    window.URL.createObjectURL = () => ''
+    window.URL.revokeObjectURL = () => {}
+}
+
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
     ;(globalThis as any).CSS = {}
@@ -100,11 +114,31 @@ mockIntersectionObserver.mockReturnValue({
 })
 ;(globalThis as any).IntersectionObserver = mockIntersectionObserver
 
+const mockResizeObserver = jest.fn()
+mockResizeObserver.mockReturnValue({
+    observe: () => null,
+    unobserve: () => null,
+    disconnect: () => null,
+})
+;(globalThis as any).ResizeObserver = mockResizeObserver
+
 // Tell React Testing Library to use "data-attr" as the test ID attribute
 configure({ testIdAttribute: 'data-attr' })
 
 // Mock DecompressionWorkerManager globally to avoid import.meta.url issues in tests
 jest.mock('scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+
+// Mock ConcurrencyController to be a pass-through. The module-level singleton in
+// dataNodeLogic persists across test files on the same Jest worker (resetModules is
+// disabled). Under CI load, stale items can block subsequent tests' queries indefinitely.
+// Tests don't need concurrency limiting, so we bypass it entirely.
+jest.mock('lib/utils/concurrencyController', () => {
+    class ConcurrencyController {
+        run = <T>({ fn }: { fn: () => Promise<T> }): Promise<T> => fn()
+        setConcurrencyLimit = (): void => {}
+    }
+    return { ConcurrencyController }
+})
 
 // Mock posthog-js surveys-preview to avoid ESM import issues in tests
 jest.mock('posthog-js/dist/surveys-preview', () => ({
@@ -137,6 +171,7 @@ jest.mock('posthog-js', () => {
         identify: jest.fn(),
         getFeatureFlag: jest.fn(),
         getFeatureFlagPayload: jest.fn(),
+        getFeatureFlagResult: jest.fn(),
         getAllFlags: jest.fn(),
         isFeatureEnabled: jest.fn(),
         getEarlyAccessFeatures: jest.fn(),

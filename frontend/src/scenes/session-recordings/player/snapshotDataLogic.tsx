@@ -67,8 +67,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         stopPolling: true,
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
-        setTargetTimestamp: (timestamp: number | null) => ({ timestamp }),
-        updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
+        setTargetTimestamp: (timestamp: number | null, windowId?: number) => ({ timestamp, windowId }),
+        updatePlaybackPosition: (timestamp: number, windowId?: number) => ({ timestamp, windowId }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
         // dispatch after any mutation to cache.store or cache.scheduler —
@@ -189,12 +189,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
+                    const newUuids: string[] = []
                     const registerWindowIdCallback = (uuid: string): number => {
                         if (uuid in localWindowIds) {
                             return localWindowIds[uuid]
                         }
                         const index = Object.keys(localWindowIds).length + 1
                         localWindowIds[uuid] = index
+                        newUuids.push(uuid)
                         return index
                     }
 
@@ -208,11 +210,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         )
                     ).sort((a, b) => a.timestamp - b.timestamp)
 
+                    breakpoint()
+
                     // Sync any newly discovered window IDs to the shared registry
-                    for (const uuid of Object.keys(localWindowIds)) {
-                        if (!(uuid in values.uuidToIndex)) {
-                            actions.registerWindowId(uuid)
-                        }
+                    for (const uuid of newUuids) {
+                        actions.registerWindowId(uuid)
                     }
                     cache.pendingBatch = { sources, snapshots: parsedSnapshots }
 
@@ -222,12 +224,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
-        setTargetTimestamp: ({ timestamp }) => {
+        setTargetTimestamp: ({ timestamp, windowId }) => {
             if (!cache.scheduler || !cache.store) {
                 return
             }
             if (timestamp !== null) {
                 cache.playbackPosition = timestamp
+                cache.playbackWindowId = windowId
 
                 const currentMode = cache.scheduler.currentMode
                 // Don't interrupt load_all (e.g. during export)
@@ -236,12 +239,16 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return
                 }
                 // Don't re-seek to the same target
-                if (currentMode.kind === 'seek' && currentMode.targetTimestamp === timestamp) {
+                if (
+                    currentMode.kind === 'seek' &&
+                    currentMode.targetTimestamp === timestamp &&
+                    currentMode.targetWindowId === windowId
+                ) {
                     return
                 }
                 // If we can already play at this position (data is loaded), no need to seek —
                 // this handles segment transitions during normal forward playback
-                if (cache.store.canPlayAt(timestamp)) {
+                if (cache.store.canPlayAt(timestamp, windowId)) {
                     actions.loadNextSnapshotSource()
                     return
                 }
@@ -256,14 +263,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return
                 }
 
-                cache.scheduler.seekTo(timestamp)
+                cache.scheduler.seekTo(timestamp, windowId)
                 actions.storeUpdated()
                 actions.loadNextSnapshotSource()
             }
         },
 
-        updatePlaybackPosition: ({ timestamp }) => {
+        updatePlaybackPosition: ({ timestamp, windowId }) => {
             cache.playbackPosition = timestamp
+            cache.playbackWindowId = windowId
             // Trigger loading if the buffer ahead needs filling
             actions.loadNextSnapshotSource()
         },
@@ -437,7 +445,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             // mutating the store. Kea can't see that, so dispatch storeUpdated
             // to invalidate selectors that read scheduler state (#53893).
             const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
-            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
+            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition, cache.playbackWindowId)
             if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {
                 actions.storeUpdated()
             }
@@ -519,7 +527,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 if (mode.kind !== 'seek') {
                     return false
                 }
-                return !cache.store.canPlayAt(mode.targetTimestamp)
+                return !cache.store.canPlayAt(mode.targetTimestamp, mode.targetWindowId)
             },
         ],
 

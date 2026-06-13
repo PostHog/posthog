@@ -1,22 +1,27 @@
 from collections.abc import Sequence
 
+import unittest
 from posthog.test.base import BaseTest
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 from parameterized import parameterized
 
 from posthog.schema import (
     ArtifactMessage,
     ArtifactSource,
+    AssistantFunnelsEventsNode,
+    AssistantFunnelsQuery,
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     HumanMessage,
+    NodeKind,
     VisualizationArtifactContent,
     VisualizationMessage,
 )
 
 from ee.hogai.utils.helpers import (
+    cast_assistant_query,
     convert_tool_messages_to_dict,
     find_start_message,
     find_start_message_idx,
@@ -675,3 +680,55 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         self.assertEqual(result[1].meta.thinking[2]["type"], "thinking")
         self.assertIn("Based on my search", result[1].content)
         self.assertIn("(source.com)", result[1].content)
+
+
+class TestCastAssistantQuery(unittest.TestCase):
+    def test_funnel_optional_step_survives_cast(self):
+        query = AssistantFunnelsQuery(
+            kind=NodeKind.FUNNELS_QUERY,
+            series=[
+                AssistantFunnelsEventsNode(event="signed up"),
+                AssistantFunnelsEventsNode(event="profile filled", optionalInFunnel=True),
+                AssistantFunnelsEventsNode(event="purchase"),
+            ],
+        )
+
+        result = cast_assistant_query(query)
+
+        assert result.kind == "FunnelsQuery"
+        self.assertEqual(len(result.series), 3)
+        self.assertFalse(bool(getattr(result.series[0], "optionalInFunnel", False)))
+        self.assertTrue(bool(getattr(result.series[1], "optionalInFunnel", False)))
+        self.assertFalse(bool(getattr(result.series[2], "optionalInFunnel", False)))
+
+
+class TestStripBkDrilldownHandles(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("backtick_wrapped", "See `[bk-doc=abc123 #5]` for details", "See for details"),
+            ("bare_handle", "Info [bk-doc=uuid-here #0] more", "Info more"),
+            ("multiple_handles", "`[bk-doc=a #1]` and `[bk-doc=b #2]`", " and "),
+            ("no_handles", "Clean text without handles", "Clean text without handles"),
+        ]
+    )
+    def test_strip(self, _name: str, text: str, expected: str) -> None:
+        from ee.hogai.utils.helpers import strip_bk_drilldown_handles
+
+        assert strip_bk_drilldown_handles(text) == expected
+
+
+class TestNormalizeAiMessageStripsHandles(BaseTest):
+    def test_handles_stripped_from_text_content(self) -> None:
+        from ee.hogai.utils.helpers import normalize_ai_message
+
+        msg = AIMessage(content="Answer `[bk-doc=abc #3]` here.")
+        result = normalize_ai_message(msg)
+        assert "[bk-doc=" not in result[0].content
+        assert "Answer" in result[0].content
+
+    def test_handles_stripped_from_chunk_content(self) -> None:
+        from ee.hogai.utils.helpers import normalize_ai_message
+
+        msg = AIMessageChunk(content="Chunk `[bk-doc=xyz #7]` text.")
+        result = normalize_ai_message(msg)
+        assert "[bk-doc=" not in result[0].content

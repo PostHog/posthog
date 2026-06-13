@@ -1,11 +1,13 @@
 use chrono::{DateTime, Utc};
 use common_types::CapturedEvent;
 use serde_json::json;
-use tracing::warn;
+use tracing::error;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::event_restrictions::{AppliedRestrictions, EventContext, EventRestrictionService};
+use crate::event_restrictions::{
+    AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
+};
 use crate::prometheus::report_dropped_events;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
@@ -62,7 +64,7 @@ pub async fn check_restrictions(
             now_ts,
             ..Default::default()
         };
-        let applied = service.get_restrictions(token, &ctx).await;
+        let applied = service.get_restrictions(token, &ctx, Pipeline::Ai).await;
         merged = merged.merge(applied);
     }
 
@@ -93,7 +95,7 @@ pub fn build_events(
         });
 
         let data = serde_json::to_string(&event_data).map_err(|e| {
-            warn!("Failed to serialize OTel event data: {}", e);
+            error!("Failed to serialize OTel event data: {}", e);
             CaptureError::InternalError(format!("failed to serialize event data: {e}"))
         })?;
 
@@ -122,6 +124,8 @@ pub fn build_events(
             skip_person_processing: restrictions.skip_person_processing(),
             redirect_to_dlq: restrictions.redirect_to_dlq(),
             redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
+            skip_heatmap_processing: false,
+            overflow_reason: None,
         };
 
         processed.push(ProcessedEvent {

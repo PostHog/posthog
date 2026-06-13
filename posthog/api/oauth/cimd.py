@@ -27,8 +27,15 @@ from oauth2_provider.models import AbstractApplication
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import (
+    CIMDBlocklistEntry,
+    CIMDVerificationToken,
+    OAuthApplication,
+    find_cimd_verification_token,
+)
+from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
+from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
 from .dcr import validate_client_name
@@ -84,17 +91,32 @@ class CIMDGlobalThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": "global"}
 
 
-CIMD_THROTTLES = [CIMDBurstThrottle(), CIMDSustainedThrottle(), CIMDGlobalThrottle()]
+CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMDSustainedThrottle, CIMDGlobalThrottle]
 
 
-class CIMDMetadataDocument(TypedDict, total=False):
-    client_id: str
-    client_name: str
-    redirect_uris: list[str]
-    logo_uri: str
-    grant_types: list[str]
-    response_types: list[str]
-    token_endpoint_auth_method: str
+class ComPostHogNamespace(TypedDict, total=False):
+    verification_token: str
+    scopes: list[str]
+
+
+# Functional form required: "com.posthog" is not a valid Python identifier.
+CIMDMetadataDocument = TypedDict(
+    "CIMDMetadataDocument",
+    {
+        "client_id": str,
+        "client_name": str,
+        "redirect_uris": list[str],
+        "logo_uri": str,
+        "grant_types": list[str],
+        "response_types": list[str],
+        "token_endpoint_auth_method": str,
+        # Legacy top-level token — still read for backwards compatibility.
+        "posthog_verification_token": str,
+        # Preferred namespace — takes precedence over the legacy top-level key.
+        "com.posthog": ComPostHogNamespace,
+    },
+    total=False,
+)
 
 
 def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
@@ -137,13 +159,48 @@ def is_cimd_client_id(client_id: str | None) -> bool:
 
 
 def _cache_key(url: str) -> str:
-    hash = hashlib.sha256(url.encode()).hexdigest()
-    return f"cimd:metadata:{hash}"
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:metadata:{url_hash}"
 
 
 def _fetch_lock_key(url: str) -> str:
-    hash = hashlib.sha256(url.encode()).hexdigest()
-    return f"cimd:fetching:{hash}"
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:fetching:{url_hash}"
+
+
+def _blocked_key(url: str) -> str:
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:blocked:{url_hash}"
+
+
+def block_cimd_url(url: str, *, reason: str = "", created_by=None, ttl: int = 86400 * 365) -> None:
+    """Add a CIMD URL to the blocklist. Persists in Postgres; Redis is cache."""
+    CIMDBlocklistEntry.objects.update_or_create(
+        cimd_url=url,
+        defaults={"reason": reason, "created_by": created_by},
+    )
+    cache.set(_blocked_key(url), True, timeout=ttl)
+
+
+def unblock_cimd_url(url: str) -> None:
+    """Remove a CIMD URL from the blocklist."""
+    CIMDBlocklistEntry.objects.filter(cimd_url=url).delete()
+    cache.delete(_blocked_key(url))
+
+
+def is_cimd_url_blocked(url: str) -> bool:
+    """Check if a CIMD URL has been blocklisted.
+
+    Postgres is source of truth; Redis is a read-through cache so the hot
+    path stays a single in-memory lookup. A cache miss falls back to a DB
+    read and re-warms the cache, so a Redis flush doesn't expose blocked
+    URLs."""
+    cached = cache.get(_blocked_key(url))
+    if cached is not None:
+        return bool(cached)
+    blocked = CIMDBlocklistEntry.objects.filter(cimd_url=url).exists()
+    cache.set(_blocked_key(url), blocked, timeout=86400 * 365)
+    return blocked
 
 
 def _parse_cache_ttl(response: requests.Response) -> int:
@@ -265,6 +322,54 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     return metadata, cache_ttl
 
 
+def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
+    """Look up a verification token from CIMD metadata, preferring the nested
+    `com.posthog.verification_token` and falling back to the legacy top-level
+    `posthog_verification_token`. Falls back to the top-level token when the nested
+    one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
+    a partner whose legacy token still resolves. Returns the token record, or None."""
+    com_posthog = metadata.get("com.posthog")
+    if isinstance(com_posthog, dict):
+        nested_raw = com_posthog.get("verification_token")
+        if nested_raw and isinstance(nested_raw, str):
+            token = find_cimd_verification_token(nested_raw)
+            if token is not None:
+                return token
+
+    raw = metadata.get("posthog_verification_token")
+    if not raw or not isinstance(raw, str):
+        return None
+    return find_cimd_verification_token(raw)
+
+
+def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
+    is absent so callers leave existing scopes untouched. A present field returns a
+    (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
+
+    Raises CIMDValidationError when the field is present and non-empty but every entry is
+    non-grantable. An empty ceiling falls back to the broad UNPRIVILEGED_SCOPES default
+    (`effective_ceiling`), so silently storing `[]` here would widen a misconfigured app
+    to the full default surface — broader than it asked for. Reject it the way DCR rejects
+    an all-stripped `scope` string, so the partner fixes their metadata. An explicitly empty
+    list is left as the legitimate "use default" signal, same as an absent field.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    # Untrusted partner JSON: the TypedDict says list[str], but guard the real type.
+    raw_scopes: object = com_posthog.get("scopes")
+    if not isinstance(raw_scopes, list):
+        return None
+    filtered = filter_to_unprivileged_scopes(raw_scopes)
+    if raw_scopes and not filtered:
+        raise CIMDValidationError(
+            "None of the declared com.posthog.scopes are available to self-registered clients. "
+            "Remove the field to register with the default scope set."
+        )
+    return filtered
+
+
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
@@ -275,6 +380,8 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
+    verification = _resolve_verification_token(metadata)
+    resolved_scopes = _resolve_scopes(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -288,12 +395,27 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         cimd_metadata_url=url,
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
-        organization=None,
+        organization=verification.organization if verification else None,
+        scopes=resolved_scopes if resolved_scopes is not None else [],
         user=None,
     )
     app.full_clean()
     app.save()
+    if verification is not None:
+        _touch_verification_token(verification)
     return app
+
+
+TOUCH_VERIFICATION_TOKEN_MIN_INTERVAL = 300  # 5 minutes
+
+
+def _touch_verification_token(token: CIMDVerificationToken) -> None:
+    # Bump last_used_at at most once per TOUCH_VERIFICATION_TOKEN_MIN_INTERVAL
+    # per token to avoid vacuum / lock-contention pressure on busy partners.
+    sentinel_key = f"cimd:token_touched:{token.pk}"
+    if not cache.add(sentinel_key, True, timeout=TOUCH_VERIFICATION_TOKEN_MIN_INTERVAL):
+        return
+    CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
 def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
@@ -312,22 +434,79 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
             pass  # Keep existing name if new one is invalid
 
     app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    app.logo_uri = metadata.get("logo_uri") or None
+    app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
+
+    # Re-evaluate verification on every refresh so a rotated/removed token
+    # unlinks the app on the next fetch.
+    verification = _resolve_verification_token(metadata)
+    new_org = verification.organization if verification else None
+    update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
+
+    resolved_scopes = _resolve_scopes(metadata)
+    if resolved_scopes is not None:
+        app.scopes = resolved_scopes
+        update_fields.append("scopes")
+    old_org_id = app.organization_id
+    new_org_id = new_org.id if new_org else None
+    if old_org_id != new_org_id:
+        app.organization = new_org
+        update_fields.append("organization")
+        # When verification status flips on an already-provisioning app, keep
+        # the rate-limit tier in sync. Only bump when the source is one of our
+        # default tiers — explicit admin overrides (source="admin") and
+        # legacy rows with no source recorded (source="") stay put. Legacy
+        # rows are treated conservatively as admin to avoid clobbering values
+        # that pre-date this field.
+        if app.is_provisioning_partner and app.provisioning_rate_limit_account_requests_source in (
+            "default_unverified",
+            "default_verified",
+        ):
+            became_verified = old_org_id is None and new_org_id is not None
+            became_unverified = old_org_id is not None and new_org_id is None
+            if became_verified:
+                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                app.provisioning_rate_limit_account_requests_source = "default_verified"
+                update_fields.extend(
+                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
+                )
+            elif became_unverified:
+                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                app.provisioning_rate_limit_account_requests_source = "default_unverified"
+                update_fields.extend(
+                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
+                )
 
     try:
         app.full_clean()
-        app.save(update_fields=["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"])
+        app.save(update_fields=update_fields)
     except ValidationError as e:
         logger.warning("cimd_update_validation_failed", url=app.cimd_metadata_url, error=str(e))
         capture_exception(e)
         # Refresh from DB so we don't return a mutated-but-unsaved object
         app.refresh_from_db()
+    else:
+        if verification is not None:
+            _touch_verification_token(verification)
+        # Emit a distinct event on org re-linking so a metadata compromise
+        # flipping A→B (or A→None, None→A) is visible in analytics, not
+        # just buried in the generic refresh event.
+        if old_org_id != new_org_id:
+            posthoganalytics.capture(
+                distinct_id=app.cimd_metadata_url or str(app.pk),
+                event="cimd_application_org_changed",
+                properties={
+                    "cimd_url": app.cimd_metadata_url,
+                    "app_id": str(app.pk),
+                    "old_organization_id": str(old_org_id) if old_org_id else None,
+                    "new_organization_id": str(new_org_id) if new_org_id else None,
+                },
+            )
 
     return app
 
 
-def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
+def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytics.capture) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
 
@@ -337,6 +516,10 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
 
     Used by both synchronous (new client) and asynchronous (stale refresh) paths.
     """
+    if is_cimd_url_blocked(url):
+        logger.warning("cimd_blocked_url_fetch_attempt", url=url)
+        return None
+
     fetch_lock = _fetch_lock_key(url)
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None
@@ -349,7 +532,7 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
         if app:
             updated = _update_cimd_application(app, metadata)
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
-            posthoganalytics.capture(
+            capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_metadata_refreshed",
                 properties={
@@ -357,6 +540,8 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
                     "client_name": metadata.get("client_name"),
                     "app_id": str(updated.pk),
                     "cache_ttl": cache_ttl,
+                    "is_verified": updated.organization_id is not None,
+                    "organization_id": str(updated.organization_id) if updated.organization_id else None,
                 },
             )
             return updated
@@ -364,7 +549,7 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
         try:
             new_app = _create_cimd_application(url, metadata)
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
-            posthoganalytics.capture(
+            capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_created",
                 properties={
@@ -374,6 +559,12 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
                     "redirect_uris_count": len(metadata.get("redirect_uris", [])),
                     "has_logo": bool(metadata.get("logo_uri")),
                     "cache_ttl": cache_ttl,
+                    "is_verified": new_app.organization_id is not None,
+                    "organization_id": str(new_app.organization_id) if new_app.organization_id else None,
+                    "had_verification_token_attempt": bool(
+                        metadata.get("posthog_verification_token")
+                        or (isinstance(ns := metadata.get("com.posthog"), dict) and ns.get("verification_token"))
+                    ),
                 },
             )
             return new_app
@@ -391,10 +582,43 @@ def fetch_and_upsert_cimd_application(url: str) -> OAuthApplication | None:
 def refresh_cimd_metadata_task(url: str) -> None:
     """Celery task wrapper: refresh CIMD metadata in the background."""
     try:
-        fetch_and_upsert_cimd_application(url)
+        with ph_scoped_capture() as capture_ph_event:
+            fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
     except (CIMDFetchError, CIMDValidationError) as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)
+
+
+@shared_task(ignore_result=True, time_limit=30)
+def register_cimd_provisioning_application_task(url: str) -> None:
+    """Celery task: fetch CIMD metadata, create the app, and backfill provisioning defaults."""
+    try:
+        with ph_scoped_capture() as capture_ph_event:
+            app = fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
+            if app is None:
+                return
+            if not app.is_provisioning_partner:
+                apply_provisioning_defaults(app)
+                capture_ph_event(
+                    distinct_id=url,
+                    event="cimd_provisioning_partner_registered",
+                    properties={
+                        "cimd_url": url,
+                        "client_name": app.name,
+                        "app_id": str(app.pk),
+                        "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
+                        "is_verified": app.organization_id is not None,
+                        "organization_id": str(app.organization_id) if app.organization_id else None,
+                    },
+                )
+    except (CIMDFetchError, CIMDValidationError) as e:
+        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
+        capture_exception(e)
+
+
+def is_cimd_registration_in_progress(url: str) -> bool:
+    """Check if a fetch/registration is currently in progress for this CIMD URL."""
+    return bool(cache.get(_fetch_lock_key(url)))
 
 
 def get_or_create_cimd_application(url: str) -> OAuthApplication:
@@ -405,19 +629,15 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     - App exists + cache stale: return stale app, refresh in background
     - No app: fetch synchronously (must have the app before proceeding)
     """
-    app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
-
-    if app and cache.get(_cache_key(url)):
-        return app
-
-    if app:
-        refresh_cimd_metadata_task.delay(url)
+    # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
+    if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
+        if not cache.get(_cache_key(url)):
+            refresh_cimd_metadata_task.delay(url)
         return app
 
     # New client: synchronous fetch
-    result = fetch_and_upsert_cimd_application(url)
-    if result:
-        return result
+    if app := fetch_and_upsert_cimd_application(url):
+        return app
 
     # Lock was held — another request is already creating this app.
     # Poll the DB until it appears or we give up.
@@ -439,3 +659,84 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
     if is_cimd_client_id(client_id):
         return OAuthApplication.objects.get(cimd_metadata_url=client_id)
     return OAuthApplication.objects.get(client_id=client_id)
+
+
+# Defaults applied when a CIMD app is first used for provisioning. A self-serve
+# partner can hit /account_requests immediately without manual admin setup; the
+# app is opted into provisioning at the same trust level as other PKCE partners.
+# The account-request rate limit is set to a conservative floor so a single
+# self-serve partner cannot burn through bulk user-onboarding calls — admin can
+# raise it per-partner once a partner demonstrates legitimate volume. Verified
+# partners (those who presented a valid `posthog_verification_token`) get a
+# higher default since abuse is traceable to a real PostHog organization.
+CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
+CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
+CIMD_PROVISIONING_DEFAULTS = {
+    "provisioning_auth_method": "pkce",
+    "provisioning_active": True,
+    "provisioning_can_create_accounts": True,
+    "provisioning_can_provision_resources": True,
+    "provisioning_rate_limit_account_requests": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+}
+
+
+def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
+    """Return the provisioning default profile to apply to this CIMD app on
+    first-time registration. Verified apps (linked to a PostHog org) get the
+    higher account-request rate limit."""
+    defaults = dict(CIMD_PROVISIONING_DEFAULTS)
+    if app.organization_id is not None:
+        defaults["provisioning_rate_limit_account_requests"] = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+        defaults["provisioning_rate_limit_account_requests_source"] = "default_verified"
+    else:
+        defaults["provisioning_rate_limit_account_requests_source"] = "default_unverified"
+    return defaults
+
+
+def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
+    """Apply provisioning defaults to a CIMD app and persist them.
+
+    Computes the correct defaults (verified vs anonymous rate limit) based on
+    the app's organization linkage, sets the fields, and saves. Respects
+    `provisioning_disabled` as a kill switch - returns the app untouched
+    rather than re-enabling a partner an admin has explicitly disabled."""
+    if app.provisioning_disabled:
+        return app
+    defaults = _cimd_provisioning_defaults_for(app)
+    for field, value in defaults.items():
+        setattr(app, field, value)
+    app.save(update_fields=list(defaults.keys()))
+    return app
+
+
+def get_or_create_cimd_provisioning_application(url: str) -> OAuthApplication | None:
+    """
+    Resolve a CIMD URL to an OAuthApplication configured as a provisioning partner.
+
+    Creates the CIMD app via the normal fetch+upsert path if it doesn't exist,
+    then backfills provisioning defaults if they haven't been set. Existing apps
+    that already have provisioning fields configured (e.g. via admin) are left alone.
+
+    Returns None if the URL is blocklisted.
+    Raises CIMDFetchError / CIMDValidationError on fetch failures.
+    """
+    if is_cimd_url_blocked(url):
+        logger.warning("cimd_blocked_url", url=url)
+        return None
+
+    app = get_or_create_cimd_application(url)
+    if not app.is_provisioning_partner:
+        apply_provisioning_defaults(app)
+        posthoganalytics.capture(
+            distinct_id=url,
+            event="cimd_provisioning_partner_registered",
+            properties={
+                "cimd_url": url,
+                "client_name": app.name,
+                "app_id": str(app.pk),
+                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
+                "is_verified": app.organization_id is not None,
+                "organization_id": str(app.organization_id) if app.organization_id else None,
+            },
+        )
+    return app

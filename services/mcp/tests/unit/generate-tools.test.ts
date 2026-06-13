@@ -4,12 +4,14 @@ import {
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
-import type { ToolConfig } from '../../scripts/yaml-config-schema'
+import type { EnabledQueryWrapperToolConfig, EnabledToolConfig, ToolConfig } from '../../scripts/yaml-config-schema'
 
 function makeSpec(overrides: Partial<OpenApiSpec> = {}): OpenApiSpec {
     return {
@@ -435,6 +437,328 @@ describe('generateToolCode without input_schema', () => {
     })
 })
 
+describe('inject_body', () => {
+    const injectBodyResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it('emits hardcoded body assignments for inject_body entries', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(`body["created_via"] = "mcp"`)
+    })
+
+    it('emits inject_body after dynamic body builder so it overrides caller input', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        const nameIdx = result.code.indexOf(`body["name"]`)
+        const injectIdx = result.code.indexOf(`body["created_via"]`)
+        expect(nameIdx).toBeGreaterThan(-1)
+        expect(injectIdx).toBeGreaterThan(nameIdx)
+    })
+
+    it('initializes body even when inject_body is the only source', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            exclude_params: ['name'],
+            inject_body: { created_via: 'mcp' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('const body: Record<string, unknown> = {}')
+        expect(result.code).toContain(`body["created_via"] = "mcp"`)
+        expect(result.code).toContain('body,')
+    })
+
+    it('escapes inject_body keys that contain special characters', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+            inject_body: { "weird'key": 'safe' },
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            injectBodyResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // JSON.stringify escapes the single quote so the generated TS stays valid.
+        expect(result.code).toContain(`body["weird'key"] = "safe"`)
+    })
+})
+
+describe('anyOf / oneOf body schemas (discriminated unions)', () => {
+    // Polymorphic Python serializers (e.g. file-download-batch-exports) emit
+    // request bodies as `anyOf` of per-variant object schemas. Without union
+    // handling, `bodyFieldNames` stays empty and the generated handler POSTs
+    // with no body — the server rejects the request as "field required".
+    const unionResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            kind: { type: 'string', enum: ['a'] },
+                                            shared_field: { type: 'string' },
+                                            only_in_a: { type: 'string' },
+                                        },
+                                        required: ['kind', 'shared_field'],
+                                    },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            kind: { type: 'string', enum: ['b'] },
+                                            shared_field: { type: 'string' },
+                                            only_in_b: { type: 'number' },
+                                        },
+                                        required: ['kind', 'shared_field', 'only_in_b'],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it('emits body assembly for every field, guarding variant-specific access with `in`', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            unionResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // Body is initialized and forwarded.
+        expect(result.code).toContain('const body: Record<string, unknown> = {}')
+        expect(result.code).toContain('body,')
+
+        // Every field across all variants is assembled into the body.
+        expect(result.code).toContain(`body["kind"] = params.kind`)
+        expect(result.code).toContain(`body["shared_field"] = params.shared_field`)
+        expect(result.code).toContain(`body["only_in_a"] = params.only_in_a`)
+        expect(result.code).toContain(`body["only_in_b"] = params.only_in_b`)
+
+        // Fields present in every variant don't need the `in` guard.
+        expect(result.code).toContain('if (params.kind !== undefined)')
+        expect(result.code).toContain('if (params.shared_field !== undefined)')
+        // Fields only in some variants must be guarded with `'X' in params` so
+        // accessing them on the inferred union type still type-checks.
+        expect(result.code).toContain(`if ('only_in_a' in params && params.only_in_a !== undefined)`)
+        expect(result.code).toContain(`if ('only_in_b' in params && params.only_in_b !== undefined)`)
+    })
+
+    it('flattens allOf composition inside a union variant', () => {
+        // Mirrors the common OpenAPI pattern of a variant that extends a base
+        // schema via allOf (e.g. `$ref` + extra properties). Without allOf
+        // handling the base-schema fields would be dropped from the body.
+        const spec = makeSpec({
+            components: {
+                schemas: {
+                    BaseFields: {
+                        type: 'object',
+                        properties: {
+                            base_field: { type: 'string' },
+                        },
+                        required: ['base_field'],
+                    },
+                },
+            },
+        })
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    {
+                                        allOf: [
+                                            { $ref: '#/components/schemas/BaseFields' },
+                                            {
+                                                type: 'object',
+                                                properties: {
+                                                    kind: { type: 'string', enum: ['a'] },
+                                                    only_in_a: { type: 'string' },
+                                                },
+                                                required: ['kind'],
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            base_field: { type: 'string' },
+                                            kind: { type: 'string', enum: ['b'] },
+                                        },
+                                        required: ['base_field', 'kind'],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            spec,
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // allOf-composed fields reach the body builder, treated as shared
+        // (present in every variant) rather than variant-specific.
+        expect(result.code).toContain(`body["base_field"] = params.base_field`)
+        expect(result.code).toContain('if (params.base_field !== undefined)')
+        expect(result.code).toContain('if (params.kind !== undefined)')
+        // The variant-only field still gets `in`-guarded.
+        expect(result.code).toContain(`if ('only_in_a' in params && params.only_in_a !== undefined)`)
+    })
+
+    it('resolves $ref-based union variants from components.schemas', () => {
+        const spec = makeSpec({
+            components: {
+                schemas: {
+                    VariantA: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, payload_a: { type: 'string' } },
+                        required: ['kind'],
+                    },
+                    VariantB: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, payload_b: { type: 'string' } },
+                        required: ['kind'],
+                    },
+                },
+            },
+        })
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                oneOf: [
+                                    { $ref: '#/components/schemas/VariantA' },
+                                    { $ref: '#/components/schemas/VariantB' },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            spec,
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(`body["payload_a"] = params.payload_a`)
+        expect(result.code).toContain(`body["payload_b"] = params.payload_b`)
+    })
+})
+
 describe('rename_params', () => {
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
@@ -506,34 +830,231 @@ describe('rename_params', () => {
         )
 
         expect(result.code).toContain('params.property_key !== undefined')
-        expect(result.code).toContain("body['$unset'] = params.property_key")
+        expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
     })
 })
 
+describe('x-accepts-stringified-json query params', () => {
+    function resolvedWith(parameters: NonNullable<ResolvedOperation['operation']['parameters']>): ResolvedOperation {
+        return makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters,
+            },
+        })
+    }
+
+    it('widens schema for params marked x-accepts-stringified-json', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                description: 'Filters override.',
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain(
+            "filters_override: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe('Filters override.')"
+        )
+    })
+
+    it('does not widen sibling params that lack the extension', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+            {
+                in: 'query',
+                name: 'plain_string',
+                schema: { type: 'string' },
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).toContain('filters_override: z.union([z.string()')
+        expect(result.schemaExpr).not.toContain('plain_string: z.union(')
+    })
+
+    it('does not widen params named *_override without the extension', () => {
+        const config: ToolConfig = { operation: 'things_list', enabled: true }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                // no x-accepts-stringified-json — magic naming alone must not trigger widening
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).not.toContain('z.union([z.string()')
+    })
+
+    it('skips widening when the YAML config also defines a param_override for the same field', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            param_overrides: {
+                filters_override: { description: 'Custom YAML description' },
+            },
+        }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                description: 'OpenAPI description',
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        // YAML wins — describe() comes through, no union extension afterwards.
+        expect(result.schemaExpr).toContain('Custom YAML description')
+        expect(result.schemaExpr).not.toContain('z.union([z.string()')
+    })
+
+    it('respects exclude_params — excluded fields are not widened', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            exclude_params: ['filters_override'],
+        }
+        const resolved = resolvedWith([
+            {
+                in: 'query',
+                name: 'filters_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+            {
+                in: 'query',
+                name: 'variables_override',
+                schema: { type: 'string' },
+                'x-accepts-stringified-json': true,
+            },
+        ])
+
+        const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+
+        expect(result.schemaExpr).not.toContain('filters_override: z.union(')
+        expect(result.schemaExpr).toContain('variables_override: z.union([z.string()')
+    })
+})
+
 describe('QueryWrapperToolConfigSchema validation', () => {
-    it('accepts response_format: json', () => {
+    it.each([true, false] as const)('accepts use_optimized_output: %s', (value) => {
         const result = QueryWrapperToolConfigSchema.safeParse({
             schema_ref: 'AssistantTrendsQuery',
             enabled: true,
             scopes: ['query:read'],
             annotations: { readOnly: true, destructive: false, idempotent: true },
-            response_format: 'json',
+            use_optimized_output: value,
         })
         expect(result.success).toBe(true)
     })
 
-    it('rejects unknown response_format values', () => {
+    it('rejects non-boolean use_optimized_output values', () => {
         const result = QueryWrapperToolConfigSchema.safeParse({
             schema_ref: 'AssistantTrendsQuery',
             enabled: true,
-            response_format: 'xml',
+            use_optimized_output: 'optimized',
         })
         expect(result.success).toBe(false)
     })
+
+    it('accepts system_prompt_hint on query wrappers', () => {
+        const result = QueryWrapperToolConfigSchema.safeParse({
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Time series, aggregations, formulas',
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts system_prompt_hint on standard tools', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'logs_query_create',
+            enabled: true,
+            system_prompt_hint: 'Log filtering by severity/service/attribute',
+        })
+        expect(result.success).toBe(true)
+    })
 })
 
-describe('generateQueryWrapperFile with response_format', () => {
+describe('system_prompt_hint flows into tool definitions', () => {
+    it('propagates system_prompt_hint from wrapper YAML into the generated definition', () => {
+        const wrapperConfig: EnabledQueryWrapperToolConfig = {
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Time series, aggregations, formulas',
+        }
+        const definitions = generateQueryWrapperDefinitionsJson(
+            { category: 'Query wrappers', feature: 'insights', wrappers: {} },
+            [['query-trends', wrapperConfig]],
+            '/tmp'
+        ) as Record<string, { system_prompt_hint?: string }>
+        expect(definitions['query-trends']?.system_prompt_hint).toBe('Time series, aggregations, formulas')
+    })
+
+    it('omits system_prompt_hint from the wrapper definition when not set', () => {
+        const wrapperConfig: EnabledQueryWrapperToolConfig = {
+            schema_ref: 'AssistantTrendsQuery',
+            enabled: true,
+            scopes: ['query:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+        }
+        const definitions = generateQueryWrapperDefinitionsJson(
+            { category: 'Query wrappers', feature: 'insights', wrappers: {} },
+            [['query-trends', wrapperConfig]],
+            '/tmp'
+        )
+        expect((definitions['query-trends'] as Record<string, unknown>).system_prompt_hint).toBeUndefined()
+    })
+
+    it('propagates system_prompt_hint from standard tool YAML into the generated definition', () => {
+        const toolConfig: EnabledToolConfig = {
+            operation: 'logs_query_create',
+            enabled: true,
+            scopes: ['logs:read'],
+            annotations: { readOnly: true, destructive: false, idempotent: true },
+            system_prompt_hint: 'Log filtering by severity/service/attribute',
+        }
+        const resolved: ResolvedOperation = {
+            method: 'POST',
+            path: '/api/projects/{project_id}/logs/query/',
+            operation: { operationId: 'logs_query_create', description: 'Query logs' },
+        }
+        const definitions = generateDefinitionsJson([
+            {
+                config: { category: 'Logs', feature: 'logs', url_prefix: '/logs', tools: {} },
+                enabledTools: [['query-logs', toolConfig, resolved]],
+                enabledWrappers: [],
+                yamlDir: '/tmp',
+            },
+        ]) as Record<string, { system_prompt_hint?: string }>
+        expect(definitions['query-logs']?.system_prompt_hint).toBe('Log filtering by severity/service/attribute')
+    })
+})
+
+describe('generateQueryWrapperFile with use_optimized_output', () => {
     const minimalQuerySchema = {
         definitions: {
             AssistantTestQuery: {
@@ -546,7 +1067,7 @@ describe('generateQueryWrapperFile with response_format', () => {
         },
     }
 
-    it('emits responseFormat in createQueryWrapper call when response_format is set', () => {
+    it('emits outputFormat: optimized when use_optimized_output is true', () => {
         const { code } = generateQueryWrapperFile(
             {
                 category: 'Test',
@@ -557,7 +1078,7 @@ describe('generateQueryWrapperFile with response_format', () => {
                         enabled: true,
                         scopes: ['query:read'],
                         annotations: { readOnly: true, destructive: false, idempotent: true },
-                        response_format: 'json',
+                        use_optimized_output: true,
                     },
                 },
             },
@@ -565,10 +1086,57 @@ describe('generateQueryWrapperFile with response_format', () => {
             minimalQuerySchema
         )
 
-        expect(code).toContain("responseFormat: 'json'")
+        expect(code).toContain("outputFormat: 'optimized'")
     })
 
-    it('omits responseFormat when response_format is not set', () => {
+    it.each([false, undefined] as const)('emits outputFormat: json when use_optimized_output is %s', (value) => {
+        const { code } = generateQueryWrapperFile(
+            {
+                category: 'Test',
+                feature: 'test',
+                wrappers: {
+                    'query-test': {
+                        schema_ref: 'AssistantTestQuery',
+                        enabled: true,
+                        scopes: ['query:read'],
+                        annotations: { readOnly: true, destructive: false, idempotent: true },
+                        ...(value === undefined ? {} : { use_optimized_output: value }),
+                    },
+                },
+            },
+            'test.yaml',
+            minimalQuerySchema
+        )
+
+        expect(code).toContain("outputFormat: 'json'")
+    })
+
+    it('extends the wrapper schema with an output_format input when use_optimized_output is true', () => {
+        const { code } = generateQueryWrapperFile(
+            {
+                category: 'Test',
+                feature: 'test',
+                wrappers: {
+                    'query-test': {
+                        schema_ref: 'AssistantTestQuery',
+                        enabled: true,
+                        scopes: ['query:read'],
+                        annotations: { readOnly: true, destructive: false, idempotent: true },
+                        use_optimized_output: true,
+                    },
+                },
+            },
+            'test.yaml',
+            minimalQuerySchema
+        )
+
+        expect(code).toContain('QueryTestSchema = AssistantTestQuery.extend({')
+        expect(code).toContain('output_format: z')
+        expect(code).toContain(".enum(['optimized', 'json'])")
+        expect(code).toContain(".default('optimized')")
+    })
+
+    it('does not expose an output_format input when use_optimized_output is false', () => {
         const { code } = generateQueryWrapperFile(
             {
                 category: 'Test',
@@ -586,7 +1154,7 @@ describe('generateQueryWrapperFile with response_format', () => {
             minimalQuerySchema
         )
 
-        expect(code).not.toContain('responseFormat')
+        expect(code).not.toContain('output_format: z')
     })
 })
 
@@ -952,5 +1520,188 @@ describe('path parameter encoding', () => {
         // Fallback params use local variable (no params. prefix) but still get encoded
         expect(result.code).toContain('${encodeURIComponent(String(id))}')
         expect(result.code).not.toMatch(/\$\{id\}[^)]/)
+    })
+})
+
+// ------------------------------------------------------------------
+// confirmed_action — schema validation
+// ------------------------------------------------------------------
+
+describe('ToolConfigSchema confirmed_action', () => {
+    const base = {
+        operation: 'organizations_partial_update',
+        enabled: true,
+    } as const
+
+    it('accepts a minimal confirmed_action block', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'Confirm action on {orgId}?' },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts an action_label override', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'Confirm', action_label: 'enforce 2FA' },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects missing message', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { action_label: 'foo' },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects confirmed_action combined with ui_app (silent UI-app drop)', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            ui_app: 'org-2fa',
+            confirmed_action: { message: 'x' },
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.issues[0]!.message).toContain('ui_app')
+        }
+    })
+
+    it('rejects unknown keys inside the confirmed_action object', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'x', bogus: true },
+        })
+        expect(result.success).toBe(false)
+    })
+})
+
+// ------------------------------------------------------------------
+// generateToolCode — confirmed_action codegen
+// ------------------------------------------------------------------
+
+describe('generateToolCode with confirmed_action', () => {
+    function makeConfirmedConfig(): ToolConfig {
+        return {
+            operation: 'organizations_partial_update',
+            enabled: true,
+            title: 'Enforce 2FA',
+            confirmed_action: {
+                message: 'About to enable enforce 2FA on organization {id}.',
+                action_label: 'enforce 2FA',
+            },
+        }
+    }
+
+    function makePatchResolved(): ResolvedOperation {
+        return {
+            method: 'PATCH',
+            path: '/api/organizations/{id}/',
+            operation: { operationId: 'organizations_partial_update', parameters: [] },
+        }
+    }
+
+    it('emits TWO factories (prepare and execute), not the base factory', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('organizationEnforce2faUpdatePrepare')
+        expect(result.code).toContain('organizationEnforce2faUpdateExecute')
+        // No base factory of the original name should be emitted.
+        expect(result.code).not.toMatch(/const organizationEnforce2faUpdate\s*=/)
+    })
+
+    it('extends the base schema for the execute variant with confirmation fields', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('OrganizationEnforce2faUpdateSchemaExecute')
+        expect(result.code).toContain('.extend({')
+        expect(result.code).toContain('confirmation_hash')
+        expect(result.code).toContain('confirmation:')
+    })
+
+    it('wires prepare into prepareConfirmedAction with the messageTemplate', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await prepareConfirmedAction')
+        expect(result.code).toContain('purpose: "organization-enforce-2fa-update"')
+        expect(result.code).toContain('actionLabel: "enforce 2FA"')
+        expect(result.code).toContain('messageTemplate: "About to enable enforce 2FA on organization {id}."')
+    })
+
+    it('wires execute into executeConfirmedAction and falls through to the original API call', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await executeConfirmedAction')
+        expect(result.code).toContain('if (!__guard.ok)')
+        // After the guard, the handler runs the original API request.
+        expect(result.code).toContain('await context.api.request')
+        expect(result.code).toContain("method: 'PATCH'")
+    })
+
+    it('REPLACES params with verifiedArgs (never merges) so unsigned extras cannot survive', () => {
+        // The generated handler must not preserve incoming params alongside
+        // verifiedArgs — only the signed payload is authorized. A merge
+        // would let the model slip an unsigned base-schema field (e.g. an
+        // extra 'name') into the downstream API body without it ever being
+        // shown to the user at prepare time.
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('params = { ...__guard.verifiedArgs }')
+        expect(result.code).not.toMatch(/params\s*=\s*\{\s*\.\.\.params\s*,\s*\.\.\.__guard\.verifiedArgs/)
+    })
+
+    it('uses the tool title as the fallback action_label when none is set', () => {
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            title: 'Enforce 2FA',
+            confirmed_action: { message: 'msg' },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('actionLabel: "Enforce 2FA"')
     })
 })

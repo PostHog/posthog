@@ -3,7 +3,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
@@ -96,6 +96,14 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     // We should only check and logout if we have a user
                     return
                 }
+
+                // During impersonation, don't auto-logout on 401.
+                // The ImpersonationNotice component handles session expiry
+                // via its countdown timer and shows a re-impersonation overlay.
+                if (userLogic.findMounted()?.values.user?.is_impersonated) {
+                    return
+                }
+
                 // api.ts calls this if we see a 401
                 const now = Date.now()
 

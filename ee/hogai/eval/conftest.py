@@ -18,6 +18,26 @@ def pytest_addoption(parser):
         default=False,
         help="Skip the sandboxed eval harness Docker container cleanup at session end (for debugging).",
     )
+    parser.addoption(
+        "--mcp-mode",
+        action="store",
+        default="both",
+        choices=("tools", "cli", "both"),
+        help=(
+            "Which PostHog MCP execution mode to exercise in sandboxed evals. "
+            "'tools' registers each tool individually; 'cli' wraps them in a single "
+            "`exec` tool; 'both' (default) parametrizes each test across both modes."
+        ),
+    )
+    parser.addoption(
+        "--agent-model",
+        action="store",
+        default="anthropic/claude-opus-4-8",
+        help=(
+            "Model the sandboxed agent runs against. Pinned for stable cross-run "
+            "comparisons. Defaults to anthropic/claude-opus-4-8."
+        ),
+    )
 
 
 _nodeid_to_results_url_map: dict[str, str] = {}

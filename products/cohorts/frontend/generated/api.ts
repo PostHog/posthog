@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CohortApi,
+    CohortPersonsResponseApi,
+    CohortUsedInResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     PaginatedCohortListApi,
@@ -40,7 +42,7 @@ export const getCohortsListUrl = (projectId: string, params?: CohortsListParams)
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -68,7 +70,7 @@ export const getCohortsCreateUrl = (projectId: string) => {
 
 export const cohortsCreate = async (
     projectId: string,
-    cohortApi: NonReadonly<CohortApi>,
+    cohortApi?: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsCreateUrl(projectId), {
@@ -97,7 +99,7 @@ export const getCohortsUpdateUrl = (projectId: string, id: number) => {
 export const cohortsUpdate = async (
     projectId: string,
     id: number,
-    cohortApi: NonReadonly<CohortApi>,
+    cohortApi?: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsUpdateUrl(projectId, id), {
@@ -115,7 +117,7 @@ export const getCohortsPartialUpdateUrl = (projectId: string, id: number) => {
 export const cohortsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedCohortApi: NonReadonly<PatchedCohortApi>,
+    patchedCohortApi?: NonReadonly<PatchedCohortApi>,
     options?: RequestInit
 ): Promise<CohortApi> => {
     return apiMutator<CohortApi>(getCohortsPartialUpdateUrl(projectId, id), {
@@ -126,13 +128,13 @@ export const cohortsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getCohortsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const cohortsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getCohortsDestroyUrl(projectId, id), {
         ...options,
@@ -140,12 +142,12 @@ export const cohortsDestroy = async (projectId: string, id: number, options?: Re
     })
 }
 
-export const getCohortsActivityRetrieve2Url = (projectId: string, id: number) => {
+export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieve2Url(projectId, id), {
+export const cohortsActivityRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -158,7 +160,7 @@ export const getCohortsAddPersonsToStaticCohortPartialUpdateUrl = (projectId: st
 export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedAddPersonsToStaticCohortRequestApi: PatchedAddPersonsToStaticCohortRequestApi,
+    patchedAddPersonsToStaticCohortRequestApi?: PatchedAddPersonsToStaticCohortRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getCohortsAddPersonsToStaticCohortPartialUpdateUrl(projectId, id), {
@@ -189,7 +191,7 @@ export const getCohortsPersonsRetrieveUrl = (projectId: string, id: number, para
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -205,8 +207,8 @@ export const cohortsPersonsRetrieve = async (
     id: number,
     params?: CohortsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
+): Promise<CohortPersonsResponseApi> => {
+    return apiMutator<CohortPersonsResponseApi>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -219,7 +221,7 @@ export const getCohortsRemovePersonFromStaticCohortPartialUpdateUrl = (projectId
 export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedRemovePersonRequestApi: PatchedRemovePersonRequestApi,
+    patchedRemovePersonRequestApi?: PatchedRemovePersonRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getCohortsRemovePersonFromStaticCohortPartialUpdateUrl(projectId, id), {
@@ -230,12 +232,27 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     })
 }
 
-export const getCohortsActivityRetrieveUrl = (projectId: string) => {
+export const getCohortsUsedInRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/used_in/`
+}
+
+export const cohortsUsedInRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortUsedInResponseApi> => {
+    return apiMutator<CohortUsedInResponseApi>(getCohortsUsedInRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCohortsAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/cohorts/activity/`
 }
 
-export const cohortsActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId), {
+export const cohortsAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCohortsAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

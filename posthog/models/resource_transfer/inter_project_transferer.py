@@ -21,6 +21,7 @@ from posthog.models.resource_transfer.types import (
     RewriteRelationFn,
 )
 from posthog.models.resource_transfer.visitors import ResourceTransferVisitor
+from posthog.models.scoping import team_scope
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +55,8 @@ def duplicate_resource_to_new_team(
         substitution_count=len(substitutions) if substitutions else 0,
     )
     with transaction.atomic():
-        graph = list(build_resource_duplication_graph(resource, set()))
+        with team_scope(source_team.id):
+            graph = list(build_resource_duplication_graph(resource, set()))
         logger.info(
             "resource_transfer.graph_built",
             vertex_count=len(graph),
@@ -208,7 +210,7 @@ def dag_sort_duplication_graph(graph: Iterable[ResourceTransferVertex]) -> tuple
 
 def build_resource_duplication_graph(
     resource: Any, exclude_set: set[ResourceTransferKey], depth: int = 1
-) -> Generator[ResourceTransferVertex, None, None]:
+) -> Generator[ResourceTransferVertex]:
     """
     This function builds a graph representing the relations in the connected component that `resource` is a member of.
 
@@ -405,29 +407,30 @@ def get_suggested_substitutions(
     """
     recommendations: list[tuple[ResourceTransferKey, ResourceTransferKey]] = []
 
-    for vertex in dag:
-        visitor = ResourceTransferVisitor.get_visitor(vertex.model)
+    with team_scope(new_team.id):
+        for vertex in dag:
+            visitor = ResourceTransferVisitor.get_visitor(vertex.model)
 
-        if visitor is None:
-            raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
+            if visitor is None:
+                raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
 
-        if visitor.is_immutable():
-            continue
+            if visitor.is_immutable():
+                continue
 
-        suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
+            suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
 
-        if suggested_resource is None:
-            suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
+            if suggested_resource is None:
+                suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
 
-        if suggested_resource is None:
-            continue
+            if suggested_resource is None:
+                continue
 
-        source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
-        dest_key: ResourceTransferKey = (
-            cast(ResourceKind, visitor.kind),
-            suggested_resource.pk,
-        )
-        recommendations.append((source_key, dest_key))
+            source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
+            dest_key: ResourceTransferKey = (
+                cast(ResourceKind, visitor.kind),
+                suggested_resource.pk,
+            )
+            recommendations.append((source_key, dest_key))
 
     return recommendations
 
@@ -450,7 +453,7 @@ def _find_resource_with_transfer_record(
 
     model = visitor.get_model()
     try:
-        previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
+        previously_duplicated_resource = cast(Any, model).objects.get(pk=transfer_record.duplicated_resource_id)
 
         return previously_duplicated_resource
     except ObjectDoesNotExist:
@@ -467,7 +470,7 @@ def _find_resource_with_same_name(
     if not hasattr(resource, "name") or not resource.name or not hasattr(resource, "team"):
         return None
 
-    matching_resource = model.objects.filter(name=resource.name, team=new_team).first()
+    matching_resource = cast(Any, model).objects.filter(name=resource.name, team=new_team).first()
 
     return matching_resource
 
@@ -485,10 +488,12 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
     ``"<name> (Copy 3)"`` … until a free slot is found.
     """
     taken_names: set[str] = set(
-        model.objects.filter(
+        cast(Any, model)
+        .objects.filter(
             Q(name=name) | Q(name=f"{name} (Copy)") | Q(name__regex=rf"^{re.escape(name)} \(Copy \d+\)$"),
             team=team,
-        ).values_list("name", flat=True)
+        )
+        .values_list("name", flat=True)
     )
 
     if name not in taken_names:
@@ -507,13 +512,13 @@ def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
 
 def _deduplicate_feature_flag_key(model: type[models.Model], key: str, team: Team) -> str:
     """Return a unique ``key`` for a feature flag being copied into *team*."""
-    if not model.objects.filter(team=team, key=key).exists():
+    if not cast(Any, model).objects.filter(team=team, key=key).exists():
         return key
     candidate = f"{key}-copy"
-    if not model.objects.filter(team=team, key=candidate).exists():
+    if not cast(Any, model).objects.filter(team=team, key=candidate).exists():
         return candidate
     counter = 2
-    while model.objects.filter(team=team, key=f"{key}-copy-{counter}").exists():
+    while cast(Any, model).objects.filter(team=team, key=f"{key}-copy-{counter}").exists():
         counter += 1
     return f"{key}-copy-{counter}"
 
@@ -653,13 +658,14 @@ def _duplicate_vertex(
 
     payload = visitor.adjust_duplicate_payload(payload, vertex, new_team)
 
-    if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
-        payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
+    with team_scope(new_team.id):
+        if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
+            payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
 
-    if visitor.kind == "FeatureFlag" and payload.get("key"):
-        payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
+        if visitor.kind == "FeatureFlag" and payload.get("key"):
+            payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
 
-    new_resource = cast(Any, visitor.get_model()).objects.create(**payload)
+        new_resource = cast(Any, visitor.get_model()).objects.create(**payload)
     logger.info(
         "resource_transfer.duplicate_vertex.created",
         kind=visitor.kind,

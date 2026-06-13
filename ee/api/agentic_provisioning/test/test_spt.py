@@ -4,10 +4,10 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
-from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 
-class TestSharedPaymentToken(StripeProvisioningTestBase):
+class TestSharedPaymentToken(ProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.requests.post")
     @patch("ee.billing.billing_manager.build_billing_token", return_value="test_billing_token")
     @patch("posthog.cloud_utils.get_cached_instance_license")
@@ -45,6 +45,18 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
         )
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
+
+    def test_provisioning_pay_as_you_go_without_spt_returns_error(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "pay_as_you_go"},
+            token=token,
+        )
+        assert res.status_code == 400
+        body = res.json()
+        assert body["status"] == "error"
+        assert body["error"]["code"] == "requires_payment_credentials"
 
     @patch("ee.api.agentic_provisioning.views.requests.post")
     def test_provisioning_ignores_invalid_payment_credentials_type(self, mock_post):
@@ -142,6 +154,6 @@ class TestSharedPaymentToken(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+            headers={"stripe-signature": f"t={ts},v1={sig}"},
         )
         return res.json()

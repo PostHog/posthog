@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconSort, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconDownload, IconSort, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
+    LemonInput,
     LemonSegmentedButton,
     LemonTable,
     LemonTableColumns,
@@ -38,8 +39,10 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, searchQuery, selectedSymbolSetIds, deleteSymbolSetResponseLoading } =
+        useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, setSearchQuery, bulkDeleteSymbolSets } =
+        useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -57,8 +60,16 @@ export function SymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                     <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search by reference, release, version, or commit"
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                            fullWidth
+                            className="w-90"
+                        />
                         {selectedSymbolSetIds.length > 0 && (
                             <>
                                 <LemonButton
@@ -117,8 +128,14 @@ const SymbolSetTable = (): JSX.Element => {
         shiftKeyHeld,
         previouslyCheckedIndex,
     } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setSymbolSetOrder, setSelectedSymbolSetIds, setPreviouslyCheckedIndex, setPage } =
-        useActions(symbolSetLogic)
+    const {
+        deleteSymbolSet,
+        downloadSymbolSet,
+        setSymbolSetOrder,
+        setSelectedSymbolSetIds,
+        setPreviouslyCheckedIndex,
+        setPage,
+    } = useActions(symbolSetLogic)
 
     const symbolSets = symbolSetResponse?.results || []
     const pagination = {
@@ -194,10 +211,13 @@ const SymbolSetTable = (): JSX.Element => {
         },
         {
             title: 'Status',
-            render: (_, { failure_reason }) => {
+            render: (_, { failure_reason, has_uploaded_file }) => {
+                const statusTooltip =
+                    failure_reason || (!has_uploaded_file ? 'No source map file has been uploaded' : undefined)
+
                 return (
-                    <Tooltip title={failure_reason} placement="top">
-                        {failure_reason ? (
+                    <Tooltip title={statusTooltip} placement="top">
+                        {!has_uploaded_file ? (
                             <span className="text-danger cursor-pointer">
                                 <IconWarning /> Missing
                             </span>
@@ -232,9 +252,18 @@ const SymbolSetTable = (): JSX.Element => {
             dataIndex: 'id',
             align: 'right',
 
-            render: (_, { id }) => {
+            render: (_, { id, has_uploaded_file }) => {
                 return (
                     <div className="flex justify-end items-center gap-1">
+                        {has_uploaded_file && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                tooltip="Download source map"
+                                icon={<IconDownload />}
+                                onClick={() => downloadSymbolSet(id)}
+                            />
+                        )}
                         <LemonButton
                             type="tertiary"
                             size="xsmall"

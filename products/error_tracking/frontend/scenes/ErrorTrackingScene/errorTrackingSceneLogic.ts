@@ -19,6 +19,7 @@ import {
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { bulkSelectLogic } from '../../logics/bulkSelectLogic'
+import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
 import { errorTrackingQuery } from '../../queries'
 import {
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -46,13 +47,15 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-            ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV3', 'showQueryV3Switch', 'forceQueryV3'],
+            ['assignee', 'orderBy', 'orderDirection', 'status'],
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
                 sectionId: 'environment-error-tracking-configuration',
                 settingId: 'error-tracking-alerting',
             }),
             ['selectedSettingId'],
+            pendingFingerprintIssueStateUpdateLogic,
+            ['currentPendingUpdates'],
         ],
         actions: [
             issueActionsLogic,
@@ -90,9 +93,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.mergedFilterGroup,
                 s.searchQuery,
                 s.orderDirection,
-                s.useQueryV3,
-                s.showQueryV3Switch,
-                s.forceQueryV3,
+                s.currentPendingUpdates,
             ],
             (
                 orderBy,
@@ -103,9 +104,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 mergedFilterGroup,
                 searchQuery,
                 orderDirection,
-                useQueryV3,
-                showQueryV3Switch,
-                forceQueryV3
+                currentPendingUpdates
             ): DataTableNode => {
                 return errorTrackingQuery({
                     orderBy,
@@ -118,7 +117,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
-                    useQueryV3: forceQueryV3 || (showQueryV3Switch && useQueryV3),
+                    pendingFingerprintIssueStateUpdates: currentPendingUpdates,
                 })
             },
         ],

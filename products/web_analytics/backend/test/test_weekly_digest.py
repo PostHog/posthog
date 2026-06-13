@@ -7,9 +7,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Action, Team
+from posthog.models import Team
 from posthog.models.utils import uuid7
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.weekly_digest import (
     _format_duration,
     auto_select_project_for_user,
@@ -179,6 +180,39 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
         assert len(result) >= 2
         assert result[0]["visitors"] >= result[-1]["visitors"]
         assert "path" in result[0]
+        assert "change" in result[0]
+        assert result[0]["change"] is None
+
+    def test_includes_week_over_week_change(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["prev_user"])
+            _create_pageview(
+                self.team,
+                distinct_id="prev_user",
+                session_id=str(uuid7("2025-01-18")),
+                url="https://example.com/pricing",
+                timestamp="2025-01-18",
+            )
+            for i in range(3):
+                distinct_id = f"curr_user_{i}"
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                _create_pageview(
+                    self.team,
+                    distinct_id=distinct_id,
+                    session_id=str(uuid7("2025-01-25")),
+                    url="https://example.com/pricing",
+                    timestamp="2025-01-25",
+                )
+            flush_persons_and_events()
+
+            result = get_top_pages(self.team)
+
+        assert len(result) == 1
+        assert result[0]["visitors"] == 3
+        change = result[0]["change"]
+        assert change is not None
+        assert change["direction"] == "Up"
+        assert change["text"].startswith("Up")
 
     def test_respects_limit(self):
         with freeze_time(QUERY_TIMESTAMP):
@@ -221,9 +255,44 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
 
             result = get_top_sources(self.team)
 
-        sources = [r["source"] for r in result]
+        sources = [r["name"] for r in result]
         assert sources == ["google.com"]
         assert all(r["visitors"] > 0 for r in result)
+        assert "change" in result[0]
+        assert result[0]["change"] is None
+
+    def test_includes_week_over_week_change(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["prev_user"])
+            _create_pageview(
+                self.team,
+                distinct_id="prev_user",
+                session_id=str(uuid7("2025-01-18")),
+                referring_domain="google.com",
+                url="https://example.com/",
+                timestamp="2025-01-18",
+            )
+            for i in range(3):
+                distinct_id = f"curr_user_{i}"
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                _create_pageview(
+                    self.team,
+                    distinct_id=distinct_id,
+                    session_id=str(uuid7("2025-01-25")),
+                    referring_domain="google.com",
+                    url="https://example.com/",
+                    timestamp="2025-01-25",
+                )
+            flush_persons_and_events()
+
+            result = get_top_sources(self.team)
+
+        google = next(r for r in result if r["name"] == "google.com")
+        assert google["visitors"] == 3
+        change = google["change"]
+        assert change is not None
+        assert change["direction"] == "Up"
+        assert change["text"].startswith("Up")
 
     def test_filters_out_empty_sources(self):
         with freeze_time(QUERY_TIMESTAMP):
@@ -240,7 +309,7 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
 
             result = get_top_sources(self.team)
 
-        assert all(r["source"] != "" for r in result)
+        assert all(r["name"] != "" for r in result)
 
     def test_returns_empty_for_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):

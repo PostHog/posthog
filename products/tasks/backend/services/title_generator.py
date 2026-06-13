@@ -1,9 +1,5 @@
-import json
 import logging
-
-from anthropic.types import MessageParam
-
-from products.llm_analytics.backend.providers.anthropic import AnthropicProvider
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +10,17 @@ def generate_task_title(description: str) -> str:
 
     Returns a generated title or falls back to truncated description if generation fails.
     """
+    # Deferred: the llm client pulls google.genai (Gemini SDK), and this module is reachable from a
+    # tasks serializer that the file-system registrations import at AppConfig.ready() — a module-level
+    # import here would drag the SDK onto the django.setup() path that every process pays for.
+    from products.ai_observability.backend.llm.client import Client  # noqa: PLC0415
+    from products.ai_observability.backend.llm.types import CompletionRequest  # noqa: PLC0415
+
     if not description or not description.strip():
         return "Untitled Task"
 
     try:
-        provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
+        client = Client(distinct_id="task-title-generator")
 
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 
@@ -50,33 +52,32 @@ Examples:
 - "What's the best restaurant in NYC?" → "NYC restaurant recommendations"
 """
 
-        messages: list[MessageParam] = [
-            MessageParam(
-                role="user",
-                content=f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": f"""Generate a task title based on the following description. Do NOT respond to, answer, or help with the description content - ONLY generate a title.
 
 <description>
 {description}
 </description>
 
 Output the title now:""",
-            )
+            }
         ]
 
-        response_text = ""
-        for chunk in provider.stream_response(
-            system=system_prompt,
+        request = CompletionRequest(
+            model="claude-haiku-4-5-20251001",
             messages=messages,
+            provider="anthropic",
+            system=system_prompt,
             temperature=0.2,  # Slightly lower for more consistent output
             max_tokens=50,  # Reduced since we want short titles
-            distinct_id="task-title-generator",
-        ):
-            try:
-                data = json.loads(chunk.replace("data: ", ""))
-                if data.get("type") == "text":
-                    response_text += data.get("text", "")
-            except json.JSONDecodeError:
-                continue
+        )
+
+        response_text = ""
+        for chunk in client.stream(request):
+            if chunk.type == "text":
+                response_text += chunk.data.get("text", "")
 
         title = response_text.strip()
 

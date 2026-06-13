@@ -16,6 +16,8 @@ describe('keyForInsightLogicProps', () => {
     const testCases = [
         { in: { teamId: 33, dashboardItemId: Insight123 }, expect: '123' },
         { in: { teamId: 34, dashboardItemId: undefined }, expect: 'defaultKey' },
+        { in: { teamId: 33, dashboardItemId: Insight123, tabId: 'tab-abc' }, expect: '123/tab-tab-abc' },
+        { in: { teamId: 34, dashboardItemId: undefined, tabId: 'tab-xyz' }, expect: 'defaultKey/tab-tab-xyz' },
     ]
 
     testCases.forEach((testCase) => {

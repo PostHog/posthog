@@ -239,6 +239,86 @@ class TestExternalTicketAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_patch_sla_amount_calendar_hours(self):
+        from datetime import UTC, datetime
+
+        from unittest.mock import patch
+
+        # 2026-01-05 10:00 UTC is a Monday.
+        frozen_now = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+        with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
+            response = self.client.patch(
+                self.url,
+                {"sla_amount": 4, "sla_unit": "hour"},
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-05T14:00:00+00:00")
+
+    def test_patch_sla_amount_business_hours(self):
+        from datetime import UTC, datetime
+
+        from unittest.mock import patch
+
+        frozen_now = datetime(2026, 1, 8, 16, 0, tzinfo=UTC)  # Thursday 16:00 UTC
+        with patch("products.conversations.backend.api.external.timezone.now", return_value=frozen_now):
+            response = self.client.patch(
+                self.url,
+                {
+                    "sla_amount": 10,
+                    "sla_unit": "hour",
+                    "sla_business_hours": {
+                        "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                        "time": ["09:00", "17:00"],
+                        "timezone": "UTC",
+                    },
+                },
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        # 1h Thursday + 8h Friday + 1h Monday -> Monday 10:00 UTC
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-12T10:00:00+00:00")
+
+    def test_patch_sla_amount_rejects_zero(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 0, "sla_unit": "hour"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_rejects_both_sla_due_at_and_sla_amount(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "2026-03-15T14:30:00Z", "sla_amount": 5},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("empty_days", {"days": [], "time": ["09:00", "17:00"], "timezone": "UTC"}),
+            ("inverted_range", {"days": ["monday"], "time": ["17:00", "09:00"], "timezone": "UTC"}),
+            ("unknown_timezone", {"days": ["monday"], "time": "any", "timezone": "Mars/Olympus"}),
+            ("unknown_weekday", {"days": ["funday"], "time": "any", "timezone": "UTC"}),
+        ]
+    )
+    def test_patch_rejects_invalid_business_hours(self, _name, business_hours):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 1, "sla_unit": "hour", "sla_business_hours": business_hours},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_get_ticket_returns_sla_due_at(self):
         from django.utils import timezone
 
@@ -324,6 +404,104 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], ["bug"])
+
+    # -- PATCH tags --------------------------------------------------------
+
+    def test_patch_tags_add_mode_preserves_existing(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["bug", "urgent"])
+
+    def test_patch_tags_add_is_idempotent(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["bug"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.ticket.tagged_items.count(), 1)
+
+    def test_patch_tags_concurrent_add_produces_union(self):
+        self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.client.patch(
+            self.url,
+            {"tags": ["billing"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["billing", "urgent"])
+
+    def test_patch_tags_default_mode_is_add(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["feature"]},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["bug", "feature"])
+
+    def test_patch_tags_set_mode_replaces_all(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "set"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["urgent"])
+
+    def test_patch_tags_remove_mode_strips_named(self):
+        from posthog.models import Tag
+
+        for name in ["bug", "urgent", "billing"]:
+            tag = Tag.objects.create(name=name, team_id=self.team.id)
+            self.ticket.tagged_items.create(tag=tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["bug", "billing"], "tags_mode": "remove"},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["urgent"])
 
     # -- URL validation ---------------------------------------------------
 

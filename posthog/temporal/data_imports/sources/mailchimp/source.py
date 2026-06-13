@@ -2,17 +2,20 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MailchimpSourceConfig
 from posthog.temporal.data_imports.sources.mailchimp.mailchimp import (
+    MailchimpResumeConfig,
     mailchimp_source,
     validate_credentials as validate_mailchimp_credentials,
 )
@@ -22,7 +25,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MailchimpSource(SimpleSource[MailchimpSourceConfig]):
+class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MAILCHIMP
@@ -32,7 +35,7 @@ class MailchimpSource(SimpleSource[MailchimpSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILCHIMP,
             label="Mailchimp",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mailchimp API key to automatically pull your Mailchimp data into the PostHog Data warehouse.
 
 You can create an API key in your [Mailchimp account settings](https://us1.admin.mailchimp.com/account/api/).
@@ -50,6 +53,7 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="abc123def456-us6",
+                        secret=True,
                     ),
                 ],
             ),
@@ -63,7 +67,12 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         }
 
     def get_schemas(
-        self, config: MailchimpSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MailchimpSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -84,12 +93,21 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
     ) -> tuple[bool, str | None]:
         return validate_mailchimp_credentials(config.api_key)
 
-    def source_for_pipeline(self, config: MailchimpSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MailchimpResumeConfig]:
+        return ResumableSourceManager[MailchimpResumeConfig](inputs, MailchimpResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: MailchimpSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MailchimpResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return mailchimp_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

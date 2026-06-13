@@ -3,15 +3,14 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
-import type { DataHealthIssue } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { Breadcrumb } from '~/types'
 
+import { pipelineHealthLogic } from './pipelineHealthLogic'
+import type { DataHealthIssue } from './pipelineHealthLogic'
 import type { pipelineStatusSceneLogicType } from './pipelineStatusSceneLogicType'
 
 export type IssueTypeFilter = 'all' | DataHealthIssue['type']
@@ -20,9 +19,8 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
 export const pipelineStatusSceneLogic = kea<pipelineStatusSceneLogicType>([
     path(['scenes', 'health', 'pipelineStatus', 'pipelineStatusSceneLogic']),
-    tabAwareScene(),
     connect({
-        values: [sidePanelHealthLogic, ['issues'], featureFlagLogic, ['featureFlags']],
+        values: [pipelineHealthLogic, ['issues'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         setTypeFilter: (filter: IssueTypeFilter) => ({ filter }),

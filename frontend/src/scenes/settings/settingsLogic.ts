@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -15,8 +14,7 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Realm } from '~/types'
-
+import { matchesFlagDefinition } from './flagGating'
 import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
@@ -92,7 +90,7 @@ export const settingsLogic = kea<settingsLogicType>([
             teamLogic,
             ['currentTeam'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'isAdminOrOwner'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
@@ -109,6 +107,7 @@ export const settingsLogic = kea<settingsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
         toggleGroupCollapse: (group: string) => ({ group }),
+        expandGroup: (group: string) => ({ group }),
         loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
         navigateToSetting: (sectionId: SettingSectionId, settingId: SettingId) => ({ sectionId, settingId }),
     }),
@@ -182,6 +181,11 @@ export const settingsLogic = kea<settingsLogicType>([
                     ...state,
                     [group]: !state[group],
                 }),
+                // Auto-expand the group that contains a freshly selected section
+                expandGroup: (state, { group }) => ({
+                    ...state,
+                    [group]: false,
+                }),
             },
         ],
     })),
@@ -207,7 +211,13 @@ export const settingsLogic = kea<settingsLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        selectSection: () => {
+        selectSection: ({ section, level }) => {
+            // Expand the collapsible group containing the selected section so it's visible
+            // (e.g. when navigating via URL or settings search into a collapsed group)
+            const sectionObj = values.sections.find((s) => s.id === section)
+            if (sectionObj?.group) {
+                actions.expandGroup(`${level}-${sectionObj.group}`)
+            }
             setTimeout(() => {
                 const mainElement = document.querySelector('main')
                 if (mainElement) {
@@ -255,6 +265,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.organizationIntegrations,
                 s.preflight,
                 s.canAccessBilling,
+                s.isAdminOrOwner,
             ],
             (
                 doesMatchFlags,
@@ -263,13 +274,14 @@ export const settingsLogic = kea<settingsLogicType>([
                 currentOrganization,
                 organizationIntegrations,
                 preflight,
-                canAccessBilling
+                canAccessBilling,
+                isAdminOrOwner
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
                         return false
                     }
-                    if (setting.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                    if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
                         return false
                     }
                     if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
@@ -288,7 +300,12 @@ export const settingsLogic = kea<settingsLogicType>([
                     ) {
                         return false
                     }
+
+                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
                     if (section.id === 'organization-billing' && !canAccessBilling) {
+                        return false
+                    }
+                    if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
                         return false
                     }
 
@@ -406,7 +423,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (!doesMatchFlags(x)) {
                         return false
                     }
-                    if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                    if (preflight?.realm && x.hideOn?.includes(preflight.realm)) {
                         return false
                     }
                     if (x.hideWhenNoSection && !effectiveSectionId) {
@@ -428,26 +445,8 @@ export const settingsLogic = kea<settingsLogicType>([
         doesMatchFlags: [
             (s) => [s.featureFlags],
             (featureFlags) => {
-                return (x: Pick<Setting, 'flag'>) => {
-                    if (!x.flag) {
-                        // No flag condition
-                        return true
-                    }
-                    const flagsArray = Array.isArray(x.flag) ? x.flag : [x.flag]
-                    for (const flagCondition of flagsArray) {
-                        const flag = (
-                            flagCondition.startsWith('!') ? flagCondition.slice(1) : flagCondition
-                        ) as keyof typeof FEATURE_FLAGS
-                        let isConditionMet = featureFlags[FEATURE_FLAGS[flag]]
-                        if (flagCondition.startsWith('!')) {
-                            isConditionMet = !isConditionMet // Negated flag condition (!-prefixed)
-                        }
-                        if (!isConditionMet) {
-                            return false
-                        }
-                    }
-                    return true
-                }
+                return (flagDefinition: Pick<Setting, 'flag'>) =>
+                    matchesFlagDefinition(flagDefinition.flag, featureFlags)
             },
         ],
 
@@ -497,7 +496,7 @@ export const settingsLogic = kea<settingsLogicType>([
                         if (!doesMatchFlags(setting)) {
                             continue
                         }
-                        if (setting.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                        if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
                             continue
                         }
                         if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
@@ -603,8 +602,15 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
-    actionToUrl(() => ({
+    actionToUrl(({ props }) => ({
+        // Skip the URL update in the full settings scene — settingsSceneLogic already pushes
+        // the canonical URL with the section path + setting hash. Without this guard, both
+        // subscriptions fire on selectSetting and produce two history entries per click.
+        // Embedded usages (replay, logs) keep the `selectedSetting` hash for deep-linking.
         selectSetting: ({ setting }) => {
+            if (props.logicKey === 'settingsScene') {
+                return
+            }
             return [
                 router.values.location.pathname,
                 router.values.searchParams,
@@ -620,6 +626,19 @@ export const settingsLogic = kea<settingsLogicType>([
             if (!selectedSettingId) {
                 return
             }
+
+            if (values.selectedSettingId !== selectedSettingId) {
+                actions.selectSetting(selectedSettingId)
+            }
+        },
+        ['*/logs']: (_, searchParams, hashParams) => {
+            const fromHash = hashParams.selectedSetting as string | undefined
+            const fromQuery = typeof searchParams?.setting === 'string' ? searchParams.setting : undefined
+            const raw = fromHash ?? fromQuery
+            if (!raw) {
+                return
+            }
+            const selectedSettingId = (raw === 'logs-sampling' ? 'logs-drop-rules' : raw) as SettingId
 
             if (values.selectedSettingId !== selectedSettingId) {
                 actions.selectSetting(selectedSettingId)

@@ -15,7 +15,8 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
+
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
@@ -24,7 +25,7 @@ import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
-import * as incidentIoStatusPageAllOK from './fixtures/_incident_io_status_page_all_ok.json'
+import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
 export const EMPTY_PAGINATED_RESPONSE = {
@@ -164,6 +165,7 @@ export const defaultMocks: Mocks = {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     available_product_features: getAvailableProductFeatures(),
                 },
+                pending_invites: [],
             },
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
@@ -182,6 +184,12 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
+        '/api/login/dev': {
+            users: [
+                { email: 'test@posthog.com', is_staff: true, label: 'Default test user' },
+                { email: 'staff@posthog.com', is_staff: true, label: null },
+            ],
+        },
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
@@ -209,7 +217,7 @@ export const defaultMocks: Mocks = {
 
         '/api/billing/spend/': { results: [] },
         '/api/billing/usage/': { results: [] },
-        [`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`]: incidentIoStatusPageAllOK,
+        [`${STATUS_PAGE_BASE}/api/v1/summary`]: statusPageAllOK,
         '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
@@ -218,6 +226,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/session_recording_playlists': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
         '/api/projects/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
@@ -240,6 +249,8 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/integrations/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/quick_filters/': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,

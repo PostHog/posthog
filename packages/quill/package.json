@@ -10,6 +10,7 @@
         "typecheck": "pnpm -r typecheck"
     },
     "devDependencies": {
-        "typescript": "~5.9.3"
+        "tailwindcss-scroll-mask": "^0.0.3",
+        "typescript": "catalog:"
     }
 }

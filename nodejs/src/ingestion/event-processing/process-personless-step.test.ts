@@ -1,8 +1,11 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
 import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchBoundPersonsStore } from '~/worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
@@ -16,13 +19,13 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ProcessPersonlessInput, createProcessPersonlessStep } from './process-personless-step'
 
-function createPersonOutputs(hub: Hub) {
+function createPersonOutputs(_hub: Hub) {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
         [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
             PERSON_DISTINCT_IDS_OUTPUT,
             KAFKA_PERSON_DISTINCT_ID,
-            hub.kafkaProducer,
+            mockProducer,
             'test'
         ),
     })
@@ -78,15 +81,22 @@ describe('createProcessPersonlessStep', () => {
         team = (await getTeam(hub.postgres, teamId))!
 
         const personRepository = new PostgresPersonRepository(hub.postgres)
-        const ingestionWarningsOutputs = new IngestionOutputs({
+        const storeOutputs = new IngestionOutputs({
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                mockProducer,
+                'test'
+            ),
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 'ingestion_warnings_test',
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
         })
-        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
+        personsStore = new BatchWritingPersonsStore(personRepository, storeOutputs)
 
         pluginEvent = {
             distinct_id: 'test-user-123',
@@ -112,11 +122,12 @@ describe('createProcessPersonlessStep', () => {
         timestamp,
         processPerson: false,
         forceDisablePersonProcessing: false,
+        personsStoreForBatch: new BatchBoundPersonsStore(personsStore, 0),
         ...overrides,
     })
 
     it('passes through when processPerson is true', async () => {
-        const step = createProcessPersonlessStep(personsStore)
+        const step = createProcessPersonlessStep()
         const input = createInput({ processPerson: true })
 
         const result = await step(input)
@@ -129,7 +140,7 @@ describe('createProcessPersonlessStep', () => {
 
     describe('basic personless functionality', () => {
         it('returns fake person when no existing person found', async () => {
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -150,7 +161,7 @@ describe('createProcessPersonlessStep', () => {
                 distinctId: pluginEvent.distinct_id,
             })
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -165,7 +176,7 @@ describe('createProcessPersonlessStep', () => {
         it('checks batch result for personless distinct ID when no person exists', async () => {
             const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             await step(createInput())
 
             expect(getPersonlessBatchResultSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
@@ -174,7 +185,7 @@ describe('createProcessPersonlessStep', () => {
         it('returns fake person when batch result indicates no merge', async () => {
             jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(false)
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -194,7 +205,7 @@ describe('createProcessPersonlessStep', () => {
                 distinctId: pluginEvent.distinct_id,
             })
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -213,7 +224,7 @@ describe('createProcessPersonlessStep', () => {
                 distinctId: pluginEvent.distinct_id,
             })
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -234,7 +245,7 @@ describe('createProcessPersonlessStep', () => {
                 distinctId: pluginEvent.distinct_id,
             })
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -268,11 +279,11 @@ describe('createProcessPersonlessStep', () => {
             jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(true)
             const fetchForUpdateSpy = jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(person)
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput())
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
+            expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id, 0)
         })
     })
 
@@ -281,7 +292,7 @@ describe('createProcessPersonlessStep', () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
             const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             const result = await step(createInput({ forceDisablePersonProcessing: true }))
 
             expect(result.type).toBe(PipelineResultType.OK)
@@ -299,7 +310,7 @@ describe('createProcessPersonlessStep', () => {
         it('performs normal processing when false', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
 
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
             await step(createInput())
 
             expect(fetchForCheckingSpy).toHaveBeenCalled()
@@ -307,7 +318,7 @@ describe('createProcessPersonlessStep', () => {
 
         it('works with different distinct IDs', async () => {
             const distinctIds = ['user-1', 'user-2', 'user-3']
-            const step = createProcessPersonlessStep(personsStore)
+            const step = createProcessPersonlessStep()
 
             for (const distinctId of distinctIds) {
                 const result = await step(

@@ -2,9 +2,10 @@ import sys
 import time
 import asyncio
 import threading
+import contextvars
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -38,8 +39,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
-    _evolve_pyarrow_schema,
     _handle_null_columns_with_definitions,
+    evolve_pyarrow_schema,
     normalize_table_column_names,
     setup_partitioning,
 )
@@ -51,13 +52,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
-from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 T = TypeVar("T")
 
@@ -77,12 +75,17 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
     """
     if isinstance(iterable, AsyncIterable):
         async for item in iterable:
-            yield item
+            yield cast(T, item)
         return
 
     iterator = iter(iterable)
     lock = threading.Lock()
     loop = asyncio.get_running_loop()
+    # loop.run_in_executor does not propagate contextvars across the thread
+    # boundary (unlike asyncio.to_thread). Snapshot them once so logs emitted
+    # from inside the source generator keep team_id / workflow_* and reach the
+    # log_entries table via LogMessagesRenderer's produce path.
+    ctx = contextvars.copy_context()
 
     def _next() -> tuple[bool, T | None]:
         with lock:
@@ -98,13 +101,21 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
 
     try:
         while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _next)  # type: ignore
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, _next)  # type: ignore
             if not has_value:
                 break
 
+            assert item is not None
             yield item
     finally:
-        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, _close)
+        # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
+        # with RuntimeError if the activity is cancelled mid-_next: the
+        # in-flight _next may still be inside `ctx` on an executor thread,
+        # and Context.run raises when re-entered. A failed _close would skip
+        # iterator.close() and leave DB cursors / connections / tunnels held
+        # open until garbage collection.
+        cleanup_ctx = contextvars.copy_context()
+        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, cleanup_ctx.run, _close)
 
 
 class PipelineNonDLT(Generic[ResumableData]):
@@ -206,30 +217,31 @@ class PipelineNonDLT(Generic[ResumableData]):
                 py_table = None
 
                 self._batcher.batch(item)
-                if not self._batcher.should_yield():
-                    continue
 
-                py_table = self._batcher.get_table()
+                # A single batched table may be split into several when a string/binary/list
+                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                while self._batcher.should_yield():
+                    py_table = self._batcher.get_table()
 
-                row_count += py_table.num_rows
+                    row_count += py_table.num_rows
 
-                await self._process_pa_table(
-                    pa_table=py_table,
-                    index=chunk_index,
-                    resuming_sync=should_resume,
-                    row_count=row_count,
-                    is_first_ever_sync=is_first_ever_sync,
-                )
+                    await self._process_pa_table(
+                        pa_table=py_table,
+                        index=chunk_index,
+                        resuming_sync=should_resume,
+                        row_count=row_count,
+                        is_first_ever_sync=is_first_ever_sync,
+                    )
 
-                chunk_index += 1
+                    chunk_index += 1
 
-                cleanup_memory(pa_memory_pool, py_table)
-                py_table = None
+                    cleanup_memory(pa_memory_pool, py_table)
+                    py_table = None
 
                 if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
-            if self._batcher.should_yield(include_incomplete_chunk=True):
+            while self._batcher.should_yield(include_incomplete_chunk=True):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
                 await self._process_pa_table(
@@ -239,6 +251,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                     row_count=row_count,
                     is_first_ever_sync=is_first_ever_sync,
                 )
+                chunk_index += 1
 
             await self._post_run_operations(row_count=row_count)
 
@@ -267,7 +280,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
@@ -423,6 +436,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 row_count=row_count,
                 queryable_folder=queryable_folder,
                 table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                primary_keys=self._resource.primary_keys,
             )
             await self._logger.adebug("Finished validating schema and updating table")
 

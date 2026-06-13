@@ -1,8 +1,8 @@
 import { match } from 'ts-pattern'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -23,6 +23,7 @@ import type {
     FunnelsFilter,
     FunnelsQuery,
     InsightVizNode,
+    RefreshType,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
@@ -30,9 +31,6 @@ import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/querie
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
-
-// TODO: extract types to a separate file, since this is a circular dependency
-import type { EventConfig } from './RunningTimeCalculator/runningTimeCalculatorLogic'
 
 /**
  * We extract all the math properties from the EntityNode type so we can use them as
@@ -492,35 +490,6 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
         .exhaustive()
 
 /**
- * this is used on the running time calculator to create a node that can be used in a filter
- */
-export const getEventNode = (
-    event: EventConfig,
-    options?: { mathProps?: MathProperties }
-): EventsNode | ActionsNode => {
-    return match(event)
-        .with({ entityType: TaxonomicFilterGroupType.Events }, (event) => {
-            return {
-                kind: NodeKind.EventsNode as const,
-                name: event.name,
-                event: event.event,
-                properties: event.properties,
-                ...options?.mathProps,
-            }
-        })
-        .with({ entityType: TaxonomicFilterGroupType.Actions }, (action) => {
-            return {
-                kind: NodeKind.ActionsNode as const,
-                id: parseInt(action.event, 10) || 0,
-                name: action.name,
-                properties: action.properties,
-                ...options?.mathProps,
-            }
-        })
-        .exhaustive()
-}
-
-/**
  * converts the experiment exposure config in to an events node
  */
 export const getExposureConfigEventsNode = (
@@ -621,3 +590,16 @@ export const getInsight =
             showLastComputationRefresh,
         }
     }
+
+// Gated by the experiments-sync-queries flag during rollout. Flag on → run experiment
+// queries synchronously in the web request; flag off → legacy Celery/async path.
+// Once the flag reaches 100%, inline the sync branch and delete these helpers.
+export const getExperimentExecutionMode = (featureFlags: FeatureFlagsSet): 'sync' | 'async' =>
+    featureFlags[FEATURE_FLAGS.EXPERIMENTS_SYNC_QUERIES] ? 'sync' : 'async'
+
+export const getExperimentRefreshMode = (featureFlags: FeatureFlagsSet, forceRefresh: boolean): RefreshType => {
+    if (getExperimentExecutionMode(featureFlags) === 'sync') {
+        return forceRefresh ? 'force_blocking' : 'blocking'
+    }
+    return forceRefresh ? 'force_async' : 'async'
+}

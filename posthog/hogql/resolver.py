@@ -1,4 +1,4 @@
-import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -12,7 +12,14 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
-from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    S3Table,
+)
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    build_opaque_function_call_table,
+    is_dangerous_table_function,
+)
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -20,7 +27,7 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.core import compare_types, validate_function_args
+from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
@@ -28,6 +35,7 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
+    get_bot_operator,
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
@@ -35,7 +43,22 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    lookup_field_by_name,
+    lookup_table_by_name,
+    suggest_field_names,
+)
+from posthog.hogql.type_system import (
+    infer_array_access_constant_type,
+    infer_array_constant_type,
+    infer_array_slice_constant_type,
+    infer_cast_constant_type,
+    infer_function_return_type,
+    infer_try_cast_constant_type,
+    infer_tuple_access_constant_type,
+    least_common_supertype,
+)
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -45,6 +68,8 @@ from posthog.models.utils import UUIDT
 
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
+
+_SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
@@ -57,6 +82,38 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtime": ast.DateTimeType,
     "localtimestamp": ast.DateTimeType,
 }
+
+_HIGHER_ORDER_ARRAY_FUNCTIONS = frozenset(
+    {
+        "arrayall",
+        "arraycount",
+        "arrayexists",
+        "arrayfill",
+        "arrayfilter",
+        "arrayfold",
+        "arrayfirst",
+        "arrayfirstindex",
+        "arraylast",
+        "arraylastindex",
+        "arraymap",
+        "arrayreversefill",
+        "arrayreversesort",
+        "arrayreversesplit",
+        "arraysort",
+        "arraysplit",
+    }
+)
+_HIGHER_ORDER_MAP_FUNCTIONS = frozenset({"mapapply", "mapfilter"})
+
+# Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
+assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
+    "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
+)
+
+# Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
+# DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
+# takes the PG code path in the resolver.
+_POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -106,13 +163,57 @@ def resolve_types_from_table(
     return resolve_types(expr, context, dialect, [select_node_with_types.type])
 
 
+ResolverFactory = Callable[
+    [HogQLContext, HogQLDialect, Optional[list["ast.SelectQueryType"]]],
+    "Resolver",
+]
+
+
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST:
-    return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
+    if resolver_factory is None:
+        resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    else:
+        resolver = resolver_factory(context, dialect, scopes)
+    return resolver.visit(node)
+
+
+def _select_type_columns(
+    select_type: ast.SelectQueryType | ast.SelectSetQueryType,
+) -> list[tuple[str, ast.Type]]:
+    if isinstance(select_type, ast.SelectSetQueryType):
+        if select_type.columns:
+            return list(select_type.columns.items())
+        return _select_type_columns(select_type.types[0])
+    return list(select_type.columns.items())
+
+
+def _unify_select_set_columns(
+    select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
+    dialect: HogQLDialect,
+    context: HogQLContext,
+) -> dict[str, ast.Type]:
+    if not select_types:
+        return {}
+
+    branch_columns_per_select = [_select_type_columns(select_type) for select_type in select_types]
+    first_columns = branch_columns_per_select[0]
+    columns: dict[str, ast.Type] = {}
+    for index, (column_name, _) in enumerate(first_columns):
+        branch_types: list[ast.ConstantType] = []
+        for branch_columns in branch_columns_per_select:
+            if index >= len(branch_columns):
+                branch_types.append(ast.UnknownType())
+                continue
+            branch_type = branch_columns[index][1]
+            branch_types.append(branch_type.resolve_constant_type(context))
+        columns[column_name] = least_common_supertype(branch_types, dialect=dialect)
+    return columns
 
 
 class AliasCollector(TraversingVisitor):
@@ -173,9 +274,6 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
-
         initial = self.visit(node.initial_select_query)
 
         # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -199,8 +297,13 @@ class Resolver(CloningVisitor):
             limit_percent=node.limit_percent,
             limit_with_ties=node.limit_with_ties,
         )
+        select_types = [
+            result.initial_select_query.type,
+            *(x.select_query.type for x in result.subsequent_select_queries),
+        ]
         result.type = ast.SelectSetQueryType(
-            types=[result.initial_select_query.type, *(x.select_query.type for x in result.subsequent_select_queries)]  # type: ignore
+            types=select_types,  # type: ignore[arg-type]
+            columns=_unify_select_set_columns(select_types, self.dialect, self.context),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -233,7 +336,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -420,7 +523,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -594,8 +697,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -633,7 +734,7 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        if node.limit_percent and self.dialect != "postgres":
+        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
             if self.dialect == "clickhouse":
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
@@ -1030,7 +1131,17 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            database_table = cast(Database, self.database).get_table(table_name_chain)
+            try:
+                database_table = cast(Database, self.database).get_table(table_name_chain)
+            except QueryError:
+                # Direct Postgres/DuckDB sources expose introspected table-valued functions
+                # (range, generate_series, unnest, …) via connection metadata. If the lookup
+                # failed but the name matches one of those, synthesize an opaque single-column
+                # table so the call resolves and the printer emits it as a passthrough.
+                opaque_table = self._build_opaque_table_function(table_name_chain, node)
+                if opaque_table is None:
+                    raise
+                database_table = opaque_table
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -1055,6 +1166,9 @@ class Resolver(CloningVisitor):
             else:
                 assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
+
+            if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
+                self._record_warehouse_sync_warnings(database_table.table_id)
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
@@ -1161,7 +1275,7 @@ class Resolver(CloningVisitor):
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
 
-            node.table = cast(ast.SelectQuery, super().visit(node.table))
+            node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:
@@ -1179,13 +1293,14 @@ class Resolver(CloningVisitor):
                         f"Subquery has {num_cols} column(s) but {len(node.column_aliases)} column name(s) were provided"
                     )
 
-                # Remap the SelectQueryType columns dict
-                select_query_type = cast(ast.SelectQueryType, node.table.type)
+                # Remap the SelectQueryType columns dict.
                 if isinstance(node.table.type, ast.SelectSetQueryType):
                     first_type = node.table.type.types[0]
                     while isinstance(first_type, ast.SelectSetQueryType):
                         first_type = first_type.types[0]
                     select_query_type = cast(ast.SelectQueryType, first_type)
+                else:
+                    select_query_type = cast(ast.SelectQueryType, node.table.type)
 
                 # Build new columns from the select list's types, keyed by the alias column names
                 select_list = cast(ast.SelectQuery, inner_select).select
@@ -1197,7 +1312,7 @@ class Resolver(CloningVisitor):
                 # For non-postgres dialects, bake column aliases into the inner
                 # SELECT as AS aliases so ClickHouse/HogQL (which don't support
                 # the ``AS t(col1, col2)`` syntax) get correct column names.
-                if self.dialect != "postgres":
+                if self.dialect not in _POSTGRES_FAMILY:
                     inner_query = cast(ast.SelectQuery, inner_select)
                     new_select: list[ast.Expr] = []
                     for i, expr in enumerate(inner_query.select):
@@ -1447,8 +1562,15 @@ class Resolver(CloningVisitor):
                 return self.visit(get_bot_type(node=node, args=node.args))
             if node.name == "__preview_getBotName":
                 return self.visit(get_bot_name(node=node, args=node.args))
+            if node.name == "__preview_getBotOperator":
+                return self.visit(get_bot_operator(node=node, args=node.args))
 
-        node = super().visit_call(node)
+        if self._is_higher_order_array_call(node):
+            node = self._visit_higher_order_array_call(node)
+        elif self._is_higher_order_map_call(node):
+            node = self._visit_higher_order_map_call(node)
+        else:
+            node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
@@ -1464,33 +1586,32 @@ class Resolver(CloningVisitor):
                 else:
                     raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
 
-        return_type = None
-
-        if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
-            if signatures := func_meta.signatures:
-                for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types, args=node.args):
-                        return_type = dataclasses.replace(sig_return_type)
-                        break
-
-        if return_type is None:
-            return_type = ast.UnknownType()
-
-            # Uncomment once all hogql mappings are complete with signatures
-            # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
-            # raise ResolutionError(
-            #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"
-            # )
+        func_meta = HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None)
+        inference = infer_function_return_type(
+            node.name,
+            arg_types,
+            args=node.args,
+            meta=func_meta,
+            dialect=self.dialect,
+        )
+        return_type = inference.return_type
 
         if node.name == "concat":
             return_type.nullable = False  # valid only if at least 1 param is not null
-        elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
+        elif inference.source == "legacy_signature" and not isinstance(return_type, ast.UnknownType):
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
         if node.name.lower() in ("nullif", "tonullable") or node.name.lower().endswith("ornull"):
             return_type.nullable = True
         elif node.name.lower() == "assumenotnull":
             return_type.nullable = False
+
+        if self.context.type_observability is not None:
+            self.context.type_observability.record_function_call(
+                function_name=node.name,
+                return_type=return_type,
+                signatures_present=bool(func_meta and func_meta.signatures),
+            )
 
         node.type = ast.CallType(
             name=node.name,
@@ -1499,6 +1620,123 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    @staticmethod
+    def _is_higher_order_array_call(node: ast.Call) -> bool:
+        return (
+            node.name.lower() in _HIGHER_ORDER_ARRAY_FUNCTIONS
+            and bool(node.args)
+            and isinstance(node.args[0], ast.Lambda)
+        )
+
+    def _visit_higher_order_array_call(self, node: ast.Call) -> ast.Call:
+        resolved_array_args = [self.visit(arg) for arg in node.args[1:]]
+        lambda_arg_types = self._lambda_argument_types_from_array_args(
+            node.name,
+            resolved_array_args,
+            lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
+        )
+        return self._rebuild_higher_order_call(node, resolved_array_args, lambda_arg_types)
+
+    @staticmethod
+    def _is_higher_order_map_call(node: ast.Call) -> bool:
+        return (
+            node.name.lower() in _HIGHER_ORDER_MAP_FUNCTIONS
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Lambda)
+        )
+
+    def _visit_higher_order_map_call(self, node: ast.Call) -> ast.Call:
+        resolved_map_args = [self.visit(arg) for arg in node.args[1:]]
+        lambda_arg_types = self._lambda_argument_types_from_map_arg(
+            resolved_map_args[0],
+            lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
+        )
+        return self._rebuild_higher_order_call(node, resolved_map_args, lambda_arg_types)
+
+    def _rebuild_higher_order_call(
+        self, node: ast.Call, resolved_args: list[ast.Expr], lambda_arg_types: list[ast.ConstantType]
+    ) -> ast.Call:
+        return ast.Call(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            name=node.name,
+            args=[
+                self._visit_lambda_with_argument_types(cast(ast.Lambda, node.args[0]), lambda_arg_types),
+                *resolved_args,
+            ],
+            params=[self.visit(param) for param in node.params] if node.params is not None else None,
+            distinct=node.distinct,
+            within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by is not None else None,
+            filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
+        )
+
+    def _lambda_argument_types_from_array_args(
+        self, function_name: str, array_args: list[ast.Expr], lambda_arg_count: int
+    ) -> list[ast.ConstantType]:
+        if function_name.lower() == "arrayfold":
+            return self._lambda_argument_types_from_array_fold_args(array_args, lambda_arg_count)
+
+        arg_types: list[ast.ConstantType] = []
+        for index in range(lambda_arg_count):
+            if index >= len(array_args):
+                arg_types.append(ast.UnknownType())
+                continue
+
+            array_type = (array_args[index].type or ast.UnknownType()).resolve_constant_type(self.context)
+            arg_types.append(infer_array_access_constant_type(array_type))
+        return arg_types
+
+    def _lambda_argument_types_from_array_fold_args(
+        self, array_args: list[ast.Expr], lambda_arg_count: int
+    ) -> list[ast.ConstantType]:
+        if not array_args:
+            return [ast.UnknownType() for _ in range(lambda_arg_count)]
+
+        accumulator_type = (array_args[-1].type or ast.UnknownType()).resolve_constant_type(self.context)
+        item_types = [
+            infer_array_access_constant_type((array_arg.type or ast.UnknownType()).resolve_constant_type(self.context))
+            for array_arg in array_args[:-1]
+        ]
+        available_types = [accumulator_type, *item_types]
+        return [
+            available_types[index] if index < len(available_types) else ast.UnknownType()
+            for index in range(lambda_arg_count)
+        ]
+
+    def _lambda_argument_types_from_map_arg(self, map_arg: ast.Expr, lambda_arg_count: int) -> list[ast.ConstantType]:
+        map_type = (map_arg.type or ast.UnknownType()).resolve_constant_type(self.context)
+        if isinstance(map_type, ast.MapType):
+            map_arg_types = [map_type.key_type, map_type.value_type]
+        else:
+            map_arg_types = [ast.UnknownType(), ast.UnknownType()]
+
+        return [
+            map_arg_types[index] if index < len(map_arg_types) else ast.UnknownType()
+            for index in range(lambda_arg_count)
+        ]
+
+    def _visit_lambda_with_argument_types(self, node: ast.Lambda, arg_types: list[ast.ConstantType]) -> ast.Lambda:
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
+
+        for index, arg in enumerate(node.args):
+            constant_type = arg_types[index] if index < len(arg_types) else ast.UnknownType()
+            node_type.aliases[arg] = ast.FieldAliasType(
+                alias=arg,
+                type=ast.LambdaArgumentType(name=arg, constant_type=constant_type),
+            )
+
+        self.scopes.append(node_type)
+
+        new_node = cast(ast.Lambda, clone_expr(node))
+        new_node.type = node_type
+        new_node.expr = self.visit(new_node.expr)
+
+        self.scopes.pop()
+
+        return new_node
 
     def visit_expr_call(self, node: ast.ExprCall):
         raise QueryError("You can only call simple functions in HogQL, not expressions")
@@ -1525,22 +1763,45 @@ class Resolver(CloningVisitor):
 
         return new_node
 
+    def visit_window_function(self, node: ast.WindowFunction):
+        node = cast(ast.WindowFunction, super().visit_window_function(node))
+        value_exprs = [*(node.exprs or []), *(node.args or [])]
+        arg_types = [(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in value_exprs]
+        func_meta = HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None)
+        inference = infer_function_return_type(
+            node.name,
+            arg_types,
+            args=value_exprs,
+            meta=func_meta,
+            dialect=self.dialect,
+        )
+        node.type = inference.return_type
+        return node
+
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
+        node.type = infer_try_cast_constant_type(node.type_name, self.dialect)
+        return node
+
+    def visit_type_cast(self, node: ast.TypeCast):
+        node = cast(ast.TypeCast, clone_expr(node))
+        node.expr = self.visit(node.expr)
+        input_type = (node.expr.type or ast.UnknownType()).resolve_constant_type(self.context)
+        node.type = infer_cast_constant_type(node.type_name, input_type, self.dialect)
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in {"postgres", "clickhouse"}:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)
@@ -1548,6 +1809,25 @@ class Resolver(CloningVisitor):
             node.start_expr = self.visit(node.start_expr)
         if node.end_expr is not None:
             node.end_expr = self.visit(node.end_expr)
+        node.type = infer_array_slice_constant_type(
+            (node.array.type or ast.UnknownType()).resolve_constant_type(self.context)
+        )
+        return node
+
+    def visit_array(self, node: ast.Array):
+        node = cast(ast.Array, super().visit_array(node))
+        node.type = infer_array_constant_type(
+            [(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in node.exprs],
+            dialect=self.dialect,
+        )
+        return node
+
+    def visit_tuple(self, node: ast.Tuple):
+        node = cast(ast.Tuple, super().visit_tuple(node))
+        node.type = ast.TupleType(
+            nullable=False,
+            item_types=[(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in node.exprs],
+        )
         return node
 
     def visit_field(self, node: ast.Field):
@@ -1558,7 +1838,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect == "postgres" and len(node.chain) == 1:
+        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1601,7 +1881,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect == "postgres"
+            and self.dialect in _POSTGRES_FAMILY
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):
@@ -1671,6 +1951,8 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
+            suggestions = suggest_field_names(scope, name, self.context)
+            suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -1680,13 +1962,13 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}")
+                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
                     end=node.end,
-                    message=f"Unable to resolve field: {name}",
+                    message=f"Unable to resolve field: {name}{suggestion_suffix}",
                 )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
@@ -1796,6 +2078,9 @@ class Resolver(CloningVisitor):
             array.type = array.type.get_child(node.property.value, self.context)
             return array
 
+        node.type = infer_array_access_constant_type(
+            (node.array.type or ast.UnknownType()).resolve_constant_type(self.context)
+        )
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -1819,6 +2104,10 @@ class Resolver(CloningVisitor):
             tuple.type = tuple.type.get_child(node.index, self.context)
             return tuple
 
+        node.type = infer_tuple_access_constant_type(
+            (node.tuple.type or ast.UnknownType()).resolve_constant_type(self.context),
+            node.index,
+        )
         return node
 
     def visit_dict(self, node: ast.Dict):
@@ -2027,6 +2316,48 @@ class Resolver(CloningVisitor):
             return isinstance(table.table, S3Table)
 
         return False
+
+    def _record_warehouse_sync_warnings(self, table_id: str) -> None:
+        if self.database is None:
+            return
+        warnings = getattr(self.database, "_data_warehouse_sync_warnings", {}).get(table_id)
+        if not warnings:
+            return
+        for warning in warnings:
+            self.context.add_data_warehouse_sync_warning(table_id, warning)
+
+    def _build_opaque_table_function(
+        self, table_name_chain: list[str], node: ast.JoinExpr
+    ) -> Optional[FunctionCallTable]:
+        # Only meaningful when the FROM looks like a function call (`FROM foo(args)`),
+        # not a plain table reference. `table_args` is always set on a function call,
+        # even if empty.
+        if node.table_args is None:
+            return None
+
+        # Multi-segment names (`schema.func`) aren't supported by the opaque path.
+        if len(table_name_chain) != 1:
+            return None
+
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return None
+
+        available_table_functions = metadata.get("available_table_functions")
+        if not isinstance(available_table_functions, list):
+            return None
+
+        function_name = table_name_chain[0].lower()
+        if function_name not in {entry.lower() for entry in available_table_functions if isinstance(entry, str)}:
+            return None
+
+        if not _SAFE_TABLE_FUNCTION_NAME_RE.match(function_name):
+            return None
+
+        if is_dangerous_table_function(function_name):
+            return None
+
+        return build_opaque_function_call_table(function_name)
 
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:

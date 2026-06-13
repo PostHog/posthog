@@ -7,6 +7,7 @@ ENV RUSTC_WRAPPER=sccache SCCACHE_LOG=debug SCCACHE_DIR=/sccache
 FROM base AS planner
 WORKDIR /app
 ARG BIN
+ARG BUILD_FEATURES=""
 ENV PROTO_ROOT=../proto
 
 COPY . .
@@ -15,7 +16,9 @@ RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
 FROM base AS builder
 WORKDIR /app
 ARG BIN
-ENV PROTO_ROOT=../proto
+ARG BUILD_FEATURES=""
+ARG SCCACHE_WEBDAV_KEY_PREFIX
+ENV PROTO_ROOT=../proto SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
@@ -27,7 +30,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
-    cargo chef cook --release --recipe-path recipe.json --bin $BIN && \
+    cargo chef cook --release --recipe-path recipe.json --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 
 COPY . .
@@ -41,7 +44,7 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
         export SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN); \
     fi && \
     SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
-    cargo build --release --bin $BIN && \
+    cargo build --release --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
@@ -68,3 +71,19 @@ USER nobody
 
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
 ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
+
+# Opt-in stage for jumphost images (see bin/rust-jumphost) — not used by
+# request-path services, which keep building the smaller `runtime` stage.
+FROM runtime AS runtime-jumphost
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends redis-tools awscli && \
+    rm -rf /var/lib/apt/lists/*
+USER nobody
+
+# Keep the file's final stage equivalent to `runtime` so builds without an
+# explicit `--target` (e.g. canary-flags-enable.yml, ad-hoc `docker build`)
+# keep producing the minimal image instead of silently inheriting the larger
+# jumphost layer.
+FROM runtime AS default

@@ -23,8 +23,8 @@ from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHO
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.models import DAG, Node
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import build_schedule_spec
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +42,12 @@ class Command(BaseCommand):
             help="Comma separated list of team IDs to migrate",
         )
         parser.add_argument(
+            "--start-after-team-id",
+            default=None,
+            type=int,
+            help="Resume after this team ID (exclusive), following the team_id ordering used by this command",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             default=False,
@@ -49,13 +55,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, **options):
-        dags = DAG.objects.select_related("team").exclude(name__startswith="conflict_")
+        dags = DAG.objects.select_related("team")
         if options.get("team_ids") is not None:
             try:
                 team_ids = [int(tid) for tid in options["team_ids"].split(",")]
             except ValueError:
                 raise CommandError("team_ids must be a comma separated list of team IDs")
             dags = dags.filter(team_id__in=team_ids)
+        if options.get("start_after_team_id") is not None:
+            dags = dags.filter(team_id__gt=options["start_after_team_id"])
         dags = dags.order_by("team_id")
         total = dags.count()
         if total == 0:

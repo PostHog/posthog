@@ -1,0 +1,71 @@
+.monaco-editor,
+.monaco-diff-editor {
+    .suggest-widget .monaco-list .monaco-list-row > .contents {
+        display: block !important;
+    }
+
+    .suggest-widget .monaco-list .monaco-list-row > .contents > .main {
+        width: 100%;
+
+        .left > .signature-label {
+            width: 100%;
+            text-align: right;
+        }
+    }
+}
+
+// Workaround for https://github.com/microsoft/monaco-editor/issues/5208 —
+// the find widget's action-bar tooltip flickers when its rich layout stacks
+// the label and keybinding onto two lines, making the container tall enough
+// to overlap the button. Force a single-row layout so the tooltip stays
+// short and clear of the button. Scoped to when the find widget is open so
+// tooltips on other action bars are unaffected.
+body:has(.monaco-editor .find-widget.visible) .workbench-hover-container {
+    pointer-events: none !important;
+
+    &,
+    .hover-row,
+    .hover-contents,
+    .action-container,
+    .actions-container {
+        display: flex !important;
+        flex-flow: row nowrap !important;
+        gap: 6px !important;
+        align-items: center !important;
+        white-space: nowrap !important;
+    }
+}
+
+.editor-wrapper .monaco-editor,
+.editor-wrapper .monaco-diff-editor,
+.editor-wrapper .overflow-guard {
+    border-radius: 0;
+}
+
+.CodeEditor__vim-status-bar {
+    input[type='text'] {
+        padding: 0;
+        margin: 0;
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: none;
+        outline: none;
+    }
+}
+
+.CodeEditorResizeable,
+.CodeEditorInline {
+    .monaco-editor {
+        /* stylelint-disable custom-property-pattern */
+        --vscode-textLink-foreground: transparent;
+        --vscode-focusBorder: transparent;
+        /* stylelint-enable custom-property-pattern */
+
+        border-radius: var(--radius);
+
+        .overflow-guard {
+            border-radius: var(--radius);
+        }
+    }
+}

@@ -29,17 +29,23 @@ import type {
     PaginatedCommentListApi,
     PaginatedOrganizationListApi,
     PaginatedOrganizationMemberListApi,
+    PaginatedOrganizationPersonalAPIKeyListApi,
     PaginatedRoleListApi,
     PaginatedRoleMembershipListApi,
     PatchedApprovalPolicyApi,
     PatchedCommentApi,
     PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
+    PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PersonalApiKeysListParams,
+    PinnedSceneTabsApi,
+    PromotedProductIntentApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    WelcomeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -59,225 +65,12 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalPoliciesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/approval_policies/?${stringifiedParams}`
-        : `/api/environments/${projectId}/approval_policies/`
-}
-
-export const approvalPoliciesList = async (
-    projectId: string,
-    params?: ApprovalPoliciesListParams,
-    options?: RequestInit
-): Promise<PaginatedApprovalPolicyListApi> => {
-    return apiMutator<PaginatedApprovalPolicyListApi>(getApprovalPoliciesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getApprovalPoliciesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/approval_policies/`
-}
-
-export const approvalPoliciesCreate = async (
-    projectId: string,
-    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(approvalPolicyApi),
-    })
-}
-
-export const getApprovalPoliciesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getApprovalPoliciesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesUpdate = async (
-    projectId: string,
-    id: string,
-    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(approvalPolicyApi),
-    })
-}
-
-export const getApprovalPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedApprovalPolicyApi: NonReadonly<PatchedApprovalPolicyApi>,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedApprovalPolicyApi),
-    })
-}
-
-export const getApprovalPoliciesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getApprovalPoliciesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getChangeRequestsListUrl = (projectId: string, params?: ChangeRequestsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/change_requests/?${stringifiedParams}`
-        : `/api/environments/${projectId}/change_requests/`
-}
-
-export const changeRequestsList = async (
-    projectId: string,
-    params?: ChangeRequestsListParams,
-    options?: RequestInit
-): Promise<PaginatedChangeRequestListApi> => {
-    return apiMutator<PaginatedChangeRequestListApi>(getChangeRequestsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getChangeRequestsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/change_requests/${id}/`
-}
-
-export const changeRequestsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
- */
-export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/change_requests/${id}/approve/`
-}
-
-export const changeRequestsApproveCreate = async (
-    projectId: string,
-    id: string,
-    changeRequestApi: NonReadonly<ChangeRequestApi>,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
-    })
-}
-
-/**
- * Cancel a change request.
-Only the requester can cancel their own pending change request.
- */
-export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/change_requests/${id}/cancel/`
-}
-
-export const changeRequestsCancelCreate = async (
-    projectId: string,
-    id: string,
-    changeRequestApi: NonReadonly<ChangeRequestApi>,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsCancelCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
-    })
-}
-
-/**
- * Reject a change request.
- */
-export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/change_requests/${id}/reject/`
-}
-
-export const changeRequestsRejectCreate = async (
-    projectId: string,
-    id: string,
-    changeRequestApi: NonReadonly<ChangeRequestApi>,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
-    })
-}
-
 export const getListUrl = (params?: ListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -343,7 +136,7 @@ export const getPartialUpdateUrl = (id: string) => {
 
 export const partialUpdate = async (
     id: string,
-    patchedOrganizationApi: NonReadonly<PatchedOrganizationApi>,
+    patchedOrganizationApi?: NonReadonly<PatchedOrganizationApi>,
     options?: RequestInit
 ): Promise<OrganizationApi> => {
     return apiMutator<OrganizationApi>(getPartialUpdateUrl(id), {
@@ -370,7 +163,7 @@ export const getMembersListUrl = (organizationId: string, params?: MembersListPa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -399,7 +192,7 @@ export const getMembersUpdateUrl = (organizationId: string, userUuid: string) =>
 export const membersUpdate = async (
     organizationId: string,
     userUuid: string,
-    organizationMemberApi: NonReadonly<OrganizationMemberApi>,
+    organizationMemberApi?: NonReadonly<OrganizationMemberApi>,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
     return apiMutator<OrganizationMemberApi>(getMembersUpdateUrl(organizationId, userUuid), {
@@ -417,7 +210,7 @@ export const getMembersPartialUpdateUrl = (organizationId: string, userUuid: str
 export const membersPartialUpdate = async (
     organizationId: string,
     userUuid: string,
-    patchedOrganizationMemberApi: NonReadonly<PatchedOrganizationMemberApi>,
+    patchedOrganizationMemberApi?: NonReadonly<PatchedOrganizationMemberApi>,
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
     return apiMutator<OrganizationMemberApi>(getMembersPartialUpdateUrl(organizationId, userUuid), {
@@ -458,12 +251,39 @@ export const membersScopedApiKeysRetrieve = async (
     })
 }
 
+export const getPersonalApiKeysListUrl = (organizationId: string, params?: PersonalApiKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/personal_api_keys/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/personal_api_keys/`
+}
+
+export const personalApiKeysList = async (
+    organizationId: string,
+    params?: PersonalApiKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedOrganizationPersonalAPIKeyListApi> => {
+    return apiMutator<PaginatedOrganizationPersonalAPIKeyListApi>(getPersonalApiKeysListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getRolesListUrl = (organizationId: string, params?: RolesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -538,7 +358,7 @@ export const getRolesPartialUpdateUrl = (organizationId: string, id: string) => 
 export const rolesPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedRoleApi: NonReadonly<PatchedRoleApi>,
+    patchedRoleApi?: NonReadonly<PatchedRoleApi>,
     options?: RequestInit
 ): Promise<RoleApi> => {
     return apiMutator<RoleApi>(getRolesPartialUpdateUrl(organizationId, id), {
@@ -569,7 +389,7 @@ export const getRolesRoleMembershipsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -642,12 +462,29 @@ export const rolesRoleMembershipsDestroy = async (
     })
 }
 
+export const getWelcomeCurrentRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/welcome/current/`
+}
+
+/**
+ * Aggregated payload for the invited-user welcome screen.
+ */
+export const welcomeCurrentRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<WelcomeResponseApi> => {
+    return apiMutator<WelcomeResponseApi>(getWelcomeCurrentRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getActivityLogListUrl = (projectId: string, params?: ActivityLogListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -674,7 +511,7 @@ export const getAdvancedActivityLogsListUrl = (projectId: string, params?: Advan
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -727,12 +564,225 @@ export const advancedActivityLogsExportCreate = async (
     })
 }
 
+export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalPoliciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/approval_policies/?${stringifiedParams}`
+        : `/api/projects/${projectId}/approval_policies/`
+}
+
+export const approvalPoliciesList = async (
+    projectId: string,
+    params?: ApprovalPoliciesListParams,
+    options?: RequestInit
+): Promise<PaginatedApprovalPolicyListApi> => {
+    return apiMutator<PaginatedApprovalPolicyListApi>(getApprovalPoliciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApprovalPoliciesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/approval_policies/`
+}
+
+export const approvalPoliciesCreate = async (
+    projectId: string,
+    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(approvalPolicyApi),
+    })
+}
+
+export const getApprovalPoliciesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApprovalPoliciesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesUpdate = async (
+    projectId: string,
+    id: string,
+    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(approvalPolicyApi),
+    })
+}
+
+export const getApprovalPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedApprovalPolicyApi?: NonReadonly<PatchedApprovalPolicyApi>,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedApprovalPolicyApi),
+    })
+}
+
+export const getApprovalPoliciesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getApprovalPoliciesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getChangeRequestsListUrl = (projectId: string, params?: ChangeRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/change_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/change_requests/`
+}
+
+export const changeRequestsList = async (
+    projectId: string,
+    params?: ChangeRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedChangeRequestListApi> => {
+    return apiMutator<PaginatedChangeRequestListApi>(getChangeRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getChangeRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/change_requests/${id}/`
+}
+
+export const changeRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/change_requests/${id}/approve/`
+}
+
+/**
+ * Approve a change request.
+ * If quorum is reached, automatically applies the change immediately.
+ */
+export const changeRequestsApproveCreate = async (
+    projectId: string,
+    id: string,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(changeRequestApi),
+    })
+}
+
+export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/change_requests/${id}/cancel/`
+}
+
+/**
+ * Cancel a change request.
+ * Only the requester can cancel their own pending change request.
+ */
+export const changeRequestsCancelCreate = async (
+    projectId: string,
+    id: string,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(changeRequestApi),
+    })
+}
+
+export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/change_requests/${id}/reject/`
+}
+
+/**
+ * Reject a change request.
+ */
+export const changeRequestsRejectCreate = async (
+    projectId: string,
+    id: string,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(changeRequestApi),
+    })
+}
+
 export const getCommentsListUrl = (projectId: string, params?: CommentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -807,7 +857,7 @@ export const getCommentsPartialUpdateUrl = (projectId: string, id: string) => {
 export const commentsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedCommentApi: NonReadonly<PatchedCommentApi>,
+    patchedCommentApi?: NonReadonly<PatchedCommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsPartialUpdateUrl(projectId, id), {
@@ -818,17 +868,53 @@ export const commentsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getCommentsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/comments/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const commentsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getCommentsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCommentsCompleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/complete/`
+}
+
+/**
+ * Mark a task-comment as complete. Sets completed_at and completed_by. 400 if the comment is not a task or is already complete.
+ */
+export const commentsCompleteCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsCompleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getCommentsReopenCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/reopen/`
+}
+
+/**
+ * Reopen a completed task-comment. Clears completed_at and completed_by. 400 if the comment is not a task or is already open.
+ */
+export const commentsReopenCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsReopenCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -851,5 +937,57 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEnvironmentsPromotedProductIntentRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/promoted_product_intent/`
+}
+
+/**
+ * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
+ */
+export const environmentsPromotedProductIntentRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<PromotedProductIntentApi> => {
+    return apiMutator<PromotedProductIntentApi>(getEnvironmentsPromotedProductIntentRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserHomeSettingsRetrieveUrl = (uuid: string) => {
+    return `/api/user_home_settings/${uuid}/`
+}
+
+/**
+ * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
+ */
+export const userHomeSettingsRetrieve = async (uuid: string, options?: RequestInit): Promise<PinnedSceneTabsApi> => {
+    return apiMutator<PinnedSceneTabsApi>(getUserHomeSettingsRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserHomeSettingsPartialUpdateUrl = (uuid: string) => {
+    return `/api/user_home_settings/${uuid}/`
+}
+
+/**
+ * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
+ */
+export const userHomeSettingsPartialUpdate = async (
+    uuid: string,
+    patchedPinnedSceneTabsApi?: PatchedPinnedSceneTabsApi,
+    options?: RequestInit
+): Promise<PinnedSceneTabsApi> => {
+    return apiMutator<PinnedSceneTabsApi>(getUserHomeSettingsPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedPinnedSceneTabsApi),
     })
 }

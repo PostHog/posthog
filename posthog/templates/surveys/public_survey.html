@@ -1,5 +1,6 @@
+{% load static %}
 <!DOCTYPE html>
-<html lang="en"{% if embed_mode %} class="embed-mode"{% endif %}>
+<html lang="{{ display_language|default:'en' }}"{% if embed_mode %} class="embed-mode"{% endif %}>
 
 <head>
     <meta charset="UTF-8">
@@ -9,592 +10,11 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2023-07-07" color="#FF053C">
     <link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
+    <link rel="stylesheet" href="{% static 'surveys/hosted-survey.css' %}">
     <meta name="apple-mobile-web-app-title" content="{{ name }}">
     <meta name="application-name" content="{{ name }}">
     <title>{{ name }}</title>
     <meta name="description" content="{{ name }}">
-    <style>
-        :root {
-            --ph-survey-page-background: #ffffff;
-            --ph-survey-page-text: #111111;
-            --ph-survey-page-text-subtle: #6b6b6b;
-            --ph-survey-page-progress-track: rgba(17, 17, 17, 0.08);
-            --ph-survey-page-progress-bar: #111111;
-            --ph-survey-progress-value: 0%;
-            --ph-survey-page-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
-            --ph-survey-card-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 2px 8px rgba(17, 17, 17, 0.04);
-            --ph-survey-pill-background: rgba(255, 255, 255, 0.7);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        html,
-        body {
-            margin: 0;
-            padding: 0;
-            background: var(--ph-survey-page-background);
-            color: var(--ph-survey-page-text);
-            font-family: var(--ph-survey-page-font);
-            font-size: 16px;
-            line-height: 1.5;
-            -webkit-font-smoothing: antialiased;
-            text-rendering: optimizeLegibility;
-        }
-
-        body {
-            min-height: 100vh;
-        }
-
-        body,
-        button,
-        input,
-        textarea,
-        a {
-            touch-action: manipulation;
-        }
-
-        .main-container {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1.25rem, 4vw, 2.5rem);
-        }
-
-        .survey-progress-wrap {
-            width: 100%;
-            max-width: 44rem;
-            margin: 0 auto;
-        }
-
-        .survey-stage {
-            width: 100%;
-            max-width: 44rem;
-            margin: auto;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .survey-progress-track {
-            width: 100%;
-            height: 3px;
-            overflow: hidden;
-            border-radius: 999px;
-            background: var(--ph-survey-page-progress-track);
-        }
-
-        .survey-progress-bar {
-            display: block;
-            width: var(--ph-survey-progress-value);
-            height: 100%;
-            background: var(--ph-survey-page-progress-bar);
-            transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1);
-        }
-
-        #posthog-survey-container {
-            display: flex;
-            flex-direction: column;
-            color: var(--ph-survey-text-primary-color, #111);
-            font-family: inherit;
-        }
-
-        #posthog-survey-container .question-container {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
-
-        #posthog-survey-container .thank-you-message {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            gap: 1.5rem;
-        }
-
-        #posthog-survey-container .survey-question,
-        #posthog-survey-container .thank-you-message-header {
-            margin: 0;
-            font-size: clamp(1.5rem, 2.4vw, 1.875rem);
-            font-weight: 600;
-            line-height: 1.25;
-            letter-spacing: -0.015em;
-            color: var(--ph-survey-text-primary-color, #111);
-            text-wrap: balance;
-        }
-
-        #posthog-survey-container .survey-question-description,
-        #posthog-survey-container .thank-you-message-body {
-            margin: 0;
-            font-size: 0.975rem;
-            line-height: 1.6;
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-        }
-
-        #posthog-survey-container .survey-question-description strong,
-        #posthog-survey-container .thank-you-message strong {
-            color: var(--ph-survey-text-primary-color, #111);
-        }
-
-        #posthog-survey-container fieldset {
-            min-width: 0;
-            margin: 0;
-            padding: 0;
-            border: none;
-        }
-
-        #posthog-survey-container legend {
-            padding: 0;
-        }
-
-        #posthog-survey-container .response-choice {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        #posthog-survey-container textarea,
-        #posthog-survey-container input[type='text'] {
-            width: 100%;
-            padding: 0.875rem 1rem;
-            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
-            border-radius: var(--ph-survey-border-radius, 10px);
-            background: var(--ph-survey-input-background, #fff);
-            color: var(--ph-survey-input-text-color, #111);
-            font: inherit;
-            font-size: 1rem;
-            line-height: 1.5;
-            box-shadow: var(--ph-survey-card-shadow);
-            transition: border-color 160ms ease, box-shadow 160ms ease;
-        }
-
-        #posthog-survey-container textarea {
-            resize: vertical;
-            min-height: 8rem;
-        }
-
-        #posthog-survey-container textarea::placeholder,
-        #posthog-survey-container input[type='text']::placeholder {
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-            opacity: 0.65;
-        }
-
-        #posthog-survey-container textarea:focus-visible,
-        #posthog-survey-container input[type='text']:focus-visible {
-            outline: none;
-            border-color: var(--ph-survey-rating-active-bg-color, #111);
-            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.10), var(--ph-survey-card-shadow);
-        }
-
-        #posthog-survey-container .validation-hint {
-            margin-top: 0.5rem;
-            font-size: 0.825rem;
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-        }
-
-        #posthog-survey-container .multiple-choice-options {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            margin: 0;
-            padding: 0;
-        }
-
-        #posthog-survey-container .multiple-choice-options label {
-            display: flex;
-            flex-direction: column;
-            gap: 0.625rem;
-            min-height: 3rem;
-            padding: 0.875rem 1rem;
-            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
-            border-radius: var(--ph-survey-border-radius, 10px);
-            background: var(--ph-survey-input-background, #fff);
-            color: var(--ph-survey-input-text-color, #111);
-            cursor: pointer;
-            font-size: 0.975rem;
-            box-shadow: var(--ph-survey-card-shadow);
-            transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
-        }
-
-        #posthog-survey-container .multiple-choice-options label:has(input:checked) {
-            border-color: var(--ph-survey-rating-active-bg-color, #111);
-            box-shadow: inset 0 0 0 1px var(--ph-survey-rating-active-bg-color, #111), var(--ph-survey-card-shadow);
-        }
-
-        #posthog-survey-container .multiple-choice-options label:has(input:focus-visible) {
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='checkbox'],
-        #posthog-survey-container .multiple-choice-options input[type='radio'] {
-            appearance: none;
-            -webkit-appearance: none;
-            width: 1.1rem;
-            height: 1.1rem;
-            margin: 0;
-            flex-shrink: 0;
-            position: relative;
-            border: 1.5px solid rgba(17, 17, 17, 0.28);
-            background: #ffffff;
-            cursor: pointer;
-            transition: border-color 140ms ease, background-color 140ms ease;
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='checkbox'] {
-            border-radius: 4px;
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='radio'] {
-            border-radius: 999px;
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='checkbox']:focus-visible,
-        #posthog-survey-container .multiple-choice-options input[type='radio']:focus-visible {
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='checkbox']:checked,
-        #posthog-survey-container .multiple-choice-options input[type='radio']:checked {
-            border-color: var(--ph-survey-rating-active-bg-color, #111);
-            background: var(--ph-survey-rating-active-bg-color, #111);
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='checkbox']:checked::after,
-        #posthog-survey-container .multiple-choice-options input[type='radio']:checked::after {
-            content: '';
-            position: absolute;
-            box-sizing: content-box;
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='checkbox']:checked::after {
-            top: 0.05rem;
-            left: 0.3rem;
-            width: 0.22rem;
-            height: 0.5rem;
-            border: solid var(--ph-survey-rating-active-text-color, #fff);
-            border-width: 0 2px 2px 0;
-            transform: rotate(45deg);
-        }
-
-        #posthog-survey-container .multiple-choice-options input[type='radio']:checked::after {
-            top: 0.27rem;
-            left: 0.27rem;
-            width: 0.32rem;
-            height: 0.32rem;
-            border-radius: 999px;
-            background: var(--ph-survey-rating-active-text-color, #fff);
-        }
-
-        #posthog-survey-container .choice-option-open input[type='text'] {
-            margin-left: calc(1.1rem + 0.75rem);
-            width: calc(100% - 1.85rem);
-        }
-
-        #posthog-survey-container .rating-section {
-            display: flex;
-            flex-direction: column;
-            gap: 0.625rem;
-        }
-
-        #posthog-survey-container .rating-options-number {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: 1fr;
-            gap: 0.4rem;
-        }
-
-        #posthog-survey-container .ratings-number {
-            min-height: 3rem;
-            padding: 0.75rem 0;
-            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
-            border-radius: var(--ph-survey-border-radius, 10px);
-            background: var(--ph-survey-rating-bg-color, #f1efea);
-            color: var(--ph-survey-rating-text-color, #111);
-            font: inherit;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: var(--ph-survey-card-shadow);
-            transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
-        }
-
-        #posthog-survey-container .ratings-number.rating-active {
-            background: var(--ph-survey-rating-active-bg-color, #111);
-            color: var(--ph-survey-rating-active-text-color, #fff);
-            border-color: var(--ph-survey-rating-active-bg-color, #111);
-        }
-
-        #posthog-survey-container .rating-options-emoji {
-            display: flex;
-            justify-content: space-between;
-            gap: 0.5rem;
-        }
-
-        #posthog-survey-container .ratings-emoji {
-            min-width: 2.75rem;
-            min-height: 2.75rem;
-            padding: 0;
-            border: none;
-            border-radius: 999px;
-            background: transparent;
-            opacity: 0.5;
-            cursor: pointer;
-            transition: opacity 140ms ease, background-color 140ms ease;
-        }
-
-        #posthog-survey-container .ratings-emoji.rating-active {
-            opacity: 1;
-            background: rgba(17, 17, 17, 0.06);
-        }
-
-        #posthog-survey-container .ratings-emoji svg {
-            fill: var(--ph-survey-text-primary-color, #111);
-        }
-
-        #posthog-survey-container .rating-text {
-            display: flex;
-            justify-content: space-between;
-            gap: 1rem;
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-            font-size: 0.825rem;
-        }
-
-        #posthog-survey-container .bottom-section {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 0.875rem 1rem;
-            margin-top: 2rem;
-        }
-
-        #posthog-survey-container .form-submit {
-            min-width: 10rem;
-            min-height: 3rem;
-            padding: 0.75rem 1.75rem;
-            border: none;
-            border-radius: var(--ph-survey-border-radius, 10px);
-            cursor: pointer;
-            user-select: none;
-            background: var(--ph-survey-submit-button-color, #111);
-            color: var(--ph-survey-submit-button-text-color, #fff);
-            font: inherit;
-            font-size: 1rem;
-            font-weight: 600;
-            box-shadow: none;
-            transition: opacity 140ms ease, transform 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
-        }
-
-        #posthog-survey-container .form-submit:focus-visible {
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
-        }
-
-        #posthog-survey-container .form-submit[disabled] {
-            background: transparent;
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-            box-shadow: inset 0 0 0 1px var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
-            cursor: not-allowed;
-            opacity: 1;
-        }
-
-        #posthog-survey-container .footer-branding {
-            position: fixed;
-            bottom: 1.25rem;
-            right: 1.25rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            padding: 0.4rem 0.7rem;
-            border-radius: 999px;
-            background: var(--ph-survey-pill-background);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 4px 14px rgba(17, 17, 17, 0.06);
-            color: var(--ph-survey-page-text-subtle, #6b6b6b);
-            font-size: 0.72rem;
-            font-weight: 500;
-            text-decoration: none;
-            opacity: 0.75;
-            transition: opacity 140ms ease;
-            z-index: 10;
-        }
-
-        #posthog-survey-container .footer-branding:hover {
-            opacity: 1;
-        }
-
-        #posthog-survey-container .footer-branding svg {
-            width: auto;
-            height: 0.85rem;
-        }
-
-        @media (max-width: 640px) {
-            #posthog-survey-container .footer-branding {
-                bottom: 0.75rem;
-                right: 0.75rem;
-            }
-        }
-
-        .loading {
-            flex: 1;
-            min-height: 16rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 0.75rem;
-            color: var(--ph-survey-page-text-subtle);
-            text-align: center;
-        }
-
-        .loading-spinner {
-            width: 2rem;
-            height: 2rem;
-            border-radius: 999px;
-            border: 2px solid rgba(17, 17, 17, 0.1);
-            border-top-color: var(--ph-survey-page-text);
-            animation: spin 800ms linear infinite;
-        }
-
-        .loading-text {
-            margin: 0;
-            font-size: 0.9rem;
-        }
-
-        #posthog-survey-container:has(.question-container) .loading,
-        #posthog-survey-container:has(.thank-you-message) .loading {
-            display: none;
-        }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
-        }
-
-        /* Hidden by default; shown on hover-capable devices via media query below. */
-        #posthog-survey-container .survey-keyhint {
-            display: none;
-            align-items: center;
-            gap: 1rem;
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-            font-size: 0.84rem;
-            pointer-events: none;
-            user-select: none;
-        }
-
-        #posthog-survey-container .survey-keyhint-row {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-        }
-
-        #posthog-survey-container .survey-kbd {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 1.7rem;
-            height: 1.7rem;
-            padding: 0 0.45rem;
-            border-radius: 6px;
-            border: 1px solid var(--ph-survey-border-color, rgba(17, 17, 17, 0.10));
-            background: var(--ph-survey-rating-bg-color, var(--ph-survey-input-background, rgba(17, 17, 17, 0.06)));
-            color: var(--ph-survey-text-primary-color, #111);
-            font-family: inherit;
-            font-size: 0.88rem;
-            font-weight: 500;
-            line-height: 1;
-            font-variant-numeric: tabular-nums;
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), 0 1px 2px rgba(17, 17, 17, 0.12);
-        }
-
-        #posthog-survey-container .survey-keyhint-label {
-            color: var(--ph-survey-text-subtle-color, #6b6b6b);
-            font-weight: 400;
-            letter-spacing: 0.01em;
-        }
-
-        @media (hover: hover) and (pointer: fine) {
-            #posthog-survey-container .survey-keyhint {
-                display: inline-flex;
-            }
-
-            #posthog-survey-container .multiple-choice-options label:hover:not(:has(input:checked)) {
-                border-color: rgba(17, 17, 17, 0.22);
-                transform: translateY(-1px);
-            }
-
-            #posthog-survey-container .ratings-number:hover:not(.rating-active) {
-                border-color: rgba(17, 17, 17, 0.22);
-                transform: translateY(-1px);
-            }
-
-            #posthog-survey-container .form-submit:hover:not([disabled]) {
-                opacity: 0.92;
-                transform: translateY(-1px);
-            }
-        }
-
-        @media (max-width: 640px) {
-            .main-container {
-                padding: 1.25rem;
-                padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
-            }
-
-            #posthog-survey-container .form-submit {
-                width: 100%;
-                min-width: 0;
-            }
-
-            #posthog-survey-container .survey-question,
-            #posthog-survey-container .thank-you-message-header {
-                font-size: 1.5rem;
-            }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *,
-            *::before,
-            *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-                scroll-behavior: auto !important;
-            }
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        html.embed-mode body {
-            min-height: auto;
-            background: transparent;
-        }
-
-        html.embed-mode .main-container {
-            min-height: auto;
-            padding: 0;
-        }
-
-        html.embed-mode .survey-progress-track {
-            margin-bottom: 1.5rem;
-        }
-    </style>
     {% if embed_mode %}
     <script nonce="{{ request.csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function() {
@@ -612,7 +32,7 @@
     {% endif %}
 </head>
 
-<body>
+<body class="PostHogHostedSurvey">
     <div class="main-container">
         <div class="survey-progress-wrap">
             <div
@@ -640,13 +60,15 @@
 
     {{ survey_data|json_script:"survey-data" }}
     {{ project_config|json_script:"project-config" }}
+    {{ display_language|json_script:"display-language" }}
     {% include "surveys/_appearance_helpers.html" %}
     <script nonce="{{ request.csp_nonce }}">
         const survey = JSON.parse(document.getElementById("survey-data").textContent);
         const projectConfig = JSON.parse(document.getElementById("project-config").textContent);
+        const displayLanguage = JSON.parse(document.getElementById("display-language").textContent);
 
         // Defaults tuned for the standalone hosted survey page. Customer-supplied
-        // appearance values always win — we only fill in fields they didn't customize,
+        // appearance values always win. We only fill in fields they didn't customize,
         // overriding posthog-js's popup-oriented defaults (gray bg, dark border, etc).
         const HOSTED_SURVEY_DEFAULTS = {
             backgroundColor: '#ffffff',
@@ -665,9 +87,9 @@
         }
 
         // posthog-js doesn't set --ph-survey-* vars on the hosted page path,
-        // so we replicate them on :root from the merged appearance object.
+        // so we replicate them on the hosted page scope from the merged appearance object.
         function applyPageAppearance(appearance) {
-            const root = document.documentElement
+            const root = document.querySelector('.PostHogHostedSurvey') || document.documentElement
 
             if (appearance.backgroundColor) {
                 root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor)
@@ -763,7 +185,8 @@
 
         function updateProgress(percentage) {
             const normalized = Math.max(0, Math.min(100, Math.round(percentage)))
-            document.documentElement.style.setProperty('--ph-survey-progress-value', normalized + '%')
+            const root = document.querySelector('.PostHogHostedSurvey') || document.documentElement
+            root.style.setProperty('--ph-survey-progress-value', normalized + '%')
             const progressTrack = document.getElementById('survey-progress-track')
             if (progressTrack) {
                 progressTrack.setAttribute('aria-valuenow', String(normalized))
@@ -1008,7 +431,11 @@
             }
         }
 
-        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', '__posthog_debug', 'auto_submit'];
+        if (displayLanguage) {
+            config.override_display_language = displayLanguage;
+        }
+
+        const URL_PARAMS_TO_IGNORE = ['distinct_id', 'display_language', '__posthog_debug__', '__posthog_debug', 'auto_submit'];
         const surveyEventProperties = {};
 
         for (const [key, value] of searchParams.entries()) {

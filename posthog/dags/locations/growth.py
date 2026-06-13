@@ -1,8 +1,8 @@
 import dagster
 
-from products.growth.dags import github_sdk_versions, oauth, user_product_list
+from products.growth.dags import github_sdk_versions, oauth, team_production_event_activation, user_product_list
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     jobs=[
@@ -11,12 +11,15 @@ defs = dagster.Definitions(
         user_product_list.populate_user_product_list_job,
         user_product_list.sync_colleagues_products_monthly_job,
         user_product_list.sync_cross_sell_products_monthly_job,
+        team_production_event_activation.detect_first_team_production_event_job,
     ],
     schedules=[
         oauth.oauth_clear_expired_oauth_tokens_schedule,
         github_sdk_versions.cache_github_sdk_versions_schedule,
         user_product_list.sync_colleagues_products_monthly_schedule,
         user_product_list.sync_cross_sell_products_monthly_schedule,
+        team_production_event_activation.detect_first_team_production_event_schedule,
     ],
+    loggers=loggers,
     resources=resources,
 )

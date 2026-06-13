@@ -5,10 +5,10 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE, KAFKA_HOSTS
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
+from posthog.settings.kafka import KAFKA_HOSTS
 
-PERSON_OVERRIDES_CREATE_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+PERSON_OVERRIDES_CREATE_TABLE_SQL = lambda on_cluster=True: f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
     {ON_CLUSTER_CLAUSE(on_cluster)} (
         team_id INT NOT NULL,
@@ -68,8 +68,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     -- ensure that we are always querying the latest version of the mapping.
     ORDER BY (team_id, old_person_id)
 """.format(
-        engine=ReplacingMergeTree("person_overrides", replication_scheme=ReplicationScheme.REPLICATED, ver="version")
-    )
+    engine=ReplacingMergeTree("person_overrides", replication_scheme=ReplicationScheme.REPLICATED, ver="version")
 )
 
 # An abstraction over Kafka that allows us to consume, via a ClickHouse

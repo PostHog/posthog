@@ -7,8 +7,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import format_filter_query
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
@@ -31,9 +30,8 @@ from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.session_recordings.queries.session_query import SessionQuery
 
-ALL_USERS_COHORT_ID = 0
-# Keep in sync with NOT_IN_COHORT_ID in frontend/src/scenes/insights/utils.tsx
-NOT_IN_COHORT_ID = 2**52
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import format_filter_query
 
 
 def get_breakdown_prop_values(
@@ -354,14 +352,18 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
 
 def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> tuple[str, list, dict]:
     entity = kwargs.pop("entity", None)
+    breakdown = filter.breakdown
+    if not isinstance(breakdown, list):
+        assert breakdown is not None
+
     cohorts = (
-        Cohort.objects.filter(team__project_id=team.project_id, pk__in=[b for b in filter.breakdown if b != "all"])
-        if isinstance(filter.breakdown, list)
-        else Cohort.objects.filter(team__project_id=team.project_id, pk=filter.breakdown)
+        Cohort.objects.filter(team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"])
+        if isinstance(breakdown, list)
+        else Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
     )
-    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts), filter.hogql_context)
+    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
     ids = [cohort.pk for cohort in cohorts]
-    if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
+    if isinstance(breakdown, list) and "all" in breakdown:
         all_query, all_params = _format_all_query(team, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
@@ -369,12 +371,12 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: list[Cohort], hogql_context: HogQLContext) -> tuple[list[str], dict]:
+def _parse_breakdown_cohorts(cohorts: list[Cohort]) -> tuple[list[str], dict]:
     queries = []
     params: dict[str, Any] = {}
 
     for idx, cohort in enumerate(cohorts):
-        person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context)
+        person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
         params = {**params, **cohort_filter_params}
         cohort_query = person_id_query.replace(
             "SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value", 1
@@ -391,4 +393,5 @@ def get_breakdown_cohort_name(cohort_id: int, team: Team, not_in_cohort_name: st
             return f"Not in {not_in_cohort_name}"
         return "Not in cohort"
     else:
-        return Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
+        cohort_name = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
+        return cohort_name or ""

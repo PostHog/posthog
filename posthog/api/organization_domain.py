@@ -1,6 +1,7 @@
 import re
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, QuerySet
 
 import django_filters
@@ -52,10 +53,23 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
-    UPDATE_ONLY_WHEN_VERIFIED = ["jit_provisioning_enabled", "sso_enforcement", "scim_enabled"]
+    UPDATE_ONLY_WHEN_VERIFIED = [
+        "jit_provisioning_enabled",
+        "sso_enforcement",
+        "scim_enabled",
+        "id_jag_issuer_url",
+        "id_jag_jwks_url",
+        "id_jag_allowed_clients",
+    ]
 
     scim_base_url = serializers.SerializerMethodField()
     scim_bearer_token = serializers.SerializerMethodField()
+    id_jag_allowed_clients = serializers.ListField(
+        child=serializers.CharField(max_length=256),
+        required=False,
+        allow_empty=True,
+        help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
+    )
 
     class Meta:
         model = OrganizationDomain
@@ -75,6 +89,10 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "scim_enabled",
             "scim_base_url",
             "scim_bearer_token",
+            "has_id_jag",
+            "id_jag_issuer_url",
+            "id_jag_jwks_url",
+            "id_jag_allowed_clients",
         )
         extra_kwargs = {
             "verified_at": {"read_only": True},
@@ -84,6 +102,19 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "has_scim": {"read_only": True},
             "scim_base_url": {"read_only": True},
             "scim_bearer_token": {"read_only": True},
+            "has_id_jag": {"read_only": True},
+            "id_jag_issuer_url": {
+                "required": False,
+                "allow_null": True,
+                "allow_blank": True,
+                "help_text": "Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.",
+            },
+            "id_jag_jwks_url": {
+                "required": False,
+                "allow_null": True,
+                "allow_blank": True,
+                "help_text": "Override JWKS URL. Defaults to OIDC discovery on the issuer URL.",
+            },
         }
 
     def __init__(self, *args, **kwargs):
@@ -107,6 +138,9 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
         validated_data.pop("scim_enabled", None)
         validated_data.pop("scim_bearer_token", None)
+        validated_data.pop("id_jag_issuer_url", None)
+        validated_data.pop("id_jag_jwks_url", None)
+        validated_data.pop("id_jag_allowed_clients", None)
         instance: OrganizationDomain = super().create(validated_data)
 
         return instance
@@ -115,6 +149,21 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         if not re.match(DOMAIN_REGEX, domain):
             raise serializers.ValidationError("Please enter a valid domain or subdomain name.")
         return domain
+
+    @staticmethod
+    def _normalize_optional_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            return None
+        return stripped.rstrip("/")
+
+    def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
+        return self._normalize_optional_url(value)
+
+    def validate_id_jag_jwks_url(self, value: str | None) -> str | None:
+        return self._normalize_optional_url(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
@@ -141,6 +190,13 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                     code="feature_not_available",
                 )
 
+        if instance and attrs.get("id_jag_issuer_url"):
+            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+                raise serializers.ValidationError(
+                    {"id_jag_issuer_url": "XAA (ID-JAG) is not available for this organization."},
+                    code="feature_not_available",
+                )
+
         return attrs
 
     def update(self, instance: OrganizationDomain, validated_data: dict[str, Any]) -> OrganizationDomain:
@@ -162,6 +218,13 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         self._scim_plain_token = scim_plain_token
+
+        id_jag_fields = {"id_jag_issuer_url", "id_jag_jwks_url", "id_jag_allowed_clients"}
+        if id_jag_fields.intersection(validated_data):
+            try:
+                instance.full_clean()
+            except DjangoValidationError as e:
+                raise serializers.ValidationError(e.message_dict) from e
 
         return instance
 
@@ -229,7 +292,7 @@ class SCIMRequestLogFilter(django_filters.FilterSet):
         return _search_scim_logs(queryset, name, value)
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
@@ -265,6 +328,25 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         return response.Response(serializer.data, status=201)
 
+    def _capture_domain_setting_event(self, request: Request) -> None:
+        data = request.data
+        if any(f.startswith("saml_") for f in data):
+            event_type = "saml configured"
+        elif any(f.startswith("id_jag_") for f in data):
+            event_type = "id-jag configured"
+        elif "sso_enforcement" in data:
+            event_type = "sso enforcement updated"
+        elif data.get("jit_provisioning_enabled") is True:
+            event_type = "jit provisioning enabled"
+        else:
+            return
+
+        _capture_domain_event(request, self.get_object(), event_type)
+
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        self._capture_domain_setting_event(request)
+        return super().update(request, *args, **kwargs)
+
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance = self.get_object()
 
@@ -278,6 +360,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 "had_jit_provisioning": instance.jit_provisioning_enabled,
                 "had_sso_enforcement": bool(instance.sso_enforcement),
                 "had_scim": instance.has_scim,
+                "had_id_jag": instance.has_id_jag,
             },
         )
 

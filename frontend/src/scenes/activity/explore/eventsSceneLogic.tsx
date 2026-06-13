@@ -1,16 +1,17 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -21,25 +22,41 @@ import { ActivityTab, Breadcrumb } from '~/types'
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
-    path(['scenes', 'events', 'eventsSceneLogic']),
-    tabAwareScene(),
+    key(() => 'scene'),
+    path((key) => ['scenes', 'events', 'eventsSceneLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+            tabUiStateLogic,
+            ['savedQueryFor'],
+        ],
+        actions: [tabUiStateLogic, ['setSavedQueryForTab']],
     })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
+    listeners(({ actions, values }) => ({
+        setQuery: ({ query }) => {
+            const isDefault = objectsEqual(query, values.defaultQuery)
+            actions.setSavedQueryForTab(undefined, 'events', isDefault ? null : query)
+        },
+    })),
     selectors({
         defaultQuery: [
-            (s) => [s.currentTeam],
-            (currentTeam): DataTableNode => {
+            (s) => [s.currentTeam, s.filterTestAccountsDefault],
+            (currentTeam, filterTestAccountsDefault): DataTableNode => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
                 const base = defaultSourceForTeam
                     ? { ...defaultForScene, source: defaultSourceForTeam }
                     : defaultForScene
                 return {
-                    ...base,
+                    ...applyTestAccountFilter(base, currentTeam, filterTestAccountsDefault),
                     showPropertyFilter: true,
                 }
             },
@@ -56,7 +73,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             ],
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.activity(ActivityTab.ExploreEvents),
             {},
@@ -65,14 +82,16 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {
-                    // set the default unless it's already there
-                    if (!objectsEqual(values.query, values.defaultQuery)) {
-                        actions.setQuery(values.defaultQuery)
+                    // restore from the persisted query if present, else fall back to default
+                    const persisted = values.savedQueryFor(undefined, 'events')
+                    const target = persisted ?? values.defaultQuery
+                    if (!objectsEqual(values.query, target)) {
+                        actions.setQuery(target)
                     }
                 } else {
                     if (typeof queryParam === 'object') {

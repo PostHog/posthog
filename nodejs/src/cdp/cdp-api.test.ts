@@ -1,4 +1,5 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -15,8 +16,14 @@ import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import {
+    insertHogFunction as _insertHogFunction,
+    createHogFunction,
+    insertHogFunctionTemplate,
+    insertIntegration,
+} from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
@@ -80,7 +87,10 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub.postgres)
 
         cdpDeps = createCdpConsumerDeps(hub)
-        api = new CdpApi(hub, cdpDeps)
+        api = new CdpApi(hub, cdpDeps, {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -488,6 +498,55 @@ describe('CDP API', () => {
         `)
     })
 
+    it('redacts secret input values in mocked async function logs', async () => {
+        const SECRET_TOKEN = 'super-secret-bearer-token-xyz'
+
+        const hogFunctionWithSecret = await insertHogFunction({
+            name: 'test hog function with secret in headers',
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+                {
+                    key: 'method',
+                    type: 'choice',
+                    label: 'HTTP Method',
+                    secret: false,
+                    choices: [
+                        { label: 'POST', value: 'POST' },
+                        { label: 'GET', value: 'GET' },
+                    ],
+                    required: true,
+                },
+                { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+                { key: 'body', type: 'json', label: 'Body', secret: false, required: true },
+            ],
+            inputs: {
+                url: { value: 'https://example.com/posthog-webhook' },
+                access_token: { value: SECRET_TOKEN },
+                method: { value: 'POST' },
+                headers: { value: { Authorization: `Bearer ${SECRET_TOKEN}` } },
+                body: { value: {} },
+            },
+        })
+
+        const res = await supertest(app)
+            .post(
+                `/api/projects/${hogFunctionWithSecret.team_id}/hog_functions/${hogFunctionWithSecret.id}/invocations`
+            )
+            .send({ globals, mock_async_functions: true })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
+
+        const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(allLogText).not.toContain(SECRET_TOKEN)
+        // Confirm the sanitization path actually ran rather than the test passing by virtue of
+        // no fetch log being emitted at all.
+        expect(allLogText).toContain('***REDACTED***')
+    })
+
     describe('transformations', () => {
         let configuration: HogFunctionType
 
@@ -635,12 +694,93 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow invocation groups', () => {
+        const resolvedGroup = {
+            id: 'org-1',
+            type: 'organization',
+            index: 0,
+            url: 'http://localhost:8000/groups/0/org-1',
+            properties: { plan: 'enterprise' },
+        }
+
+        const groupGlobals: Partial<HogFunctionInvocationGlobals> = {
+            ...globals,
+            groups: {},
+            event: {
+                ...globals.event!,
+                properties: { $groups: { organization: 'org-1' } },
+            },
+        }
+
+        let executeSpy: jest.SpyInstance
+        let getGroupsSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            executeSpy = jest.spyOn(api['hogFlowExecutor'], 'executeCurrentAction').mockImplementation(((
+                invocation: any
+            ) =>
+                Promise.resolve({
+                    invocation,
+                    error: null,
+                    logs: [],
+                    execResult: null,
+                })) as any)
+            getGroupsSpy = jest
+                .spyOn(api['groupsManager'], 'getGroupsForEvent')
+                .mockResolvedValue({ organization: resolvedGroup })
+        })
+
+        afterEach(() => {
+            executeSpy.mockRestore()
+            getGroupsSpy.mockRestore()
+        })
+
+        it('resolves groups from the event when none are provided', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({ globals: groupGlobals, mock_async_functions: true, configuration: {} })
+
+            expect(res.status).toEqual(200)
+            expect(getGroupsSpy).toHaveBeenCalledWith(
+                team.id,
+                expect.objectContaining({ $groups: { organization: 'org-1' } }),
+                expect.stringContaining(`/project/${team.id}`)
+            )
+            // Resolved groups flow into filterGlobals so conditional branches can evaluate them
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.group_0).toEqual({ properties: { plan: 'enterprise' } })
+            expect(invocation.filterGlobals.$group_0).toEqual('org-1')
+        })
+
+        it('does not override groups provided in the payload', async () => {
+            const providedGroups = {
+                organization: { ...resolvedGroup, id: 'org-provided', properties: { plan: 'startup' } },
+            }
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...groupGlobals, groups: providedGroups },
+                    mock_async_functions: true,
+                    configuration: {},
+                })
+
+            expect(res.status).toEqual(200)
+            expect(getGroupsSpy).not.toHaveBeenCalled()
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.$group_0).toEqual('org-provided')
+        })
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let originalKafkaProducer: any
+        let produceSpy: jest.SpyInstance
 
         beforeEach(async () => {
-            originalKafkaProducer = cdpDeps.kafkaProducer
+            // The batch hogflow route now goes through the outputs registry, which in
+            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
+            // on its `produce` intercepts the produced message without reconstructing
+            // the api.
+            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -666,7 +806,7 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            cdpDeps.kafkaProducer = originalKafkaProducer
+            produceSpy.mockRestore()
         })
 
         it('errors if missing team', async () => {
@@ -715,8 +855,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job request to kafka', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            cdpDeps.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
@@ -728,7 +867,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -746,8 +885,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job with filters from hog flow config when not provided', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            cdpDeps.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
@@ -755,7 +893,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -771,17 +909,6 @@ describe('CDP API', () => {
                 key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
             })
         })
-
-        it('errors if kafka producer not available', async () => {
-            cdpDeps.kafkaProducer = undefined as any
-
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
-                .send({})
-
-            expect(res.status).toEqual(500)
-            expect(res.body.error).toEqual('Kafka producer not available')
-        })
     })
 
     describe('scheduled hogflow invocations', () => {
@@ -790,7 +917,7 @@ describe('CDP API', () => {
 
         beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
 
             scheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -869,6 +996,153 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('queued')
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
+    // it never enqueues into cyclotron. If the executor routes an email action onto the
+    // dedicated email queue, nothing services that job and the workflow stalls on a
+    // "Workflow will pause until …" log. The handler forces `sendEmailsInline: true` so the
+    // email branch always goes through EmailService directly on this path.
+    describe('hog_flows/:id/invocations — email actions are sent inline despite queue routing', () => {
+        let emailSpy: jest.SpyInstance
+        let originalMatcher: (teamId: number) => boolean
+        let hogFlowId: string
+
+        beforeEach(async () => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'sender@posthog.com',
+                    name: 'Test Sender',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-cdp-api-test-panel-email',
+                name: 'CDP API Test Panel Email',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    {
+                        type: 'native_email',
+                        key: 'email',
+                        label: 'Email message',
+                        integration: 'email',
+                        required: true,
+                        default: {
+                            to: { email: '', name: '' },
+                            from: { email: '', name: '' },
+                            subject: '',
+                            text: 'Hello!',
+                            html: '<div>Hello!</div>',
+                        },
+                        secret: false,
+                        description: '',
+                        templating: 'liquid',
+                    },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-cdp-api-test-panel-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                                            subject: 'Test panel email',
+                                            text: 'hello from test panel',
+                                            html: '<p>hello from test panel</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            const inserted = await insertHogFlow(hogFlow)
+            hogFlowId = inserted.id
+
+            // Simulate CDP_EMAIL_QUEUE_ROUTING='*' (prod-us) without rebuilding the executor — the
+            // matcher is set in the constructor closure, so reaching in is the only way to flip it.
+            const hogExecutor = api['hogExecutor'] as any
+            originalMatcher = hogExecutor.emailQueueMatcher
+            hogExecutor.emailQueueMatcher = () => true
+
+            // Stub EmailService so the test doesn't depend on a running maildev SMTP. The spy
+            // captures whether the inline path was taken — that's the assertion that proves the fix.
+            emailSpy = jest
+                .spyOn(api['hogExecutor']['emailService'], 'executeSendEmail')
+                .mockImplementation((invocation: any) =>
+                    Promise.resolve({
+                        invocation,
+                        finished: true,
+                        logs: [],
+                        metrics: [
+                            {
+                                team_id: invocation.teamId,
+                                app_source_id: invocation.parentRunId ?? invocation.functionId,
+                                instance_id: invocation.state.actionId || invocation.id,
+                                metric_kind: 'email',
+                                metric_name: 'email_sent',
+                                count: 1,
+                            },
+                        ],
+                        capturedPostHogEvents: [],
+                        warehouseWebhookPayloads: [],
+                    })
+                )
+        })
+
+        afterEach(() => {
+            ;(api['hogExecutor'] as any).emailQueueMatcher = originalMatcher
+            emailSpy.mockRestore()
+        })
+
+        it('sends the email inline via EmailService instead of routing to the email queue', async () => {
+            const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`).send({
+                globals,
+                configuration: {},
+                current_action_id: 'email_1',
+            })
+
+            expect(res.status).toBe(200)
+            expect(res.body.status).toBe('success')
+            expect(res.body.errors).toEqual([])
+            // EmailService was called inline — proving the test endpoint forced inline delivery
+            // even though the team would normally be routed to the email queue.
+            expect(emailSpy).toHaveBeenCalledTimes(1)
+            // The "Workflow will pause until …" log only appears when the executor routes the
+            // invocation to a different queue. It must NOT be present on the test panel response.
+            const pauseLog = res.body.logs.find((l: any) =>
+                String(l.message ?? '').startsWith('Workflow will pause until')
+            )
+            expect(pauseLog).toBeUndefined()
+            // executeCurrentAction advances past the email step after the inline send — the
+            // response's nextActionId proves the workflow continued to the next action.
+            expect(res.body.nextActionId).toBe('exit')
         })
     })
 })

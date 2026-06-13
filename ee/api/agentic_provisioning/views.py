@@ -6,7 +6,8 @@ import uuid
 import base64
 import hashlib
 import secrets
-from datetime import timedelta
+import unicodedata
+from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -14,10 +15,12 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -28,15 +31,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.authentication import password_reset_token_generator
+from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
-from posthog.models.oauth import (
-    OAuthAccessToken,
-    OAuthApplication,
-    OAuthRefreshToken,
-    find_oauth_access_token,
-    find_oauth_refresh_token,
-)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -46,32 +45,63 @@ from posthog.models.utils import (
     generate_random_token_personal,
     mask_key_value,
 )
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
+from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .authentication import ProvisioningAuthentication
-from .region_proxy import stripe_region_proxy
-from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
+from .region_proxy import region_proxy
+from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_provisioning_signature
 
 logger = structlog.get_logger(__name__)
 
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
-DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
-SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
+DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
+DEEP_LINK_MAX_PATH_LENGTH = 2000
+# Control chars, whitespace, and backslashes never appear in a legitimate in-app path; they are the
+# building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
+DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
+CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
+CIMD_DOMAIN_RATE_LIMIT_MAX = 5
+CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
+PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
+PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
+    "account_requests": 10,
+    "token_exchanges": 20,
+    "resource_creates": 20,
+}
+PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
+    "account_requests": "account_request",
+    "token_exchanges": "token_exchange",
+    "resource_creates": "resource_created",
+}
+
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-STRIPE_APP_NAME = "PostHog Stripe App"
-STRIPE_PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
+# Stripe's contracted scope ceiling, seeded onto the legacy Stripe Projects OAuth
+# app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
+# the default in `_exchange_authorization_code` when no per-code scopes are given).
+STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
+# Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
+PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
+# Cap partner-supplied prefix below the full label length so " - {team_name}" still
+# survives the truncation. A 37-char prefix would otherwise consume the whole label
+# and the team name would disappear from the truncated result.
+PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH = 25
 
-ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600  # keep existing expiry; reduce after verifying Stripe handles refresh
+ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600
 
 
@@ -97,7 +127,7 @@ SERVICES_CACHE_STORE_TTL = 86400
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
+_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, AI observability, logs, posthog ai, emails, and more."
 
 
 def _build_free_plan_service() -> dict[str, Any]:
@@ -218,7 +248,7 @@ VALID_SERVICE_IDS: set[str] = {FREE_PLAN_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID, A
 @authentication_classes([])
 @permission_classes([])
 def provisioning_health(request: Request) -> Response:
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -236,7 +266,7 @@ def provisioning_health(request: Request) -> Response:
 @authentication_classes([])
 @permission_classes([])
 def provisioning_services(request: Request) -> Response:
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -254,22 +284,32 @@ def provisioning_services(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="body_region")
+@region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
     if error := verify_api_version(request):
+        return error
+
+    if error := _enforce_cimd_registration_throttle(request):
         return error
 
     # --- Identify partner ---
     auth = ProvisioningAuthentication()
     partner = None
+    authenticated_user = None
     try:
         result = auth.authenticate(request)
         if result:
-            _, partner = result
+            authenticated_user, partner = result
     except AuthenticationFailed:
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
             status=401,
+        )
+
+    if partner is None and auth.cimd_registration_pending:
+        return Response(
+            {"type": "registering", "retry_after": 5},
+            status=202,
         )
 
     # --- Parse request ---
@@ -308,11 +348,15 @@ def account_requests(request: Request) -> Response:
         partner_account_id = orchestrator.get("account", "")
 
     # If no partner identified, require Stripe Projects HMAC auth
-    if not partner and not request.META.get("HTTP_STRIPE_SIGNATURE"):
+    if not partner and not request.headers.get("stripe-signature"):
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
             status=401,
         )
+
+    if not partner:
+        if error := _verify_hmac_if_present(request):
+            return error
 
     # Stripe Projects: require stripe account if no provisioning partner identified
     if not partner and not partner_account_id:
@@ -336,6 +380,9 @@ def account_requests(request: Request) -> Response:
             status=403,
         )
 
+    if partner and (error := _enforce_partner_rate_limit(partner, "account_requests")):
+        return error
+
     # PKCE: capture code_challenge for later verification
     code_challenge = data.get("code_challenge", "")
     code_challenge_method = data.get("code_challenge_method", "S256")
@@ -347,8 +394,35 @@ def account_requests(request: Request) -> Response:
             },
             status=400,
         )
+    if code_challenge and (
+        len(code_challenge) < 43 or len(code_challenge) > 128 or not re.fullmatch(r"[A-Za-z0-9_\-]+", code_challenge)
+    ):
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "invalid_request",
+                    "message": "code_challenge must be 43-128 characters using base64url charset",
+                },
+            },
+            status=400,
+        )
 
     region = (configuration.get("region") or "US").upper()
+
+    requested_team_id = configuration.get("team_id")
+    if requested_team_id is not None:
+        try:
+            requested_team_id = int(requested_team_id)
+        except (ValueError, TypeError):
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_request", "message": "configuration.team_id must be an integer"},
+                },
+                status=400,
+            )
 
     existing_user = User.objects.filter(email=email).first()
 
@@ -360,14 +434,63 @@ def account_requests(request: Request) -> Response:
             scopes,
             partner_account_id,
             region,
+            requested_team_id,
             partner,
             code_challenge,
             code_challenge_method,
+            authenticated_user,
         )
 
     return _handle_new_user(
-        request_id, data, email, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
+        request_id,
+        data,
+        email,
+        scopes,
+        partner_account_id,
+        region,
+        partner,
+        code_challenge,
+        code_challenge_method,
+        authenticated_user,
     )
+
+
+def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplication) -> bool:
+    """True if the user has any live OAuth credential issued to this partner.
+
+    "Live" = unexpired access token or non-revoked refresh token. PersonalAPIKey has no
+    partner attribution today, so it's excluded from this check; in practice PATs are
+    minted alongside OAuth tokens at provisioning time, so the OAuth-only check matches.
+    """
+    now = timezone.now()
+    if OAuthAccessToken.objects.filter(user=user, application=partner, expires__gt=now).exists():
+        return True
+    if OAuthRefreshToken.objects.filter(user=user, application=partner, revoked__isnull=True).exists():
+        return True
+    return False
+
+
+def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
+    """True only when the caller proved a prior trust relationship with this user.
+
+    This is what lets a skip-consent partner re-mint silently after the user has reviewed
+    their credentials. The proof differs by auth method:
+
+    - HMAC callers authenticate with a partner-level secret, so the partner already holding
+      a live OAuth credential for the user is sufficient proof of an existing relationship.
+    - Bearer callers present a single user-scoped access token. That token proves a
+      relationship only with its own user, so it qualifies only when it belongs to the user
+      being re-linked — otherwise any user of the partner could ride another user's live
+      credential to mint a code for that account.
+    - PKCE callers are public: the partner is identified solely by a client_id that anyone
+      can send, so the request carries no proof the caller controls the partner. The "user
+      already holds a live credential" signal proves nothing, so these never qualify.
+    """
+    if partner.provisioning_auth_method == "hmac":
+        return _user_has_existing_credentials_from_partner(user, partner)
+    if partner.provisioning_auth_method == "bearer":
+        return authenticated_user is not None and authenticated_user.id == user.id
+    return False
 
 
 def _handle_existing_user(
@@ -377,17 +500,128 @@ def _handle_existing_user(
     scopes: list[str],
     partner_account_id: str = "",
     region: str = "US",
+    team_id: int | None = None,
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
+    authenticated_user: User | None = None,
 ) -> Response:
+    # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
+    # skip_existing_user_consent=True can only mint silently when the caller proved a prior
+    # trust relationship with this user (see _caller_proved_existing_trust). Otherwise we
+    # fall through to consent.
+    silent_blocked_post_review = (
+        partner is not None
+        and partner.provisioning_skip_existing_user_consent
+        and user.credentials_reviewed_at is not None
+        and not _caller_proved_existing_trust(partner, user, authenticated_user)
+    )
+
+    if silent_blocked_post_review:
+        assert partner is not None  # implied by silent_blocked_post_review
+        _capture_provisioning_event(
+            "account_request",
+            "silent_blocked_post_review",
+            partner=partner,
+        )
+
+    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
+        if not code_challenge:
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {"code": "invalid_request", "message": "code_challenge is required for public clients"},
+                },
+                status=400,
+            )
+        if not scopes_within_ceiling(scopes, partner.scopes):
+            return Response(
+                {
+                    "id": request_id,
+                    "type": "error",
+                    "error": {
+                        "code": "invalid_scope",
+                        "message": "One or more requested scopes exceed the application's allowed scopes",
+                    },
+                },
+                status=400,
+            )
+        return _require_user_consent(
+            request_id,
+            user,
+            scopes,
+            partner_account_id,
+            region,
+            partner,
+            code_challenge,
+            code_challenge_method,
+        )
+
+    team = _resolve_team_for_existing_user(user, team_id)
+    if team is None:
+        _capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
+        return Response(
+            {
+                "id": request_id,
+                "type": "error",
+                "error": {"code": "team_resolution_failed", "message": "Could not resolve a project for this user"},
+            },
+            status=400,
+        )
+
+    code = secrets.token_urlsafe(32)
     cache.set(
-        f"{PENDING_AUTH_CACHE_PREFIX}{confirmation_secret}",
+        f"{AUTH_CODE_CACHE_PREFIX}{code}",
+        {
+            "issued_at": timezone.now().isoformat(),
+            "user_id": user.id,
+            "org_id": str(team.organization_id),
+            "team_id": team.id,
+            "stripe_account_id": partner_account_id,
+            "partner_id": str(partner.id) if partner else "",
+            "scopes": scopes,
+            "region": region,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method,
+        },
+        timeout=AUTH_CODE_TTL_SECONDS,
+    )
+
+    _capture_provisioning_event("account_request", "existing_user", partner=partner, region=region, team_id=team.id)
+
+    return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
+
+
+def _require_user_consent(
+    request_id: str,
+    user: User,
+    scopes: list[str],
+    partner_account_id: str,
+    region: str,
+    partner: OAuthApplication,
+    code_challenge: str,
+    code_challenge_method: str,
+) -> Response:
+    # Dedup: overwrite any prior pending state for same partner+email so
+    # retries don't leave multiple live consent URLs.
+    dedup_key = f"pending_auth_state:{partner.id}:{user.email}"
+    old_state = cache.get(dedup_key)
+    if old_state:
+        cache.delete(f"{PENDING_AUTH_CACHE_PREFIX}{old_state}")
+
+    state = secrets.token_urlsafe(32)
+    cache.set(dedup_key, state, timeout=PENDING_AUTH_TTL_SECONDS)
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    cache.set(
+        pending_key,
         {
             "email": user.email,
             "scopes": scopes,
             "stripe_account_id": partner_account_id,
-            "partner_id": str(partner.id) if partner else "",
+            "partner_id": str(partner.id),
+            "partner_name": partner.name,
             "region": region,
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method,
@@ -395,19 +629,48 @@ def _handle_existing_user(
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
 
-    _capture_provisioning_event("account_request", "existing_user", region=region)
+    auth_url = _build_authorize_url(state, scopes, region=region)
 
-    authorize_url = _build_authorize_url(confirmation_secret, scopes)
+    _capture_provisioning_event("account_request", "requires_auth", partner=partner, region=region)
+
     return Response(
         {
             "id": request_id,
             "type": "requires_auth",
-            "requires_auth": {
-                "type": "redirect",
-                "redirect": {"url": authorize_url},
-            },
+            "requires_auth": {"url": auth_url},
         }
     )
+
+
+def _resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
+    """Pick a team for an existing user during email-based account linking.
+
+    If requested_team_id is provided and the user has access, use it.
+    Otherwise auto-select: single non-demo team → use it, only demo teams →
+    create a new project, multiple teams → create a new project in the first org.
+    """
+    memberships = list(user.organization_memberships.select_related("organization").all())
+    if not memberships:
+        return None
+
+    org_ids = [m.organization_id for m in memberships]
+
+    if requested_team_id is not None:
+        try:
+            team = Team.objects.get(id=requested_team_id, is_demo=False)
+        except Team.DoesNotExist:
+            return None
+        if team.organization_id not in org_ids:
+            return None
+        return team
+
+    non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
+
+    if len(non_demo_teams) == 1:
+        return non_demo_teams[0]
+
+    organization = memberships[0].organization
+    return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
 
 def _handle_new_user(
@@ -420,6 +683,7 @@ def _handle_new_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
+    authenticated_user: User | None = None,
 ) -> Response:
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
@@ -428,9 +692,7 @@ def _handle_new_user(
     if not isinstance(configuration, dict):
         configuration = {}
 
-    partner_label = (
-        partner.provisioning_partner_type.capitalize() if partner and partner.provisioning_partner_type else "Stripe"
-    )
+    partner_label = _partner_label(partner)
     org_name = configuration.get("organization_name") or f"{partner_label} ({email})"
 
     try:
@@ -451,9 +713,11 @@ def _handle_new_user(
                 scopes,
                 partner_account_id,
                 region,
+                None,
                 partner,
                 code_challenge,
                 code_challenge_method,
+                authenticated_user,
             )
         _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(
@@ -465,13 +729,39 @@ def _handle_new_user(
             status=500,
         )
 
-    _capture_provisioning_event("account_request", "new_user", region=region)
+    _capture_provisioning_event(
+        "account_request",
+        "new_user",
+        partner=partner,
+        region=region,
+        team_id=team.id,
+    )
+
+    # Emit the standard signup event so provisioned accounts flow into the shared
+    # signup / activation / billing analyses, segmentable by client. Vercel does the
+    # same (ee/vercel/integration.py); the agentic path previously skipped it entirely.
+    report_user_signed_up(
+        user,
+        is_instance_first_user=False,
+        is_organization_first_user=True,
+        backend_processor="AgenticProvisioning",
+        social_provider=partner.name if partner else "",
+        user_analytics_metadata=user.get_analytics_metadata(),
+        org_analytics_metadata=organization.get_analytics_metadata(),
+    )
+
+    try:
+        reset_token = password_reset_token_generator.make_token(user)
+        send_provisioning_welcome.delay(user.id, reset_token, partner_label)
+    except Exception:
+        capture_exception(additional_properties={"user_id": user.id, "step": "provisioning_welcome_email"})
 
     code = secrets.token_urlsafe(32)
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
     cache.set(
         cache_key,
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
@@ -488,8 +778,8 @@ def _handle_new_user(
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
 
 
-def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
-    base = settings.SITE_URL.rstrip("/")
+def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: str = "") -> str:
+    base = _region_to_host(region).rstrip("/") if region else settings.SITE_URL.rstrip("/")
     params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
     return f"{base}/api/agentic/authorize?{params}"
 
@@ -517,9 +807,15 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     if request.user.email != pending["email"]:
         _capture_provisioning_event("authorize", "email_mismatch")
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
-
-    scope = " ".join(pending.get("scopes", []))
+        mismatch_params = urlencode(
+            {
+                "expected_email": pending["email"],
+                "current_email": request.user.email,
+                "partner_name": pending.get("partner_name", ""),
+                "state": state,
+            }
+        )
+        return HttpResponseRedirect(f"{settings.SITE_URL.rstrip('/')}/agentic/account-mismatch?{mismatch_params}")
 
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
@@ -536,9 +832,21 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         non_demo_teams = [team]
         _capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
 
-    if len(memberships) == 1 and len(non_demo_teams) == 1:
-        cache.delete(pending_key)
+    # Re-check partner is still active (could have been deactivated since account_requests)
+    partner_id = pending.get("partner_id", "")
+    is_trusted_partner = not partner_id
+    if partner_id:
+        try:
+            partner_app = OAuthApplication.objects.get(id=partner_id)
+            if not partner_app.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize", "partner_deactivated")
+                return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
+            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent
+        except OAuthApplication.DoesNotExist:
+            pass
 
+    if is_trusted_partner and len(memberships) == 1 and len(non_demo_teams) == 1:
         organization = memberships[0].organization
         team = non_demo_teams[0]
 
@@ -546,6 +854,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
             {
+                "issued_at": timezone.now().isoformat(),
                 "user_id": user.id,
                 "org_id": str(organization.id),
                 "team_id": team.id,
@@ -558,6 +867,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
             },
             timeout=AUTH_CODE_TTL_SECONDS,
         )
+        cache.delete(pending_key)
 
         _capture_provisioning_event("authorize", "auto_redirect", team_id=team.id)
 
@@ -570,8 +880,36 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     base = settings.SITE_URL.rstrip("/")
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
-    params = urlencode({"state": sanitized_state, "scope": scope})
+    params = urlencode({"state": sanitized_state})
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def agentic_authorize_pending(request: Request) -> Response:
+    """Return server-verified partner name and scopes for a pending auth state.
+
+    The frontend calls this instead of reading from URL params, preventing
+    an attacker from spoofing the partner identity on the consent page.
+    """
+    state = request.query_params.get("state", "")
+    if not state or not _SAFE_STATE_RE.match(state):
+        return Response({"error": "invalid_state"}, status=400)
+
+    pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
+    if pending is None:
+        return Response({"error": "expired_or_invalid_state"}, status=400)
+
+    user = cast(User, request.user)
+    if user.email != pending["email"]:
+        return Response({"error": "email_mismatch"}, status=403)
+
+    return Response(
+        {
+            "partner_name": pending.get("partner_name", "the requesting app"),
+            "scopes": pending.get("scopes", []),
+        }
+    )
 
 
 @api_view(["POST"])
@@ -606,12 +944,25 @@ def agentic_authorize_confirm(request: Request) -> Response:
         _capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
         return Response({"error": "team_not_accessible"}, status=403)
 
-    cache.delete(pending_key)
+    confirm_partner_id = pending.get("partner_id", "")
+    confirm_partner: OAuthApplication | None = None
+    if confirm_partner_id:
+        try:
+            confirm_partner = OAuthApplication.objects.get(id=confirm_partner_id)
+            if not confirm_partner.provisioning_active:
+                cache.delete(pending_key)
+                _capture_provisioning_event("authorize_confirm", "partner_deactivated", partner=confirm_partner)
+                return Response({"error": "partner_deactivated"}, status=403)
+        except OAuthApplication.DoesNotExist:
+            pass
 
     code = secrets.token_urlsafe(32)
+    # Set auth code BEFORE deleting pending state so a cache hiccup
+    # between the two doesn't leave the user with no recovery path.
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -624,13 +975,14 @@ def agentic_authorize_confirm(request: Request) -> Response:
         },
         timeout=AUTH_CODE_TTL_SECONDS,
     )
+    cache.delete(pending_key)
 
     callback_url = _get_callback_url(pending.get("partner_id", ""))
     sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
     params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
 
-    _capture_provisioning_event("authorize_confirm", "success", team_id=team_id)
+    _capture_provisioning_event("authorize_confirm", "success", partner=confirm_partner, team_id=team_id)
 
     return Response({"redirect_url": redirect_url})
 
@@ -643,7 +995,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="token_lookup")
+@region_proxy(strategy="token_lookup")
 def oauth_token(request: Request) -> Response:
     grant_type = request.data.get("grant_type", "")
 
@@ -657,6 +1009,18 @@ def oauth_token(request: Request) -> Response:
             {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
             status=400,
         )
+
+
+def _lock_application(application_id: uuid.UUID) -> OAuthApplication | None:
+    """Row-lock the OAuthApplication so direct-mint serializes with revoke_application_sessions.
+
+    The revoke updates this row first and holds the lock for its whole transaction before
+    sweeping tokens, so a mint that takes the same lock is forced into one of two safe orders:
+    it holds the lock and its new tokens land before the revoke's sweep (which then catches
+    them), or the revoke committed first and the caller reads the now-visible
+    `sessions_revoked_at` and rejects. Must be called inside `transaction.atomic()`.
+    """
+    return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
 
 def _exchange_authorization_code(request: Request) -> Response:
@@ -676,7 +1040,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     # Auth check: PKCE codes require code_verifier, non-PKCE codes require HMAC.
     # All verification happens BEFORE cache.delete so a failed attempt doesn't consume the code.
     stored_challenge = code_data.get("code_challenge", "")
-    has_hmac = bool(request.META.get("HTTP_STRIPE_SIGNATURE"))
+    has_hmac = bool(request.headers.get("stripe-signature"))
     if stored_challenge:
         code_verifier = request.data.get("code_verifier", "")
         if not code_verifier:
@@ -697,8 +1061,24 @@ def _exchange_authorization_code(request: Request) -> Response:
     elif not has_hmac:
         _capture_provisioning_event("token_exchange", "missing_signature", grant_type="authorization_code")
         return Response({"error": "invalid_request", "error_description": "Authentication required"}, status=401)
+    else:
+        if error := _verify_hmac_if_present(request):
+            return error
 
+    # Consume the code before rate limiting so a leaked auth code can't be replayed
+    # to burn the partner's bucket. Auth codes are single-use by spec, so the
+    # tradeoff (rate-limited client loses the code) is acceptable — clients can
+    # re-initiate the OAuth flow if rate-limited.
     cache.delete(cache_key)
+
+    partner_id = code_data.get("partner_id", "")
+    if partner_id:
+        try:
+            partner = OAuthApplication.objects.get(id=partner_id)
+            if error := _enforce_partner_rate_limit(partner, "token_exchanges"):
+                return error
+        except (OAuthApplication.DoesNotExist, ValidationError, ValueError):
+            logger.warning("partner_rate_limit_app_missing", partner_id=partner_id)
 
     user_id = code_data["user_id"]
     team_id = code_data["team_id"]
@@ -711,35 +1091,78 @@ def _exchange_authorization_code(request: Request) -> Response:
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
     # Use partner's OAuth app if available, fall back to Stripe
-    oauth_app = _get_oauth_app_for_code(code_data)
-    scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
+    try:
+        oauth_app = _get_oauth_app_for_code(code_data)
+    except LegacyStripeOAuthAppMissingError:
+        _capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
+        return Response(
+            {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
+        )
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+    # Lock the app row before reading the revoke stamp and minting, so this serializes
+    # with revoke_application_sessions (see _lock_application). Provisioning auth codes
+    # live in the cache, not OAuthGrant, so the revoke's sweep can't reach them — the
+    # `issued_at` carried on the code is what a revoke is checked against. Codes minted
+    # before `issued_at` shipped lack the field; fail closed (they expire in
+    # AUTH_CODE_TTL_SECONDS and the client can re-run the flow).
+    with transaction.atomic():
+        locked_app = _lock_application(oauth_app.pk) if oauth_app else None
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None:
+            issued_at_raw = code_data.get("issued_at")
+            issued_at = datetime.fromisoformat(issued_at_raw) if issued_at_raw else None
+            if issued_at is None or issued_at < sessions_revoked_at:
+                _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
+                return Response(
+                    {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                    status=400,
+                )
 
-    access_token_value = generate_random_oauth_access_token(None)
-    access_token = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=access_token_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=scope_str,
-        scoped_teams=[team_id],
-    )
+        # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
+        # ceiling has to be enforced here before the token is created by hand.
+        requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+        app_scopes = locked_app.scopes if locked_app else []
+        if not scopes_within_ceiling(requested_scopes, app_scopes):
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
+            return Response(
+                {
+                    "error": "invalid_scope",
+                    "error_description": "Requested scopes exceed the application's allowed scopes",
+                },
+                status=400,
+            )
+        scope_str = " ".join(requested_scopes)
 
-    refresh_token_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=refresh_token_value,
-        user=user,
-        access_token=access_token,
-        scoped_teams=[team_id],
-    )
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
+        )
+
+        access_token_value = generate_random_oauth_access_token(None)
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=access_token_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=scope_str,
+            scoped_teams=[team_id],
+        )
+
+        refresh_token_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=refresh_token_value,
+            user=user,
+            access_token=access_token,
+            scoped_teams=[team_id],
+        )
 
     account_id = str(code_data.get("org_id", ""))
 
-    _capture_provisioning_event("token_exchange", "success", grant_type="authorization_code")
+    available_teams = _get_available_teams_for_user(user)
+
+    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="authorization_code")
 
     return Response(
         {
@@ -750,6 +1173,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "account": {
                 "id": account_id,
                 "payment_credentials": "orchestrator",
+                "available_teams": available_teams,
             },
         }
     )
@@ -761,48 +1185,101 @@ def _exchange_refresh_token(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
-    old_refresh = find_oauth_refresh_token(refresh_token_value)
-    if old_refresh is None:
-        _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
-        return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
+    # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
+    # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
+    # the revoke: either we hold the lock and our new tokens land before its sweep, or it
+    # committed first and we see the token already revoked (or the stamp) and reject. Looking
+    # the app up by id first (without locking the token row) keeps the lock order app→token,
+    # matching the revoke, so the two can't deadlock.
+    with transaction.atomic():
+        application_id = (
+            OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
+            .values_list("application_id", flat=True)
+            .first()
+        )
+        locked_app = _lock_application(application_id) if application_id else None
+        old_refresh = (
+            OAuthRefreshToken.objects.select_related("user", "access_token")
+            .filter(token=refresh_token_value, revoked__isnull=True)
+            .first()
+        )
+        if old_refresh is None:
+            _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400
+            )
 
-    oauth_app = old_refresh.application
-    user = old_refresh.user
-    scoped_teams = old_refresh.scoped_teams
-    old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
+        oauth_app = locked_app
+        user = old_refresh.user
+        scoped_teams = old_refresh.scoped_teams
+        old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
-    old_access = old_refresh.access_token
-    old_refresh.access_token = None
-    old_refresh.revoked = timezone.now()
-    old_refresh.save(update_fields=["access_token", "revoked"])
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
+            _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                status=400,
+            )
 
-    if old_access:
-        old_access.delete()
+        # Cap the refreshed scope at the app's current ceiling before touching any
+        # token rows — a since-tightened ceiling must drop the removed scopes, and a
+        # token now fully outside the ceiling has to re-authorize rather than refresh.
+        # Done up front so a rejected refresh never revokes the caller's only token.
+        app_scopes = oauth_app.scopes if oauth_app else []
+        narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
+        if narrowed_scopes is None:
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
+            return Response(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                },
+                status=400,
+            )
+        new_scope = " ".join(narrowed_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+        # provisioning_partner_type is a stable marker set at partner registration;
+        # checking it instead of is_provisioning_partner prevents a bypass when an admin
+        # clears provisioning_auth_method to disable a partner without revoking tokens.
+        if oauth_app and oauth_app.provisioning_partner_type:
+            if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+                return error
 
-    new_access_value = generate_random_oauth_access_token(None)
-    new_access = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=new_access_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=old_scope,
-        scoped_teams=scoped_teams,
-    )
+        old_access = old_refresh.access_token
+        old_refresh.access_token = None
+        old_refresh.revoked = timezone.now()
+        old_refresh.save(update_fields=["access_token", "revoked"])
 
-    new_refresh_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=new_refresh_value,
-        user=user,
-        access_token=new_access,
-        scoped_teams=scoped_teams,
-    )
+        if old_access:
+            old_access.delete()
 
-    _capture_provisioning_event("token_exchange", "success", grant_type="refresh_token")
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
+        )
+
+        new_access_value = generate_random_oauth_access_token(None)
+        new_access = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=new_access_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=new_scope,
+            scoped_teams=scoped_teams,
+        )
+
+        new_refresh_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=new_refresh_value,
+            user=user,
+            access_token=new_access,
+            scoped_teams=scoped_teams,
+        )
+
+    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
 
     return Response(
         {
@@ -873,7 +1350,7 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
             )
             return False
 
-        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
+        logger.info("provisioning.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
         return True
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
@@ -900,18 +1377,87 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
     return _activate_billing_with_spt(team, user, spt_token)
 
 
-def _create_provisioned_pat(user: User, team: Team) -> str | None:
-    """Create a Personal API Key for a provisioned user and return the raw key value."""
+class _InvalidLabelPrefixError(Exception):
+    """Raised when a partner-supplied label_prefix fails validation."""
+
+
+def _extract_label_prefix(request: Request) -> str | None:
+    """Extract and validate the optional ``label_prefix`` from the request body.
+
+    Returns ``None`` when the field is absent or empty (caller creates an
+    unprefixed label). Raises ``_InvalidLabelPrefixError`` when the field is
+    present but malformed (wrong type, too long, or contains control or format
+    characters that would render badly in the user's PAT list).
+    """
+    raw = request.data.get("label_prefix")
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise _InvalidLabelPrefixError("label_prefix must be a string")
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    if len(stripped) > PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH:
+        raise _InvalidLabelPrefixError(
+            f"label_prefix must be {PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH} characters or fewer"
+        )
+
+    # Reject Unicode control (Cc), format (Cf), and line/paragraph separators (Zl/Zp).
+    # Cf is the important one - it includes bidi overrides (U+202A-U+202E) and
+    # isolates (U+2066-U+2069), which a partner could use to re-order surrounding
+    # text in the user's settings page (Trojan Source class). Cc covers C0 + DEL.
+    if any(unicodedata.category(c) in {"Cc", "Cf", "Zl", "Zp"} for c in stripped):
+        raise _InvalidLabelPrefixError("label_prefix must not contain control or format characters")
+
+    return stripped
+
+
+def _maybe_create_provisioned_pat(
+    user: User, team: Team, app: OAuthApplication | None, label_prefix: str | None = None
+) -> str | None:
+    """Create a Personal API Key for a provisioned user and return the raw key value.
+
+    Gated by ``app.provisioning_issues_personal_api_key``: off by default, so most
+    apps never receive a provisioned PAT (the OAuth token is the credential).
+    Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
+    from the response entirely.
+
+    When enabled (the grandfathered legacy Stripe app), the key is scoped to the
+    app's ``scopes`` ceiling rather than ``["*"]`` so a provisioned PAT can never
+    exceed what the issuing app is itself allowed. A flag-on app with an unseeded
+    ceiling mints nothing: an empty-scope PAT fails every scope check, and widening
+    to a wildcard would bypass the ceiling.
+
+    scoped_teams is set to [team.id] so the PAT only grants access to the team
+    being provisioned, matching the scoping of the OAuth token issued in the
+    same flow. Without this, a provisioning call from an existing user would
+    return a PAT that reaches across every team the user already belongs to.
+
+    ``label_prefix`` should be pre-validated by ``_extract_label_prefix``; pass
+    ``None`` (or any falsy value) to label the key with just the team name.
+    """
+    if not app or not app.provisioning_issues_personal_api_key:
+        return None
+    if not app.scopes:
+        _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
+        return None
     try:
         api_key_value = generate_random_token_personal()
-        label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
+        label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
+        # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
+        # final string to match so we never violate the column constraint.
+        label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
         PersonalAPIKey.objects.create(
             user=user,
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=[],
+            scopes=list(app.scopes),
+            scoped_teams=[team.id],
+            scoped_organizations=[str(team.organization_id)],
         )
 
         return api_key_value
@@ -926,12 +1472,16 @@ def _resolve_or_create_project_team(
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
-) -> tuple[Team, list[int]]:
+) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
     Uses TeamProvisioningConfig (DB-backed with unique constraint) for the
     project_id → team_id mapping. This ensures idempotency even across cache
     evictions and handles race conditions via IntegrityError.
+
+    Returns (None, scoped_teams) when an existing team is resolved but the
+    authenticated user lacks team-level access (honors advanced permissions
+    / access controls on top of org membership).
     """
     from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -944,9 +1494,14 @@ def _resolve_or_create_project_team(
         .first()
     )
     if existing:
-        return existing.team, scoped_teams
+        if not _user_can_access_team(user, existing.team):
+            return None, scoped_teams
+        return _ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
+    if not _user_can_access_team(user, base_team):
+        return None, scoped_teams
+
     project_name = configuration.get("project_name", "Default project")
     new_team = Team.objects.create_with_data(
         initiating_user=user,
@@ -961,30 +1516,68 @@ def _resolve_or_create_project_team(
         )
     except IntegrityError:
         new_team.delete()
-        race_winner = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
+        race_winner = (
+            TeamProvisioningConfig.objects.filter(
+                stripe_project_id=project_id,
+                team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
+            )
+            .select_related("team")
+            .first()
+        )
         if race_winner:
-            return race_winner.team, scoped_teams
-        return base_team, scoped_teams
+            if not _user_can_access_team(user, race_winner.team):
+                return None, scoped_teams
+            return _ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)
+        raise _ProjectIdCollisionError(project_id)
 
-    _add_team_to_token_scopes(access_token, new_team.id)
+    return _ensure_team_in_token_scopes(access_token, scoped_teams, new_team)
 
-    return new_team, [*scoped_teams, new_team.id]
+
+class _ProjectIdCollisionError(Exception):
+    """Raised when a stripe_project_id is already in use by a team outside the caller's orgs."""
+
+    def __init__(self, project_id: str) -> None:
+        super().__init__(project_id)
+        self.project_id = project_id
+
+
+def _ensure_team_in_token_scopes(
+    access_token: OAuthAccessToken, scoped_teams: list[int], team: Team
+) -> tuple[Team, list[int]]:
+    if team.id in scoped_teams:
+        return team, scoped_teams
+    _add_team_to_token_scopes(access_token, team.id)
+    return team, [*scoped_teams, team.id]
+
+
+def _user_can_access_team(user: User, team: Team) -> bool:
+    """Verify the user has at least member-level access to the team.
+
+    Org membership alone does not prove access for advanced-permissions
+    orgs that restrict individual teams. Without this check the agentic
+    provisioning resolve flow could grant scoped access to a private team
+    as long as the user had any team in the same org.
+    """
+    return UserAccessControl(user=user, team=team).check_access_level_for_object(team, required_level="member")
 
 
 def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    teams = list(access_token.scoped_teams or [])
-    if team_id not in teams:
-        teams.append(team_id)
-        access_token.scoped_teams = teams
-        access_token.save(update_fields=["scoped_teams"])
+    with transaction.atomic():
+        locked_access_token = OAuthAccessToken.objects.select_for_update().get(pk=access_token.pk)
+        teams = list(locked_access_token.scoped_teams or [])
+        if team_id not in teams:
+            teams.append(team_id)
+            locked_access_token.scoped_teams = teams
+            locked_access_token.save(update_fields=["scoped_teams"])
+            access_token.scoped_teams = teams
 
-    refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
-    for rt in refresh_tokens:
-        rt_teams = list(rt.scoped_teams or [])
-        if team_id not in rt_teams:
-            rt_teams.append(team_id)
-            rt.scoped_teams = rt_teams
-            rt.save(update_fields=["scoped_teams"])
+        refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=locked_access_token)
+        for rt in refresh_tokens:
+            rt_teams = list(rt.scoped_teams or [])
+            if team_id not in rt_teams:
+                rt_teams.append(team_id)
+                rt.scoped_teams = rt_teams
+                rt.save(update_fields=["scoped_teams"])
 
 
 def _get_provisioning_service_id(team: Team) -> str:
@@ -1014,6 +1607,7 @@ def _set_provisioning_service_id(team: Team, service_id: str) -> None:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resources_create(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1024,37 +1618,81 @@ def provisioning_resources_create(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
 
+    app = access_token.application
+    if app and app.provisioning_partner_type:
+        if error := _enforce_partner_rate_limit(app, "resource_creates"):
+            # Resource endpoints use {"status": "error"} envelope, not {"type": "error"}
+            retry_after = error["Retry-After"] if "Retry-After" in error else "3600"
+            response = _error_response(
+                "rate_limited", "Rate limit exceeded for this partner. Try again later.", status=429
+            )
+            response["Retry-After"] = retry_after
+            return response
+
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
-        _capture_provisioning_event("resource_created", "error", error_code="unknown_service")
+        _capture_provisioning_event("resource_created", "error", partner=app, error_code="unknown_service")
         return _error_response("unknown_service", f"Unknown service_id: {service_id}")
+
+    try:
+        label_prefix = _extract_label_prefix(request)
+    except _InvalidLabelPrefixError as exc:
+        _capture_provisioning_event("resource_created", "error", partner=app, error_code="invalid_label_prefix")
+        return _error_response("invalid_label_prefix", str(exc))
 
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
-        _capture_provisioning_event("resource_created", "error", error_code="no_team")
+        _capture_provisioning_event("resource_created", "error", partner=app, error_code="no_team")
         return _error_response("no_team", "No team associated with this token")
 
     project_id = request.data.get("project_id", "")
     configuration = request.data.get("configuration") or {}
 
     if project_id:
-        team, scoped_teams = _resolve_or_create_project_team(
-            project_id, scoped_teams, user, configuration, access_token
-        )
+        try:
+            team, scoped_teams = _resolve_or_create_project_team(
+                project_id, scoped_teams, user, configuration, access_token
+            )
+        except _ProjectIdCollisionError:
+            _capture_provisioning_event(
+                "resource_created", "error", partner=app, error_code="project_id_conflict", project_id=project_id
+            )
+            return _error_response(
+                "project_id_conflict",
+                "Project ID already linked to another organization",
+                status=409,
+            )
+        if team is None:
+            _capture_provisioning_event(
+                "resource_created", "error", partner=app, error_code="not_found", project_id=project_id
+            )
+            return _error_response("not_found", "Resource not found", status=404)
     else:
         team_id = scoped_teams[0]
         try:
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
-            _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
+            _capture_provisioning_event(
+                "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
+            )
             return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
+        _capture_provisioning_event(
+            "resource_created",
+            "error",
+            partner=app,
+            error_code="requires_payment_credentials",
+            service_id=resolved_service_id,
+            team_id=team.id,
+            has_spt=has_spt,
+        )
         return Response(
             {
                 "status": "error",
@@ -1067,16 +1705,37 @@ def provisioning_resources_create(request: Request) -> Response:
             status=400,
         )
 
+    if resolved_service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
+        _capture_provisioning_event(
+            "resource_created",
+            "error",
+            partner=app,
+            error_code="requires_payment_credentials",
+            service_id=resolved_service_id,
+            team_id=team.id,
+        )
+        return _error_response("requires_payment_credentials", "Payment credentials required for paid plan")
+
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("resource_created", "success", service_id=resolved_service_id, team_id=team.id)
+    _capture_provisioning_event(
+        "resource_created",
+        "success",
+        partner=app,
+        service_id=resolved_service_id,
+        team_id=team.id,
+        has_spt=has_spt,
+        billing_result=str(billing_result),
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1099,6 +1758,7 @@ def provisioning_resources_create(request: Request) -> Response:
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([])
+@region_proxy(strategy="bearer_lookup")
 def provisioning_resource_detail(request: Request, resource_id: str) -> Response:
     return _resolve_resource_response(request, resource_id)
 
@@ -1111,6 +1771,7 @@ def provisioning_resource_detail(request: Request, resource_id: str) -> Response
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@region_proxy(strategy="bearer_lookup")
 def provisioning_rotate_credentials(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
@@ -1120,6 +1781,12 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         return error
     if error := verify_api_version(request):
         return error
+
+    try:
+        label_prefix = _extract_label_prefix(request)
+    except _InvalidLabelPrefixError as exc:
+        _capture_provisioning_event("credential_rotation", "error", error_code="invalid_label_prefix")
+        return _error_response("invalid_label_prefix", str(exc), resource_id=resource_id)
 
     scoped_teams = access_token.scoped_teams or []
 
@@ -1157,7 +1824,9 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1180,12 +1849,13 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@region_proxy(strategy="bearer_lookup")
 def provisioning_update_service(request: Request, resource_id: str) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -1215,11 +1885,28 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
+    has_spt = billing_result is not None
     if billing_result is False:
+        _capture_provisioning_event(
+            "update_service",
+            "error",
+            error_code="billing_activation_failed",
+            service_id=service_id,
+            team_id=team_id,
+            has_spt=has_spt,
+        )
         return _error_response(
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
             resource_id=resource_id,
+        )
+
+    if service_id == PAY_AS_YOU_GO_SERVICE_ID and billing_result is None:
+        _capture_provisioning_event(
+            "update_service", "error", error_code="requires_payment_credentials", service_id=service_id, team_id=team_id
+        )
+        return _error_response(
+            "requires_payment_credentials", "Payment credentials required for paid plan", resource_id=resource_id
         )
 
     _set_provisioning_service_id(team, service_id)
@@ -1227,7 +1914,14 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
-    _capture_provisioning_event("update_service", "success", service_id=service_id, team_id=team_id)
+    _capture_provisioning_event(
+        "update_service",
+        "success",
+        service_id=service_id,
+        team_id=team_id,
+        has_spt=has_spt,
+        billing_result=str(billing_result),
+    )
 
     access_configuration: dict[str, str] = {
         "api_key": team.api_token,
@@ -1244,6 +1938,96 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             },
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/resources/:id/remove
+# Detaches the resource from the orchestrator: removes it from the token's
+# scope and clears provisioning metadata. Preserves the underlying team and
+# user data so the customer can still access PostHog directly.
+# ---------------------------------------------------------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+@region_proxy(strategy="bearer_lookup")
+def provisioning_resource_remove(request: Request, resource_id: str) -> Response:
+    auth_error, user, access_token = _authenticate_bearer(request)
+    if auth_error:
+        return auth_error
+
+    if error := _verify_hmac_if_present(request):
+        return error
+    if error := verify_api_version(request):
+        return error
+
+    try:
+        team_id = int(resource_id)
+    except (ValueError, TypeError):
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "invalid_resource_id", "message": "Invalid resource ID"},
+            },
+            status=400,
+        )
+
+    scoped_teams = access_token.scoped_teams or []
+    if team_id not in scoped_teams:
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "forbidden", "message": "Resource not accessible with this token"},
+            },
+            status=403,
+        )
+
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    try:
+        TeamProvisioningConfig.objects.filter(team_id=team_id).delete()
+    except Exception:
+        capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
+        _capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
+        return Response(
+            {
+                "status": "error",
+                "id": resource_id,
+                "error": {"code": "remove_failed", "message": "Failed to remove resource"},
+            },
+            status=500,
+        )
+
+    _remove_team_from_token_scopes(access_token, team_id)
+
+    _capture_provisioning_event("resource_removed", "success", team_id=team_id)
+
+    return Response({"status": "removed", "id": resource_id})
+
+
+def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
+    remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
+
+    # Atomic so a refresh token can never be left with the removed team still in
+    # scope while the access token has it stripped — otherwise the orchestrator
+    # could refresh and replay the removed team right back into scope.
+    with transaction.atomic():
+        refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+
+        if not remaining:
+            refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+            access_token.delete()
+            return
+
+        access_token.scoped_teams = remaining
+        access_token.save(update_fields=["scoped_teams"])
+
+        for rt in refresh_tokens:
+            rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+            rt.save(update_fields=["scoped_teams"])
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
@@ -1315,26 +2099,48 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
+@region_proxy(strategy="bearer_lookup")
 def deep_links(request: Request) -> Response:
     auth_error, user, access_token = _authenticate_bearer(request)
     if auth_error:
         return auth_error
 
-    if error := _verify_hmac_if_present(request):
+    # HMAC partners must include a valid signature on this endpoint - bearer alone
+    # is not sufficient to mint a full web session via the deep-link primitive.
+    if access_token.application.provisioning_auth_method == "hmac":
+        if not request.META.get("HTTP_STRIPE_SIGNATURE"):
+            return _error_response(
+                "hmac_signature_required",
+                "HMAC signature required for this partner",
+                status=401,
+            )
+        if error := verify_provisioning_signature(request):
+            return error
+    elif error := _verify_hmac_if_present(request):
         return error
+
     if error := verify_api_version(request):
         return error
 
+    if not access_token.application.provisioning_can_issue_deep_links:
+        _capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
+        return _error_response(
+            "deep_links_not_enabled",
+            "Deep links are not enabled for this partner",
+            status=403,
+        )
+
+    # `purpose` is a free-form label retained for analytics. `path` is the generic
+    # destination: any in-app path the partner wants the user to land on after login.
     purpose = request.data.get("purpose", "dashboard")
-    if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
-        _capture_provisioning_event("deep_link_created", "unsupported_purpose", purpose=purpose)
-        return Response(
-            {
-                "error": {
-                    "code": "unsupported_purpose",
-                    "message": f"Unsupported purpose: {purpose}. Supported: {', '.join(sorted(SUPPORTED_DEEP_LINK_PURPOSES))}",
-                }
-            },
+    path = request.data.get("path")
+    if path and not _is_safe_deep_link_path(path):
+        _capture_provisioning_event(
+            "deep_link_created", "invalid_path", partner=access_token.application, purpose=purpose
+        )
+        return _error_response(
+            "invalid_path",
+            "path must be a relative in-app path beginning with a single '/'",
             status=400,
         )
 
@@ -1352,6 +2158,7 @@ def deep_links(request: Request) -> Response:
             "user_id": access_token.user_id,
             "team_id": team_id,
             "purpose": purpose,
+            "path": path or None,
         },
         timeout=DEEP_LINK_TTL_SECONDS,
     )
@@ -1362,7 +2169,9 @@ def deep_links(request: Request) -> Response:
     if team_id:
         url += f"&team_id={team_id}"
 
-    _capture_provisioning_event("deep_link_created", "success", purpose=purpose, team_id=team_id)
+    _capture_provisioning_event(
+        "deep_link_created", "success", partner=access_token.application, purpose=purpose, team_id=team_id
+    )
 
     return Response(
         {
@@ -1378,19 +2187,148 @@ def deep_links(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 
+def _partner_label(partner: OAuthApplication | None) -> str:
+    if not partner:
+        return "Stripe"
+    if partner.provisioning_partner_type:
+        return partner.provisioning_partner_type.capitalize()
+    if partner.name:
+        return partner.name
+    return "Stripe"
+
+
+def _enforce_partner_rate_limit(partner: OAuthApplication, endpoint: str) -> Response | None:
+    """Enforce per-partner rate limit using the model's override or a conservative default.
+
+    Returns a 429 Response if the limit is exceeded, or None if the request is allowed.
+    Setting the model field to 0 disables rate limiting for that endpoint.
+
+    Uses a fixed-window counter keyed on partner id + window-of-epoch. A partner can
+    burst up to 2x the limit across a window boundary (`limit` at :59:59 plus `limit`
+    at :00:00); switch to a sliding window if that matters.
+    """
+    if endpoint not in PARTNER_RATE_LIMIT_DEFAULTS:
+        raise ValueError(f"Unknown rate limit endpoint: {endpoint}")
+
+    field_name = f"provisioning_rate_limit_{endpoint}"
+    override = getattr(partner, field_name, None)
+
+    if override is not None:
+        limit = override
+    else:
+        limit = PARTNER_RATE_LIMIT_DEFAULTS.get(endpoint, 10)
+
+    if limit <= 0:
+        return None
+
+    window_index = int(time.time()) // PARTNER_RATE_LIMIT_WINDOW_SECONDS
+    cache_key = f"{PARTNER_RATE_LIMIT_PREFIX}{endpoint}:{partner.id}:{window_index}"
+
+    try:
+        cache.add(cache_key, 0, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(cache_key)
+    except (ValueError, ConnectionError, TimeoutError) as e:
+        logger.warning("partner_rate_limit_cache_error", endpoint=endpoint, partner_id=str(partner.id), error=str(e))
+        # cache.add preserves any counter a concurrent request already initialized,
+        # so a transient cache error doesn't reset the window for a partner at the limit.
+        cache.add(cache_key, 1, timeout=PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        count = 1
+
+    if count > limit:
+        event_name = PARTNER_RATE_LIMIT_EVENT_NAMES.get(endpoint, endpoint)
+        _capture_provisioning_event(event_name, "rate_limited", partner=partner, limit=limit, count=count)
+        retry_after = PARTNER_RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % PARTNER_RATE_LIMIT_WINDOW_SECONDS)
+        response = Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "rate_limited",
+                    "message": f"Rate limit exceeded for this partner ({endpoint}). Try again later.",
+                },
+            },
+            status=429,
+        )
+        response["Retry-After"] = str(retry_after)
+        return response
+    return None
+
+
+def _enforce_cimd_registration_throttle(request: Request) -> Response | None:
+    """Rate-limit first-time CIMD app registration by IP and domain to match /authorize protections."""
+    from posthog.api.oauth.cimd import CIMD_THROTTLE_CLASSES, is_cimd_client_id
+
+    client_id = request.data.get("client_id") or request.query_params.get("client_id")
+    if not is_cimd_client_id(client_id):
+        return None
+    if OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+        return None
+
+    for throttle_cls in CIMD_THROTTLE_CLASSES:
+        throttle = throttle_cls()
+        if not throttle.allow_request(request, view=None):  # type: ignore[arg-type]
+            logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+            return Response(
+                {
+                    "type": "error",
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "Too many new client registrations. Try again later.",
+                    },
+                },
+                status=429,
+            )
+
+    if error := _enforce_cimd_domain_rate_limit(cast(str, client_id)):
+        return error
+
+    return None
+
+
+def _enforce_cimd_domain_rate_limit(client_id: str) -> Response | None:
+    """Prevent a single domain from registering unlimited CIMD apps via different URL paths."""
+    from urllib.parse import urlparse
+
+    domain = urlparse(client_id).hostname
+    if not domain:
+        return None
+
+    window_index = int(time.time()) // CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS
+    key = f"{CIMD_DOMAIN_RATE_LIMIT_PREFIX}{domain}:{window_index}"
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        cache.add(key, 0, timeout=CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(key)
+
+    if count > CIMD_DOMAIN_RATE_LIMIT_MAX:
+        logger.warning("cimd_domain_rate_limited", client_id=client_id, domain=domain, count=count)
+        _capture_provisioning_event("account_request", "cimd_domain_rate_limited", domain=domain, count=count)
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "rate_limited",
+                    "message": "Too many new client registrations from this domain. Try again later.",
+                },
+            },
+            status=429,
+        )
+    return None
+
+
 def _verify_hmac_if_present(request: Request) -> Response | None:
     """Verify HMAC signature only if the Stripe-Signature header is present.
 
     For HMAC partners (Stripe), both HMAC + Bearer are required on resource endpoints.
     For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
     """
-    if request.META.get("HTTP_STRIPE_SIGNATURE"):
-        return verify_stripe_signature(request)
+    if request.headers.get("stripe-signature"):
+        return verify_provisioning_signature(request)
     return None
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
-    logger.warning("stripe_app.error_response", code=code, message=message, resource_id=resource_id, status=status)
+    logger.warning("provisioning.error_response", code=code, message=message, resource_id=resource_id, status=status)
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
 
 
@@ -1401,7 +2339,7 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     then falls back to Stripe Projects HMAC auth.
     """
 
-    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith("Bearer "):
         return (_error_response("unauthorized", "Missing bearer token", status=401), None, None)
 
@@ -1429,36 +2367,70 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
             )
         return None, access_token.user, access_token
 
-    # Fall back to Stripe Projects HMAC check
-    from .authentication import _is_stripe_oauth_app
+    # Legacy fallback: accept tokens from the Stripe Projects app by client_id
+    if app and app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        return None, access_token.user, access_token
 
-    if not _is_stripe_oauth_app(access_token.application):
-        return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
-
-    return None, access_token.user, access_token
+    return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
-def _get_stripe_oauth_app():
-    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-        try:
-            return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
-        except OAuthApplication.DoesNotExist:
-            logger.warning(
-                "stripe_app.oauth_app.client_id_not_found",
-                client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
-            )
+class LegacyStripeOAuthAppMissingError(Exception):
+    """The configured Stripe Projects OAuth app could not be resolved.
 
-    from oauthlib.common import generate_token
+    Raised instead of fabricating an app on demand: a missing app is an
+    operational misconfiguration, not something to paper over with a freshly
+    created application that carries no scope ceiling.
+    """
 
-    return OAuthApplication.objects.create(
-        name=STRIPE_APP_NAME,
-        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
-        client_secret="",
-        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-        redirect_uris="https://localhost",
-        algorithm="RS256",
-    )
+
+def _seed_stripe_app_scopes(app: OAuthApplication) -> None:
+    """Seed the Stripe Projects app's scope ceiling when it is unset.
+
+    Region-agnostic by design: US and EU each hold their own OAuthApplication
+    row, so this runs independently the first time the app is resolved in each
+    region. Pre-seeding via the ops step in the slice notes avoids the on-request
+    write, but this keeps the ceiling correct even if that step is missed.
+    """
+    if app.scopes:
+        return
+    app.scopes = list(STRIPE_CONTRACTED_SCOPES)
+    app.save(update_fields=["scopes"])
+
+
+def _get_legacy_stripe_oauth_app() -> OAuthApplication:
+    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    if not client_id:
+        error = LegacyStripeOAuthAppMissingError("STRIPE_POSTHOG_OAUTH_CLIENT_ID is not configured")
+        capture_exception(error)
+        raise error
+
+    try:
+        app = OAuthApplication.objects.get(client_id=client_id)
+    except OAuthApplication.DoesNotExist as exc:
+        error = LegacyStripeOAuthAppMissingError("Stripe Projects OAuth app not found for configured client_id")
+        # Chain the DoesNotExist so the captured event keeps its traceback; the new
+        # error was never raised, so it carries no traceback of its own.
+        error.__cause__ = exc
+        capture_exception(error, additional_properties={"client_id": client_id})
+        raise error from None
+
+    _seed_stripe_app_scopes(app)
+    return app
+
+
+def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
+    """Return the user's non-demo teams for inclusion in the token exchange response."""
+    org_ids = list(user.organization_memberships.values_list("organization_id", flat=True))
+    teams = Team.objects.filter(organization_id__in=org_ids, is_demo=False).select_related("organization")
+    return [
+        {
+            "id": team.id,
+            "name": team.name,
+            "organization_id": str(team.organization_id),
+            "organization_name": team.organization.name if team.organization else "",
+        }
+        for team in teams
+    ]
 
 
 def _get_callback_url(partner_id: str) -> str:
@@ -1475,11 +2447,13 @@ def _get_callback_url(partner_id: str) -> str:
     return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
 
 
-def _get_oauth_app_for_code(code_data: dict):
+def _get_oauth_app_for_code(code_data: dict) -> OAuthApplication:
     """Resolve the OAuthApplication for a token exchange.
 
     If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the Stripe Projects app lookup.
+    Otherwise fall back to the legacy Stripe Projects app lookup, which
+    hard-fails (raising ``LegacyStripeOAuthAppMissingError``) if the configured
+    app is missing rather than fabricating one.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:
@@ -1488,7 +2462,7 @@ def _get_oauth_app_for_code(code_data: dict):
         except OAuthApplication.DoesNotExist:
             pass
 
-    return _get_stripe_oauth_app()
+    return _get_legacy_stripe_oauth_app()
 
 
 def _region_to_host(region: str) -> str:
@@ -1539,6 +2513,7 @@ def agentic_login(request: Any) -> HttpResponseBase:
     user_id = link_data.get("user_id")
     team_id = link_data.get("team_id")
     purpose = link_data.get("purpose", "dashboard")
+    path = link_data.get("path")
 
     if not user_id:
         _capture_deep_link_event("invalid_token_data")
@@ -1565,25 +2540,57 @@ def agentic_login(request: Any) -> HttpResponseBase:
     _capture_deep_link_event("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    redirect_path = _deep_link_redirect_path(purpose, team_id)
+    redirect_path = _deep_link_redirect_path(purpose, team_id, path)
     return HttpResponseRedirect(redirect_path)
 
 
-def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
+def _is_safe_deep_link_path(path: object) -> bool:
+    """Allow only relative, same-origin in-app paths so a deep link can't become an open redirect."""
+    return (
+        isinstance(path, str)
+        and 0 < len(path) <= DEEP_LINK_MAX_PATH_LENGTH
+        # Reject control chars, whitespace, and backslashes (the `/\` backslash-host form included).
+        and not DEEP_LINK_DISALLOWED_PATH_CHARS.search(path)
+        and path.startswith("/")
+        # Reject protocol-relative (`//`) forms; a single leading `/` keeps it same-origin.
+        and not path.startswith("//")
+        and url_has_allowed_host_and_scheme(path, allowed_hosts=None)
+    )
+
+
+def _deep_link_redirect_path(purpose: str, team_id: int | None, path: str | None = None) -> str:
+    if path and _is_safe_deep_link_path(path):
+        return path
+    if path:
+        # Unreachable in normal operation (mint-time validation already ran); a hit here means
+        # cache tampering or a mint-side regression.
+        logger.warning("agentic_login.unsafe_path_in_cache", path=path)
     if team_id and Team.objects.filter(id=team_id).exists():
         return f"/project/{team_id}"
     return "/"
 
 
-def _capture_provisioning_event(event_type: str, outcome: str, **extra: object) -> None:
+def _capture_provisioning_event(
+    event_type: str,
+    outcome: str,
+    *,
+    partner: OAuthApplication | None = None,
+    **extra: object,
+) -> None:
     team_id = extra.get("team_id")
     distinct_id = f"agentic_provisioning_team_{team_id}" if team_id else f"agentic_provisioning_{uuid.uuid4().hex[:16]}"
+    properties: dict[str, object] = {"outcome": outcome, **extra}
+    if partner is not None:
+        properties.setdefault("partner_id", str(partner.id))
+        properties.setdefault("client_name", partner.name)
+        if partner.provisioning_partner_type:
+            properties.setdefault("partner_type", partner.provisioning_partner_type)
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
         distinct_id=distinct_id,
-        properties={"outcome": outcome, **extra},
+        properties=properties,
     )
 
 
 def _capture_deep_link_event(outcome: str, **extra: object) -> None:
-    _capture_provisioning_event("deep link login", outcome, **extra)
+    _capture_provisioning_event("deep link login", outcome, partner=None, **extra)

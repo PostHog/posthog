@@ -22,13 +22,13 @@ from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog.hogql import ast
-
 from posthog.constants import MAX_SLUG_LENGTH
 from posthog.person_db_router import PERSONS_DB_MODELS
 
 if TYPE_CHECKING:
     from random import Random
+
+    from posthog.hogql import ast
 
 T = TypeVar("T")
 
@@ -104,11 +104,14 @@ class UUIDT(uuid.UUID):
     def is_valid_uuid(cls, candidate: Any) -> bool:
         if not isinstance(candidate, str):
             return False
-        hex = candidate.replace("urn:", "").replace("uuid:", "")
-        hex = hex.strip("{}").replace("-", "")
-        if len(hex) != 32:
+        hex_str = candidate.replace("urn:", "").replace("uuid:", "")
+        hex_str = hex_str.strip("{}").replace("-", "")
+        if len(hex_str) != 32:
             return False
-        return 0 <= int(hex, 16) < 1 << 128
+        try:
+            return 0 <= int(hex_str, 16) < (1 << 128)
+        except ValueError:
+            return False
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
@@ -240,7 +243,7 @@ class BytecodeModelMixin(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def get_expr(self) -> ast.Expr:
+    def get_expr(self) -> "ast.Expr":
         raise NotImplementedError()
 
 
@@ -688,5 +691,12 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return {
                 "id": obj.id,
                 "name": obj.name,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "LLMModelConfiguration":
+            return {
+                "id": str(obj.id),
+                "provider": obj.provider,
+                "model": obj.model,
+                "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
         return json.JSONEncoder.default(self, obj)

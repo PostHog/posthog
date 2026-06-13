@@ -7,12 +7,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { BuilderHog2 } from 'lib/components/hedgehogs'
+import { BuilderHog2, WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { Link } from 'lib/lemon-ui/Link'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
@@ -93,6 +94,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         isNotFound,
         loadMetaError,
         isRecentAndInvalid,
+        isOldAndInvalid,
         isRecordingDeleted,
         recordingDeletedAt,
         recordingDeletedBy,
@@ -131,6 +133,19 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isRecentAndInvalid]
+    )
+
+    useEffect(
+        () => {
+            if (isOldAndInvalid) {
+                posthog.capture('session loaded old and invalid', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionPlayerData?.start,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isOldAndInvalid]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
@@ -234,7 +249,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
     if (isNotFound) {
         return (
             <div className="flex-1 w-full flex justify-center">
-                <RecordingNotFound />
+                <RecordingNotFound sessionRecordingId={sessionRecordingId} />
             </div>
         )
     }
@@ -285,6 +300,20 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                 <p>
                                     This recording hasn't been fully ingested yet. It should be ready to watch in a few
                                     minutes.
+                                </p>
+                                <LemonButton type="secondary" onClick={loadSnapshots}>
+                                    Reload
+                                </LemonButton>
+                            </div>
+                        ) : isOldAndInvalid ? (
+                            <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
+                                <WarningHog height={200} width={200} />
+                                <h1>This recording can't be played</h1>
+                                <p className="max-w-120">
+                                    The snapshot of the screen taken when this recording started never reached PostHog,
+                                    so there is nothing to play back. This usually happens when the browser is closed or
+                                    goes offline before the recording finishes uploading.{' '}
+                                    <Link to="https://posthog.com/docs/session-replay/troubleshooting">Learn more</Link>
                                 </p>
                                 <LemonButton type="secondary" onClick={loadSnapshots}>
                                     Reload

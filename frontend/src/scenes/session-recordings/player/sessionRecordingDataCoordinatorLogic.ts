@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+import { EventType, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     getHrefFromSnapshot,
@@ -10,7 +11,6 @@ import {
     SnapshotStore,
     SourceLoadingState,
 } from '@posthog/replay-shared'
-import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 
@@ -85,7 +85,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'registerWindowId',
                 ],
                 eventsLogic,
-                ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
+                ['loadEvents', 'loadFullEventData', 'loadEventsSuccess', 'loadFullEventDataSuccess'],
                 commentsLogic,
                 [
                     'loadRecordingComments',
@@ -178,6 +178,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             actions.reportUsageIfFullyLoaded()
         },
 
+        // loadFullEventData shares the sessionEventsData loader, so while it is in flight
+        // fullyLoaded is false — re-check once it settles or the loaded report can be skipped
+        loadFullEventDataSuccess: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
             actions.processSnapshotsAsync()
@@ -229,7 +235,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }
 
             // Release raw snapshot arrays from the store — only the metadata
-            // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
+            // (fullSnapshots, metaTimestamps, state) is still needed.
             values.snapshotStore.clearSnapshotData()
 
             actions.setProcessedSnapshots(result)
@@ -407,12 +413,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     return false
                 }
 
-                const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
-                const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
+                const noWindowHasFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
+                const someWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
                 const recordingAgeMs = now().diff(start, 'millisecond')
 
-                if (everyWindowMissingFullSnapshot) {
+                if (noWindowHasFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         watchedSession: sessionRecordingId,
@@ -420,7 +426,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                         teamName: currentTeam?.name,
                         recordingAgeMs,
                     })
-                } else if (anyWindowMissingFullSnapshot) {
+                } else if (someWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
@@ -429,7 +435,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     })
                 }
 
-                return everyWindowMissingFullSnapshot
+                return noWindowHasFullSnapshot
             },
         ],
 
@@ -439,6 +445,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
                 return snapshotsInvalid && lessThanFiveMinutesOld
             },
+        ],
+
+        // past the ingestion grace period, a missing full snapshot means the data never arrived,
+        // e.g. the browser closed or went offline before the recording finished uploading
+        isOldAndInvalid: [
+            (s) => [s.snapshotsInvalid, s.isRecentAndInvalid],
+            (snapshotsInvalid, isRecentAndInvalid) => snapshotsInvalid && !isRecentAndInvalid,
         ],
 
         windowIds: [

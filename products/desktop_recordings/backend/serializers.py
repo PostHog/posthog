@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from .models import DesktopRecording
@@ -13,6 +14,7 @@ class TranscriptSegmentSerializer(serializers.Serializer):
     is_final = serializers.BooleanField(required=False, allow_null=True, help_text="Whether this is the final version")
 
 
+@extend_schema_serializer(component_name="DesktopRecordingTask")
 class TaskSerializer(serializers.Serializer):
     """Serializer for extracted tasks"""
 

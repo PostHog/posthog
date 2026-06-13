@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import JsonResponse
@@ -10,8 +12,6 @@ from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -19,20 +19,23 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.error_tracking.backend.facade import api as facade_api
+from products.error_tracking.backend.issue_serializers import ErrorTrackingIssueAssignmentSerializer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
-    ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
-from .utils import ErrorTrackingIssueAssignmentSerializer
+
+IssueNotFoundError = facade_api.IssueNotFoundError
 
 DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 DEFAULT_EMBEDDING_VERSION = 1
@@ -41,13 +44,35 @@ DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
-    first_seen = serializers.DateTimeField()
-    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
+    id = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
 
-    class Meta:
-        model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+
+class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class ErrorTrackingIssueReadSerializer(serializers.Serializer):
+    """Read-only serializer for issue contract types returned by the facade."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    name = serializers.CharField(allow_null=True)
+    description = serializers.CharField(allow_null=True)
+    first_seen = serializers.DateTimeField(allow_null=True)
+    assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
+
+
+DEPRECATED_ISSUE_STATUSES = frozenset({ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
+SUPPORTED_WRITE_STATUSES = (
+    ErrorTrackingIssue.Status.ACTIVE,
+    ErrorTrackingIssue.Status.RESOLVED,
+    ErrorTrackingIssue.Status.SUPPRESSED,
+)
 
 
 class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
@@ -59,6 +84,12 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingIssue
         fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
+
+    def validate_status(self, value: str) -> str:
+        # Reads of legacy archived/pending_release rows still pass through; only block new writes.
+        if value in DEPRECATED_ISSUE_STATUSES:
+            raise serializers.ValidationError(f"Status '{value}' is no longer supported. Use 'resolved' instead.")
+        return value
 
     @extend_schema_field(
         {
@@ -121,6 +152,26 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
         return updated_instance
 
 
+class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SUPPORTED_WRITE_STATUSES,
+        required=False,
+        help_text="Issue status to set. Deprecated archived and pending_release values are rejected.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional issue display name.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional issue description.",
+    )
+
+
 class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -164,7 +215,6 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
@@ -192,33 +242,45 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .filter(team_id=self.team.id)
         )
 
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
+    def update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request)
+
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
+    def partial_update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request)
+
+    def _update_issue(self, request: request.Request) -> Response:
+        issue = self.get_object()
+        request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        serializer = self.get_serializer(issue, data=request_serializer.validated_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
     @action(methods=["GET"], detail=False)
     def exists(self, request, **kwargs):
         has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
         return Response({"exists": has_issues})
 
     def retrieve(self, request, *args, **kwargs):
+        issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
+
         if fingerprint:
-            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
-                team=self.team
-            )
-            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+            resolved_id = facade_api.get_issue_id_for_fingerprint(team_id=self.team.id, fingerprint=fingerprint)
+            if resolved_id and resolved_id != issue_id:
+                return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-            if record:
-                if not str(record.issue_id) == self.kwargs.get("pk"):
-                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+        try:
+            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
 
-                issue = (
-                    ErrorTrackingIssue.objects.with_first_seen()
-                    .select_related("assignment")
-                    .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id, team=self.team)
-                )
-                serializer = self.get_serializer(issue)
-                return Response(serializer.data)
-
-        return super().retrieve(request, *args, **kwargs)
+        serializer = ErrorTrackingIssueReadSerializer(issue)
+        return Response(serializer.data)
 
     @validated_request(
         request_serializer=ErrorTrackingIssueMergeRequestSerializer,
@@ -231,7 +293,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
-        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=issue.team_id)
         return Response({"success": True})
 
     @validated_request(
@@ -243,7 +304,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue: ErrorTrackingIssue = self.get_object()
         fingerprints = request.validated_data["fingerprints"]
         new_issues = issue.split(fingerprints=fingerprints)
-        sync_issues_to_clickhouse(issue_ids=[issue.id] + [i.id for i in new_issues], team_id=issue.team_id)
         return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)
@@ -343,6 +403,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return Response({"success": True})
 
+    @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -397,6 +458,12 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         )
 
         send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
+
+        dispatch_issue_assigned_realtime(
+            assignment=assignment_after,
+            assignee=assignee,
+            assigner=user,
+        )
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None

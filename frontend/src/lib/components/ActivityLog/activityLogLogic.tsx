@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
+import { instanceSettingActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/instanceSettingActivityDescriber'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
 import {
     ActivityLogItem,
@@ -18,7 +19,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
-import { userActivityDescriber } from 'scenes/authentication/activityDescriptions'
+import { userActivityDescriber } from 'scenes/authentication/shared/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -35,10 +36,15 @@ import { productTourActivityDescriber } from 'scenes/product-tours/activityDescr
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import {
+    legalDocumentActivityDescriber,
     organizationActivityDescriber,
     organizationDomainActivityDescriber,
 } from 'scenes/settings/organization/activityDescriptions'
-import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
+import { projectSecretAPIKeyActivityDescriber } from 'scenes/settings/project/activityDescriptions'
+import {
+    oauthApplicationActivityDescriber,
+    personalAPIKeyActivityDescriber,
+} from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -48,6 +54,7 @@ import { ActivityScope } from '~/types'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
+import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -132,12 +139,14 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
             return insightActivityDescriber
-        case ActivityScope.DASHBOARD:
-            return dashboardActivityDescriber
+        case ActivityScope.INSTANCE_SETTING:
+            return instanceSettingActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
         case ActivityScope.PERSONAL_API_KEY:
             return personalAPIKeyActivityDescriber
+        case ActivityScope.PROJECT_SECRET_API_KEY:
+            return projectSecretAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
@@ -153,6 +162,10 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return organizationActivityDescriber
         case ActivityScope.ORGANIZATION_DOMAIN:
             return organizationDomainActivityDescriber
+        case ActivityScope.OAUTH_APPLICATION:
+            return oauthApplicationActivityDescriber
+        case ActivityScope.LEGAL_DOCUMENT:
+            return legalDocumentActivityDescriber
         case ActivityScope.SURVEY:
             return surveyActivityDescriber
         case ActivityScope.ERROR_TRACKING_ISSUE:
@@ -180,6 +193,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return productTourActivityDescriber
         case ActivityScope.TICKET:
             return ticketActivityDescriber
+        case ActivityScope.SIGNAL_SCOUT_CONFIG:
+            return signalScoutConfigActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
@@ -189,6 +204,8 @@ export type ActivityLogLogicProps = {
     scope: ActivityScope | ActivityScope[]
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
+    // page to load on mount (callers that deep-link into a paginated activity feed)
+    startingPage?: number
 }
 
 export const activityLogLogic = kea<activityLogLogicType>([
@@ -211,9 +228,9 @@ export const activityLogLogic = kea<activityLogLogicType>([
             },
         ],
     })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         page: [
-            1,
+            props.startingPage ?? 1,
             {
                 setPage: (_, { page }) => page,
             },

@@ -612,6 +612,14 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
         ],
+        isProductOverUsageLimit: [
+            (s) => [s.billing],
+            (billing: BillingType | null): ((productKey: ProductKey) => boolean) =>
+                (productKey: ProductKey): boolean => {
+                    const product = billing?.products?.find((p) => p.type === productKey)
+                    return (product?.percentage_usage ?? 0) > 1
+                },
+        ],
         billingPeriodUTC: [
             (s) => [s.billing],
             (billing: BillingType | null): BillingPeriod => ({

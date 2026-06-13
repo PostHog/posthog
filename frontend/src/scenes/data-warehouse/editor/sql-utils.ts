@@ -10,7 +10,67 @@ const escapeQualifiedIdentifier = (name: string): string => {
 }
 
 export const normalizeIdentifier = (identifier: string): string => {
-    return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
+    return identifier.replace(/[`"']/g, '').toLowerCase()
+}
+
+export const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
+    if (!query) {
+        return false
+    }
+
+    let i = 0
+    while (i < query.length) {
+        const ch = query[i]
+
+        if (ch === "'" || ch === '"' || ch === '`') {
+            const quote = ch
+            i++
+            while (i < query.length) {
+                if (query[i] === '\\') {
+                    i += 2
+                    continue
+                }
+                if (query[i] === quote && query[i + 1] === quote) {
+                    i += 2
+                    continue
+                }
+                if (query[i] === quote) {
+                    i++
+                    break
+                }
+                i++
+            }
+            continue
+        }
+
+        if (ch === '-' && query[i + 1] === '-') {
+            i += 2
+            while (i < query.length && query[i] !== '\n') {
+                i++
+            }
+            continue
+        }
+
+        if (ch === '/' && query[i + 1] === '*') {
+            i += 2
+            while (i < query.length) {
+                if (query[i] === '*' && query[i + 1] === '/') {
+                    i += 2
+                    break
+                }
+                i++
+            }
+            continue
+        }
+
+        if (query.startsWith('{filters}', i) || query.startsWith('{filters.', i)) {
+            return true
+        }
+
+        i++
+    }
+
+    return false
 }
 
 /** Try to parse a SELECT query, returning the AST node or null on failure. */
@@ -114,7 +174,7 @@ export const buildQueryForColumnClick = async (
         columns = ['*']
     }
 
-    return `SELECT ${columns.map(escapeQualifiedIdentifier).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
+    return `SELECT ${columns.map((column) => (column === '*' ? column : escapeQualifiedIdentifier(column))).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 }
 
 export const parseQueryTablesAndColumns = async (

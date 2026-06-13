@@ -1,24 +1,22 @@
 import json
 from dataclasses import dataclass
-from typing import TypedDict
 
 from django.db import transaction
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import ValidationError
 
-from posthog.models import Team, User
+from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.models import (
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportTask,
-    SignalTeamConfig,
-    SignalUserAutonomyConfig,
-)
+from products.business_knowledge.backend.logic import is_available_for_team
+from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -28,10 +26,7 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     run_multi_turn_research,
 )
-from products.signals.backend.report_generation.resolve_reviewers import (
-    get_org_member_github_login_to_user_map,
-    resolve_suggested_reviewers,
-)
+from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -39,16 +34,10 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.models import SandboxEnvironment
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
-
-
-class ReviewerContent(TypedDict):
-    github_login: str
-    github_name: str | None
-    relevant_commits: list[dict]
 
 
 @dataclass
@@ -184,137 +173,6 @@ def _build_reviewers_content(
     return reviewers_content
 
 
-def _priority_rank(priority: Priority) -> int:
-    return {
-        Priority.P0: 0,
-        Priority.P1: 1,
-        Priority.P2: 2,
-        Priority.P3: 3,
-        Priority.P4: 4,
-    }[priority]
-
-
-def _build_autostart_task_description(result: ReportResearchOutput, repository: str) -> str:
-    priority_line = (
-        f"Priority: {result.priority.priority.value}\nReason: {result.priority.explanation}\n\n"
-        if result.priority
-        else ""
-    )
-    return (
-        f"{result.summary}\n\n"
-        f"{priority_line}"
-        f"Repository: {repository}\n\n"
-        "Act on this signal report. Investigate the root cause, implement the fix, "
-        "and open a PR if appropriate."
-    )
-
-
-def _resolve_autostart_assignee(
-    team_id: int,
-    report_priority: Priority,
-    reviewers_content: list[ReviewerContent],
-    team_default_priority: Priority,
-) -> User | None:
-    """Return the first suggested reviewer whose effective priority threshold allows auto-start.
-
-    Walks *reviewers_content* in order (most relevant first). For each reviewer
-    that maps to an org member with an autonomy config, resolves their effective
-    threshold (personal setting, falling back to the team default) and checks
-    whether the report's priority is high enough (lower rank = higher priority).
-    Returns the first matching ``User``, or ``None`` if nobody qualifies.
-    """
-    login_to_user = get_org_member_github_login_to_user_map(team_id) or {}
-    report_rank = _priority_rank(report_priority)
-
-    # Map reviewer github logins to user IDs (preserving reviewer order)
-    candidate_user_ids: list[int] = []
-    for reviewer in reviewers_content:
-        login = reviewer["github_login"].lower()
-        candidate = login_to_user.get(login)
-        if isinstance(candidate, User):
-            candidate_user_ids.append(candidate.id)
-
-    if not candidate_user_ids:
-        return None
-
-    # Single query: fetch users who have an autonomy config, joined eagerly
-    users_with_config = {
-        u.id: u
-        for u in User.objects.filter(
-            id__in=candidate_user_ids,
-            signal_autonomy_config__isnull=False,
-        ).select_related("signal_autonomy_config")
-    }
-
-    # Walk in reviewer order (most relevant first)
-    for uid in candidate_user_ids:
-        user = users_with_config.get(uid)
-        if user is None:
-            continue
-        # Check team membership
-        if not user.teams.filter(id=team_id).exists():
-            continue
-        config: SignalUserAutonomyConfig = user.signal_autonomy_config
-        effective_threshold = (
-            Priority(config.autostart_priority) if config.autostart_priority else team_default_priority
-        )
-        if report_rank <= _priority_rank(effective_threshold):
-            return user
-
-    return None
-
-
-async def _maybe_autostart_task_for_report(
-    team_id: int,
-    report_id: str,
-    repository: str,
-    result: ReportResearchOutput,
-    reviewers_content: list[ReviewerContent],
-) -> None:
-    task_exists = await SignalReportTask.objects.filter(
-        report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-    ).aexists()
-    if (
-        result.actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
-        or result.priority is None
-        or not reviewers_content
-        or task_exists
-    ):
-        return
-
-    team = await Team.objects.select_related("organization").aget(id=team_id)
-    team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
-    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P0
-
-    task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
-        team_id, result.priority.priority, reviewers_content, team_default_priority
-    )
-    if task_user is None:
-        return
-
-    task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
-        team=team,
-        title=result.title,
-        description=_build_autostart_task_description(result, repository),
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        user_id=task_user.id,
-        repository=repository,
-        signal_report_id=report_id,
-        posthog_mcp_scopes="read_only",
-        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
-    )
-    task_run = await task.runs.order_by("-created_at").afirst()
-    if task_run is None:
-        raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
-
-    await SignalReportTask.objects.acreate(
-        team_id=team_id,
-        report_id=report_id,
-        task=task,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-    )
-
-
 def _replace_agentic_report_artefacts(
     team_id: int,
     report_id: str,
@@ -391,14 +249,18 @@ async def _persist_agentic_report_artefacts(
     )
 
     try:
-        await _maybe_autostart_task_for_report(
+        await maybe_autostart_implementation_task(
             team_id=team_id,
             report_id=report_id,
             repository=repo_selection.repository or "",
-            result=result,
+            title=result.title,
+            summary=result.summary,
+            actionability=result.actionability,
+            priority=result.priority,
             reviewers_content=reviewers_content,
         )
     except Exception as error:
+        posthoganalytics.capture_exception(error)
         logger.exception(
             "signals auto-start task failed",
             report_id=report_id,
@@ -408,7 +270,21 @@ async def _persist_agentic_report_artefacts(
         )
 
 
+def _team_has_business_knowledge(team_id: int) -> bool:
+    """Flag + ready-sources check, evaluated fresh per run so a flag flip takes
+    effect immediately. Fail open to False — research must not die on a flag-service
+    hiccup; the agent just won't be told about the knowledge base this run."""
+    try:
+        team = Team.objects.get(id=team_id)
+        return is_available_for_team(team)
+    except Exception:
+        logger.warning("business knowledge availability check failed", team_id=team_id, exc_info=True)
+        return False
+
+
 @temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
@@ -429,6 +305,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 sandbox_environment_id=sandbox_env_id,
                 posthog_mcp_scopes="read_only",  # Needs only read (queries, insights)
             )
+            has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
             # 3. Run the agentic research in the sandbox
@@ -437,8 +314,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 context,
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
-                branch="master",
                 signal_report_id=input.report_id,
+                has_business_knowledge=has_bk,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

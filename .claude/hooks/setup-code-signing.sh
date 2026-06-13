@@ -11,8 +11,22 @@ fi
 
 SECRETIVE_SOCKET="$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh"
 if [ -S "$SECRETIVE_SOCKET" ]; then
-  # Treat empty or default macOS launchd agent as "no custom agent configured"
-  if [ -z "$SSH_AUTH_SOCK" ] || [[ "$SSH_AUTH_SOCK" == /var/run/com.apple.launchd.*/Listeners ]]; then
+  # Repoint at Secretive when either:
+  #   - SSH_AUTH_SOCK is unset, or
+  #   - it points at the default macOS launchd agent AND that agent has no
+  #     identities loaded (so we don't stomp on a working custom agent).
+  # The launchd socket path varies by how the session was started
+  # (/var/run/..., /private/tmp/..., /var/folders/...), so match the suffix
+  # rather than a single prefix.
+  agent_has_no_identities() {
+    # ssh-add -l exits 1 if the agent has no identities, 2 if it can't contact
+    # the agent at all. Either means "not a useful agent for signing".
+    SSH_AUTH_SOCK="$SSH_AUTH_SOCK" ssh-add -l >/dev/null 2>&1
+    local rc=$?
+    [ "$rc" -eq 1 ] || [ "$rc" -eq 2 ]
+  }
+  if [ -z "$SSH_AUTH_SOCK" ] \
+    || { [[ "$SSH_AUTH_SOCK" == *com.apple.launchd.*/Listeners ]] && agent_has_no_identities; }; then
     printf 'export SSH_AUTH_SOCK=%q\n' "$SECRETIVE_SOCKET" >> "$CLAUDE_ENV_FILE"
   fi
 fi

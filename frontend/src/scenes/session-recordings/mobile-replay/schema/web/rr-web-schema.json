@@ -244,6 +244,9 @@
                 "unicodeRange": {
                     "type": "string"
                 },
+                "variationSettings": {
+                    "type": "string"
+                },
                 "weight": {
                     "type": "string"
                 }
@@ -492,6 +495,12 @@
                             },
                             "type": "array"
                         },
+                        "displayHeight": {
+                            "type": "number"
+                        },
+                        "displayWidth": {
+                            "type": "number"
+                        },
                         "id": {
                             "type": "number"
                         },
@@ -511,6 +520,12 @@
                         "args": {
                             "items": {},
                             "type": "array"
+                        },
+                        "displayHeight": {
+                            "type": "number"
+                        },
+                        "displayWidth": {
+                            "type": "number"
                         },
                         "id": {
                             "type": "number"

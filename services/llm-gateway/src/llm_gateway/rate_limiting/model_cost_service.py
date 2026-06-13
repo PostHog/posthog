@@ -8,6 +8,8 @@ import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
+from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
+
 logger = structlog.get_logger(__name__)
 
 TARGET_LIMIT_COST_PER_HOUR: Final[float] = 60.0
@@ -40,11 +42,17 @@ class ModelCost(TypedDict, total=False):
     max_tokens: int
     """Legacy field: defaults to max_output_tokens if set, otherwise max_input_tokens."""
     litellm_provider: str
-    """Provider identifier (e.g., "anthropic", "openai", "vertex_ai")."""
+    """Provider identifier (e.g., "anthropic", "openai")."""
     supports_vision: bool
     """Whether the model supports image/vision input."""
     mode: str
     """Model mode (e.g., "chat", "completion", "embedding")."""
+    cache_read_input_token_cost: float
+    """Cost in USD per cached input token read."""
+    cache_creation_input_token_cost: float
+    """Cost in USD per input token written to the cache."""
+    supports_prompt_caching: bool
+    """Whether the model supports prompt caching."""
 
 
 class ModelCostService:
@@ -73,7 +81,10 @@ class ModelCostService:
     def _refresh_cache(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
+            apply_model_cost_overrides(model_cost)
             litellm.model_cost = model_cost
+            # Keep provider sets in sync — see cost_refresh.py.
+            litellm.add_known_models(model_cost)
             self._costs = cast(dict[str, ModelCost], model_cost)
             new_limits: dict[str, ModelLimits] = {}
             for model, cost in self._costs.items():

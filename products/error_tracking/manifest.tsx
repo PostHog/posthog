@@ -13,7 +13,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
             projectBased: true,
             name: 'Error tracking',
-            defaultDocsPath: '/docs/error-tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
         },
@@ -71,7 +70,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Error tracking',
             intents: [ProductKey.ERROR_TRACKING],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.APP_MONITORING,
             type: 'error_tracking',
             iconType: 'error_tracking' as FileSystemIconType,
             iconColor: [

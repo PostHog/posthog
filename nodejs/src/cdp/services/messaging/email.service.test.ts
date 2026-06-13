@@ -57,7 +57,7 @@ const createEmailParams = (
     return {
         type: 'email',
         to: { email: 'test@example.com', name: 'Test User' },
-        from: { email: 'test@posthog.com', name: 'Test User', integrationId: 1 },
+        from: { integrationId: 1 },
         subject: 'Test Subject',
         text: 'Test Text',
         html: 'Test HTML',
@@ -112,7 +112,7 @@ describe('EmailService', () => {
             const invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
             invocation.id = 'invocation-1'
             invocation.state.vmState = { stack: [] } as any
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
 
             const result = await serviceWithoutSES.executeSendEmail(invocation)
             expect(result.error).toBe('SES is not configured - set SES_REGION and AWS credentials')
@@ -139,7 +139,7 @@ describe('EmailService', () => {
             invocation.state.vmState = {
                 stack: [],
             } as any
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
 
             // Mock SES v2 send to avoid actual AWS calls
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
@@ -165,39 +165,35 @@ describe('EmailService', () => {
             })
             it('should validate if the integration is not found', async () => {
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 100, email: 'test@posthog.com' },
+                    from: { integrationId: 100 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not an email integration', async () => {
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 3, email: 'test@posthog.com' },
+                    from: { integrationId: 3 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not the correct team', async () => {
                 invocation.teamId = 100
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1, email: 'test@posthog.com' },
+                    from: { integrationId: 1 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
-            })
-            it('should ignore a given email and use the integration config', async () => {
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1, email: 'test@other-domain.com', name: '' },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                expect(sendEmailSpy).toHaveBeenCalled()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 2, email: 'test@other-domain.com', name: '' },
+                    from: { integrationId: 2 },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
@@ -205,7 +201,7 @@ describe('EmailService', () => {
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1, email: 'test@posthog.com' },
+                    from: { integrationId: 1 },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -216,7 +212,7 @@ describe('EmailService', () => {
             })
             it('should allow a valid email integration and domain', async () => {
                 invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1, email: 'test@posthog.com' },
+                    from: { integrationId: 1 },
                 })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -274,7 +270,7 @@ describe('EmailService', () => {
             invocation.state.vmState = {
                 stack: [],
             } as any
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1, email: 'test@posthog.com' } })
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
         })
         it('should send an email', async () => {
@@ -300,7 +296,7 @@ describe('EmailService', () => {
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo" style="display: none;" /></body>`
+                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
             )
         })
     })
@@ -329,7 +325,7 @@ describe('EmailService', () => {
                 stack: [],
             } as any
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
             })
             sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
         })
@@ -378,7 +374,7 @@ describe('EmailService', () => {
                   "EmailTags": [
                     {
                       "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo",
+                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
                     },
                   ],
                   "FeedbackForwardingEmailAddress": "test@posthog-test.com",
@@ -390,7 +386,7 @@ describe('EmailService', () => {
         it('should include cc addresses in SES destination', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 cc: 'cc1@example.com, cc2@example.com',
             })
             const result = await service.executeSendEmail(invocation)
@@ -402,7 +398,7 @@ describe('EmailService', () => {
         it('should include bcc addresses in SES destination', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 bcc: 'bcc@example.com',
             })
             const result = await service.executeSendEmail(invocation)
@@ -414,7 +410,7 @@ describe('EmailService', () => {
         it('should not include cc/bcc in SES destination when not provided', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -426,7 +422,7 @@ describe('EmailService', () => {
         it('should not include cc/bcc in SES destination when empty strings', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 cc: '',
                 bcc: '  ',
             })
@@ -440,7 +436,7 @@ describe('EmailService', () => {
         it('should not include replyTo if not in params', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -451,7 +447,7 @@ describe('EmailService', () => {
         it('should include single replyTo address if in params', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 replyTo: 'Customer Service <reply@example.com>',
             })
             const result = await service.executeSendEmail(invocation)
@@ -463,7 +459,7 @@ describe('EmailService', () => {
         it('should split multiple comma-separated replyTo addresses', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 replyTo: 'reply1@example.com, reply2@example.com, Customer Service <reply3@example.com>',
             })
             const result = await service.executeSendEmail(invocation)
@@ -480,7 +476,7 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 html: '',
                 text: 'Hello, this is a plain text email.',
             })
@@ -497,7 +493,7 @@ describe('EmailService', () => {
         it('should not include preheader span if not in params', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 html: '<tbody>Test email content</tbody>',
             })
             const result = await service.executeSendEmail(invocation)
@@ -510,7 +506,7 @@ describe('EmailService', () => {
         it('should include preheader at top of HTML if in params', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                from: { integrationId: 1 },
                 html: '<tbody>Test email content</tbody>',
                 preheader: 'This is a preview text',
             })

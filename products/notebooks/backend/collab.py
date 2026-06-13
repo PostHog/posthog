@@ -1,62 +1,45 @@
 """
-Collaboration service for notebooks using Redis as the step buffer.
+prosemirror-collab step buffering for rich (v1) notebooks.
+
+Steps are appended to the shared versioned content stream — see `collab_stream.py` for
+the transport and `markdown_collab.py` for the markdown-notebook update events that
+share the same stream.
 """
 
 import json
 from dataclasses import dataclass
+from typing import Any, Literal
 
-from posthog import redis
+import structlog
 
-TTL_SECONDS = 60 * 60 * 24  # 1 day
-VERSION_KEY = "notebook:collab:{team_id}:{notebook_id}:version"
-STEPS_KEY = "notebook:collab:{team_id}:{notebook_id}:steps"
+from posthog import redis as redis_module
 
-# Atomic operation: append steps only if the last_seen_version matches the current version in Redis.
-# Each step is stored individually in a sorted set (score=version), for example:
-#   score=3  {"step": {"stepType": "replace", "from": 0, "to": 0}, "client_id": "uuid1", "v": 3}
-# Returns {-1, 0} if not initialized, {0, current} if mismatch, {1, new} if accepted.
-_APPEND_STEPS_LUA = """
-local version_key, steps_key = KEYS[1], KEYS[2]
-local last_seen_version, ttl_seconds = tonumber(ARGV[1]), ARGV[2]
+from products.notebooks.backend.collab_stream import (
+    APPEND_ENTRIES_LUA,
+    DATA_KEY,
+    STREAM_KEY_PATTERN,
+    STREAM_MAX_LENGTH,
+    STREAM_TTL_SECONDS,
+)
 
-local current_version = redis.call('GET', version_key)
-if not current_version then return {-1, 0} end
-
-if tonumber(current_version) ~= last_seen_version then
-    return {0, tonumber(current_version)}
-end
-
-local next_version = tonumber(current_version)
-for i = 3, #ARGV do
-    next_version = next_version + 1
-    redis.call('ZADD', steps_key, next_version, ARGV[i])
-end
-
-redis.call('SET', version_key, next_version, 'EX', ttl_seconds)
-redis.call('EXPIRE', steps_key, ttl_seconds)
-return {1, next_version}
-"""
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
 class StepEntry:
     step: dict
     client_id: str
-    v: int  # ensures ZADD doesn't dedup identical steps across versions
 
 
 @dataclass
 class SubmitResult:
-    accepted: bool
+    # "accepted" - steps appended; `version` is the new top
+    # "conflict" - caller is behind; `version` is the current top, `steps_since` is the missed range
+    # "stale"    - missed range was trimmed (MAXLEN/TTL) or the stream was lost and the client's
+    #              baseline no longer matches Postgres; caller must reload from Postgres
+    status: Literal["accepted", "conflict", "stale"]
     version: int
     steps_since: list[StepEntry] | None = None
-
-
-def initialize_collab_session(team_id: int, notebook_id: str, version: int) -> None:
-    """Seed the Redis version from Postgres if not already present."""
-    client = redis.get_client()
-    version_key = VERSION_KEY.format(team_id=team_id, notebook_id=notebook_id)
-    client.set(version_key, str(version), ex=TTL_SECONDS, nx=True)
 
 
 def submit_steps(
@@ -65,40 +48,55 @@ def submit_steps(
     client_id: str,
     steps_json: list[dict],
     last_seen_version: int,
+    *,
+    last_saved_version: int,
+    user_id: int | None = None,
+    user_name: str | None = None,
+    cursor_head: int | None = None,
 ) -> SubmitResult:
-    """Try to submit steps at last_seen_version.
-    Version increments by len(steps), matching Prosemirror's per-step versioning.
-    If rejected, steps_since contains missed StepEntry items for rebase.
-    """
-    client = redis.get_client()
-    version_key = VERSION_KEY.format(team_id=team_id, notebook_id=notebook_id)
-    steps_key = STEPS_KEY.format(team_id=team_id, notebook_id=notebook_id)
+    client = redis_module.get_client()
+    stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
 
-    step_entries = [
-        json.dumps({"step": s, "client_id": client_id, "v": last_seen_version + i + 1})
-        for i, s in enumerate(steps_json)
-    ]
+    # Presence (author + cursor) is constant for the whole batch — build once, spread per step.
+    presence: dict[str, Any] = {
+        k: v for k, v in (("user_id", user_id), ("user_name", user_name), ("cursor_head", cursor_head)) if v is not None
+    }
+    # Version isn't in the payload — the stream id (N-0) IS the version, and SSE delivers it as `id:`.
+    serialized = [json.dumps({"step": step, "client_id": client_id, **presence}) for step in steps_json]
 
-    script = client.register_script(_APPEND_STEPS_LUA)
+    script = client.register_script(APPEND_ENTRIES_LUA)
     accepted, version = script(
-        keys=[version_key, steps_key],
-        args=[last_seen_version, TTL_SECONDS, *step_entries],
+        keys=[stream_key],
+        args=[last_seen_version, last_saved_version, STREAM_TTL_SECONDS, STREAM_MAX_LENGTH, *serialized],
     )
-
-    if accepted == -1:
-        return SubmitResult(accepted=False, version=0)
 
     if accepted == 1:
-        return SubmitResult(accepted=True, version=version)
+        return SubmitResult(status="accepted", version=version)
+    if accepted == 2:
+        return SubmitResult(status="stale", version=version)
 
-    # Rejected - fetch steps the client missed
-    raw = client.zrangebyscore(steps_key, f"({last_seen_version}", version)
+    return _fetch_missed_steps(stream_key, last_seen_version=last_seen_version, current_stream_version=version)
 
-    if len(raw) < version - last_seen_version:
-        return SubmitResult(accepted=False, version=version, steps_since=None)
 
-    return SubmitResult(
-        accepted=False,
-        version=version,
-        steps_since=[StepEntry(**json.loads(r)) for r in raw],
-    )
+def _fetch_missed_steps(stream_key: str, *, last_seen_version: int, current_stream_version: int) -> SubmitResult:
+    # Client is somehow ahead of the stream — no missed range we could send.
+    # The only safe response is "reload the notebook".
+    if current_stream_version < last_seen_version:
+        return SubmitResult(status="stale", version=current_stream_version)
+
+    client = redis_module.get_client()
+    raw = client.xrange(stream_key, min=f"({last_seen_version}-0", max=f"{current_stream_version}-0")
+
+    missed_steps: list[StepEntry] = []
+    for _stream_id, fields in raw:
+        data = json.loads(fields[DATA_KEY])
+        if "step" not in data or "client_id" not in data:
+            continue
+        missed_steps.append(StepEntry(step=data["step"], client_id=data["client_id"]))
+
+    # MAXLEN/TTL trimmed part of the gap - incomplete rebase set, reload from Postgres
+    gap_size = current_stream_version - last_seen_version
+    if len(missed_steps) < gap_size:
+        return SubmitResult(status="stale", version=current_stream_version)
+
+    return SubmitResult(status="conflict", version=current_stream_version, steps_since=missed_steps)

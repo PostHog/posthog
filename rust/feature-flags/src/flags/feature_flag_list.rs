@@ -9,29 +9,66 @@ use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
 use common_types::TeamId;
 use metrics::counter;
+use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
+/// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
+/// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
+/// so a value of this type is guaranteed to have been through
+/// `prepare_regexes_in_place`.
+#[derive(Clone, Debug)]
+pub struct PreparedFlags(Arc<[FeatureFlag]>);
+
+impl PreparedFlags {
+    pub fn seal(mut flags: Vec<FeatureFlag>) -> Self {
+        FeatureFlagList::prepare_regexes_in_place(&mut flags);
+        Self(Arc::from(flags))
+    }
+
+    /// Wraps an already-sealed `Arc<[FeatureFlag]>`. Crate-private so external
+    /// callers can't smuggle in an unsealed Arc.
+    pub(crate) fn from_arc(flags: Arc<[FeatureFlag]>) -> Self {
+        Self(flags)
+    }
+
+    pub fn as_arc(&self) -> &Arc<[FeatureFlag]> {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for PreparedFlags {
+    type Target = [FeatureFlag];
+    fn deref(&self) -> &[FeatureFlag] {
+        &self.0
+    }
+}
+
+impl Default for PreparedFlags {
+    fn default() -> Self {
+        Self(Arc::from(Vec::<FeatureFlag>::new()))
+    }
+}
+
+impl From<Vec<FeatureFlag>> for PreparedFlags {
+    fn from(flags: Vec<FeatureFlag>) -> Self {
+        Self::seal(flags)
+    }
+}
+
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
         Self {
-            flags,
+            flags: PreparedFlags::seal(flags),
             ..Default::default()
         }
     }
 
-    /// Pre-compiles all regex patterns in property filters across all flags.
-    /// Called once after deserialization, before evaluation begins.
-    pub fn prepare_regexes(&mut self) {
-        for flag in &mut self.flags {
+    /// Pre-compiles all regex patterns in property filters across a flag slice.
+    pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
+        for flag in flags.iter_mut() {
             Self::prepare_group_regexes(&mut flag.filters.groups);
-            // super_groups currently only use Exact operators (early access enrollment),
-            // so prepare_regex() will no-op for each filter. We walk them anyway for
-            // forward-compatibility if super_groups ever gain regex-based filters.
-            if let Some(super_groups) = &mut flag.filters.super_groups {
-                Self::prepare_group_regexes(super_groups);
-            }
         }
     }
 
@@ -1103,7 +1140,6 @@ mod tests {
         // Filter structure
         assert_eq!(full_flag.filters.groups.len(), 1);
         assert!(full_flag.filters.multivariate.is_some());
-        assert!(full_flag.filters.super_groups.is_some());
         assert_eq!(full_flag.filters.feature_enrollment, Some(true));
         assert!(full_flag.filters.holdout.is_some());
         let holdout = full_flag.filters.holdout.as_ref().unwrap();
@@ -1166,8 +1202,8 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_regexes_compiles_regex_filters_only() {
-        let mut flag_list = FeatureFlagList::new(vec![FeatureFlag {
+    fn test_prepared_flags_seal_compiles_regex_filters_only() {
+        let flags = vec![FeatureFlag {
             id: 1,
             team_id: 1,
             name: None,
@@ -1183,6 +1219,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         },
                         PropertyFilter {
                             key: "name".to_string(),
@@ -1192,6 +1229,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         },
                     ]),
                     rollout_percentage: Some(100.0),
@@ -1200,9 +1238,10 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
+                extra: Default::default(),
             },
             active: true,
             deleted: false,
@@ -1211,14 +1250,11 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
-        }]);
+        }];
 
-        flag_list.prepare_regexes();
+        let sealed = PreparedFlags::seal(flags);
 
-        let props = flag_list.flags[0].filters.groups[0]
-            .properties
-            .as_ref()
-            .unwrap();
+        let props = sealed[0].filters.groups[0].properties.as_ref().unwrap();
         assert!(
             matches!(
                 props[0].compiled_regex,

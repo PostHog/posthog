@@ -607,7 +607,6 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             group_key="org1",
             properties={"name": "org1.inc"},
-            sync=True,
         )
 
         _create_person(
@@ -855,7 +854,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         strategy = PersonStrategy(team=self.team, query=query, paginator=paginator)
 
         # Temporarily set a small batch size to verify batching works
-        with patch.object(PersonStrategy, "BATCH_SIZE", 2):
+        with patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2):
             result = strategy.get_actors(person_uuids)
 
         self.assertEqual(len(result), 5)

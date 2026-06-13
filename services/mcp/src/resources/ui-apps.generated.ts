@@ -5,6 +5,7 @@ export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
 export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
 export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
+export const EMAIL_TEMPLATE_RESOURCE_URI = 'ui://posthog/email-template.html'
 export const ERROR_DETAILS_RESOURCE_URI = 'ui://posthog/error-details.html'
 export const ERROR_ISSUE_RESOURCE_URI = 'ui://posthog/error-issue.html'
 export const ERROR_ISSUE_LIST_RESOURCE_URI = 'ui://posthog/error-issue-list.html'
@@ -13,12 +14,21 @@ export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
 export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
+export const FEATURE_FLAG_TESTING_RESOURCE_URI = 'ui://posthog/feature-flag-testing.html'
+export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
+export const INVITE_EMAIL_PREVIEW_RESOURCE_URI = 'ui://posthog/invite-email-preview.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
+export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
+export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
+export const SESSION_SUMMARY_RESOURCE_URI = 'ui://posthog/session-summary.html'
 export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
 export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'
 export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
 export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
+export const TRACE_SPAN_RESOURCE_URI = 'ui://posthog/trace-span.html'
+export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
+export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-snapshots.html'
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 
@@ -28,6 +38,7 @@ export type UiAppKey =
     | 'cohort'
     | 'cohort-list'
     | 'debug'
+    | 'email-template'
     | 'error-details'
     | 'error-issue'
     | 'error-issue-list'
@@ -36,12 +47,21 @@ export type UiAppKey =
     | 'experiment-results'
     | 'feature-flag'
     | 'feature-flag-list'
+    | 'feature-flag-testing'
+    | 'insight-actors'
+    | 'invite-email-preview'
     | 'llm-costs'
     | 'query-results'
+    | 'render-ui'
+    | 'session-recording'
+    | 'session-summary'
     | 'survey'
     | 'survey-global-stats'
     | 'survey-list'
     | 'survey-stats'
+    | 'trace-span'
+    | 'trace-span-list'
+    | 'visual-review-snapshots'
     | 'workflow'
     | 'workflow-list'
 
@@ -51,6 +71,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     cohort: COHORT_RESOURCE_URI,
     'cohort-list': COHORT_LIST_RESOURCE_URI,
     debug: DEBUG_RESOURCE_URI,
+    'email-template': EMAIL_TEMPLATE_RESOURCE_URI,
     'error-details': ERROR_DETAILS_RESOURCE_URI,
     'error-issue': ERROR_ISSUE_RESOURCE_URI,
     'error-issue-list': ERROR_ISSUE_LIST_RESOURCE_URI,
@@ -59,15 +80,58 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'experiment-results': EXPERIMENT_RESULTS_RESOURCE_URI,
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
+    'feature-flag-testing': FEATURE_FLAG_TESTING_RESOURCE_URI,
+    'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
+    'invite-email-preview': INVITE_EMAIL_PREVIEW_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
+    'render-ui': RENDER_UI_RESOURCE_URI,
+    'session-recording': SESSION_RECORDING_RESOURCE_URI,
+    'session-summary': SESSION_SUMMARY_RESOURCE_URI,
     survey: SURVEY_RESOURCE_URI,
     'survey-global-stats': SURVEY_GLOBAL_STATS_RESOURCE_URI,
     'survey-list': SURVEY_LIST_RESOURCE_URI,
     'survey-stats': SURVEY_STATS_RESOURCE_URI,
+    'trace-span': TRACE_SPAN_RESOURCE_URI,
+    'trace-span-list': TRACE_SPAN_LIST_RESOURCE_URI,
+    'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
+
+/**
+ * App keys with a generated detail/list view that the `render-ui` umbrella tool
+ * can render. Excludes custom apps, which have no convention view component.
+ */
+export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
+    'action',
+    'action-list',
+    'cohort',
+    'cohort-list',
+    'email-template',
+    'error-details',
+    'error-issue',
+    'error-issue-list',
+    'experiment',
+    'experiment-list',
+    'experiment-results',
+    'feature-flag',
+    'feature-flag-list',
+    'feature-flag-testing',
+    'insight-actors',
+    'invite-email-preview',
+    'llm-costs',
+    'session-recording',
+    'session-summary',
+    'survey',
+    'survey-global-stats',
+    'survey-list',
+    'survey-stats',
+    'trace-span',
+    'trace-span-list',
+    'workflow',
+    'workflow-list',
+]
 
 export const UI_APPS: Array<{
     name: string
@@ -104,6 +168,12 @@ export const UI_APPS: Array<{
         uri: DEBUG_RESOURCE_URI,
         description: 'Debug app for testing MCP Apps SDK integration',
         appDir: 'debug',
+    },
+    {
+        name: 'PostHog Email Template',
+        uri: EMAIL_TEMPLATE_RESOURCE_URI,
+        description: 'Email Template detail view',
+        appDir: 'generated/email-template',
     },
     {
         name: 'PostHog Error Details',
@@ -154,6 +224,24 @@ export const UI_APPS: Array<{
         appDir: 'generated/feature-flag-list',
     },
     {
+        name: 'PostHog Feature Flag Testing',
+        uri: FEATURE_FLAG_TESTING_RESOURCE_URI,
+        description: 'Feature Flag Testing detail view',
+        appDir: 'generated/feature-flag-testing',
+    },
+    {
+        name: 'PostHog Insight Actors',
+        uri: INSIGHT_ACTORS_RESOURCE_URI,
+        description: 'Insight Actors detail view',
+        appDir: 'generated/insight-actors',
+    },
+    {
+        name: 'PostHog Invite Email Preview',
+        uri: INVITE_EMAIL_PREVIEW_RESOURCE_URI,
+        description: 'Invite Email Preview detail view',
+        appDir: 'generated/invite-email-preview',
+    },
+    {
         name: 'PostHog Llm Costs',
         uri: LLM_COSTS_RESOURCE_URI,
         description: 'Llm Costs detail view',
@@ -164,6 +252,24 @@ export const UI_APPS: Array<{
         uri: QUERY_RESULTS_RESOURCE_URI,
         description: 'Interactive visualization for PostHog query results',
         appDir: 'query-results',
+    },
+    {
+        name: 'PostHog Render UI',
+        uri: RENDER_UI_RESOURCE_URI,
+        description: 'Renders the visualization for a PostHog MCP tool result',
+        appDir: 'render-ui',
+    },
+    {
+        name: 'PostHog Session Recording',
+        uri: SESSION_RECORDING_RESOURCE_URI,
+        description: 'Session Recording detail view',
+        appDir: 'generated/session-recording',
+    },
+    {
+        name: 'PostHog Session Summary',
+        uri: SESSION_SUMMARY_RESOURCE_URI,
+        description: 'Session Summary detail view',
+        appDir: 'generated/session-summary',
     },
     {
         name: 'PostHog Survey',
@@ -188,6 +294,24 @@ export const UI_APPS: Array<{
         uri: SURVEY_STATS_RESOURCE_URI,
         description: 'Survey Stats detail view',
         appDir: 'generated/survey-stats',
+    },
+    {
+        name: 'PostHog Trace Span',
+        uri: TRACE_SPAN_RESOURCE_URI,
+        description: 'Trace Span detail view',
+        appDir: 'generated/trace-span',
+    },
+    {
+        name: 'PostHog Trace Span List',
+        uri: TRACE_SPAN_LIST_RESOURCE_URI,
+        description: 'Trace Span List view',
+        appDir: 'generated/trace-span-list',
+    },
+    {
+        name: 'PostHog Visual Review Snapshots',
+        uri: VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
+        description: 'Visual review run snapshots — diff viewer with approve/tolerate actions',
+        appDir: 'visual-review-snapshots',
     },
     {
         name: 'PostHog Workflow',

@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -14,23 +15,34 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import TIKTOK_ADS_CONFIG
-from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import tiktok_ads_source
+from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import TikTokAdsResumeConfig, tiktok_ads_source
+from posthog.temporal.data_imports.sources.tiktok_ads.utils import TIKTOK_NON_RETRYABLE_ERROR_PREFIX
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
+class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TIKTOKADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
+            # doesn't exist or has been deleted). The paginator raises these with this exact
+            # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
+            # the user-facing error since it names the specific advertiser and TikTok error code.
+            TIKTOK_NON_RETRYABLE_ERROR_PREFIX: None,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -38,7 +50,7 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.TIK_TOK_ADS,
             label="TikTok Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from TikTok Ads. Ensure you have granted PostHog access to your TikTok Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/tiktok-ads).",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/tiktok.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tiktok-ads",
             fields=cast(
@@ -50,6 +62,7 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your TikTok Ads advertiser ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="tiktok_integration_id",
@@ -85,7 +98,12 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             return False, f"Failed to validate TikTok Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: TikTokAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: TikTokAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -101,7 +119,15 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
-    def source_for_pipeline(self, config: TikTokAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TikTokAdsResumeConfig]:
+        return ResumableSourceManager[TikTokAdsResumeConfig](inputs, TikTokAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: TikTokAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[TikTokAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.tiktok_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -113,6 +139,7 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

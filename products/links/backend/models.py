@@ -3,6 +3,7 @@ from django.db.models import QuerySet
 
 import structlog
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
@@ -36,16 +37,17 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["short_link_domain", "short_code"], name="unique_short_link_domain_short_code"
+                fields=["short_link_domain", "short_code"],
+                name="unique_short_link_domain_short_code",
             )
         ]
         db_table = "posthog_link"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.id} -> {self.redirect_url}"
 
     @classmethod
-    def get_links_for_team(cls, team_id, limit=100, offset=0):
+    def get_links_for_team(cls, team_id: int, limit: int = 100, offset: int = 0) -> QuerySet["Link"]:
         """
         Get all links for a team with pagination.
         Args:
@@ -58,9 +60,9 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         return cls.objects.filter(team_id=team_id).order_by("-created_at")[offset : offset + limit]
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Link"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Link"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="link", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="link", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

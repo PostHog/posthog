@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     error::UnhandledError,
     frames::{Frame, RawFrame},
-    langs::apple::AppleDebugImage,
+    langs::native::DebugImage,
     metric_consts::FRAME_RESOLVER_OPERATOR,
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
@@ -21,7 +21,7 @@ impl FrameResolver {
     pub async fn resolve_exception_list_frames(
         team_id: i32,
         list: ExceptionList,
-        debug_images: Arc<Vec<AppleDebugImage>>,
+        debug_images: Arc<Vec<DebugImage>>,
         ctx: ResolutionStage,
     ) -> Result<ExceptionList, UnhandledError> {
         let res = Batch::from(list.0)
@@ -42,7 +42,7 @@ impl FrameResolver {
     pub async fn resolve_exception_frames(
         team_id: i32,
         mut exc: Exception,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
         ctx: ResolutionStage,
     ) -> Result<Exception, UnhandledError> {
         exc.stack = match exc.stack {
@@ -72,14 +72,27 @@ impl FrameResolver {
     pub async fn resolve_frame(
         team_id: i32,
         frame: &RawFrame,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
         ctx: ResolutionStage,
     ) -> Result<Vec<Frame>, UnhandledError> {
         let _permit = ctx.acquire_symbol_resolution_permit().await?;
 
-        ctx.symbol_resolver
+        let mut resolved_frames = ctx
+            .symbol_resolver
             .resolve_raw_frame(team_id, frame, debug_images)
-            .await
+            .await?;
+
+        // The frame id is part of the caller/frontend lookup contract. Keep it
+        // tied to the submitted raw frame here instead of trusting resolver
+        // implementations to preserve the raw_id/part shape.
+        resolved_frames
+            .iter_mut()
+            .enumerate()
+            .for_each(|(index, resolved_frame)| {
+                resolved_frame.frame_id = frame.frame_id(team_id, index, debug_images);
+            });
+
+        Ok(resolved_frames)
     }
 }
 

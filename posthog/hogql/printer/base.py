@@ -2,15 +2,13 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, ClassVar, Optional, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
 
-from posthog.schema import MaterializationMode, PersonsOnEventsMode, PropertyGroupsMode
-
 from posthog.hogql import ast
-from posthog.hogql.ast import Constant, StringType
+from posthog.hogql.ast import StringType
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
     HogQLDialect,
@@ -23,39 +21,22 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
-from posthog.hogql.functions import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
-    FIRST_ARG_DATETIME_FUNCTIONS,
-    find_hogql_aggregation,
-    find_hogql_function,
-    find_hogql_posthog_function,
-)
+from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.functions.core import validate_function_args
-from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
 )
-from posthog.hogql.printer.types import (
-    JoinExprResponse,
-    PrintableMaterializedColumn,
-    PrintableMaterializedPropertyGroupItem,
-)
+from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.clickhouse.property_groups import property_groups
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.models.property import PropertyName, TableColumn
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema_enums import PersonsOnEventsMode
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
@@ -66,6 +47,15 @@ def get_channel_definition_dict():
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
+def get_geoip_city_postal_dict():
+    """Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): the ip_trie dictionary backing the lookupGeoip* functions.
+
+    The dictionary maps an IP to GeoLite2 `city_name` / `postal_code` and was created manually on the cloud clusters
+    for the incident backfill — it is not part of any migration, so the functions only work where it exists.
+    """
+    return f"{django_settings.CLICKHOUSE_DATABASE}.city_postal_ip_trie"
+
+
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     expr_type = expr.type
     while isinstance(expr_type, ast.FieldAliasType):
@@ -73,19 +63,27 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-class HogQLPrinter(Visitor[str]):
-    # NOTE: Call "print_ast()", not this class directly.
+class BasePrinter(Visitor[str]):
+    # NOTE: Call "prepare_and_print_ast()", not this class directly.
+    # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
+    # Each subclass sets ``DIALECT_NAME`` to identify itself for error messages and
+    # resolver wiring; dialect-specific rendering lives in subclass-overridden hooks.
+
+    DIALECT_NAME: ClassVar[HogQLDialect]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "DIALECT_NAME"):
+            raise TypeError(f"{cls.__name__} must define DIALECT_NAME")
 
     def __init__(
         self,
         context: HogQLContext,
-        dialect: HogQLDialect,
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
         self.context = context
-        self.dialect = dialect
         self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
@@ -96,6 +94,135 @@ class HogQLPrinter(Visitor[str]):
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
+
+    def _min_function_name(self) -> str:
+        """Name of the 2-argument min function for the auto-applied top-level LIMIT cap.
+
+        Defaults to the ClickHouse spelling; dialects with a different name override this.
+        """
+        return "min2"
+
+    def _expands_placeholder_macros(self) -> bool:
+        """Whether placeholder-argument macros should be expanded into their SQL rendering.
+
+        SQL dialects expand (default); HogQL leaves them in their original form for round-trip printing.
+        """
+        return True
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        """Raise if this dialect does not support the given set operator. Postgres overrides to permit all."""
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `set_operator` verbatim into emitted SQL.
+        if set_operator not in get_args(ast.SetOperator):
+            raise QueryError(f"Invalid set operator: {set_operator!r}")
+        if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
+            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+
+    def _assert_recursive_cte_supported(self) -> None:
+        """Raise if this dialect does not support recursive CTEs. Postgres overrides to permit."""
+        raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
+
+    def _assert_qualify_supported(self) -> None:
+        """Raise if this dialect does not support the QUALIFY clause. Postgres overrides to permit."""
+        raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.DIALECT_NAME))
+
+    def _assert_with_ties_supported(self) -> None:
+        """Raise if this dialect does not support WITH TIES. Postgres overrides to reject."""
+        return
+
+    def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
+        """Suffix appended to ``AS alias`` when ``column_aliases`` are present. Postgres emits ``(col_a, col_b)``."""
+        return ""
+
+    def _render_column_aliases_appended(self, column_aliases: list[str]) -> str | None:
+        """String appended to the join-expression list when column aliases apply outside a SELECT alias.
+
+        Default returns ``None`` (not emitted); Postgres returns ``(col_a, col_b)``.
+        """
+        return None
+
+    def _dict_tuple_function_name(self) -> str:
+        """Name of the tuple-constructor function used when lowering a HogQL dict literal. Postgres uses ``ROW``."""
+        return "tuple"
+
+    def _render_column_aliased_field_name(self, type: "ast.FieldType", resolved_field) -> str:
+        """Column name to emit when the enclosing table type is ``ColumnAliasedTableType``.
+
+        Default uses the resolved database column name. Postgres overrides to use the alias declared on
+        the table type (Postgres renames the projection via the ``(a, b, c)`` syntax).
+        """
+        return self._print_identifier(resolved_field.name)
+
+    def _apply_window_function_rewrites(
+        self, identifier: str, exprs: list[str], cloned_node: "ast.WindowFunction"
+    ) -> str:
+        """Rewrite ``lag``/``lead`` into the ClickHouse ``lagInFrame``/``leadInFrame`` form.
+
+        The rewrite renames the function, wraps the value argument in ``toNullable``, and injects a default
+        window frame when none is present. Postgres overrides to return the identifier unchanged because its
+        native ``lag``/``lead`` already provides the desired semantics.
+        """
+        if identifier not in ("lag", "lead"):
+            return identifier
+        identifier = f"{identifier}InFrame"
+        # Wrap the first expression (value) and third expression (default) in toNullable()
+        # The second expression (offset) must remain a non-nullable integer
+        if len(exprs) > 0:
+            exprs[0] = f"toNullable({exprs[0]})"  # value
+        # If there's no window frame specified, add the default one
+        if not cloned_node.over_expr and not cloned_node.over_identifier:
+            cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        # If there's an over_identifier, we need to extract the new window expr just for this function
+        elif cloned_node.over_identifier:
+            # Find the last select query to look up the window definition
+            last_select = self._last_select()
+            if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                base_window = last_select.window_exprs[cloned_node.over_identifier]
+                # Create a new window expr based on the referenced one
+                cloned_node.over_expr = ast.WindowExpr(
+                    partition_by=base_window.partition_by,
+                    order_by=base_window.order_by,
+                    frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                    frame_start=base_window.frame_start
+                    or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                    frame_end=base_window.frame_end or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                )
+                cloned_node.over_identifier = None
+        # If there's an ORDER BY but no frame, add the default frame
+        elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+            cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        return identifier
+
+    def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
+        """Render the LIMIT value for a set-operation query when `LIMIT … PERCENT` was used.
+
+        `limit_str` is the already-visited limit expression. The default raises because
+        most dialects don't support LIMIT percent; CH and PG override.
+        """
+        raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
+
+    def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
+        """Render the full LIMIT clause (including the keyword) for a single SELECT.
+
+        Default handles the non-percent case and raises for percent; CH and PG override.
+        """
+        if is_percent:
+            raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
+        return f"LIMIT {self.visit(limit)}"
+
+    def _validate_within_group_for_aggregation(self, node: "ast.Call", func_meta) -> None:
+        """Validate that this dialect accepts the WITHIN GROUP clause for `node`.
+
+        Default: permitted. ClickHouse overrides to reject.
+        """
+        return
+
+    def _render_aggregation_name(self, node: "ast.Call", func_meta) -> str:
+        """Render the function name portion of an aggregation call.
+
+        Default: use the ClickHouse name from the function registry. HogQL overrides
+        to preserve `node.name` (PR 3).
+        """
+        return func_meta.clickhouse_name
 
     def _get_connection_supported_functions(self) -> set[str]:
         metadata = self.context.direct_postgres_connection_metadata
@@ -121,9 +248,11 @@ class HogQLPrinter(Visitor[str]):
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is not None:
-            raise ImpossibleASTError(f"CTE materialization hints are not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(
+                f"CTE materialization hints are not supported in the '{self.DIALECT_NAME}' dialect"
+            )
         if node.using_key is not None:
-            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.dialect}' dialect")
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
 
         if node.cte_type == "subquery":
             if node.columns is not None:
@@ -145,8 +274,7 @@ class HogQLPrinter(Visitor[str]):
             if self.pretty:
                 query = query.strip()
             if expr.set_operator is not None:
-                if expr.set_operator in ("INTERSECT ALL", "EXCEPT ALL") and self.dialect != "postgres":
-                    raise ImpossibleASTError(f"{expr.set_operator} is not supported in the '{self.dialect}' dialect")
+                self._assert_set_operator_supported(expr.set_operator)
                 if self.pretty:
                     ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
                 else:
@@ -156,14 +284,7 @@ class HogQLPrinter(Visitor[str]):
         if node.limit is not None:
             limit_str = self.visit(node.limit)
             if node.limit_percent:
-                if self.dialect == "clickhouse":
-                    if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, (int, float)):
-                        raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
-                    limit_str = str(node.limit.value / 100)
-                elif self.dialect == "postgres":
-                    limit_str += " %"
-                else:
-                    raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
+                limit_str = self._render_set_query_limit_percent(node.limit, limit_str)
 
             if node.limit_with_ties:
                 limit_str += " WITH TIES"
@@ -237,8 +358,8 @@ class HogQLPrinter(Visitor[str]):
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
         has_recursive_cte = any(cte.recursive for cte in node.ctes.values()) if node.ctes else False
 
-        if has_recursive_cte and self.dialect != "postgres":
-            raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
+        if has_recursive_cte:
+            self._assert_recursive_cte_supported()
 
         window = (
             ", ".join(
@@ -256,8 +377,8 @@ class HogQLPrinter(Visitor[str]):
             else:
                 group_by = [self.visit(column) for column in node.group_by]
         having = self.visit(node.having) if node.having else None
-        if node.qualify is not None and self.dialect != "postgres":
-            raise QueryError("QUALIFY is not supported in the '{}' dialect".format(self.dialect))
+        if node.qualify is not None:
+            self._assert_qualify_supported()
         qualify = self.visit(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
@@ -312,7 +433,7 @@ class HogQLPrinter(Visitor[str]):
         # TODO: We skip the 50k limit guard when LIMIT % is present. Revisit if we can cap percent limits safely.
         if self.context.limit_top_select and is_top_level_query and not node.limit_percent:
             max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
-            min_function = "least" if self.dialect == "postgres" else "min2"
+            min_function = self._min_function_name()
 
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
@@ -331,21 +452,9 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if limit is not None:
-            if node.limit_percent and self.dialect != "postgres":
-                if self.dialect == "clickhouse":
-                    if not isinstance(limit, ast.Constant) or not isinstance(limit.value, (int, float)):
-                        raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
-                else:
-                    raise QueryError(f"LIMIT percent is not allowed in {self.dialect} dialect")
-            if node.limit_with_ties and self.dialect == "postgres":
-                raise QueryError("WITH TIES is not supported in postgres dialect")
-            if node.limit_percent and self.dialect == "clickhouse":
-                assert isinstance(limit, ast.Constant)
-                limit_str = f"LIMIT {limit.value / 100}"
-            else:
-                limit_str = f"LIMIT {self.visit(limit)}"
-                if node.limit_percent:
-                    limit_str += " %"
+            if node.limit_with_ties:
+                self._assert_with_ties_supported()
+            limit_str = self._render_select_query_limit_clause(limit, bool(node.limit_percent))
             clauses.append(limit_str)
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
@@ -388,8 +497,13 @@ class HogQLPrinter(Visitor[str]):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType,
     ):
-        if self.dialect != "hogql":
-            raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
+        """Inject a ``team_id`` guard into the WHERE clause for SQL-lowering dialects.
+
+        Fail-fast by default: every SQL dialect must override this to enforce team isolation.
+        ``HogQLPrinter`` overrides to a no-op because it never produces a real query; CH and PG
+        enforce the guard.
+        """
+        raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
 
     def _get_table_predicates(
         self,
@@ -402,12 +516,25 @@ class HogQLPrinter(Visitor[str]):
             return []
 
         scope = ast.SelectQueryType(tables={"t": node_type})
-        return [resolve_types(clone_expr(pred), self.context, self.dialect, [scope]) for pred in predicates]
+        return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        if self.dialect == "hogql":
-            return table_type.table.to_printed_hogql()
-        raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
+        """Print a table reference. Fail-fast by default: each dialect must override.
+
+        ``HogQLPrinter`` returns the HogQL identifier; SQL dialects resolve to real table names.
+        """
+        raise ImpossibleASTError(f"Unsupported dialect {type(self).__name__}")
+
+    def _render_lazy_table_join_expr(self, node: ast.JoinExpr) -> str:
+        """Render a ``LazyTableType`` join target. SQL dialects resolve these before printing."""
+        table_type = cast(ast.LazyTableType, node.type)
+        raise ImpossibleASTError(f"Unexpected LazyTableType for: {table_type.table.to_printed_hogql()}")
+
+    def _render_untyped_join_expr(self, node: ast.JoinExpr) -> list[str]:
+        """Render a join target that isn't a known resolved type. SQL dialects reject; HogQL renders the raw node."""
+        raise QueryError(
+            f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
+        )
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # Constraints to add to the SELECT's WHERE clause (for most join types)
@@ -417,7 +544,14 @@ class HogQLPrinter(Visitor[str]):
 
         join_strings = []
         if node.join_type is not None:
-            join_strings.append(node.join_type)
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `join_type` verbatim into emitted SQL.
+            jt = node.join_type
+            if not (
+                jt in ast.VALID_JOIN_TYPES
+                or (jt.startswith("GLOBAL ") and jt.removeprefix("GLOBAL ") in ast.VALID_JOIN_TYPES)
+            ):
+                raise QueryError(f"Invalid join type: {jt!r}")
+            join_strings.append(jt)
 
         if isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.TableType)):
             table_type: ast.TableType | ast.LazyTableType | ast.TableAliasType | ast.ColumnAliasedTableType = node.type
@@ -507,30 +641,20 @@ class HogQLPrinter(Visitor[str]):
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
             alias_str = f"AS {self._print_identifier(node.alias)}"
-            if node.column_aliases and self.dialect == "postgres":
-                col_names = ", ".join(self._print_identifier(c) for c in node.column_aliases)
-                alias_str += f" ({col_names})"
+            if node.column_aliases:
+                alias_str += self._render_column_aliases_inline_suffix(node.column_aliases)
             join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
-            if self.dialect == "hogql":
-                join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
-            else:
-                raise ImpossibleASTError(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
+            join_strings.append(self._render_lazy_table_join_expr(node))
 
-        elif self.dialect == "hogql":
-            join_strings.append(self.visit(node.table))
-            if node.alias is not None:
-                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
-            raise QueryError(
-                f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
-            )
+            join_strings.extend(self._render_untyped_join_expr(node))
 
         if node.column_aliases and not isinstance(node.type, ast.SelectQueryAliasType):
-            if self.dialect == "postgres":
-                col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
-                join_strings.append(f"({col_aliases})")
+            appended = self._render_column_aliases_appended(node.column_aliases)
+            if appended is not None:
+                join_strings.append(appended)
 
         if node.table_final:
             raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
@@ -541,6 +665,9 @@ class HogQLPrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
+            if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
+                raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
             if team_id_for_on_clause is not None:
                 combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
@@ -635,7 +762,7 @@ class HogQLPrinter(Visitor[str]):
     def visit_tuple_access(self, node: ast.TupleAccess):
         visited_tuple = self.visit(node.tuple)
         visited_index = int(str(node.index))
-        symbol = "?." if self.dialect == "hogql" and node.nullish else "."
+        symbol = self._tuple_access_separator(bool(node.nullish))
         if isinstance(node.tuple, ast.Field) or isinstance(node.tuple, ast.Tuple) or isinstance(node.tuple, ast.Call):
             return f"{visited_tuple}{symbol}{visited_index}"
         return f"({visited_tuple}){symbol}{visited_index}"
@@ -644,24 +771,32 @@ class HogQLPrinter(Visitor[str]):
         return f"tuple({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_array_access(self, node: ast.ArrayAccess):
-        symbol = "?." if self.dialect == "hogql" and node.nullish else ""
+        symbol = self._array_access_prefix(bool(node.nullish))
         return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
 
+    def _tuple_access_separator(self, nullish: bool) -> str:
+        """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""
+        return "."
+
+    def _array_access_prefix(self, nullish: bool) -> str:
+        """Prefix applied before ``[...]`` in array-access expressions. HogQL overrides for nullish ``?.``."""
+        return ""
+
     def visit_array_slice(self, node: ast.ArraySlice):
-        raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
+        raise QueryError(f"Array slices are not allowed in {self.DIALECT_NAME} dialect")
 
     def visit_array(self, node: ast.Array):
         return f"[{', '.join([self.visit(expr) for expr in node.exprs])}]"
 
     def visit_dict(self, node: ast.Dict):
-        tuple_function = "ROW" if self.dialect == "postgres" else "tuple"
+        tuple_function = self._dict_tuple_function_name()
         str = f"{tuple_function}('__hx_tag', '__hx_obj'"
         for key, value in node.items:
             str += f", {self.visit(key)}, {self.visit(value)}"
         return str + ")"
 
     def visit_try_cast(self, node: ast.TryCast):
-        raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
+        raise QueryError(f"TRY_CAST is not allowed in {self.DIALECT_NAME} dialect")
 
     def visit_lambda(self, node: ast.Lambda):
         identifiers = [self._print_identifier(arg) for arg in node.args]
@@ -672,6 +807,9 @@ class HogQLPrinter(Visitor[str]):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `order` verbatim.
+        if node.order not in ast.VALID_ORDER_DIRECTIONS:
+            raise QueryError(f"Invalid order direction: {node.order!r}")
         result = f"{self.visit(node.expr)} {node.order}"
         if node.with_fill is not None:
             result += f" {self.visit(node.with_fill)}"
@@ -729,14 +867,14 @@ class HogQLPrinter(Visitor[str]):
             return f"less({left}, {right})"
         elif op == ast.CompareOperationOp.LtEq:
             return f"lessOrEquals({left}, {right})"
-        # only used for hogql direct printing (no prepare called)
-        elif op == ast.CompareOperationOp.InCohort and self.dialect == "hogql":
-            return f"{left} IN COHORT {right}"
-        # only used for hogql direct printing (no prepare called)
-        elif op == ast.CompareOperationOp.NotInCohort and self.dialect == "hogql":
-            return f"{left} NOT IN COHORT {right}"
-        else:
-            raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+        cohort = self._render_cohort_compare_op(op, left, right)
+        if cohort is not None:
+            return cohort
+        raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
+
+    def _render_cohort_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str | None:
+        """Render ``InCohort`` / ``NotInCohort`` comparisons. Only HogQL supports these; others return None."""
+        return None
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         left = self.visit(node.left)
@@ -771,7 +909,8 @@ class HogQLPrinter(Visitor[str]):
         return self._print_escaped_string(node.value)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # Allowlist gate against `setattr`-bypass — the printer returns `name` verbatim.
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name
 
@@ -819,8 +958,12 @@ class HogQLPrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            # For HogQL, don't expand the macro, just display it in its original shape.
-            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
+            # HogQL preserves the macro in its original shape; SQL dialects expand it.
+            if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
+                # Pre-#58714 behavior: single-arg toFloatOrDefault was degenerate and
+                # equivalent to toFloatOrZero. Rewrite here so saved queries still work.
+                if node.name == "toFloatOrDefault" and len(node.args) == 1:
+                    return self.visit(ast.Call(name="toFloatOrZero", args=node.args))
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
@@ -842,8 +985,7 @@ class HogQLPrinter(Visitor[str]):
         elif func_meta := find_hogql_aggregation(node.name):
             if func_meta.requires_within_group and node.within_group is None:
                 raise QueryError(f"Aggregation '{node.name}' requires WITHIN GROUP")
-            if node.within_group is not None and self.dialect == "clickhouse":
-                raise QueryError(f"Aggregation '{node.name}' with WITHIN GROUP is not supported in ClickHouse dialect")
+            self._validate_within_group_for_aggregation(node, func_meta)
 
             validate_function_args(
                 node.args,
@@ -894,7 +1036,9 @@ class HogQLPrinter(Visitor[str]):
                 raise QueryError(f"Aggregation '{node.name}' does not support WITHIN GROUP")
 
             filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
-            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}{within_group}{filter_part}"
+            return (
+                f"{self._render_aggregation_name(node, func_meta)}{params_part}{args_part}{within_group}{filter_part}"
+            )
 
         elif func_meta := find_hogql_function(node.name):
             validate_function_args(
@@ -915,144 +1059,7 @@ class HogQLPrinter(Visitor[str]):
                     argument_term="parameter",
                 )
 
-            if self.dialect == "clickhouse":
-                args_count = len(node.args) - func_meta.passthrough_suffix_args_count
-                node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
-
-                if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: list[str] = []
-                    for idx, arg in enumerate(node_args):
-                        if idx == 0:
-                            if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
-                                args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
-                            else:
-                                args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
-                        else:
-                            args.append(self.visit(arg))
-                elif node.name == "concat":
-                    args = []
-                    for arg in node_args:
-                        if isinstance(arg, ast.Constant):
-                            if arg.value is None:
-                                args.append("''")
-                            elif isinstance(arg.value, str):
-                                args.append(self.visit(arg))
-                            else:
-                                args.append(f"toString({self.visit(arg)})")
-                        elif isinstance(arg, ast.Call) and arg.name == "toString":
-                            if len(arg.args) == 1 and isinstance(arg.args[0], ast.Constant):
-                                if arg.args[0].value is None:
-                                    args.append("''")
-                                else:
-                                    args.append(self.visit(arg))
-                            else:
-                                args.append(f"ifNull({self.visit(arg)}, '')")
-                        else:
-                            args.append(f"ifNull(toString({self.visit(arg)}), '')")
-                else:
-                    args = [self.visit(arg) for arg in node_args]
-
-                # Some of these `isinstance` checks are here just to make our type system happy
-                # We have some guarantees in place to ensure that the arguments are string/constants anyway
-                # Here's to hoping Python's type system gets as smart as TS's one day
-                if func_meta.suffix_args:
-                    for suffix_arg in func_meta.suffix_args:
-                        if len(passthrough_suffix_args) > 0:
-                            if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
-                                raise QueryError(
-                                    f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
-                                )
-
-                            suffix_arg_args_values = [
-                                arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
-                            ]
-
-                            if isinstance(suffix_arg.value, str):
-                                suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
-                            else:
-                                raise QueryError(
-                                    f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
-                                )
-                        args.append(self.visit(suffix_arg))
-
-                relevant_clickhouse_name = func_meta.clickhouse_name
-                if func_meta.overloads:
-                    first_arg_constant_type = (
-                        node.args[0].type.resolve_constant_type(self.context)
-                        if len(node.args) > 0 and node.args[0].type is not None
-                        else None
-                    )
-
-                    if first_arg_constant_type is not None:
-                        for (
-                            overload_types,
-                            overload_clickhouse_name,
-                        ) in func_meta.overloads:
-                            if isinstance(first_arg_constant_type, overload_types):
-                                relevant_clickhouse_name = overload_clickhouse_name
-                                break  # Found an overload matching the first function org
-
-                if func_meta.tz_aware:
-                    has_tz_override = len(node.args) == func_meta.max_args
-
-                    if not has_tz_override:
-                        args.append(self.visit(ast.Constant(value=self._get_timezone())))
-
-                    # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
-                    # and it allows CH to use index efficiently.
-                    if (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
-                        and len(node.args) == 1
-                        and isinstance(node.args[0], Constant)
-                        and isinstance(node.args[0].type, StringType)
-                    ):
-                        relevant_clickhouse_name = "parseDateTime64BestEffort"
-                        pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
-                        pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
-                        if re.match(pattern_with_microseconds_str, node.args[0].value):
-                            relevant_clickhouse_name = "toDateTime64"
-                        elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
-                            r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
-                        ):
-                            relevant_clickhouse_name = "toDateTime"
-                    if (
-                        relevant_clickhouse_name == "now64"
-                        and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
-                    ) or (
-                        relevant_clickhouse_name
-                        in (
-                            "parseDateTime64BestEffortOrNull",
-                            "parseDateTime64BestEffortUSOrNull",
-                            "parseDateTime64BestEffort",
-                            "toDateTime64",
-                        )
-                        and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
-                    ):
-                        # These two CH functions require a precision argument before timezone
-                        args = [*args[:-1], "6", *args[-1:]]
-
-                if node.name == "toStartOfWeek" and len(node.args) == 1:
-                    # If week mode hasn't been specified, use the project's default.
-                    # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-                    args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
-
-                if node.name == "trimLeft" and len(args) == 2:
-                    return f"trim(LEADING {args[1]} FROM {args[0]})"
-                elif node.name == "trimRight" and len(args) == 2:
-                    return f"trim(TRAILING {args[1]} FROM {args[0]})"
-                elif node.name == "trim" and len(args) == 2:
-                    return f"trim(BOTH {args[1]} FROM {args[0]})"
-
-                params = [self.visit(param) for param in node.params] if node.params is not None else None
-                params_part = f"({', '.join(params)})" if params is not None else ""
-                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
-                args_part = f"({', '.join(args)}{order_by_part})"
-                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
-                return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
-            else:
-                order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
-                filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part}){filter_part}"
+            return self._render_function_call(node, func_meta)
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(
                 node.args,
@@ -1061,55 +1068,11 @@ class HogQLPrinter(Visitor[str]):
                 node.name,
             )
 
-            args = [self.visit(arg) for arg in node.args]
-
-            if self.dialect == "clickhouse":
-                if node.name == "embedText":
-                    return self.visit_constant(resolve_embed_text(self.context.team, node))
-                elif node.name == "lookupDomainType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "lookupPaidSourceType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "lookupPaidMediumType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "lookupOrganicSourceType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "lookupOrganicMediumType":
-                    channel_dict = get_channel_definition_dict()
-                    return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "convertCurrency":
-                    # convertCurrency(from_currency, to_currency, amount, timestamp?)
-                    from_currency, to_currency, amount, *_rest = args
-                    date = args[3] if len(args) > 3 and args[3] else "today()"
-                    db = django_settings.CLICKHOUSE_DATABASE
-                    # Build rate lookup expressions
-                    from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
-                    to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
-                    # Use if() around divisor to avoid division by zero with enable_analyzer=0
-                    # (old analyzer evaluates all branches regardless of condition)
-                    safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
-
-                relevant_clickhouse_name = func_meta.clickhouse_name
-                if "{}" in relevant_clickhouse_name:
-                    if len(args) != 1:
-                        raise QueryError(f"Function '{node.name}' requires exactly one argument")
-                    return relevant_clickhouse_name.format(args[0])
-
-                params = [self.visit(param) for param in node.params] if node.params is not None else None
-                params_part = f"({', '.join(params)})" if params is not None else ""
-                args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
-
-            # If hogql dialect, just keep it as is
-            return f"{node.name}({', '.join(args)})"
+            return self._render_posthog_function_call(node, func_meta)
         else:
-            if self.dialect == "hogql" and node.name.lower() in self._get_connection_supported_functions():
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+            passthrough = self._render_connection_supported_function(node)
+            if passthrough is not None:
+                return passthrough
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
@@ -1117,6 +1080,24 @@ class HogQLPrinter(Visitor[str]):
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
                 )
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
+
+    def _render_connection_supported_function(self, node: "ast.Call") -> str | None:
+        """Pass a function call through unchanged if the underlying connection supports it.
+
+        Only HogQL (used against a direct-Postgres connection) opts in; other dialects return None.
+        """
+        return None
+
+    def _render_function_call(self, node: "ast.Call", func_meta) -> str:
+        """Render a standard HogQL function call. Default is the HogQL/pass-through shape; CH overrides."""
+        order_by_part = f" ORDER BY {', '.join(self.visit(o) for o in node.order_by)}" if node.order_by else ""
+        filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+        return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])}{order_by_part}){filter_part}"
+
+    def _render_posthog_function_call(self, node: "ast.Call", func_meta) -> str:
+        """Render a PostHog-extension function call. Default is HogQL pass-through; CH overrides."""
+        args = [self.visit(arg) for arg in node.args]
+        return f"{node.name}({', '.join(args)})"
 
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
@@ -1175,6 +1156,7 @@ class HogQLPrinter(Visitor[str]):
         return self._print_identifier(type.name)
 
     def visit_field_type(self, type: ast.FieldType):
+        name_resolution_ambiguous = False
         try:
             last_select = self._last_select()
             type_with_name_in_scope = (
@@ -1183,7 +1165,9 @@ class HogQLPrinter(Visitor[str]):
                 else None
             )
         except ResolutionError:
+            # The name resolves to more than one source: it genuinely needs a table prefix to disambiguate.
             type_with_name_in_scope = None
+            name_resolution_ambiguous = True
 
         if (
             isinstance(type.table_type, ast.TableType)
@@ -1223,15 +1207,23 @@ class HogQLPrinter(Visitor[str]):
                 # For column-aliased tables in postgres, use the aliased name
                 # (the DB handles renaming via the (a,b,c) syntax). For other
                 # dialects, use the real DB column name.
-                if isinstance(type.table_type, ast.ColumnAliasedTableType) and self.dialect == "postgres":
-                    field_sql = self._print_identifier(type.name)
+                if isinstance(type.table_type, ast.ColumnAliasedTableType):
+                    field_sql = self._render_column_aliased_field_name(type, resolved_field)
                 else:
                     # resolved_field may be an ast.Alias; in both cases .name is the physical column name to emit
                     if not isinstance(resolved_field, DatabaseField):
                         raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
-                if self.context.within_non_hogql_query and type_with_name_in_scope == type:
-                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                if (
+                    self.context.within_non_hogql_query
+                    and not name_resolution_ambiguous
+                    and (type_with_name_in_scope is None or type_with_name_in_scope == type)
+                ):
+                    # Print the column bare. A non-HogQL fragment (lightweight-DELETE predicate, legacy insight) splices
+                    # into a single-base-table context whose mutation analyzer rejects table-qualified names. We can drop
+                    # the prefix whenever the bare name is unambiguous: it resolves to *this* field, or to nothing at all
+                    # (e.g. a materialized column the physical pass synthesized, which isn't in the HogQL scope). We keep
+                    # the prefix only when the name resolves to a *different* field (shadowing) or is ambiguous.
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
@@ -1267,135 +1259,25 @@ class HogQLPrinter(Visitor[str]):
 
         return field_sql
 
-    def _get_materialized_property_source_for_property_type(
-        self, type: ast.PropertyType
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
-        """
-        Find the most efficient materialized property source for the provided property type.
-        """
-        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
-            return source
-        return None
-
-    def _get_table_name(self, table: ast.TableType) -> str:
-        return table.table.to_printed_hogql()
-
-    def _get_all_materialized_property_sources(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
-        """
-        Find all materialized property sources for the provided field type and property name, ordered from what is
-        likely to be the most efficient access path to the least efficient.
-        """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
-        if self.context.modifiers.materializationMode == "disabled":
-            return
-
-        field = field_type.resolve_database_field(self.context)
-
-        # check for a materialised column
-        table = field_type.table_type
-        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-            table = table.table_type
-
-        if isinstance(table, ast.TableType):
-            table_name = self._get_table_name(table)
-
-            if field is None:
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            if not isinstance(field, DatabaseField):
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                )
-
-            # Check for dmat (dynamic materialized) columns
-            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
-                yield PrintableMaterializedColumn(
-                    self.visit(field_type.table_type),
-                    self._print_identifier(dmat_column),
-                    is_nullable=True,
-                    has_minmax_index=False,
-                    has_ngram_lower_index=False,
-                    has_bloom_filter_index=False,
-                )
-
-            if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
-                PropertyGroupsMode.ENABLED,
-                PropertyGroupsMode.OPTIMIZED,
-            ):
-                # For now, we're assuming that properties are in either no groups or one group, so just using the
-                # first group returned is fine. If we start putting properties in multiple groups, this should be
-                # revisited to find the optimal set (i.e. smallest set) of groups to read from.
-                for property_group_column in property_groups.get_property_group_columns(
-                    table_name, field_name, property_name
-                ):
-                    yield PrintableMaterializedPropertyGroupItem(
-                        self.visit(field_type.table_type),
-                        self._print_identifier(property_group_column),
-                        self.context.add_value(property_name),
-                    )
-        elif self.context.within_non_hogql_query and (
-            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
-        ):
-            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    None,
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                )
-
     def visit_property_type(self, type: ast.PropertyType):
+        # After lowering, a blob property read is a `PropertyAccess`. A `PropertyType` still reaching the printer is the
+        # leftover OUTER reference to a person/group property that `resolve_lazy_tables` pulled into a join subquery: the
+        # JSON extract now lives inside that subquery (and was lowered there), so this outer node is just an
+        # `alias.column` read of the subquery's result — nothing to lower. (Plus, in the ClickHouse override, a
+        # data-warehouse struct column.) The printer makes no physical-column decision — that moved to
+        # `logical_property_lowering` + the ClickHouse physical passes.
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self._get_materialized_property_source_for_property_type(type)
-        if materialized_property_source is not None:
-            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
-            if (
-                len(type.chain) == 1
-                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
-                and isinstance(materialized_property_source, PrintableMaterializedColumn)
-            ):
-                materialized_property_sql = str(materialized_property_source)
-            elif (
-                isinstance(materialized_property_source, PrintableMaterializedColumn)
-                and not materialized_property_source.is_nullable
-            ):
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                    materialized_property_sql = f"nullIf({materialized_property_source}, '')"
-                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                    materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
-            else:
-                materialized_property_sql = str(materialized_property_source)
-
-            if len(type.chain) == 1:
-                return materialized_property_sql
-            else:
-                return self._unsafe_json_extract_trim_quotes(
-                    materialized_property_sql,
-                    self._json_property_args(type.chain[1:]),
-                )
-
         return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
+
+    def visit_property_access(self, node: ast.PropertyAccess) -> str:
+        # Renders a lowered property read: extract the key path from the JSON source in this dialect's syntax (ClickHouse
+        # JSONExtractRaw + null/quote scrub via the base helper; Postgres/DuckDB override
+        # `_unsafe_json_extract_trim_quotes`/`_json_property_args` for `->`/`->>`). It calls the same JSON-extract helper
+        # `visit_property_type` uses for its blob fallback just above, so the output is the plain JSON-extract form. No
+        # physical-column decision happens here.
+        return self._unsafe_json_extract_trim_quotes(self.visit(node.expr), self._json_property_args(node.keys))
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
@@ -1495,36 +1377,7 @@ class HogQLPrinter(Visitor[str]):
         exprs = [self.visit(expr) for expr in node.exprs or []]
         cloned_node = cast(ast.WindowFunction, clone_expr(node))
 
-        # For compatibility with ClickHouse syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
-        if identifier in ("lag", "lead") and self.dialect != "postgres":
-            identifier = f"{identifier}InFrame"
-            # Wrap the first expression (value) and third expression (default) in toNullable()
-            # The second expression (offset) must remain a non-nullable integer
-            if len(exprs) > 0:
-                exprs[0] = f"toNullable({exprs[0]})"  # value
-            # If there's no window frame specified, add the default one
-            if not cloned_node.over_expr and not cloned_node.over_identifier:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
-            # If there's an over_identifier, we need to extract the new window expr just for this function
-            elif cloned_node.over_identifier:
-                # Find the last select query to look up the window definition
-                last_select = self._last_select()
-                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
-                    base_window = last_select.window_exprs[cloned_node.over_identifier]
-                    # Create a new window expr based on the referenced one
-                    cloned_node.over_expr = ast.WindowExpr(
-                        partition_by=base_window.partition_by,
-                        order_by=base_window.order_by,
-                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
-                        frame_start=base_window.frame_start
-                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
-                        frame_end=base_window.frame_end
-                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
-                    )
-                    cloned_node.over_identifier = None
-            # If there's an ORDER BY but no frame, add the default frame
-            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        identifier = self._apply_window_function_rewrites(identifier, exprs, cloned_node)
 
         # Handle any additional function arguments
         args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
@@ -1607,41 +1460,16 @@ class HogQLPrinter(Visitor[str]):
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT) -> str:
+    def _print_escaped_string(
+        self, name: bool | float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+    ) -> str:
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
+        return json_extract_trim_quotes(unsafe_field, *unsafe_args)
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
-
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
-        )
-
-    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """
-        Get the dmat column name for a property if available.
-
-        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
-        otherwise None.
-        """
-        if self.context.property_swapper is None:
-            return None
-
-        # Only event properties have dmat columns
-        if table_name != "events" or field_name != "properties":
-            return None
-
-        prop_info = self.context.property_swapper.event_properties.get(property_name)
-        if prop_info:
-            return prop_info.get("dmat")
-
-        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
@@ -1659,6 +1487,15 @@ class HogQLPrinter(Visitor[str]):
         elif isinstance(node_type, ast.CallType):
             return node_type.return_type.nullable
         elif isinstance(node_type, ast.FieldType):
+            # A field reading from a subquery (alias) has no database field, so `is_nullable` defaults to True and
+            # over-wraps the column in `ifNull(...)`. Its real nullability is the projected column's constant type —
+            # use that, so a non-nullable value selected from a subquery isn't needlessly null-wrapped (which, for a
+            # join key, ClickHouse can't use). Real-table fields keep `is_nullable` (identical result, no risk).
+            if not isinstance(node_type.table_type, ast.BaseTableType):
+                try:
+                    return node_type.resolve_constant_type(self.context).nullable
+                except Exception:
+                    return True
             return node_type.is_nullable(self.context)
         return None
 

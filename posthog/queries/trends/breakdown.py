@@ -20,7 +20,6 @@ from posthog.constants import (
     WEEKLY_ACTIVE,
     PropertyOperatorType,
 )
-from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
@@ -76,6 +75,8 @@ from posthog.queries.util import (
 )
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.utils import encode_get_request_params, generate_short_id
+
+from products.actions.backend.models.util import format_action_filter
 
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"

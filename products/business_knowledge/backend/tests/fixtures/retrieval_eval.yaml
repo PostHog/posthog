@@ -1,0 +1,49 @@
+# Each entry defines a source, its content, and queries with expected matches.
+# The test creates the source, runs search_knowledge for each query, and
+# asserts the expected source name appears in the results.
+- source_name: "Refund Policy"
+  text: |
+    Our refund policy allows customers to request a full refund within 30 days
+    of purchase. After 30 days, only store credit is available. Refunds are
+    processed within 5 business days.
+
+    For subscription products, cancellation stops future billing but does not
+    retroactively refund the current billing period.
+  queries:
+    - query: "refund policy"
+      expect_found: true
+    - query: "store credit"
+      expect_found: true
+    - query: "30 days"
+      expect_found: true
+    # Stemming: "refunding" -> "refund", which the old ILIKE substring scan missed.
+    - query: "refunding"
+      expect_found: true
+    # Stemming: "cancelled" -> "cancel" matches "cancellation" in the text.
+    - query: "cancelled subscription"
+      expect_found: true
+    # Natural-language question: OR semantics + ts_rank still surface the chunk
+    # even though not every term appears (AND semantics would return nothing).
+    - query: "can a customer get a refund within 30 days of purchase"
+      expect_found: true
+    - query: "quantum physics research"
+      expect_found: false
+
+- source_name: "Onboarding Guide"
+  text: |
+    New customers should complete the following onboarding steps:
+    1. Create their workspace
+    2. Invite team members
+    3. Install the tracking snippet
+    4. Configure their first dashboard
+
+    The onboarding wizard guides users through each step automatically.
+  queries:
+    - query: "onboarding steps"
+      expect_found: true
+    - query: "invite team members"
+      expect_found: true
+    - query: "tracking snippet"
+      expect_found: true
+    - query: "cryptocurrency blockchain"
+      expect_found: false

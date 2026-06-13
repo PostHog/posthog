@@ -4,32 +4,23 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 import { getCachedResults } from './utils'
 
-/** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
-export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {
-    return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
-}
-
-export const insightVizDataCollectionId = (props: InsightLogicProps<any> | undefined, fallback: string): string => {
-    return props?.dataNodeCollectionId ?? props?.dashboardId?.toString() ?? props?.dashboardItemId ?? fallback
-}
+export { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 
 type InsightVizProps = {
     uniqueKey?: string | number
@@ -93,11 +84,6 @@ export function InsightViz({
         limitContext: context?.limitContext,
     }
 
-    const isFunnels = isFunnelsQuery(query.source)
-    const isHorizontalAlways = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS')
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
-    const isRetention = isRetentionQuery(query.source)
-
     const showIfFull = !!query.full
     const disableHeader = embedded || !(query.showHeader ?? showIfFull)
     const disableTable = embedded || !(query.showTable ?? showIfFull)
@@ -137,23 +123,19 @@ export function InsightViz({
                             <div
                                 className={
                                     !isEmbedded
-                                        ? clsx('InsightViz', {
-                                              'InsightViz--horizontal':
-                                                  editorPanelsEnabled || isFunnels || isRetention || isHorizontalAlways,
-                                              '!gap-4': editorPanelsEnabled && editMode,
-                                              '!gap-0': editorPanelsEnabled && !editMode,
-                                              'flex-1': editorPanelsEnabled && editMode,
+                                        ? clsx('InsightViz InsightViz--horizontal', {
+                                              '!gap-4': editMode,
+                                              '!gap-0': !editMode,
+                                              'flex-1': editMode,
                                           })
                                         : 'InsightCard__viz'
                                 }
                             >
-                                {(editorPanelsEnabled || !readOnly) && (
-                                    <EditorFilters
-                                        query={query.source}
-                                        showing={!readOnly && showingFilters}
-                                        embedded={isEmbedded}
-                                    />
-                                )}
+                                <EditorFilters
+                                    query={query.source}
+                                    showing={!readOnly && showingFilters}
+                                    embedded={isEmbedded}
+                                />
                                 {!isEmbedded ? (
                                     <div className="flex-1 max-h-full overflow-auto">{display}</div>
                                 ) : (

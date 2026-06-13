@@ -38,7 +38,7 @@ export const getEarlyAccessFeatureListUrl = (projectId: string, params?: EarlyAc
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -117,7 +117,7 @@ export const getEarlyAccessFeaturePartialUpdateUrl = (projectId: string, id: str
 export const earlyAccessFeaturePartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEarlyAccessFeatureApi: NonReadonly<PatchedEarlyAccessFeatureApi>,
+    patchedEarlyAccessFeatureApi?: NonReadonly<PatchedEarlyAccessFeatureApi>,
     options?: RequestInit
 ): Promise<EarlyAccessFeatureApi> => {
     return apiMutator<EarlyAccessFeatureApi>(getEarlyAccessFeaturePartialUpdateUrl(projectId, id), {

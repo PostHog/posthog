@@ -2,7 +2,7 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Discovers operations using x-explicit-tags (priority 1) and URL path
+ * Discovers operations using x-product (priority 1) and URL path
  * substring matching (fallback), same approach as generate-openapi-types.mjs.
  *
  * Idempotent: re-running on an existing file only adds newly discovered
@@ -27,6 +27,10 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
+const productAliases: Record<string, string> = {
+    llm_analytics: 'ai_observability',
+}
+
 // ------------------------------------------------------------------
 // Types
 // ------------------------------------------------------------------
@@ -37,7 +41,7 @@ interface OpenApiOperation {
     summary?: string
     description?: string
     deprecated?: boolean
-    'x-explicit-tags'?: string[]
+    'x-product'?: string[]
 }
 
 interface OpenApiSpec {
@@ -90,22 +94,28 @@ function operationIdToToolName(operationId: string): string {
 }
 
 /**
- * Find operations by x-explicit-tags — same priority-1 approach as
+ * Find operations by x-product — same priority-1 approach as
  * frontend/bin/generate-openapi-types.mjs resolveTagToProduct().
- * Tags are set via @extend_schema(tags=[...]) or auto-derived from
- * the ViewSet module path (products/<name>/backend/ → tag "<name>").
+ * Values are set via @extend_schema(tags=[...]) or auto-derived from
+ * the ViewSet module path (products/<name>/backend/ → "<name>").
  */
 function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+    const matchingTags = new Set([
+        product,
+        ...Object.entries(productAliases)
+            .filter(([, target]) => target === product)
+            .map(([source]) => source),
+    ])
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
             if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
-            const tags = op['x-explicit-tags'] ?? []
-            if (tags.includes(product)) {
+            const tags = op['x-product'] ?? []
+            if (tags.some((tag) => matchingTags.has(tag.replace(/-/g, '_')))) {
                 ops.push({
                     operationId: op.operationId,
                     method: method.toUpperCase(),
@@ -121,22 +131,43 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
 
 /**
  * Find operations whose URL path contains /{product}/ — fallback when
- * x-explicit-tags doesn't match, same as generate-openapi-types.mjs
+ * x-product doesn't match, same as generate-openapi-types.mjs
  * matchUrlToProduct().
  */
-function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByUrl(spec: OpenApiSpec, product: string, syncedProducts?: Set<string>): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
-    const needle = `/${product.replace(/-/g, '_').toLowerCase()}/`
+    const productsToMatch = [
+        product,
+        ...Object.entries(productAliases)
+            .filter(([, target]) => target === product)
+            .map(([source]) => source),
+    ]
+    const needles = productsToMatch.map((productName) => `/${productName.replace(/-/g, '_').toLowerCase()}/`)
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
-        if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
+        const normalizedPath = urlPath.toLowerCase().replace(/-/g, '_')
+        if (!needles.some((needle) => normalizedPath.includes(needle))) {
             continue
         }
 
         for (const [method, op] of Object.entries(methods)) {
             if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
+            }
+
+            // Don't let the URL fallback poach an op that another *synced* product
+            // already owns via x-product — e.g. agent .../sessions/{id}/logs/ is
+            // tagged agent_platform but its path matches the logs product. Ops whose
+            // x-product isn't a synced product (e.g. reverse_proxy ops grouped under
+            // the proxy-records definition) still match by path, as do legacy ops
+            // with no x-product.
+            if (syncedProducts) {
+                const normProduct = product.replace(/-/g, '_').toLowerCase()
+                const xProduct = (op['x-product'] ?? []).map((p) => p.replace(/-/g, '_').toLowerCase())
+                if (!xProduct.includes(normProduct) && xProduct.some((p) => syncedProducts.has(p))) {
+                    continue
+                }
             }
 
             ops.push({
@@ -154,13 +185,17 @@ function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOper
 /**
  * Find operations for a product. Uses the same priority as
  * frontend/bin/generate-openapi-types.mjs:
- * 1. x-explicit-tags match (covers ViewSets with @extend_schema(tags=[...])
+ * 1. x-product match (covers ViewSets with @extend_schema(tags=[...])
  *    and ViewSets in products/<name>/backend/)
  * 2. URL path substring match (fallback for legacy endpoints)
  */
-function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByProduct(
+    spec: OpenApiSpec,
+    product: string,
+    syncedProducts?: Set<string>
+): DiscoveredOperation[] {
     const byTag = findOperationsByTag(spec, product)
-    const byUrl = findOperationsByUrl(spec, product)
+    const byUrl = findOperationsByUrl(spec, product, syncedProducts)
 
     // Merge, preferring tag-matched ops and deduping by operationId
     const seen = new Set(byTag.map((op) => op.operationId))
@@ -240,11 +275,13 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)))
+
     const yaml: Record<string, unknown> = {
         category: tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: tag.replace(/-/g, '_'),
         url_prefix: `/${tag.replace(/_/g, '-')}`,
-        tools,
+        tools: sortedTools,
     }
 
     return YAML_HEADER + stringifyYaml(yaml, { indent: 4, lineWidth: 120 })
@@ -283,7 +320,8 @@ function mergeWithExisting(
     let matched = 0
     const unmatchedTools: string[] = []
 
-    // Preserve existing tool order and hand-authored operation values
+    // Preserve hand-authored config (enabled, scopes, descriptions, etc.) per tool.
+    // Tool order itself is normalized alphabetically below — see `sortedTools`.
     for (const [name, config] of Object.entries(existingTools)) {
         const base = config.operation.replace(/_\d+$/, '')
         const op = openApiByBase.get(base)
@@ -324,12 +362,14 @@ function mergeWithExisting(
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(mergedTools).sort(([a], [b]) => a.localeCompare(b)))
+
     const merged: Record<string, unknown> = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
         ui_apps: existing.ui_apps ?? {},
-        tools: mergedTools,
+        tools: sortedTools,
     }
 
     // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
@@ -418,8 +458,12 @@ function syncAll(spec: OpenApiSpec): void {
     const writtenFiles: string[] = []
     const noOpsProducts: string[] = []
 
+    // Every product/definition being synced, normalized. The URL fallback uses this
+    // to avoid poaching an op that another synced product owns via x-product.
+    const syncedProducts = new Set(targets.map((t) => t.product.replace(/-/g, '_').toLowerCase()))
+
     for (const { product, filePath, subset } of targets) {
-        const rawOps = findOperationsByProduct(spec, product)
+        const rawOps = findOperationsByProduct(spec, product, syncedProducts)
         const ops = deduplicateOperations(rawOps)
         if (ops.length === 0) {
             const label = path.relative(REPO_ROOT, filePath)
@@ -440,11 +484,8 @@ function syncAll(spec: OpenApiSpec): void {
             validIds,
             subset
         )
-        // Only write when there are semantic changes (avoids formatting-only rewrites)
-        if (added > 0 || removed > 0 || updated > 0) {
-            fs.writeFileSync(filePath, content)
-            writtenFiles.push(filePath)
-        }
+        fs.writeFileSync(filePath, content)
+        writtenFiles.push(filePath)
         const total = matched + unmatchedTools.length
         const parts = [
             subset ? (total === 0 ? '0 tool(s)' : `${matched}/${total} tool(s) matched`) : `${ops.length} operation(s)`,
@@ -509,7 +550,7 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product discovers endpoints by x-explicit-tags first, then URL path fallback.')
+        console.error('--product discovers endpoints by x-product first, then URL path fallback.')
         console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }

@@ -12,7 +12,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/TracingScene'),
             projectBased: true,
             layout: 'app-container',
-            defaultDocsPath: '/docs/tracing',
             activityScope: 'Tracing',
             description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
             iconType: 'tracing',
@@ -31,7 +30,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Tracing',
             intents: [ProductKey.TRACING],
-            category: ProductItemCategory.UNRELEASED,
+            category: ProductItemCategory.APP_MONITORING,
             iconType: 'tracing',
             iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
             href: urls.tracing(),

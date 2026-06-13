@@ -1,11 +1,14 @@
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
@@ -14,6 +17,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardLayoutSize,
+    DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardType,
@@ -22,6 +26,8 @@ import {
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
@@ -68,18 +74,52 @@ export function dashboardToSaveableTemplate(
                         color: tile.color,
                     }
                 }
+                if (tile.widget) {
+                    return {
+                        type: 'WIDGET' as const,
+                        widget_type: tile.widget.widget_type,
+                        config: tile.widget.config,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                    }
+                }
                 throw new Error('Unknown tile type')
             }),
         variables: [],
     }
 }
 
+export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsightModel>): string {
+    if (tile.insight) {
+        return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
+    }
+    if (tile.widget) {
+        const customName = tile.widget.name?.trim()
+        if (customName) {
+            return customName
+        }
+        const catalogEntry = getDashboardWidgetCatalogEntry(tile.widget.widget_type)
+        return catalogEntry?.headerTitle ?? catalogEntry?.label ?? tile.widget.widget_type
+    }
+    if (tile.text) {
+        return 'Text card'
+    }
+    if (tile.button_tile) {
+        return tile.button_tile.text || 'Button'
+    }
+
+    return 'Tile'
+}
+
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile'>
+    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
+    }
+    if (tile.widget) {
+        return 'widget'
     }
     if (tile.text) {
         return 'text'
@@ -91,6 +131,11 @@ export function getDashboardWidgetType(
     throw new Error(
         'Dashboard tile has no widget payload. If a new widget type was added to `DashboardTile`, handle it in getDashboardWidgetType.'
     )
+}
+
+/** Widget tiles are hidden on export; on public/shared views they render with a login placeholder. */
+export function isWidgetTileVisibleOnPlacement(placement: DashboardPlacement): boolean {
+    return placement !== DashboardPlacement.Export
 }
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -114,8 +159,26 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
+
+function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
+    if (!effectiveLastRefresh) {
+        return null
+    }
+    if (!effectiveLastRefresh.isValid()) {
+        return null
+    }
+    const ms = Number(effectiveLastRefresh.valueOf())
+    if (!Number.isFinite(ms)) {
+        return null
+    }
+    return (Date.now() - ms) / 60_000
+}
+
+export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -374,4 +437,26 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
+    DashboardEventSource.SceneCommonButtons,
+    DashboardEventSource.CardEdgeHover,
+    DashboardEventSource.CardDragHandle,
+    DashboardEventSource.DashboardsList,
+])
+
+export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
+    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
+}
+
+export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
+    return (
+        source !== null &&
+        (isLayoutEditEventSource(source) ||
+            source === DashboardEventSource.DashboardFilters ||
+            source === DashboardEventSource.DashboardVariableOverride ||
+            source === DashboardEventSource.DashboardInsightColorsModal ||
+            source === DashboardEventSource.DashboardHeaderOverridesBanner)
+    )
 }

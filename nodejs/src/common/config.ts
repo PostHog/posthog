@@ -3,13 +3,6 @@ import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
-export enum KafkaSecurityProtocol {
-    Plaintext = 'PLAINTEXT',
-    SaslPlaintext = 'SASL_PLAINTEXT',
-    Ssl = 'SSL',
-    SaslSsl = 'SASL_SSL',
-}
-
 export enum KafkaSaslMechanism {
     Plain = 'plain',
     ScramSha256 = 'scram-sha-256',
@@ -30,17 +23,21 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_precalculated_filters = 'cdp-precalculated-filters',
+    cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
+    cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',
+    cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     ingestion_error_tracking = 'ingestion-errortracking',
+    ingestion_metrics = 'ingestion-metrics',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
+    cdp_rerun_worker = 'cdp-rerun-worker',
     recording_api = 'recording-api',
-    ingestion_v2_testing = 'ingestion-v2-testing',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
@@ -64,7 +61,6 @@ export type CommonConfig = BaseServerConfig & {
     DISABLE_OPENTELEMETRY_TRACING: boolean
 
     // Tasks
-    TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
 
     // Database
@@ -120,11 +116,17 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
+    CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
+    /**
+     * When true, every Kafka consumer in this service uses KafkaConsumerV2; otherwise the
+     * legacy KafkaConsumer (v1) is used. Used by `createKafkaConsumer()` in
+     * `src/kafka/consumer/index.ts`. Will be removed once v1 is deleted.
+     */
+    CONSUMER_USE_V2: boolean
 
     // Kafka
     KAFKA_HOSTS: string
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
@@ -170,6 +172,9 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+
+    // Event loop yield helper (yieldEventLoopIfNeeded)
+    EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
 
 export type ExternalRequestConfig = Pick<
@@ -204,7 +209,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         DISABLE_OPENTELEMETRY_TRACING: false,
 
         // Tasks
-        TASKS_PER_WORKER: 10,
         TASK_TIMEOUT: 30,
 
         // Database
@@ -248,7 +252,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
-        PERSONHOG_TIMEOUT_MS: 1000,
+        PERSONHOG_TIMEOUT_MS: 3000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -278,11 +282,12 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
+        CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        CONSUMER_USE_V2: false,
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',
-        KAFKA_SECURITY_PROTOCOL: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -334,6 +339,9 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
+
+        // Event loop yield helper
+        EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

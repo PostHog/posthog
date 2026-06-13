@@ -36,6 +36,22 @@ export class FunnelsInsight {
         await expect(this.chart.first()).toBeVisible({ timeout: 30000 })
     }
 
+    private async expandFunnelSettings(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-funnel-settings')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
+    }
+
+    private async expandBreakdownPanel(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-breakdown')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
+    }
+
     async waitForHistogram(): Promise<void> {
         await expect(this.histogram).toBeVisible()
     }
@@ -60,17 +76,27 @@ export class FunnelsInsight {
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.expandBreakdownPanel()
         await this.page.getByTestId('add-breakdown-button').click()
         await this.taxonomicFilter.selectItem(property)
     }
 
     async addExclusion(eventName: string): Promise<void> {
-        const addButton = this.page.getByRole('button', { name: 'Add exclusion' })
+        await this.expandFunnelSettings()
+        // Scope to the exclusions container — the exclusion row's event picker shares the
+        // `trend-element-subject-0` testid with the main series' first step, so a bare
+        // `.last()` can land on the wrong control before the exclusion row has rendered.
+        const exclusions = this.page.getByTestId('funnel-exclusions-filter')
+        const addButton = exclusions.getByRole('button', { name: 'Add exclusion' })
         await addButton.scrollIntoViewIfNeeded()
         await addButton.click()
 
-        await this.page.getByTestId('trend-element-subject-0').last().click()
+        const eventButton = exclusions.getByTestId('trend-element-subject-0').last()
+        await eventButton.click()
         await this.taxonomicFilter.selectItem(eventName)
+        // The exclusion defaults to $pageview; confirm the chosen event actually applied
+        // before returning, otherwise the funnel recomputes against the wrong exclusion.
+        await expect(eventButton).toContainText(eventName)
     }
 
     async selectLayout(label: string): Promise<void> {
@@ -79,22 +105,32 @@ export class FunnelsInsight {
     }
 
     async selectStepOrder(label: string): Promise<void> {
+        await this.expandFunnelSettings()
         await this.stepOrderFilter.click()
         await this.page.getByRole('menuitem', { name: label }).click()
     }
 
     async setConversionWindowInterval(value: string): Promise<void> {
+        await this.expandFunnelSettings()
         const input = this.conversionWindowSection.getByRole('spinbutton')
         await input.fill(value)
         await input.press('Enter')
     }
 
+    async getConversionWindowInterval(): Promise<string> {
+        await this.expandFunnelSettings()
+        await expect(this.conversionWindowInput).toHaveValue(/\d+/)
+        return await this.conversionWindowInput.inputValue()
+    }
+
     async selectConversionWindowUnit(unit: string): Promise<void> {
+        await this.expandFunnelSettings()
         await this.conversionWindowSection.getByTestId('funnel-conversion-window-unit').click()
         await this.page.getByRole('menuitem', { name: unit }).click()
     }
 
     async selectAggregation(label: string): Promise<void> {
+        await this.expandFunnelSettings()
         await this.page.getByTestId('funnel-aggregation-filter').getByTestId('retention-aggregation-selector').click()
         await this.page.getByRole('menuitem', { name: label }).click()
     }

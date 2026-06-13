@@ -1,5 +1,5 @@
-from datetime import datetime
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any, Optional
 from uuid import uuid4
 
 from django.conf import settings
@@ -155,7 +155,7 @@ def produce_replay_summary(
     last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
 
     timestamp = format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))
-    data = {
+    data: dict[str, Any] = {
         "session_id": session_id or "1",
         "team_id": team_id,
         "distinct_id": distinct_id or "user",
@@ -183,7 +183,7 @@ def produce_replay_summary(
     if settings.TEST:
         # we don't want to set _timestamp if we're using a real KafkaProducer
         # and `ClickhouseProducer` does not use kafka when in test mode
-        data["_timestamp"] = kafka_timestamp or datetime.utcnow().timestamp()
+        data["_timestamp"] = kafka_timestamp or datetime.now(UTC).timestamp()
 
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka

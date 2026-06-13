@@ -12,16 +12,12 @@ export class TrendsInsight extends ChartInsightBase {
     readonly breakdownButton: Locator
     readonly formulaSwitch: Locator
     readonly formulaInput: Locator
-    readonly dateRangeButton: Locator
-    readonly chartTypeButton: Locator
-    readonly comparisonButton: Locator
     readonly taxonomicFilter: TaxonomicFilter
     readonly boldNumber: Locator
     readonly boldNumberComparison: Locator
 
     private readonly detailsLoader: Locator
     private readonly addSeriesButton: Locator
-    private readonly addFormulaButton: Locator
 
     constructor(page: Page) {
         super(page, page.getByTestId('insights-graph'))
@@ -35,10 +31,6 @@ export class TrendsInsight extends ChartInsightBase {
         this.breakdownButton = page.getByTestId('add-breakdown-button')
         this.formulaSwitch = page.locator('#trends-formula-switch')
         this.formulaInput = page.getByPlaceholder('Example: (A + B) / 100')
-        this.addFormulaButton = page.getByRole('button', { name: 'Add formula' })
-        this.dateRangeButton = page.getByTestId('date-filter')
-        this.chartTypeButton = page.getByTestId('chart-filter')
-        this.comparisonButton = page.getByTestId('compare-filter')
         this.taxonomicFilter = new TaxonomicFilter(page)
         this.boldNumber = page.getByTestId('bold-number-value')
         this.boldNumberComparison = page.getByTestId('bold-number-comparison')
@@ -48,14 +40,24 @@ export class TrendsInsight extends ChartInsightBase {
         return this.page.getByTestId(`trend-element-subject-${index}`)
     }
 
-    async waitForChart(): Promise<void> {
-        await this.page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
-        await expect(this.chart).toBeVisible({ timeout: 30000 })
-    }
-
     async waitForDetailsTable(): Promise<void> {
         await this.detailsTable.locator('tbody tr').first().waitFor()
         await expect(this.detailsLoader).toHaveCount(0)
+    }
+
+    // Re-reads the Total column until it settles on the expected values. A bare
+    // snapshot read can capture the previous query's rows: after an action that
+    // recomputes the insight, the old table is still mounted and the details
+    // loader has not reappeared yet, so waitForDetailsTable returns against stale
+    // content. Polling rides out that transition instead of racing it.
+    async expectTotals(expected: string[], timeout = 15000): Promise<void> {
+        await this.waitForDetailsTable()
+        await expect.poll(async () => await this.details.column('Total'), { timeout }).toEqual(expected)
+    }
+
+    async expectRowTotal(row: string, expected: string, timeout = 15000): Promise<void> {
+        await this.waitForDetailsTable()
+        await expect.poll(async () => await this.details.row(row).column('Total'), { timeout }).toEqual(expected)
     }
 
     async addSeries(): Promise<void> {
@@ -69,16 +71,25 @@ export class TrendsInsight extends ChartInsightBase {
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.expandBreakdownPanel()
         await this.breakdownButton.click()
         await this.taxonomicFilter.selectItem(property)
     }
 
+    private async expandBreakdownPanel(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-breakdown')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
+    }
+
     async setFormula(formula: string): Promise<void> {
         await this.formulaSwitch.click()
-        await this.addFormulaButton.click()
         await this.formulaInput.first().waitFor({ state: 'visible' })
         await this.formulaInput.first().fill(formula)
         await this.formulaInput.first().press('Enter')
+        await this.waitForChart()
     }
 
     mathSelector(seriesIndex: number): Locator {
@@ -111,26 +122,6 @@ export class TrendsInsight extends ChartInsightBase {
         await this.waitForChart()
     }
 
-    async selectChartType(namePattern: RegExp): Promise<void> {
-        await this.page.keyboard.press('Escape')
-        await expect(async () => {
-            await this.chartTypeButton.click({ timeout: 500 })
-            await this.page.getByRole('menuitem', { name: namePattern }).click({ timeout: 500 })
-            await expect(this.chartTypeButton).toHaveText(namePattern, { timeout: 1000 })
-        }).toPass({ timeout: 15000 })
-        await this.waitForChart()
-    }
-
-    async selectDateRange(text: string): Promise<void> {
-        await this.page.keyboard.press('Escape')
-        const dataAttr = `date-filter-${text.toLowerCase().replace(/\s+/g, '-')}`
-        await expect(async () => {
-            await this.dateRangeButton.click({ timeout: 500 })
-            await this.page.getByTestId(dataAttr).click({ timeout: 500 })
-        }).toPass({ timeout: 15000 })
-        await this.waitForChart()
-    }
-
     async openOptionsPanel(): Promise<void> {
         await this.page.locator('[data-attr="insight-filters"]').getByRole('button', { name: 'Options' }).click()
     }
@@ -159,14 +150,9 @@ export class TrendsInsight extends ChartInsightBase {
         await this.waitForChart()
     }
 
-    async selectComparison(text: string): Promise<void> {
-        await this.comparisonButton.click()
-        await this.page.getByText(text).click()
-        await this.waitForChart()
-    }
-
     async removeBreakdown(index: number = 0): Promise<void> {
         await this.page.keyboard.press('Escape')
+        await this.expandBreakdownPanel()
         const tag = this.page.getByTestId('breakdown-tag').nth(index)
         await tag.getByTestId('breakdown-tag-close').click()
         await expect(tag).not.toBeVisible()

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -22,9 +23,20 @@ type ErrorTrackingFingerprintListResult = {
     results?: Array<{ fingerprint?: string | null }>
 }
 
+type ErrorTrackingSymbolSetListResult = {
+    count?: number
+    results?: Array<{ id?: string | null; ref?: string | null; has_uploaded_file?: boolean | null }>
+}
+
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
-    const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
+    let currentUserId: number
+    const issuesListTool = GENERATED_TOOLS['query-error-tracking-issues-list']!()
+    const issueTool = GENERATED_TOOLS['query-error-tracking-issue']!()
+    const issueEventsTool = GENERATED_TOOLS['query-error-tracking-issue-events']!()
+    const createdAssignmentRuleIds: string[] = []
+    const createdGroupingRuleIds: string[] = []
+    const createdSuppressionRuleIds: string[] = []
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -39,14 +51,52 @@ describe('Error Tracking', { concurrent: false }, () => {
         const client = createTestClient()
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+        const user = await context.api.request<{ id: number }>({
+            method: 'GET',
+            path: '/api/users/@me/',
+        })
+        currentUserId = user.id
     })
 
     afterEach(async () => {
+        for (const id of createdAssignmentRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/assignment_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdAssignmentRuleIds.length = 0
+        for (const id of createdGroupingRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/grouping_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdGroupingRuleIds.length = 0
+        for (const id of createdSuppressionRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/suppression_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdSuppressionRuleIds.length = 0
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
     async function getIssueIds(limit: number = 2): Promise<string[]> {
-        const result = await queryTool.handler(context, { status: 'all', limit })
+        const result = await issuesListTool.handler(context, { status: 'all', limit })
         const errors = parseToolResponse(result) as ErrorTrackingIssueListResult
 
         if (!Array.isArray(errors.results)) {
@@ -83,9 +133,37 @@ describe('Error Tracking', { concurrent: false }, () => {
             .filter((fingerprint: string | null | undefined): fingerprint is string => typeof fingerprint === 'string')
     }
 
-    describe('query-error-tracking-issues tool', () => {
+    // The issues list reads the denormalized ClickHouse table, which lags Postgres deletes
+    // (issue merges) by a few seconds — re-list until the first listed issue resolves.
+    async function waitForFirstLiveIssueDetails(
+        listParams: Parameters<typeof issuesListTool.handler>[1] = {}
+    ): Promise<{ issueId: string; details: { id?: string | null } } | undefined> {
+        const deadline = Date.now() + 10_000
+        while (true) {
+            const listResult = await issuesListTool.handler(context, listParams)
+            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
+            const issueId = (errorList.results ?? [])
+                .map((issue) => issue.id)
+                .find((id): id is string => typeof id === 'string')
+            if (!issueId) {
+                return undefined
+            }
+
+            try {
+                const detailsResult = await issueTool.handler(context, { issueId, volumeResolution: 0 })
+                return { issueId, details: parseToolResponse(detailsResult) }
+            } catch (error) {
+                if (!(error instanceof PostHogApiError) || error.status !== 404 || Date.now() >= deadline) {
+                    throw error
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
+    }
+
+    describe('query-error-tracking-issues-list tool', () => {
         it('should list errors with default parameters', async () => {
-            const result = await queryTool.handler(context, {})
+            const result = await issuesListTool.handler(context, {})
             const errorData = parseToolResponse(result)
 
             expect(Array.isArray(errorData.results)).toBe(true)
@@ -95,7 +173,7 @@ describe('Error Tracking', { concurrent: false }, () => {
             const dateFrom = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
             const dateTo = new Date().toISOString()
 
-            const result = await queryTool.handler(context, {
+            const result = await issuesListTool.handler(context, {
                 dateRange: { date_from: dateFrom, date_to: dateTo },
                 orderBy: 'occurrences',
                 orderDirection: 'DESC',
@@ -106,7 +184,7 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
 
         it('should filter by status', async () => {
-            const result = await queryTool.handler(context, {
+            const result = await issuesListTool.handler(context, {
                 status: 'active',
             })
             const errorData = parseToolResponse(result)
@@ -115,7 +193,7 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
 
         it('should handle empty results', async () => {
-            const result = await queryTool.handler(context, {
+            const result = await issuesListTool.handler(context, {
                 dateRange: {
                     date_from: new Date(Date.now() - 60000).toISOString(),
                     date_to: new Date(Date.now() - 30000).toISOString(),
@@ -126,31 +204,34 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(Array.isArray(errorData.results)).toBe(true)
         })
 
-        it('should get error details by issue ID', async () => {
-            const testIssueId = '00000000-0000-0000-0000-000000000000'
+        it('should get error details by issue ID when data exists', async () => {
+            const issueId = await getFirstIssueId()
+            if (!issueId) {
+                return
+            }
 
-            const result = await queryTool.handler(context, {
-                issueId: testIssueId,
+            const result = await issueTool.handler(context, {
+                issueId,
                 volumeResolution: 0,
             })
             const errorDetails = parseToolResponse(result)
 
-            expect(Array.isArray(errorDetails.results)).toBe(true)
+            expect(errorDetails.id).toBe(issueId)
         })
 
-        it('should get error details with custom date range', async () => {
-            const testIssueId = '00000000-0000-0000-0000-000000000000'
-            const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-            const dateTo = new Date().toISOString()
+        it('should get issue events when data exists', async () => {
+            const issueId = await getFirstIssueId()
+            if (!issueId) {
+                return
+            }
 
-            const result = await queryTool.handler(context, {
-                issueId: testIssueId,
-                volumeResolution: 0,
-                dateRange: { date_from: dateFrom, date_to: dateTo },
+            const result = await issueEventsTool.handler(context, {
+                issueId,
+                limit: 1,
             })
-            const errorDetails = parseToolResponse(result)
+            const eventData = parseToolResponse(result)
 
-            expect(Array.isArray(errorDetails.results)).toBe(true)
+            expect(Array.isArray(eventData.results)).toBe(true)
         })
     })
 
@@ -166,6 +247,207 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(result).toBeTruthy()
             expect(typeof result.count).toBe('number')
             expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('assignment-rules create tool', () => {
+        const assignmentRulesCreateTool = GENERATED_TOOLS['error-tracking-assignment-rules-create']!()
+
+        it('should create an assignment rule', async () => {
+            const result = (await assignmentRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_types',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+            })) as { id: string; filters: unknown; assignee: { type: string; id: number | string } | null }
+
+            createdAssignmentRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
+        })
+    })
+
+    describe('grouping-rules list tool', () => {
+        const groupingRulesListTool = GENERATED_TOOLS['error-tracking-grouping-rules-list']!()
+
+        it('should list grouping rules', async () => {
+            const result = (await groupingRulesListTool.handler(context, {})) as {
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('grouping-rules create tool', () => {
+        const groupingRulesCreateTool = GENERATED_TOOLS['error-tracking-grouping-rules-create']!()
+
+        it('should create a grouping rule', async () => {
+            const result = (await groupingRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_types',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+                description: 'Group TypeErrors from MCP integration test',
+            })) as {
+                id: string
+                filters: unknown
+                assignee: { type: string; id: number | string } | null
+                description?: string | null
+            }
+
+            createdGroupingRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
+            expect(result.description).toBe('Group TypeErrors from MCP integration test')
+        })
+    })
+
+    describe('suppression-rules list tool', () => {
+        const suppressionRulesListTool = GENERATED_TOOLS['error-tracking-suppression-rules-list']!()
+
+        it('should list suppression rules', async () => {
+            const result = (await suppressionRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('suppression-rules create tool', () => {
+        const suppressionRulesCreateTool = GENERATED_TOOLS['error-tracking-suppression-rules-create']!()
+
+        it('should create a suppression rule', async () => {
+            const result = (await suppressionRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_types',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                sampling_rate: 0.25,
+            })) as { id: string; filters: unknown; sampling_rate?: number }
+
+            createdSuppressionRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.sampling_rate).toBe(0.25)
+        })
+    })
+
+    describe('symbol-sets list tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+
+        it('should list symbol sets', async () => {
+            const result = (await symbolSetsListTool.handler(context, { limit: 5 })) as ErrorTrackingSymbolSetListResult
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('symbol-sets retrieve tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+        const symbolSetRetrieveTool = GENERATED_TOOLS['error-tracking-symbol-sets-retrieve']!()
+
+        it('should retrieve a symbol set by ID when one exists', async () => {
+            const listResult = (await symbolSetsListTool.handler(context, {
+                limit: 1,
+            })) as ErrorTrackingSymbolSetListResult
+            const symbolSet = listResult.results?.find(
+                (item): item is { id: string; ref?: string | null } => typeof item.id === 'string'
+            )
+            if (!symbolSet) {
+                return
+            }
+
+            if (symbolSet.ref) {
+                const filteredResult = (await symbolSetsListTool.handler(context, {
+                    ref: symbolSet.ref,
+                    limit: 1,
+                })) as ErrorTrackingSymbolSetListResult
+                expect(filteredResult.results?.some((item) => item.id === symbolSet.id)).toBe(true)
+            }
+
+            const result = (await symbolSetRetrieveTool.handler(context, { id: symbolSet.id })) as {
+                id?: string
+                ref?: string
+            }
+
+            expect(result).toBeTruthy()
+            expect(result.id).toBe(symbolSet.id)
+        })
+    })
+
+    describe('symbol-sets download tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+        const symbolSetDownloadTool = GENERATED_TOOLS['error-tracking-symbol-sets-download-retrieve']!()
+
+        it('should get a download URL by ID when an uploaded symbol set exists', async () => {
+            const listResult = (await symbolSetsListTool.handler(context, {
+                status: 'valid',
+                limit: 1,
+            })) as ErrorTrackingSymbolSetListResult
+            const symbolSet = listResult.results?.find((item): item is { id: string } => typeof item.id === 'string')
+            if (!symbolSet) {
+                return
+            }
+
+            const result = (await symbolSetDownloadTool.handler(context, { id: symbolSet.id })) as { url?: string }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.url).toBe('string')
+            expect(result.url?.length).toBeGreaterThan(0)
         })
     })
 
@@ -252,55 +534,24 @@ describe('Error Tracking', { concurrent: false }, () => {
 
     describe('Error tracking workflow', () => {
         it('should support listing errors and getting details workflow', async () => {
-            const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
+            const live = await waitForFirstLiveIssueDetails()
 
-            const listResult = await queryTool.handler(context, {})
-            const errorList = parseToolResponse(listResult)
-
-            expect(Array.isArray(errorList.results)).toBe(true)
-
-            if (errorList.results.length > 0 && errorList.results[0].issueId) {
-                const firstError = errorList.results[0]
-                const detailsResult = await queryTool.handler(context, {
-                    issueId: firstError.issueId,
-                    volumeResolution: 0,
-                })
-                const errorDetails = parseToolResponse(detailsResult)
-
-                expect(Array.isArray(errorDetails.results)).toBe(true)
-            } else {
-                const testIssueId = '00000000-0000-0000-0000-000000000000'
-                const detailsResult = await queryTool.handler(context, {
-                    issueId: testIssueId,
-                    volumeResolution: 0,
-                })
-                const errorDetails = parseToolResponse(detailsResult)
-
-                expect(Array.isArray(errorDetails.results)).toBe(true)
+            if (live) {
+                expect(live.details.id).toBe(live.issueId)
             }
         })
 
         it('should support full error tracking workflow: list, get details, and update status', async () => {
-            const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
             const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 
-            const listResult = await queryTool.handler(context, { status: 'all' })
-            const errorList = parseToolResponse(listResult)
+            const live = await waitForFirstLiveIssueDetails({ status: 'all' })
 
-            expect(Array.isArray(errorList.results)).toBe(true)
-
-            if (errorList.results.length === 0 || !errorList.results[0].id) {
+            if (!live) {
                 return
             }
 
-            const issueId = errorList.results[0].id
-
-            const detailsResult = await queryTool.handler(context, {
-                issueId,
-                volumeResolution: 0,
-            })
-            const errorDetails = parseToolResponse(detailsResult)
-            expect(Array.isArray(errorDetails.results)).toBe(true)
+            const { issueId } = live
+            expect(live.details.id).toBe(issueId)
 
             const updateResult = (await updateTool.handler(context, {
                 id: issueId,

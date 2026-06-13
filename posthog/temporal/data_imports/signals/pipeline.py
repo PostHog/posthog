@@ -4,24 +4,24 @@ import dataclasses
 from datetime import datetime
 from typing import Any
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
-from google.genai import types
-from posthoganalytics.ai.gemini import AsyncClient, genai
+from anthropic import AsyncAnthropic
+from anthropic.types import MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.models import Team
+from posthog.event_usage import groups
+from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.models import Organization, Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.signals.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
-# Default model to use for LLM calls
-GEMINI_MODEL = "models/gemini-3-flash-preview"
+LLM_MODEL = "claude-sonnet-4-5"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
@@ -32,11 +32,64 @@ TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
 LLM_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
 LLM_CALL_TIMEOUT_SECONDS = 120
-# Thinking budget for LLM calls (summarization & actionability are judgment tasks)
-LLM_THINKING_BUDGET_TOKENS = 1024
 # Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
 LLM_RETRY_INITIAL_DELAY_SECONDS = 5
 LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
+# Anthropic's Messages API requires max_tokens, so this is a deliberately high safety ceiling
+# rather than a tuned budget. The risk we care about is a response being cut off mid-output, not
+# runaway generation — the actual outputs here are tiny (a short summary or a one-word verdict).
+LLM_MAX_OUTPUT_TOKENS = 8192
+
+
+def _signals_extra_headers(output: SignalEmitterOutput, stage: str) -> dict[str, str]:
+    """Per-call event properties that ride along to the gateway as headers.
+
+    The `team_id` header is set as a default on the client at construction time,
+    so it doesn't need to be repeated here. See posthog/llm/gateway_client.py.
+
+    `ai_product` and `$ai_billable` are intentionally NOT set here: the gateway
+    derives both from the `signals` product config (the route path sets
+    `ai_product=signals` and `billable=True`). Passing them as headers would let a
+    typo silently misattribute or mis-bill the generation, so we let the gateway own them.
+    """
+    return {
+        "x-posthog-property-ai_stage": stage,
+        "x-posthog-property-source_product": output.source_product,
+        "x-posthog-property-source_type": output.source_type,
+    }
+
+
+def _extract_text(response: Any) -> str:
+    """Concatenate the text blocks of an Anthropic Messages response (ignores non-text blocks)."""
+    return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+
+
+def _capture_pipeline_stage(
+    event: str,
+    team: Team,
+    organization: Organization,
+    output: SignalEmitterOutput,
+) -> None:
+    try:
+        posthoganalytics.capture(
+            event=event,
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": output.source_product,
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal pipeline stage event",
+            event=event,
+            source_product=output.source_product,
+            source_type=output.source_type,
+            source_id=output.source_id,
+        )
 
 
 def _safe_heartbeat() -> None:
@@ -78,33 +131,34 @@ def build_emitter_outputs(
 
 
 async def _summarize_description(
-    client: AsyncClient,
+    client: AsyncAnthropic,
+    team_id: int,
     output: SignalEmitterOutput,
     summarization_prompt: str,
     threshold: int,
 ) -> SignalEmitterOutput:
-    prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description, max_length=threshold))]
+    messages: list[MessageParam] = [
+        {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
+    ]
+    extra_headers = _signals_extra_headers(output, stage="summarization")
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+        summary = ""
         try:
             response = await asyncio.wait_for(
-                client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=prompt_parts,
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=LLM_THINKING_BUDGET_TOKENS + max(threshold // 4, 256),
-                        thinking_config=types.ThinkingConfig(
-                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                            include_thoughts=False,
-                        ),
-                    ),
+                client.messages.create(
+                    model=LLM_MODEL,
+                    messages=messages,
+                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
+                    metadata={"user_id": f"team-{team_id}"},
+                    extra_headers=extra_headers,
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            if response.candidates and response.candidates[0].finish_reason == types.FinishReason.MAX_TOKENS:
+            summary = _extract_text(response).strip()
+            if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
-            summary = (response.text or "").strip()
             if not summary:
                 raise ValueError("Empty response from LLM when summarizing description")
             if len(summary) > threshold:
@@ -122,16 +176,23 @@ async def _summarize_description(
                     "attempt": attempt + 1,
                 },
             )
-            prompt_parts.append(
-                types.Part(
-                    text=f"\n\nAttempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output."
+            # Anthropic requires user/assistant turns to alternate, so only feed the correction
+            # back when we actually got assistant text to pair it with; otherwise just retry the
+            # existing prompt.
+            if summary:
+                messages.append({"role": "assistant", "content": summary})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"Attempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output.",
+                    }
                 )
-            )
     # Hard-truncate the description to the threshold if all attempts failed
     return dataclasses.replace(output, description=output.description[:threshold])
 
 
 async def summarize_long_descriptions(
+    team: Team,
     outputs: list[SignalEmitterOutput],
     summarization_prompt: str,
     threshold: int,
@@ -140,7 +201,7 @@ async def summarize_long_descriptions(
     needs_summary = [i for i, output in enumerate(outputs) if len(output.description) > threshold]
     if not needs_summary:
         return outputs
-    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    client = get_async_anthropic_gateway_client(product="signals", team_id=team.id)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
     completed_count = 0
@@ -149,7 +210,7 @@ async def summarize_long_descriptions(
         nonlocal completed_count
         async with semaphore:
             try:
-                result = await _summarize_description(client, output, summarization_prompt, threshold)
+                result = await _summarize_description(client, team.id, output, summarization_prompt, threshold)
             except Exception:
                 logger.exception(
                     "Summarization failed, skipping signal",
@@ -184,46 +245,30 @@ async def summarize_long_descriptions(
     return result
 
 
-def _extract_thoughts(response: types.GenerateContentResponse) -> str | None:
-    if not response.candidates:
-        return None
-    content = response.candidates[0].content
-    if content is None or content.parts is None:
-        return None
-    thoughts = []
-    for part in content.parts:
-        if part.text and part.thought:
-            thoughts.append(part.text)
-    return "\n".join(thoughts) if thoughts else None
-
-
 async def _check_actionability(
-    client: AsyncClient,
+    client: AsyncAnthropic,
+    team_id: int,
     output: SignalEmitterOutput,
     actionability_prompt: str,
-) -> tuple[bool, str | None]:
+) -> bool:
     prompt = actionability_prompt.format(description=output.description)
+    extra_headers = _signals_extra_headers(output, stage="actionability")
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         try:
             response = await asyncio.wait_for(
-                client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=LLM_THINKING_BUDGET_TOKENS + 128,
-                        thinking_config=types.ThinkingConfig(
-                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                            include_thoughts=True,
-                        ),
-                    ),
+                client.messages.create(
+                    model=LLM_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=LLM_MAX_OUTPUT_TOKENS,
+                    metadata={"user_id": f"team-{team_id}"},
+                    extra_headers=extra_headers,
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            thoughts = _extract_thoughts(response)
-            response_text = (response.text or "").strip().upper()
-            return "NOT_ACTION" not in response_text, thoughts
+            response_text = _extract_text(response).strip().upper()
+            return "NOT_ACTION" not in response_text
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -237,46 +282,46 @@ async def _check_actionability(
                 },
             )
     # Assume actionable if all retries exhausted
-    return True, None
+    return True
 
 
 async def filter_actionable(
+    team: Team,
     outputs: list[SignalEmitterOutput],
     actionability_prompt: str,
     extra: dict[str, Any],
 ) -> list[SignalEmitterOutput]:
-    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    client = get_async_anthropic_gateway_client(product="signals", team_id=team.id)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
     checked_count = 0
 
-    async def _bounded_check(output: SignalEmitterOutput) -> tuple[bool, str | None]:
+    async def _bounded_check(output: SignalEmitterOutput) -> bool:
         nonlocal checked_count
         async with semaphore:
             try:
-                result = await _check_actionability(client, output, actionability_prompt)
+                result = await _check_actionability(client, team.id, output, actionability_prompt)
             except Exception:
                 logger.exception(
                     "Actionability check failed, assuming actionable",
                     signal_source_id=output.source_id,
                     **extra,
                 )
-                return True, None
+                return True
             finally:
                 checked_count += 1
                 if checked_count % LLM_CONCURRENCY_LIMIT == 0:
                     _safe_heartbeat()
             return result
 
-    tasks: dict[int, asyncio.Task[tuple[bool, str | None]]] = {}
+    tasks: dict[int, asyncio.Task[bool]] = {}
     async with asyncio.TaskGroup() as tg:
         for i, output in enumerate(outputs):
             tasks[i] = tg.create_task(_bounded_check(output))
     actionable = []
     filtered_count = 0
     for i, output in enumerate(outputs):
-        is_actionable, thoughts = tasks[i].result()
-        if is_actionable:
+        if tasks[i].result():
             actionable.append(output)
         else:
             filtered_count += 1
@@ -284,7 +329,6 @@ async def filter_actionable(
                 "Filtered non-actionable signal",
                 signal_source_type=output.source_type,
                 signal_source_id=output.source_id,
-                thoughts=thoughts,
                 **extra,
             )
     if filtered_count > 0:
@@ -396,20 +440,37 @@ async def run_signal_pipeline(
         )
     logger.info(f"Built {len(outputs)} signal outputs from {len(records)} records for {source_label}", **extra)
 
+    organization = await database_sync_to_async(lambda: team.organization)()
+    for output in outputs:
+        _capture_pipeline_stage("signal_data_source_entered", team, organization, output)
+
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
+        threshold = config.description_summarization_threshold_chars
+        pre_summary_by_id = {o.source_id: o for o in outputs}
         outputs = await summarize_long_descriptions(
+            team=team,
             outputs=outputs,
             summarization_prompt=config.summarization_prompt,
-            threshold=config.description_summarization_threshold_chars,
+            threshold=threshold,
             extra=extra,
         )
+        for output in outputs:
+            pre = pre_summary_by_id.get(output.source_id)
+            if pre is not None and len(pre.description) > threshold:
+                _capture_pipeline_stage("signal_data_source_summarized", team, organization, output)
 
     if config.actionability_prompt:
+        pre_filter_by_id = {o.source_id: o for o in outputs}
         outputs = await filter_actionable(
+            team=team,
             outputs=outputs,
             actionability_prompt=config.actionability_prompt,
             extra=extra,
         )
+        post_filter_ids = {o.source_id for o in outputs}
+        for source_id, output in pre_filter_by_id.items():
+            if source_id not in post_filter_ids:
+                _capture_pipeline_stage("signal_data_source_filtered", team, organization, output)
 
     if not outputs:
         logger.warning(f"No actionable records after filtering for {source_label}", **extra)

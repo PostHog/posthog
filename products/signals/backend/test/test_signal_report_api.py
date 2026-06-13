@@ -8,10 +8,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -122,6 +125,24 @@ class TestSignalReportListAPI(APIBaseTest):
             art.save()
         return art
 
+    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
+        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(payload),
+        )
+        art.save()
+        return art
+
+    def _maybe_actionability_artefact(
+        self, report: SignalReport, actionability: str | None
+    ) -> SignalReportArtefact | None:
+        if actionability is None:
+            return None
+        return self._actionability_artefact(report, actionability=actionability)
+
     # --- priority ---
 
     def test_list_includes_priority_from_priority_artefact(self):
@@ -184,6 +205,66 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
+
+    # --- priority filter ---
+
+    @parameterized.expand(
+        [
+            ("single", "P1", {"P1"}),
+            ("multiple", "P0,P2", {"P0", "P2"}),
+            ("case_insensitive", "p1", {"P1"}),
+        ]
+    )
+    def test_filter_by_priority(self, _name, query_value, expected_priorities):
+        reports_by_priority = {
+            "P0": self._create_report(title="P0 report"),
+            "P1": self._create_report(title="P1 report"),
+            "P2": self._create_report(title="P2 report"),
+        }
+        for priority, report in reports_by_priority.items():
+            self._priority_artefact(report, priority=priority)
+
+        response = self.client.get(self._list_url(priority=query_value))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(reports_by_priority[p].id) for p in expected_priorities}
+
+    def test_filter_excludes_reports_without_priority(self):
+        self._create_report(title="No priority")
+        r_p1 = self._create_report(title="P1 report")
+        self._priority_artefact(r_p1, priority="P1")
+
+        response = self.client.get(self._list_url(priority="P1"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(r_p1.id)}
+
+    @parameterized.expand(
+        [
+            ("out_of_range", "P9"),
+            ("garbage", "not-a-priority"),
+            ("mixed_valid_and_invalid", "P0,P9"),
+        ]
+    )
+    def test_filter_priority_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(priority=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "priority"
+        assert body["code"] == "invalid_input"
+
+    def test_filter_priority_combines_with_ordering(self):
+        r_p2 = self._create_report(title="P2 report")
+        r_p0 = self._create_report(title="P0 report")
+        r_p1 = self._create_report(title="P1 report")
+        self._priority_artefact(r_p2, priority="P2")
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p1, priority="P1")
+
+        response = self.client.get(self._list_url(priority="P0,P2", ordering="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids == [str(r_p0.id), str(r_p2.id)]
 
     # --- ordering ---
 
@@ -282,3 +363,422 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
+
+    @parameterized.expand(
+        [
+            ("immediately_actionable_before_not_actionable", "immediately_actionable", "not_actionable"),
+            ("requires_human_input_before_not_actionable", "requires_human_input", "not_actionable"),
+            ("no_judgment_before_not_actionable", None, "not_actionable"),
+        ]
+    )
+    def test_status_ordering_splits_ready_by_actionability(
+        self, _name, left_actionability: str | None, right_actionability: str
+    ):
+        """`ordering=status` maps to pipeline_status_rank: actionable ready before not_actionable."""
+        r_left = self._create_report(title="L", summary="s", signal_count=1, total_weight=1.0)
+        r_right = self._create_report(title="R", summary="s", signal_count=1, total_weight=1.0)
+        self._maybe_actionability_artefact(r_left, left_actionability)
+        self._actionability_artefact(r_right, actionability=right_actionability)
+
+        response = self.client.get(self._list_url(status="ready", ordering="status"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_left.id)) < ids.index(str(r_right.id))
+
+    @parameterized.expand(
+        [
+            ("ready_not_actionable", SignalReport.Status.READY, "ready", "not_actionable", False),
+            (
+                "ready_immediately_actionable",
+                SignalReport.Status.READY,
+                "ready",
+                "immediately_actionable",
+                True,
+            ),
+            (
+                "ready_requires_human_input",
+                SignalReport.Status.READY,
+                "ready",
+                "requires_human_input",
+                True,
+            ),
+            (
+                "failed_immediately_actionable",
+                SignalReport.Status.FAILED,
+                "failed",
+                "immediately_actionable",
+                False,
+            ),
+        ]
+    )
+    def test_is_suggested_reviewer_matches_actionability(
+        self,
+        name: str,
+        report_status: str,
+        status_filter: str,
+        actionability: str,
+        expected_suggested: bool,
+    ):
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid=f"github-test-suggested-{name}",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report(status=report_status)
+        self._actionability_artefact(report, actionability=actionability)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+
+        response = self.client.get(self._list_url(status=status_filter))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is expected_suggested
+
+    def test_is_suggested_reviewer_true_when_no_actionability_judgment(self):
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-suggested-no-judgment",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report()
+        # No actionability artefact — latest_actionability_value is NULL
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+
+        response = self.client.get(self._list_url(status="ready"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is True
+
+    # --- implementation_pr_url ---
+
+    def _create_implementation_task_with_run(
+        self, report: SignalReport, *, pr_url: str | None = None, output: dict | None = None
+    ) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation task",
+            description="Fix the bug",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=report,
+            task=task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+        run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output=run_output,
+        )
+        return task, run
+
+    def test_implementation_pr_url_present_when_task_has_pr(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+
+    def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+        assert response.json()["implementation_pr_url"] == response.json()["implementation_pr_url"].strip('"')
+
+    def test_implementation_pr_url_null_when_no_implementation_task(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] is None
+
+    def test_implementation_pr_url_null_when_output_has_no_pr_url(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, output={"commit_sha": "abc123"})
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] is None
+
+    def test_implementation_pr_url_null_when_pr_url_is_empty_string(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, pr_url="")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] is None
+
+    def test_implementation_pr_url_uses_latest_task_run(self):
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation task",
+            description="Fix the bug",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=report,
+            task=task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+        old_run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+        )
+        # Force older created_at
+        TaskRun.objects.filter(pk=old_run.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/99"},
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/99"
+
+    def test_fetches_implementation_pr_urls_for_current_report_page(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        self._create_implementation_task_with_run(report_without_pr, output={"commit_sha": "abc123"})
+
+        result = fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
+
+        assert result == {
+            str(report_with_pr.id): "https://github.com/org/repo/pull/42",
+        }
+
+    # --- source_products ---
+
+    def test_source_products_defaults_to_empty_list(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["source_products"] == []
+
+    def test_source_products_empty_on_retrieve(self):
+        report = self._create_report()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_products"] == []
+
+    # --- legacy choice removal ---
+
+    def test_actionability_null_for_legacy_choice_artefact(self):
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"choice": "immediately_actionable", "explanation": "x"}),
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["actionability"] is None
+
+
+class TestSignalReportSuppressionAPI(APIBaseTest):
+    def _state_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    def _create_report(self, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+        )
+
+    @parameterized.expand(
+        [
+            # name, body, expected_final_status, expected_reason, expected_note (None = no artefact)
+            (
+                "suppress_without_dismissal_creates_no_artefact",
+                {"state": "suppressed"},
+                SignalReport.Status.SUPPRESSED,
+                None,
+                None,
+            ),
+            (
+                "suppress_with_reason_and_note",
+                {
+                    "state": "suppressed",
+                    "dismissal_reason": "wontfix_intentional",
+                    "dismissal_note": "this is intentional behavior, see RFC-123",
+                },
+                SignalReport.Status.SUPPRESSED,
+                "wontfix_intentional",
+                "this is intentional behavior, see RFC-123",
+            ),
+            (
+                "suppress_with_only_note",
+                {"state": "suppressed", "dismissal_note": "free-form note"},
+                SignalReport.Status.SUPPRESSED,
+                None,
+                "free-form note",
+            ),
+            # The caller (PostHog Code) owns the set of valid reason codes; the API persists whatever it gets.
+            (
+                "suppress_accepts_arbitrary_reason",
+                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
+                SignalReport.Status.SUPPRESSED,
+                "some_brand_new_code",
+                None,
+            ),
+            (
+                "snooze_with_reason_and_note",
+                {
+                    "state": "potential",
+                    "dismissal_reason": "wontfix_irrelevant",
+                    "dismissal_note": "snoozing for now",
+                },
+                SignalReport.Status.POTENTIAL,
+                "wontfix_irrelevant",
+                "snoozing for now",
+            ),
+        ]
+    )
+    def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == expected_final_status
+
+        artefacts = list(
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        )
+        if expected_reason is None and expected_note is None:
+            assert artefacts == []
+            return
+
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content["reason"] == expected_reason
+        assert content["note"] == expected_note
+        assert content["user_id"] == self.user.id
+        assert content["user_uuid"] == str(self.user.uuid)
+
+    @parameterized.expand(
+        [
+            (
+                "oversized_dismissal_note",
+                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001},
+            ),
+        ]
+    )
+    def test_state_transition_rejects_invalid_dismissal(self, _name, body):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()
+
+    def test_rejects_unknown_state(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "ready"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_snooze_for_delays_repromotion(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5
+        )
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "snooze_for": 10}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        assert report.signals_at_run == 15
+
+    @parameterized.expand([("zero", 0), ("negative", -1), ("too_large", 100_001)])
+    def test_snooze_for_out_of_bounds_rejected(self, _name, snooze_for):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "snooze_for": snooze_for}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    def test_internal_transition_kwargs_are_not_injectable(self):
+        # Callers must not be able to reach internal transition_to kwargs through the body.
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5, total_weight=9.0
+        )
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "state": "potential",
+                    "reset_weight": True,
+                    "error": "injected",
+                    "signals_at_run_increment": 999,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        # None of the injected kwargs took effect.
+        assert report.total_weight == 9.0
+        assert report.error is None
+        assert report.signals_at_run == 0
+
+    def test_can_reopen_suppressed_report(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL

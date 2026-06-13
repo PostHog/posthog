@@ -1,0 +1,126 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/field-group) fall outside strict BEM */
+@layer components {
+    .quill-field-set {
+        /* gap managed by Tailwind */
+    }
+
+    .quill-field-legend {
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+
+    .quill-field-legend[data-variant='legend'] {
+        font-size: var(--text-sm, 0.875rem);
+        line-height: var(--text-sm--line-height, 1.25rem);
+    }
+
+    .quill-field-legend[data-variant='label'] {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+    }
+
+    .quill-field[data-invalid='true'] {
+        color: var(--destructive-foreground);
+    }
+
+    .quill-field:hover > [role='checkbox'] {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    .quill-field__content {
+        line-height: 1.375;
+    }
+
+    .quill-field__label {
+        line-height: 1.375;
+    }
+
+    [data-disabled='true'] .quill-field__label {
+        opacity: 0.5;
+    }
+
+    /* When the label wraps a field, turn it into a card-like row */
+    .quill-field__label:has(> [data-slot='field']) {
+        flex-direction: column;
+        width: 100%;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-field__label:has([data-checked]) {
+        background-color: color-mix(in oklab, var(--primary) 5%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) .quill-field__label:has([data-checked]) {
+        background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+    }
+
+    .quill-field__label > [data-slot='field'] {
+        padding: 0.5rem;
+    }
+
+    .quill-field__title {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.375;
+    }
+
+    [data-disabled='true'] .quill-field__title {
+        opacity: 0.5;
+    }
+
+    .quill-field__description {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 400;
+        line-height: 1.5;
+        color: var(--muted-foreground);
+        text-align: start;
+    }
+
+    [data-orientation='horizontal'] .quill-field__description {
+        text-wrap: balance;
+    }
+
+    [data-variant='legend'] + .quill-field__description {
+        margin-top: -0.375rem;
+    }
+
+    .quill-field__description > a {
+        text-decoration: underline;
+        text-underline-offset: 4px;
+    }
+
+    .quill-field__description > a:hover {
+        color: var(--primary);
+    }
+
+    .quill-field__separator {
+        position: relative;
+        height: 1.25rem;
+        margin-block: -0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+    }
+
+    .group\/field-group[data-variant='outline'] .quill-field__separator {
+        margin-block-end: -0.5rem;
+    }
+
+    .quill-field__separator-content {
+        position: relative;
+        display: block;
+        width: fit-content;
+        padding-inline: 0.5rem;
+        margin-inline: auto;
+        color: var(--muted-foreground);
+        background-color: var(--background);
+    }
+
+    .quill-field__error {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 400;
+        line-height: 1.625;
+        color: var(--destructive-foreground);
+    }
+}

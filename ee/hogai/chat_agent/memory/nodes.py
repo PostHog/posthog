@@ -36,8 +36,10 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.utils import human_list
 
+from products.posthog_ai.backend.models.assistant import CoreMemory
+
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.core.agent_modes import SlashCommandName
+from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
@@ -46,11 +48,11 @@ from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import CoreMemory
 
 from .parsers import check_memory_collection_completed, compressed_memory_parser
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
+    ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
     INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
@@ -159,12 +161,13 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
         retrieved_prop = await self._aretrieve_context(config=config)
 
-        # No host or app bundle ID found
+        # No host or app bundle ID found - tell the user we couldn't crawl their site
+        # so the silent fallback to question-based onboarding doesn't read as a failure.
         if not retrieved_prop:
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content=ENQUIRY_INITIAL_MESSAGE,
+                        content=ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
                         id=str(uuid4()),
                     )
                 ]

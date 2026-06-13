@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 from typing import Any, Optional
@@ -13,7 +14,14 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE, TYPES_WITH_TRANSPILED_FILTERS
+
+from products.cdp.backend.models.hog_functions.hog_function import (
+    TYPES_WITH_JAVASCRIPT_SOURCE,
+    TYPES_WITH_TRANSPILED_FILTERS,
+)
+
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +39,23 @@ register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
 
 
+# Globals that the realtime transformer actually populates at runtime.
+# Keep in sync with HogTransformerService.createInvocationGlobals
+# (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
+TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
+
+# Helper functions that the transformer exposes via getTransformationFunctions
+# (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
+# via GET_GLOBAL when referenced as a closure rather than called inline.
+# postHogCapture is intentionally omitted — it lives in CORE_SUPPORTED_FUNCTIONS.
+TRANSFORMATION_RUNTIME_FUNCTIONS = {
+    "geoipLookup",
+    "cleanNullValues",
+    "isKnownBotUserAgent",
+    "isKnownBotIp",
+}
+
+
 class InputCollector(TraversingVisitor):
     inputs: set[str]
 
@@ -43,6 +68,36 @@ class InputCollector(TraversingVisitor):
         if node.chain[0] == "inputs":
             if len(node.chain) > 1:
                 self.inputs.add(str(node.chain[1]))
+
+
+class TransformationGlobalsValidator(TraversingVisitor):
+    """Reject input templates that reference globals unavailable to the realtime
+    transformer (e.g. `person`, `groups`, `source`). Without this check, the bytecode
+    compiles fine and the failure surfaces only at ingestion time as
+    "Could not execute bytecode for input field" / "Global variable not found".
+    """
+
+    invalid_globals: set[str]
+
+    def __init__(self):
+        super().__init__()
+        self.invalid_globals = set()
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if not node.chain:
+            return
+        root = str(node.chain[0])
+        if (
+            root in TRANSFORMATION_AVAILABLE_GLOBALS
+            or root in TRANSFORMATION_RUNTIME_FUNCTIONS
+            or root in CORE_SUPPORTED_FUNCTIONS
+            or root in PRODUCT_ASYNC_FUNCTIONS
+            or root in STL
+            or root in BYTECODE_STL
+        ):
+            return
+        self.invalid_globals.add(root)
 
 
 class HyphenatedPropertyDetector(TraversingVisitor):
@@ -85,15 +140,19 @@ def collect_inputs(node: ast.Expr) -> set[str]:
     return input_collector.inputs
 
 
-def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
+def generate_template_bytecode(
+    obj: Any,
+    input_collector: set[str],
+    function_type: Optional[str] = None,
+) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
     """
 
     if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value, input_collector) for key, value in obj.items()}
+        return {key: generate_template_bytecode(value, input_collector, function_type) for key, value in obj.items()}
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector) for item in obj]
+        return [generate_template_bytecode(item, input_collector, function_type) for item in obj]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         input_collector.update(collect_inputs(node))
@@ -101,6 +160,15 @@ def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
         detector.visit(node)
         if detector.errors:
             raise Exception(detector.errors[0])
+        if function_type == "transformation":
+            transformation_validator = TransformationGlobalsValidator()
+            transformation_validator.visit(node)
+            if transformation_validator.invalid_globals:
+                names = ", ".join(sorted(transformation_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in transformations: {names}. "
+                    f"Transformations only have access to project, event, and inputs."
+                )
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -131,6 +199,13 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
         return json.dumps(obj)
 
 
+@extend_schema_field({"oneOf": [{"type": "boolean"}, {"type": "string", "enum": ["hog", "liquid"]}]})
+class _TemplatingChoiceField(serializers.ChoiceField):
+    """drf-spectacular 0.29 crashes on sorted() with mixed bool/str choice keys."""
+
+    pass
+
+
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=[
@@ -146,11 +221,15 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "native_email",
             "posthog_assignee",
             "posthog_ticket_tags",
+            "posthog_business_hours",
+            "non_failure_status_codes",
         ]
     )
     key = serializers.CharField()
     label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
     choices = serializers.ListField(child=serializers.DictField(), required=False)
+    # For `choice` inputs: render as a searchable select on the frontend.
+    searchable = serializers.BooleanField(required=False)
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
@@ -162,7 +241,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
-    templating = serializers.ChoiceField(choices=[True, False, "hog", "liquid"], required=False)
+    templating = _TemplatingChoiceField(choices=[True, False, "hog", "liquid"], required=False)
 
     # TODO Validate choices if type=choice
 
@@ -235,6 +314,20 @@ class InputsItemSerializer(serializers.Serializer):
 
             if not value.get("text") and not value.get("html"):
                 raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
+        elif item_type == "non_failure_status_codes":
+            if not isinstance(value, list):
+                raise serializers.ValidationError({"input": "Value must be a list of status codes."})
+            for entry in value:
+                if isinstance(entry, bool) or not isinstance(entry, int | str):
+                    raise serializers.ValidationError(
+                        {"input": "Entries must be integers between 400 and 599 or wildcards '4xx' or '5xx'."}
+                    )
+                if isinstance(entry, int):
+                    if not (400 <= entry <= 599):
+                        raise serializers.ValidationError({"input": "Status code numbers must be between 400 and 599."})
+                else:
+                    if not re.fullmatch(r"[4-5]xx", entry, re.IGNORECASE):
+                        raise serializers.ValidationError({"input": "Wildcards must be '4xx' or '5xx'."})
 
         try:
             if value and schema.get("templating", True):
@@ -251,6 +344,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "json",
                         "email",
                         "native_email",
+                        "posthog_ticket_tags",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
@@ -265,7 +359,9 @@ class InputsItemSerializer(serializers.Serializer):
                                 del attrs["bytecode"]
                         else:
                             input_collector: set[str] = set()
-                            attrs["bytecode"] = generate_template_bytecode(value, input_collector)
+                            attrs["bytecode"] = generate_template_bytecode(
+                                value, input_collector, function_type=function_type
+                            )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
@@ -474,10 +570,15 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         if detector.errors:
             raise serializers.ValidationError({"hog": detector.errors[0]})
 
-        supported_functions = set()
+        supported_functions: set[str] = set()
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
+        elif hog_type == "tagger":
+            # Taggers classify; they must not perform side effects, so we deliberately exclude
+            # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
+            # Stated explicitly so a future refactor can't silently widen the surface.
+            supported_functions = set()
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except serializers.ValidationError:

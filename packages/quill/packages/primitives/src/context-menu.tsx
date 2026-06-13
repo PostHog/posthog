@@ -1,9 +1,12 @@
+import './menu.css'
+
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
 import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { RadioIndicator } from './radio-group'
 
@@ -31,13 +34,16 @@ function ContextMenuContent({
     alignOffset = 4,
     side = 'inline-end',
     sideOffset = 0,
+    children,
     ...props
 }: ContextMenuPrimitive.Popup.Props &
     Pick<ContextMenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
     return (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Positioner
-                className="isolate z-50 outline-none"
+                data-quill
+                data-quill-portal="popover"
+                className="isolate outline-none"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
@@ -45,12 +51,11 @@ function ContextMenuContent({
             >
                 <ContextMenuPrimitive.Popup
                     data-slot="context-menu-content"
-                    className={cn(
-                        'z-50 max-h-(--available-height) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-start-2 data-[side=inline-start]:slide-in-from-end-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-                        className
-                    )}
+                    className={cn('quill-menu__content', className)}
                     {...props}
-                />
+                >
+                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
+                </ContextMenuPrimitive.Popup>
             </ContextMenuPrimitive.Positioner>
         </ContextMenuPrimitive.Portal>
     )
@@ -71,7 +76,7 @@ function ContextMenuLabel({
         <ContextMenuPrimitive.GroupLabel
             data-slot="context-menu-label"
             data-inset={inset}
-            className={cn('px-2 py-1.5 text-xs text-muted-foreground data-inset:ps-7.5', className)}
+            className={cn('px-2 py-1.5 text-xs text-muted-foreground', inset && 'quill-menu-item--inset', className)}
             {...props}
         />
     )
@@ -93,10 +98,16 @@ function ContextMenuItem({
             data-inset={inset}
             data-variant={variant}
             className={cn(
-                "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                // Same destructive treatment as DropdownMenuItem: red text at rest, red tint on
+                // hover/highlight — never Button's filled `destructive` variant inside a menu.
+                // Disabled destructive mirrors the disabled destructive Button: 50%-mix red fill
+                // under the item-level opacity-50.
+                'data-[variant=destructive]:text-destructive-foreground data-[variant=destructive]:hover:text-destructive-foreground data-[variant=destructive]:[&_svg]:text-destructive-foreground data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20 data-[variant=destructive]:data-disabled:bg-destructive/50',
+                inset && 'quill-menu-item--inset',
                 className
             )}
-            render={<Button variant={variant} className="w-full font-normal" left />}
+            render={<Button variant="default" className="w-full font-normal" left />}
             {...props}
         >
             {children}
@@ -121,7 +132,8 @@ function ContextMenuSubTrigger({
             data-slot="context-menu-sub-trigger"
             data-inset={inset}
             className={cn(
-                "flex cursor-default items-center outline-hidden select-none data-inset:ps-7.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                inset && 'quill-menu-item--inset',
                 className
             )}
             render={<Button className="w-full font-normal" left />}
@@ -133,13 +145,22 @@ function ContextMenuSubTrigger({
     )
 }
 
-function ContextMenuSubContent({ ...props }: React.ComponentProps<typeof ContextMenuContent>): React.ReactElement {
+function ContextMenuSubContent({
+    className,
+    align = 'start',
+    alignOffset = -3,
+    side = 'inline-end',
+    sideOffset = 0,
+    ...props
+}: React.ComponentProps<typeof ContextMenuContent>): React.ReactElement {
     return (
         <ContextMenuContent
             data-slot="context-menu-sub-content"
-            className="shadow-lg"
-            side="inline-start"
-            alignOffset={0}
+            className={cn('quill-menu__sub-content w-auto', className)}
+            align={align}
+            alignOffset={alignOffset}
+            side={side}
+            sideOffset={sideOffset}
             {...props}
         />
     )
@@ -159,7 +180,7 @@ function ContextMenuCheckboxItem({
             data-slot="context-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center ps-8 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             render={<Button className="w-full font-normal" left />}
@@ -194,7 +215,7 @@ function ContextMenuRadioItem({
             data-slot="context-menu-radio-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center ps-8 pe-2 outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             render={<Button className="w-full font-normal" left />}
@@ -215,23 +236,14 @@ function ContextMenuSeparator({ className, ...props }: ContextMenuPrimitive.Sepa
     return (
         <ContextMenuPrimitive.Separator
             data-slot="context-menu-separator"
-            className={cn('-mx-1 my-1 h-px bg-border/50', className)}
+            className={cn('quill-menu__separator', className)}
             {...props}
         />
     )
 }
 
-function ContextMenuShortcut({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return (
-        <span
-            data-slot="context-menu-shortcut"
-            className={cn(
-                'ms-auto text-[0.625rem] tracking-widest text-muted-foreground group-focus/context-menu-item:text-accent-foreground',
-                className
-            )}
-            {...props}
-        />
-    )
+function ContextMenuShortcut({ className, ...props }: React.ComponentProps<typeof Kbd>): React.ReactElement {
+    return <Kbd data-slot="context-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
 }
 
 export {

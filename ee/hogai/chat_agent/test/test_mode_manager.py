@@ -235,6 +235,32 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
+            # (customer_analytics_flag, should_be_present)
+            [False, False],
+            [True, True],
+        ]
+    )
+    def test_mode_registry_gates_customer_analytics_on_feature_flag(self, flag_on, should_be_present):
+        with patch("ee.hogai.chat_agent.mode_manager.has_customer_analytics_mode_feature_flag", return_value=flag_on):
+            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+            context_manager = AssistantContextManager(
+                team=self.team, user=self.user, config=RunnableConfig(configurable={})
+            )
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=AssistantState(messages=[HumanMessage(content="Test")]),
+            )
+            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+            if should_be_present:
+                self.assertIn("customer_analytics", mode_names)
+            else:
+                self.assertNotIn("customer_analytics", mode_names)
+
+    @parameterized.expand(
+        [
             # (plan_mode_flag, should_contain_plan_prompt)
             [False, False],
             [True, True],
@@ -254,6 +280,39 @@ class TestAgentToolkit(BaseTest):
             else:
                 self.assertNotIn("Switch to `plan` mode", system_prompt)
                 self.assertNotIn("When to switch to plan mode", system_prompt)
+
+    def test_prompt_builder_includes_slash_commands(self):
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        prompt_builder = ChatAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
+        system_prompt = prompt_builder._get_system_prompt()
+
+        self.assertIn("PostHog AI supports slash commands", system_prompt)
+        self.assertIn("`/usage`", system_prompt)
+        self.assertIn("Do not claim this command is fabricated", system_prompt)
+
+    async def test_plan_prompt_builder_includes_slash_commands(self):
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        prompt_builder = ChatAgentPlanPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
+
+        with (
+            patch.object(prompt_builder, "_get_billing_prompt", new=AsyncMock(return_value="")),
+            patch.object(prompt_builder, "_aget_core_memory_text", new=AsyncMock(return_value="")),
+            patch.object(context_manager, "get_group_names", new=AsyncMock(return_value=[])),
+            patch("ee.hogai.chat_agent.prompt_builder._get_default_tools_prompt", new=AsyncMock(return_value="")),
+            patch("ee.hogai.chat_agent.prompt_builder._get_modes_prompt", new=AsyncMock(return_value="")),
+            patch("ee.hogai.chat_agent.mode_manager.get_execution_mode_registry", return_value={}),
+        ):
+            messages = await prompt_builder.get_prompts(AssistantState(messages=[]), RunnableConfig(configurable={}))
+
+        system_prompt = "\n\n".join(str(message.content) for message in messages if isinstance(message, SystemMessage))
+
+        self.assertIn("PostHog AI supports slash commands", system_prompt)
+        self.assertIn("`/usage`", system_prompt)
+        self.assertIn("Do not claim this command is fabricated", system_prompt)
 
 
 class TestChatAgentModeManagerPlanMode(BaseTest):

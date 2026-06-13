@@ -41,7 +41,9 @@
             "error",
             {
                 "ignoreRestSiblings": true,
-                "destructuredArrayIgnorePattern": "^_$"
+                "argsIgnorePattern": "^_",
+                "varsIgnorePattern": "^_",
+                "destructuredArrayIgnorePattern": "^_"
             }
         ],
         "no-useless-spread": "error",
@@ -99,6 +101,19 @@
                     {
                         "name": "~/queries/schema",
                         "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                    },
+                    {
+                        "name": "monaco-editor",
+                        "message": "Value imports of monaco-editor statically couple ~4 MB of editor code into your chunk. Use `import type`, or render via the lazy facade in lib/monaco/CodeEditor.",
+                        "allowTypeImports": true
+                    },
+                    {
+                        "name": "lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                    },
+                    {
+                        "name": "~/lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
                     }
                 ]
             }
@@ -190,13 +205,42 @@
             }
         },
         {
-            "files": [
-                "common/mosaic/**/*.{ts,tsx}",
-                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
-                "products/**/mcp/apps/**/*.{ts,tsx}"
-            ],
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
             "rules": {
                 "react/forbid-elements": "off"
+            }
+        },
+        {
+            "files": [
+                "frontend/src/lib/monaco/**",
+                "frontend/src/lib/components/MonacoDiffEditor.tsx",
+                "frontend/src/scenes/data-warehouse/editor/sqlEditorLogic.tsx",
+                "frontend/src/scenes/hog-functions/configuration/HogFunctionTest.tsx"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "chart.js",
+                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "chart.js/auto",
+                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
             }
         }
     ]

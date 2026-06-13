@@ -1,6 +1,9 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from posthog.schema import HogQLQueryModifiers, InCohortVia
+from posthog.schema_enums import InCohortVia
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -9,22 +12,40 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.observability import (
+    collect_hogql_sql_shape,
+    collect_hogql_type_coverage,
+    create_hogql_type_observability,
+    emit_hogql_type_observability,
+)
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.duckdb import DuckDBPrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
-from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
+from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
+from posthog.hogql.transforms.geoip_dict_fallback import (
+    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved,
+    geoip_dict_fallback_enabled_for_team,
+)
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
+
+def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
     """Prints the HogQL query without mutating the node"""
     return prepare_and_print_ast(
         clone_expr(query),
@@ -46,20 +67,40 @@ def prepare_and_print_ast(
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> tuple[str, _T_AST | None]:
-    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
-    if prepared_ast is None:
-        return "", None
-    return (
-        print_prepared_ast(
+    previous_type_observability = context.type_observability
+    context.type_observability = create_hogql_type_observability(
+        dialect=dialect,
+        source=context.observability_source,
+    )
+    try:
+        prepared_ast = prepare_ast_for_printing(
+            node=node, context=context, dialect=dialect, stack=stack, settings=settings
+        )
+        if prepared_ast is None:
+            if context.type_observability is not None:
+                context.type_observability.result = "empty"
+            return "", None
+
+        collect_hogql_type_coverage(prepared_ast, context.type_observability, context)
+        collect_hogql_sql_shape(prepared_ast, context.type_observability)
+
+        printed = print_prepared_ast(
             node=prepared_ast,
             context=context,
             dialect=dialect,
             stack=stack,
             settings=settings,
             pretty=pretty,
-        ),
-        prepared_ast,
-    )
+        )
+        return printed, prepared_ast
+    except Exception:
+        if context.type_observability is not None:
+            context.type_observability.result = "error"
+            context.type_observability.record_unknown("inference_exception")
+        raise
+    finally:
+        emit_hogql_type_observability(context.type_observability)
+        context.type_observability = previous_type_observability
 
 
 def prepare_ast_for_printing(
@@ -68,6 +109,7 @@ def prepare_ast_for_printing(
     dialect: HogQLDialect,
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
+    resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
@@ -84,9 +126,20 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
+    # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
+    # the printer wraps the JSON blob in JSONDropKeys, and property resolution declines backing columns (and reads a
+    # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
+    # sources, which carry no restrictable event/person properties, so they need no enforcement here.
+    if context.team_id is not None and context.restricted_properties is None:
+        with context.timings.measure("load_restricted_properties"):
+            context.restricted_properties = get_restricted_properties_for_team(
+                team_id=context.team_id,
+                user=context.user,
+            )
+
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
-            resolve_in_cohorts_conjoined(node, dialect, context, stack)
+            resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(
@@ -94,7 +147,12 @@ def prepare_ast_for_printing(
             context,
             dialect=dialect,
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
+            resolver_factory=resolver_factory,
         )
+
+    if context.enable_type_aware_cast_simplification:
+        with context.timings.measure("type_aware_cast_simplification"):
+            node = simplify_redundant_type_operations(node, context, dialect)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
@@ -106,9 +164,14 @@ def prepare_ast_for_printing(
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
-    if dialect == "postgres":
+    if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        # Lower JSON-blob property reads to dialect-neutral PropertyAccess nodes. The warehouse dialects have no
+        # materialized columns, so logical lowering is the whole story for them (no ClickHouse property resolution).
+        with context.timings.measure("lower_property_access"):
+            node = lower_property_access(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -131,7 +194,7 @@ def prepare_ast_for_printing(
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
@@ -143,6 +206,46 @@ def prepare_ast_for_printing(
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
+        # The two passes that replaced the printer's old property handling, in order. Both run AFTER the PropertySwapper
+        # passes, so any scalar cast already wraps the property. (1) Lowering replaces every blob `PropertyType` Field with
+        # a `PropertyAccess` — a plain "read these keys from this blob", no decision about how. (2) Property resolution
+        # then picks the source: each `PropertyAccess` backed by a materialized / skip-index / property-group column is
+        # rewritten to read that column; the rest survive and print as the raw JSON extract. The within_non_hogql_query
+        # (lightweight-DELETE) path runs through here too; the printer renders every column bare there (the single-table
+        # mutation analyzer rejects table prefixes), so no extra marking is needed.
+        with context.timings.measure("lower_property_access"):
+            node = lower_property_access(node, context)
+
+        # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): recover blanked geoip city/postal reads from the IP via a ClickHouse
+        # dictionary. Runs on the lowered AST so the reads it adds are plain PropertyAccess nodes, which the resolution
+        # pass below routes to materialized columns. Operator-controlled via env only, per team. Decided exactly once
+        # per query, on the context, so the printer's `_lookupGeoip*` gate can never disagree with the transform.
+        # Never applies within_non_hogql_query: those fragments splice into DELETE mutations (data deletion requests)
+        # and legacy filters, where the matched row set must not depend on env/probe state and a missing dictionary
+        # would wedge the sticky mutation queue. Remove with the transform.
+        context.geoip_dict_fallback_enabled = (
+            not context.within_non_hogql_query and geoip_dict_fallback_enabled_for_team(context.team_id)
+        )
+        if context.geoip_dict_fallback_enabled:
+            with context.timings.measure("geoip_dict_fallback"):
+                node = (
+                    apply_geoip_dict_fallback_delete_this_function_when_inc_2026_06_11_maxmind_missing_data_is_resolved(
+                        node, context
+                    )
+                )
+
+        # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
+        # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and
+        # bare events columns); outer blob references are re-typed onto the subquery, so the resolution pass substitutes
+        # physical columns only inside the subquery body — where the real events table is in scope — and outer
+        # references print as JSON extracts over the projected blob.
+        if events_pushdown_enabled(context.modifiers):
+            with context.timings.measure("events_predicate_pushdown"):
+                node = apply_events_predicate_pushdown(node, context)
+
+        with context.timings.measure("clickhouse_property_resolution"):
+            node = clickhouse_property_resolution(node, context)
+
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
         if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:
@@ -153,7 +256,7 @@ def prepare_ast_for_printing(
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
+            resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
@@ -168,22 +271,39 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer_class: type[HogQLPrinter]
+        printer: BasePrinter
+        printer_stack = cast(list[ast.AST], stack or [])
 
         match dialect:
             case "clickhouse":
-                printer_class = ClickHousePrinter
+                printer = ClickHousePrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "postgres":
-                printer_class = PostgresPrinter
+                printer = PostgresPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
+            case "duckdb":
+                printer = DuckDBPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "hogql":
-                printer_class = HogQLPrinter
+                printer = HogQLPrinter(
+                    context=context,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case _:
                 raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 
-        return printer_class(
-            context=context,
-            dialect=dialect,
-            stack=cast(list[ast.AST], stack or []),
-            settings=settings,
-            pretty=pretty,
-        ).visit(node)
+        return printer.visit(node)

@@ -1,9 +1,12 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
 import { ASYNC_OUTPUT } from '~/ingestion/analytics/outputs'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchBoundPersonsStore } from '~/worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import {
@@ -55,29 +58,21 @@ describe('createProcessPersonsStep', () => {
 
         personRepository = new PostgresPersonRepository(hub.postgres)
         personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
             [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_PERSON_DISTINCT_ID,
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 KAFKA_INGESTION_WARNINGS,
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
         })
-        const ingestionWarningsOutputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
-                INGESTION_WARNINGS_OUTPUT,
-                KAFKA_INGESTION_WARNINGS,
-                hub.kafkaProducer,
-                'test'
-            ),
-        })
-        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
+        personsStore = new BatchWritingPersonsStore(personRepository, personOutputs)
 
         pluginEvent = {
             distinct_id: 'my_id',
@@ -105,6 +100,7 @@ describe('createProcessPersonsStep', () => {
         normalizedEvent: pluginEvent,
         team,
         timestamp,
+        personsStoreForBatch: new BatchBoundPersonsStore(personsStore, 0),
         ...overrides,
     })
 
@@ -130,7 +126,7 @@ describe('createProcessPersonsStep', () => {
     }
 
     it('creates person with $set properties', async () => {
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const result = await step(createInput())
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -167,7 +163,7 @@ describe('createProcessPersonsStep', () => {
         const normalizedEvent = normalizeProcessPerson(normalizeEvent(event), processPerson)
         const normalizedTimestamp = parseEventTimestamp(normalizedEvent)
 
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const result = await step(createInput({ normalizedEvent, timestamp: normalizedTimestamp }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -214,7 +210,7 @@ describe('createProcessPersonsStep', () => {
             created_at: DateTime.fromISO('1970-01-01T00:00:05.000Z'),
         }
 
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const result = await step(createInput({ personlessPerson }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -236,7 +232,7 @@ describe('createProcessPersonsStep', () => {
             force_upgrade: true,
         }
 
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const result = await step(createInput({ personlessPerson }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -251,7 +247,7 @@ describe('createProcessPersonsStep', () => {
     })
 
     it('preserves additional input fields in the output', async () => {
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const input = { ...createInput(), extraField: 'preserved' }
 
         const result = await step(input)
@@ -282,7 +278,7 @@ describe('createProcessPersonsStep', () => {
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
         }
 
-        const step = createProcessPersonsStep(limitOptions, personOutputs, personsStore)
+        const step = createProcessPersonsStep(limitOptions, personOutputs)
         const result = await step(
             createInput({
                 normalizedEvent: identifyEvent,
@@ -310,7 +306,7 @@ describe('createProcessPersonsStep', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const result = await step(
             createInput({
                 normalizedEvent: laterEvent,
@@ -353,7 +349,7 @@ describe('createProcessPersonsStep', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs)
         const result = await step(
             createInput({
                 normalizedEvent: laterEvent,
@@ -388,7 +384,7 @@ describe('createProcessPersonsStep', () => {
             PERSON_MERGE_ASYNC_ENABLED: true,
         }
 
-        const step = createProcessPersonsStep(asyncOptions, personOutputs, personsStore)
+        const step = createProcessPersonsStep(asyncOptions, personOutputs)
         const result = await step(
             createInput({
                 normalizedEvent: identifyEvent,

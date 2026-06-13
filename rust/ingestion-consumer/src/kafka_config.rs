@@ -22,11 +22,18 @@ impl ConsumerConfigBuilder {
     ///
     /// Sets: auto.offset.store=false, auto.commit=false, socket.timeout.ms,
     /// session.timeout.ms, heartbeat.interval.ms, max.poll.interval.ms.
+    ///
+    /// Uses `metadata.broker.list` (not `bootstrap.servers`) to match the Node.js
+    /// KafkaConsumer in posthog-app. The two are aliases in librdkafka, but
+    /// rdkafka-rs's HashMap-backed ClientConfig has non-deterministic iteration
+    /// order, so setting both via different `KAFKA_*` env vars caused consumers
+    /// to land on the wrong cluster non-deterministically. Sticking with the
+    /// same key Node uses keeps env-var overrides idempotent.
     pub fn for_batch_consumer(bootstrap_servers: &str, group_id: &str) -> Self {
         let mut config = ClientConfig::new();
 
         config
-            .set("bootstrap.servers", bootstrap_servers)
+            .set("metadata.broker.list", bootstrap_servers)
             .set("group.id", group_id);
 
         // Group-consumer defaults

@@ -1,0 +1,102 @@
+import { type ReactElement, type ReactNode, useMemo } from 'react'
+
+import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
+
+import { type ActorRow, type InsightActorsData, toActorRows } from './insightActorsTransforms'
+
+export type { InsightActorsData }
+
+interface InsightActorsViewProps {
+    data: InsightActorsData
+    openLink: (url: string) => void
+}
+
+export function InsightActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
+    const rows = useMemo(() => toActorRows(data), [data])
+    const hasRecordings = data.results.columns.includes('recordings')
+
+    const columns = useMemo((): DataTableColumn<ActorRow>[] => {
+        const cols: DataTableColumn<ActorRow>[] = [
+            {
+                key: 'name',
+                header: 'Actor',
+                render: (row): ReactNode => {
+                    const displayName = row.email || row.name || row.distinct_id || 'Anonymous'
+                    return (
+                        <div className="flex flex-col">
+                            <span className="font-medium">{displayName}</span>
+                            {row.distinct_id && row.distinct_id !== displayName && (
+                                <span className="text-xs text-muted-foreground">{row.distinct_id}</span>
+                            )}
+                        </div>
+                    )
+                },
+            },
+            {
+                key: 'event_count',
+                header: 'Event count',
+                sortable: true,
+                align: 'right',
+                render: (row): ReactNode => <Badge>{row.event_count?.toLocaleString() ?? '—'}</Badge>,
+            },
+        ]
+
+        if (hasRecordings) {
+            cols.push({
+                key: 'recordings',
+                header: 'Recordings',
+                align: 'right',
+                render: (row): ReactNode => {
+                    if (row.recordings.length === 0) {
+                        return <span className="text-muted-foreground">—</span>
+                    }
+                    return (
+                        <div className="flex gap-1 justify-end flex-wrap">
+                            {row.recordings.map((url, i) => (
+                                <Button
+                                    key={i}
+                                    variant="link"
+                                    size="xs"
+                                    // eslint-disable-next-line react/forbid-elements
+                                    render={
+                                        <a
+                                            href={url}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                openLink(url)
+                                            }}
+                                        />
+                                    }
+                                >
+                                    {i + 1}
+                                </Button>
+                            ))}
+                        </div>
+                    )
+                },
+            })
+        }
+
+        return cols
+    }, [hasRecordings, openLink])
+
+    return (
+        <div className="p-4">
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                        {rows.length} actor{rows.length === 1 ? '' : 's'}
+                        {data.hasMore ? '+' : ''}
+                    </span>
+                </div>
+                <DataTable<ActorRow>
+                    columns={columns}
+                    data={rows}
+                    defaultSort={{ key: 'event_count', direction: 'desc' }}
+                    emptyMessage="No actors found for this data point"
+                />
+            </div>
+        </div>
+    )
+}

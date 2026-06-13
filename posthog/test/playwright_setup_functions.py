@@ -6,19 +6,22 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from django.conf import settings
 from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import Insight, PersonalAPIKey, Team, User
-from posthog.models.insight_variable import InsightVariable
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.experiments.backend.models.experiment import Experiment
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class PlaywrightSetupVariableType(StrEnum):
@@ -73,6 +76,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
     no_demo_data: bool | None = None
+    staff: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -142,7 +146,11 @@ def create_organization_with_team(
             organization=organization,
             has_completed_onboarding_for={"product_analytics": True},
         )
-        user = User.objects.create_and_join(organization, user_email, user_password)
+        # The user creates the organization, so they own it. Without owner-level access,
+        # admin-only areas (e.g. billing) render a "restricted to organization admins" page.
+        user = User.objects.create_and_join(
+            organization, user_email, user_password, level=OrganizationMembership.Level.OWNER
+        )
     else:
         command = GenerateDemoDataCommand()
 
@@ -172,7 +180,8 @@ def create_organization_with_team(
             "skip_user_product_list": True,
         }
 
-        command.handle(**options)
+        with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+            command.handle(**options)
 
         user = User.objects.get(email=user_email)
         organization = user.organization
@@ -184,11 +193,11 @@ def create_organization_with_team(
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
-    # Add advanced permissions feature for password-protected sharing
+    # Add access control feature for password-protected sharing
     organization.available_product_features = [
         {
-            "key": AvailableFeature.ADVANCED_PERMISSIONS,
-            "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            "key": AvailableFeature.ACCESS_CONTROL,
+            "name": AvailableFeature.ACCESS_CONTROL,
         }
     ]
     organization.save()
@@ -207,6 +216,16 @@ def create_organization_with_team(
         },
     )
     api_key._value = api_key_value  # type: ignore
+
+    # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
+    user.credentials_reviewed_at = timezone.now()
+    # The system-status help-menu link checks the Django is_staff flag (not org-level admin), so the
+    # spec needs it. is_staff is powerful, so only grant it under E2E_TESTING/CI — not DEBUG alone.
+    update_fields = ["credentials_reviewed_at"]
+    if data.staff and (getattr(settings, "E2E_TESTING", False) or getattr(settings, "CI", False)):
+        user.is_staff = True
+        update_fields.append("is_staff")
+    user.save(update_fields=update_fields)
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
@@ -394,10 +413,11 @@ def _create_experiments(
 def _count_events_in_clickhouse(team_id: int) -> int:
     from posthog.clickhouse.client import sync_execute
 
-    result = sync_execute(
-        "SELECT count() FROM events WHERE team_id = %(team_id)s",
-        {"team_id": team_id},
-    )
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        result = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            {"team_id": team_id},
+        )
     return int(result[0][0])
 
 
@@ -484,7 +504,59 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     # Populate event/property definitions so the taxonomic filter works
     from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 
-    infer_taxonomy_for_team(team.pk)
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        infer_taxonomy_for_team(team.pk)
+
+
+class PlaywrightHogFunctionTemplateData(BaseModel):
+    template_id: str
+    name: str = "Test template"
+    status: str = "hidden"
+    template_type: str = "destination"
+    inputs_schema: list[dict[str, Any]] = []
+
+
+class PlaywrightHogFunctionTemplateResult(BaseModel):
+    template_id: str
+    created: bool
+
+
+def create_hog_function_template(
+    data: PlaywrightHogFunctionTemplateData,
+) -> PlaywrightHogFunctionTemplateResult:
+    """Seeds a single HogFunctionTemplate row.
+
+    Playwright CI doesn't run `sync_hog_function_templates`, so the templates table is empty.
+    Tests that exercise the workflow editor or hog function configuration need to seed any
+    template they reference. Templates are global (not team-scoped), so we no-op when a row
+    with the same template_id already exists — keeps it idempotent across parallel workers
+    without fighting `HogFunctionTemplate.save()` which recomputes `sha` from content.
+    """
+    from django.db import IntegrityError
+
+    from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+
+    if HogFunctionTemplate.objects.filter(template_id=data.template_id).exists():
+        return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=False)
+
+    try:
+        HogFunctionTemplate.objects.create(
+            template_id=data.template_id,
+            sha="playwright-seed",
+            name=data.name,
+            description=data.name,
+            code="return event",
+            code_language="hog",
+            inputs_schema=data.inputs_schema,
+            type=data.template_type,
+            status=data.status,
+            category=["Other"],
+            free=True,
+        )
+        return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=True)
+    except IntegrityError:
+        # Lost a race with a parallel worker — the row exists now.
+        return PlaywrightHogFunctionTemplateResult(template_id=data.template_id, created=False)
 
 
 @dataclass(frozen=True)
@@ -499,5 +571,10 @@ PLAYWRIGHT_SETUP_FUNCTIONS: dict[str, SetupFunctionConfig] = {
         function=create_organization_with_team,  # type: ignore
         input_model=PlaywrightWorkspaceSetupData,
         description="Creates org → team + user + API key",
+    ),
+    "hog_function_template": SetupFunctionConfig(
+        function=create_hog_function_template,  # type: ignore
+        input_model=PlaywrightHogFunctionTemplateData,
+        description="Seeds a single HogFunctionTemplate row (templates are global, not team-scoped)",
     ),
 }

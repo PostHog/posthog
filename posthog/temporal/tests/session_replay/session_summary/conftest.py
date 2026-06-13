@@ -4,26 +4,24 @@ from typing import Any
 import pytest
 
 import pytest_asyncio
-from redis import (
-    Redis,
-    asyncio as aioredis,
-)
+from redis import asyncio as aioredis
 
 from posthog.models.user import User
-from posthog.redis import TEST_clear_clients, get_async_client, get_client
-from posthog.temporal.session_replay.session_summary.summarize_session_group import SessionGroupSummaryInputs
-from posthog.temporal.session_replay.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
-from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
+from posthog.redis import TEST_clear_clients, get_async_client
+from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary_group.types import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.session_replay.session_summary_group.workflow import SessionGroupSummaryInputs
 
-from ee.hogai.session_summaries.constants import (
-    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-    SESSION_SUMMARIES_STREAMING_MODEL,
-    SESSION_SUMMARIES_SYNC_MODEL,
+from products.replay.backend.models.session_summaries import (
+    ExtraSummaryContext,
+    SessionSummaryRunMeta,
+    SingleSessionSummary,
 )
+
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.tests.conftest import *
-from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
+from ee.hogai.session_summaries.tests.conftest import *  # noqa: F401, F403  # legacy: pytest fixtures inherited from session-summaries conftest
 
 
 @pytest.fixture
@@ -41,7 +39,7 @@ def mock_single_session_summary_inputs() -> Callable:
             user_id=user_id,
             team_id=team_id,
             redis_key_base=redis_key_base,
-            model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
         )
 
     return _create_inputs
@@ -74,7 +72,7 @@ def mock_single_session_summary_llm_inputs(
             session_start_time_str="2025-03-31T18:40:32.302000Z",
             session_duration=5323,
             distinct_id="test_distinct_id",
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
         )
 
     return _create_inputs
@@ -97,7 +95,7 @@ def mock_session_group_summary_inputs() -> Callable:
             redis_key_base=redis_key_base,
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -119,7 +117,7 @@ def mock_session_group_summary_of_summaries_inputs() -> Callable:
             user_id=user_id,
             team_id=team_id,
             redis_key_base=redis_key_base,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -151,7 +149,7 @@ def mock_patterns_extraction_yaml_response() -> str:
 @pytest.fixture
 def mock_patterns_assignment_yaml_response() -> str:
     """Mock YAML response for pattern assignment"""
-    # All patterns need events assigned to meet the FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO threshold
+    # Cover every pattern so combine_patterns_with_events_context sees full assignments.
     return """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234", "defg4567"]
@@ -203,48 +201,14 @@ class AsyncRedisTestContext(RedisTestContextBase):
         self._clear_clients()
 
 
-class SyncRedisTestContext(RedisTestContextBase):
-    """Sync Redis test context for tests using sync Redis operations."""
-
-    def __init__(self):
-        super().__init__()
-        self.redis_client: Redis = get_client()
-
-    def setup_input_data(self, input_data: bytes, input_key: str, output_key: str | None = None):
-        """Set up Redis input data and track keys for cleanup."""
-        self.redis_client.setex(
-            input_key,
-            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-            input_data,
-        )
-        keys = self._get_keys_for_cleanup(input_key, output_key)
-        self.keys_to_cleanup.extend(keys)
-
-    def cleanup(self):
-        """Clean up all tracked Redis keys and clear client cache."""
-        for key in self.keys_to_cleanup:
-            self.redis_client.delete(key)
-        self._clear_clients()
-
-
 @pytest_asyncio.fixture
-async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext, None]:
+async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext]:
     """Async context manager for Redis test setup and cleanup."""
     context = AsyncRedisTestContext()
     try:
         yield context
     finally:
         await context.cleanup()
-
-
-@pytest.fixture
-def sync_redis_test_setup():
-    """Sync context manager for Redis test setup and cleanup."""
-    context = SyncRedisTestContext()
-    try:
-        yield context
-    finally:
-        context.cleanup()
 
 
 @pytest.fixture
@@ -257,7 +221,7 @@ def mock_extra_summary_context() -> ExtraSummaryContext:
 def mock_session_summary_run_meta() -> SessionSummaryRunMeta:
     """Create a mock SessionSummaryRunMeta for testing."""
     return SessionSummaryRunMeta(
-        model_used=SESSION_SUMMARIES_SYNC_MODEL,
+        model_used=SESSION_SUMMARIES_MODEL,
         visual_confirmation=True,
     )
 

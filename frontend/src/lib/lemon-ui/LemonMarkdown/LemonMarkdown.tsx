@@ -27,10 +27,21 @@ export interface LemonMarkdownProps {
     lowKeyHeadings?: boolean
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
+    /**
+     * Whether to render images as plain links instead of <img> elements. Use for untrusted content
+     * (e.g. LLM/agent output), where auto-loading images would fire requests to arbitrary URLs.
+     */
+    disableImages?: boolean
     className?: string
     wrapCode?: boolean
     /** Whether to generate id attributes on heading elements for anchor linking. */
     generateHeadingIds?: boolean
+    /**
+     * Optional renderer for ` ```mermaid ` code blocks. When omitted, mermaid fences fall back to a
+     * plain text CodeSnippet — this is the default so the mermaid library only ships in bundles
+     * that opt in (see `LemonMarkdownWithMermaid`).
+     */
+    renderMermaid?: (code: string) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -65,8 +76,10 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
+    renderMermaid,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
@@ -79,8 +92,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
                 if (isBlock) {
-                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     const value = String(children).replace(/\n$/, '')
+                    if (renderMermaid && languageMatch && languageMatch[1].toLowerCase() === 'mermaid') {
+                        return <>{renderMermaid(value)}</>
+                    }
+                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
                             {value}
@@ -104,6 +120,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 }
                 return <span className={className} {...props} />
             },
+            ...(disableImages
+                ? {
+                      img: ({ src, alt }: any): JSX.Element => (
+                          <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                              {alt || src}
+                          </Link>
+                      ),
+                  }
+                : {}),
             li: ({ children, node }: any): JSX.Element => {
                 const isTaskItem = node?.properties?.className?.includes('task-list-item')
                 if (isTaskItem) {
@@ -147,7 +172,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]
+        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
     return (
@@ -163,8 +188,10 @@ function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
+    renderMermaid,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -172,8 +199,10 @@ function LemonMarkdownComponent({
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
+                disableImages={disableImages}
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
+                renderMermaid={renderMermaid}
             >
                 {children}
             </LemonMarkdownRenderer>

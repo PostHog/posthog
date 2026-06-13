@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import difflib
 from collections.abc import Generator
 from typing import Optional
+
+from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -25,8 +28,6 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
 
-from posthog import schema
-
 
 def lookup_field_by_name(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, name: str, context: HogQLContext
@@ -35,23 +36,31 @@ def lookup_field_by_name(
 
     if isinstance(scope, ast.SelectSetQueryType):
         field: Optional[ast.Type] = None
-        for type in scope.types:
-            new_field = lookup_field_by_name(type, name, context)
+        field_sources: list[str] = []
+        for index, select_type in enumerate(scope.types, start=1):
+            new_field = lookup_field_by_name(select_type, name, context)
             if new_field:
                 if field:
-                    raise ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
+                    field_sources.append(_select_set_type_source_name(index))
+                    raise _ambiguous_field_resolution_error(name, field_sources)
+                field_sources.append(_select_set_type_source_name(index))
                 field = new_field
         return field
 
     if name in scope.aliases:
         return scope.aliases[name]
     else:
-        named_tables = [table for table in scope.tables.values() if table.has_child(name, context)]
+        named_tables = [
+            (table_alias, table) for table_alias, table in scope.tables.items() if table.has_child(name, context)
+        ]
         anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name, context)]
-        tables_with_field = named_tables + anonymous_tables
+        tables_with_field = [table for _, table in named_tables] + anonymous_tables
 
         if len(tables_with_field) > 1:
-            raise ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
+            field_sources = [
+                _table_source_name(table, context, alias=table_alias) for table_alias, table in named_tables
+            ] + [_anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)]
+            raise _ambiguous_field_resolution_error(name, field_sources)
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name, context)
 
@@ -59,6 +68,103 @@ def lookup_field_by_name(
             return lookup_field_by_name(scope.parent, name, context)
 
         return None
+
+
+def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> ResolutionError:
+    source_names = ", ".join(f"{source}.{name}" for source in field_sources)
+    return ResolutionError(
+        f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
+    )
+
+
+def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, alias: str | None = None) -> str:
+    if alias:
+        return alias
+
+    if isinstance(
+        table,
+        ast.TableAliasType
+        | ast.ColumnAliasedTableType
+        | ast.SelectViewType
+        | ast.CTETableAliasType
+        | ast.SelectQueryAliasType,
+    ):
+        return table.alias
+    if isinstance(table, ast.CTETableType):
+        return table.name
+
+    if isinstance(table, ast.TableType | ast.LazyTableType):
+        try:
+            return table.resolve_database_table(context).to_printed_hogql()
+        except Exception:
+            return "source"
+
+    return "source"
+
+
+def _anonymous_table_source_name(_table: ast.SelectQueryType | ast.SelectSetQueryType, index: int) -> str:
+    return f"anonymous source {index}"
+
+
+def _select_set_type_source_name(index: int) -> str:
+    return f"query source {index}"
+
+
+def _names_on_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+    if isinstance(table_type, ast.BaseTableType):
+        try:
+            table = table_type.resolve_database_table(context)
+        except Exception:
+            return set()
+        return set(table.fields.keys())
+    if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+        return set(getattr(table_type, "columns", {}).keys())
+    return set()
+
+
+def collect_available_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
+) -> set[str]:
+    """Gather field names visible in a scope (aliases + joined-table fields)
+    for use in 'did you mean' suggestions when resolution fails.
+
+    Returns a flat set — callers don't need to know whether a name comes from
+    an alias, a named table, or an anonymous subquery.
+    """
+    names: set[str] = set()
+
+    if isinstance(scope, ast.SelectSetQueryType):
+        for inner in scope.types:
+            names.update(collect_available_field_names(inner, context))
+        return names
+
+    names.update(scope.aliases.keys())
+    for table_type in scope.tables.values():
+        names.update(_names_on_table_type(table_type, context))
+    for anon in scope.anonymous_tables:
+        names.update(_names_on_table_type(anon, context))
+
+    if scope.parent is not None:
+        names.update(collect_available_field_names(scope.parent, context))
+
+    return names
+
+
+def suggest_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    name: str,
+    context: HogQLContext,
+    *,
+    limit: int = 3,
+) -> list[str]:
+    """Return up to `limit` field names from `scope` that are close matches
+    to `name` (difflib ratio >= 0.6). Returns an empty list when no scope
+    is available or no plausible matches are found.
+    """
+    candidates = collect_available_field_names(scope, context)
+    if not candidates:
+        return []
+    return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
 def lookup_table_by_name(
@@ -113,8 +219,12 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
     elif isinstance(expr, ast.Tuple):
         return tuple(ast_to_query_node(e) for e in expr.exprs)
     elif isinstance(expr, ast.HogQLXTag):
+        # Deferred: posthog.schema stays off django.setup(); this module loads there via
+        # hogql.ast, which the warehouse/data-modeling models import.
+        from posthog import schema  # noqa: PLC0415
+
         for klass in schema.__dict__.values():
-            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
+            if isinstance(klass, type) and issubclass(klass, BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
                 attributes.pop("kind")
                 # Query runners use "source" instead of "children" for their source query
@@ -145,7 +255,7 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
 
 
-def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
+def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery]:
     if isinstance(select, ast.SelectQuery):
         yield select
     else:

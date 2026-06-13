@@ -9,8 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.hog_flow.hog_flow import HogFlow
-
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
@@ -147,6 +146,25 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         assert schedule.status == "paused"
         assert schedule.next_run_at is None
 
+    def test_workflow_get_includes_nested_schedules(self):
+        workflow = self._create_batch_workflow()
+        self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "schedules" in data
+        assert len(data["schedules"]) == 1
+        assert data["schedules"][0]["rrule"] == SCHEDULE_DATA["rrule"]
+        assert data["schedules"][0]["status"] == "active"
+
+    def test_workflow_get_includes_empty_schedules_when_none(self):
+        workflow = self._create_batch_workflow()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["schedules"] == []
+
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()
         create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
@@ -249,9 +267,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
     def _post(self):
         return self.client.post(
-            self.INTERNAL_URL,
-            content_type="application/json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret",
+            self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
     def test_due_schedule_is_processed_and_next_run_at_advanced(self, mock_dispatch):
@@ -393,7 +409,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
-@unittest.mock.patch("posthog.api.hog_flow.create_hog_flow_scheduled_invocation")
+@unittest.mock.patch("products.workflows.backend.api.hog_flow.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 
@@ -419,9 +435,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     def _post(self):
         return self.client.post(
-            self.INTERNAL_URL,
-            content_type="application/json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret",
+            self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
     def test_due_schedule_trigger_dispatches_scheduled_invocation(self, mock_invocation):

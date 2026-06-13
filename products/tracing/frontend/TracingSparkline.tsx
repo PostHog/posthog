@@ -10,13 +10,28 @@ import { cn } from 'lib/utils/css-classes'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import type { TracingSparklineData } from './tracingDataLogic'
+import { type TracingDurationHistogramData, type VisibleDurationRange, snapDurationToBucket } from './durationBuckets'
+import { SparklineCompareOverlay } from './SparklineCompareOverlay'
+import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
+
+interface CompareConfig {
+    fullStartMs: number
+    fullEndMs: number
+    currentWindow: { startMs: number; endMs: number }
+    previousWindow: { startMs: number; endMs: number }
+    onChange: (current: { startMs: number; endMs: number }, previous: { startMs: number; endMs: number }) => void
+}
 
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string
+    compare?: CompareConfig
+    visibleRowDateRange?: VisibleSpanTimeRange | null
+    /** When set, render a duration histogram instead of the time series (list sorted by duration). */
+    durationHistogram?: TracingDurationHistogramData | null
+    visibleRowDurationRange?: VisibleDurationRange | null
 }
 
 export function TracingSparkline({
@@ -24,8 +39,13 @@ export function TracingSparkline({
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
+    compare,
+    visibleRowDateRange,
+    durationHistogram,
+    visibleRowDurationRange,
 }: TracingSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
+    const durationMode = durationHistogram != null
 
     const { timeUnit, tickFormat } = useMemo(() => {
         if (!sparklineData.dates.length) {
@@ -47,6 +67,23 @@ export function TracingSparkline({
 
     const withXScale = useCallback(
         (scale: AnyScaleOptions): AnyScaleOptions => {
+            if (durationMode) {
+                // Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is
+                // already log-spaced, so a plain category axis renders it evenly.
+                return {
+                    ...scale,
+                    type: 'category',
+                    ticks: {
+                        display: true,
+                        maxRotation: 0,
+                        maxTicksLimit: 8,
+                        font: {
+                            size: 10,
+                            lineHeight: 1,
+                        },
+                    },
+                } as AnyScaleOptions
+            }
             return {
                 ...scale,
                 type: 'timeseries',
@@ -68,21 +105,74 @@ export function TracingSparkline({
                 },
             } as AnyScaleOptions
         },
-        [timeUnit, tickFormat, displayTimezone]
+        [durationMode, timeUnit, tickFormat, displayTimezone]
     )
 
     const renderLabel = useCallback(
         (label: string): string => {
+            if (durationMode) {
+                return label // bucket labels ("2ms") are already human-readable
+            }
             const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
             const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
             return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
         },
-        [displayTimezone]
+        [durationMode, displayTimezone]
     )
 
     const sparklineLabels = useMemo(() => {
+        if (durationHistogram) {
+            return durationHistogram.labels
+        }
         return sparklineData.dates.map((date: string) => dayjs(date).toISOString())
-    }, [sparklineData.dates])
+    }, [durationHistogram, sparklineData.dates])
+
+    // Map the visible rows' duration range onto histogram bucket indices: snap each edge onto
+    // the same 1-2-5 series the backend bucketed with, then find those buckets on the axis.
+    const durationHighlightedRange = useMemo(() => {
+        if (!durationHistogram || !visibleRowDurationRange || durationHistogram.bucketsNs.length === 0) {
+            return null
+        }
+        const { bucketsNs } = durationHistogram
+        // An edge missing from the axis can only mean it's outside the rendered range (the axis
+        // spans the data's min..max bucket), so clamp it to the nearest end.
+        const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(visibleRowDurationRange.minNs))
+        const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(visibleRowDurationRange.maxNs))
+        const startIndex = startIndexRaw === -1 ? 0 : startIndexRaw
+        const endIndex = endIndexRaw === -1 ? bucketsNs.length - 1 : endIndexRaw
+        return startIndex <= endIndex ? { startIndex, endIndex } : null
+    }, [visibleRowDurationRange, durationHistogram])
+
+    // Map the visible-row date range onto bucket indices in `dates`. Buckets are anchored at
+    // their start time; the date_to edge belongs to the bucket whose start is the last one
+    // <= date_to. Suppressed in compare mode, where the list (and its window) isn't shown.
+    const highlightedRange = useMemo(() => {
+        if (compare || !visibleRowDateRange || sparklineData.dates.length === 0) {
+            return null
+        }
+        const fromMs = dayjs(visibleRowDateRange.date_from).valueOf()
+        const toMs = dayjs(visibleRowDateRange.date_to).valueOf()
+        let startIndex = -1
+        let endIndex = -1
+        for (let i = 0; i < sparklineData.dates.length; i++) {
+            const bucketMs = dayjs(sparklineData.dates[i]).valueOf()
+            if (bucketMs <= fromMs) {
+                startIndex = i
+            }
+            if (bucketMs <= toMs) {
+                endIndex = i
+            } else {
+                break
+            }
+        }
+        if (startIndex === -1) {
+            startIndex = 0
+        }
+        if (endIndex === -1 || endIndex < startIndex) {
+            return null
+        }
+        return { startIndex, endIndex }
+    }, [compare, visibleRowDateRange, sparklineData.dates])
 
     const onSelectionChange = useCallback(
         (selection: { startIndex: number; endIndex: number }): void => {
@@ -113,28 +203,42 @@ export function TracingSparkline({
                     aria-expanded={!collapsed}
                     aria-controls="tracing-sparkline-content"
                 >
-                    <span className="text-xs text-muted">Volume over time</span>
+                    <span className="text-xs text-muted">
+                        {durationMode ? 'Duration distribution' : 'Volume over time'}
+                    </span>
                 </LemonButton>
             </div>
             {!collapsed && (
                 <div id="tracing-sparkline-content" className="relative h-32">
-                    {sparklineData.data.length > 0 ? (
+                    {(durationHistogram ? durationHistogram.data : sparklineData.data).length > 0 ? (
                         <Sparkline
                             labels={sparklineLabels}
-                            data={sparklineData.data}
+                            data={durationHistogram ? durationHistogram.data : sparklineData.data}
                             className="w-full h-full"
-                            onSelectionChange={onSelectionChange}
+                            // Drag-select sets the date range — meaningless on a duration axis, so
+                            // disabled in duration mode (a duration-range filter is a later idea).
+                            onSelectionChange={compare || durationMode ? undefined : onSelectionChange}
                             withXScale={withXScale}
                             renderLabel={renderLabel}
                             tooltipRowCutoff={100}
                             hideZerosInTooltip
                             sortTooltipByCount
+                            highlightedRange={durationMode ? durationHighlightedRange : highlightedRange}
                         />
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">
                             No results matching filters
                         </div>
                     ) : null}
+                    {compare && sparklineData.data.length > 0 && (
+                        <SparklineCompareOverlay
+                            fullStartMs={compare.fullStartMs}
+                            fullEndMs={compare.fullEndMs}
+                            currentWindow={compare.currentWindow}
+                            previousWindow={compare.previousWindow}
+                            onChange={compare.onChange}
+                        />
+                    )}
                     {sparklineLoading && <SpinnerOverlay />}
                 </div>
             )}

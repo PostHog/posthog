@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.db.models import QuerySet
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
@@ -35,7 +36,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_query_name="feature",
     )
     feature_flag = models.ForeignKey(
-        "posthog.FeatureFlag",
+        "feature_flags.FeatureFlag",
         null=True,
         blank=True,
         on_delete=models.PROTECT,
@@ -44,7 +45,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    stage = models.CharField(max_length=40, choices=Stage.choices)
+    stage = models.CharField(max_length=40, choices=Stage)
     documentation_url = models.URLField(max_length=800, blank=True)
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -55,9 +56,9 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     __repr__ = sane_repr("id", "name", "team_id", "stage")
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["EarlyAccessFeature"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["EarlyAccessFeature"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
