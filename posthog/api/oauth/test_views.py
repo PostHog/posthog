@@ -1192,6 +1192,23 @@ class TestOAuthAPI(APIBaseTest):
             with self.assertRaises(OperationalError):
                 self.post("/oauth/token/", token_data)
 
+    def test_token_endpoint_returns_invalid_request_for_device_grant_without_device_code(self):
+        # django-oauth-toolkit reads params["device_code"] directly for the device-code grant,
+        # so omitting it would otherwise surface as a MultiValueDictKeyError / unhandled 500.
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": "test_confidential_client_id",
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["error"], "invalid_request")
+        self.assertIn("error_description", body)
+
     def test_pkce_code_verifier_validation(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         self.assertEqual(response.status_code, status.HTTP_200_OK)

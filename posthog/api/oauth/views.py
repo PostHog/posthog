@@ -11,6 +11,7 @@ from django.core.exceptions import DisallowedRedirect
 from django.db import OperationalError
 from django.http import JsonResponse
 from django.utils import timezone
+from django.utils.datastructures import MultiValueDictKeyError
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
@@ -1167,6 +1168,24 @@ class OAuthTokenView(TokenView):
                 {
                     "error": "invalid_grant",
                     "error_description": "Authorization code is invalid or has already been used",
+                },
+                status=400,
+            )
+        except MultiValueDictKeyError:
+            # django-oauth-toolkit's device-code grant reads params["device_code"] directly,
+            # raising MultiValueDictKeyError when a client posts the device-flow grant_type
+            # without the required device_code field. Map the missing required parameter to
+            # the standard 400 invalid_request instead of letting it escape as a 500.
+            logger.warning(
+                "oauth_token_missing_required_parameter",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_request",
+                    "error_description": "Request is missing a required parameter",
                 },
                 status=400,
             )
