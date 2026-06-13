@@ -1888,9 +1888,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // everything whenever the editor content changes.
             cache.subqueryValidationCache?.clear()
 
-            // Debounce the decoration update — updateActiveQueryDecoration calls
-            // splitQueries() and the WASM HogQL parser, which are too expensive to
-            // run synchronously on every keystroke.
+            // Debounce — updateActiveQueryDecoration runs the WASM HogQL parser synchronously.
             if (cache.decorationUpdateTimeout) {
                 window.clearTimeout(cache.decorationUpdateTimeout)
             }

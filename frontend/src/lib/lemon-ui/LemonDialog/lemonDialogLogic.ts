@@ -5,13 +5,13 @@ import type { lemonDialogLogicType } from './lemonDialogLogicType'
 
 export type LemonDialogFormPropsType = {
     errors?: Record<string, (value: string) => string | undefined>
-    /** Unique key that isolates this dialog's form state from other open dialogs. */
-    dialogKey?: string
+    /** Unique id that isolates this dialog's form state from other open dialogs. */
+    dialogId?: string
 }
 
 export const lemonDialogLogic = kea<lemonDialogLogicType>([
     props({} as LemonDialogFormPropsType),
-    key(({ dialogKey }) => dialogKey ?? 'default'),
+    key(({ dialogId }) => dialogId ?? 'default'),
     path((k) => ['components', 'lemon-dialog', 'lemonDialogLogic', k]),
     forms(({ props }) => ({
         form: {
