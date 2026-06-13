@@ -13,11 +13,9 @@ import {
 import { formatPercentage } from 'lib/utils'
 
 import { Card, CardState } from '../dashboard/Card'
-import { formatMsAsSeconds, formatNumber } from '../dashboard/formatters'
+import { formatMsAsSeconds } from '../dashboard/formatters'
 import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
-// The built-in tooltip formats each value with the y-axis tick formatter, so the
-// tooltip and axis agree and we don't need a custom tooltip component.
 function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
         yAxis: { showGrid: false, ...yAxis },
@@ -94,24 +92,10 @@ export function ToolQualityCharts({
     )
 
     const countsConfig = useMemo(() => buildConfig(timezone), [timezone])
-    const percentConfig = useMemo<TimeSeriesLineChartConfig>(() => {
-        const base = buildConfig(timezone, {
-            tickFormatter: (value: number) => formatPercentage(value, { compact: true }),
-        })
-        return {
-            ...base,
-            // Footer with the underlying call/error counts behind each day's success rate.
-            tooltip: {
-                ...base.tooltip,
-                renderExtra: (ctx) => (
-                    <div className="mt-1 opacity-70">
-                        {formatNumber(data.calls[ctx.dataIndex] ?? 0)} calls ·{' '}
-                        {formatNumber(data.errors[ctx.dataIndex] ?? 0)} errors
-                    </div>
-                ),
-            },
-        }
-    }, [timezone, data])
+    const percentConfig = useMemo(
+        () => buildConfig(timezone, { tickFormatter: (value: number) => formatPercentage(value, { compact: true }) }),
+        [timezone]
+    )
     const latencyConfig = useMemo(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
 
     return (
