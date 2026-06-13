@@ -1,3 +1,4 @@
+import json
 from contextlib import contextmanager
 
 from posthog.test.base import APIBaseTest
@@ -22,6 +23,7 @@ from products.posthog_ai.backend.message_routing import (
 )
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.system_prompt import PromptService
+from products.posthog_ai.backend.wire_types import NotificationFrame, parse_log_entry
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import CommandResult
 from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
@@ -700,15 +702,19 @@ class TestLegacyConversionService(APIBaseTest):
         self.conversation.refresh_from_db()
         run = self.conversation.task.runs.first()
         content = storage[run.log_url]
-        lines = [line for line in content.splitlines() if line]
-        assert len(lines) == 2
-        import json as _json
+        entries = [json.loads(line) for line in content.splitlines() if line]
+        assert len(entries) == 2
 
-        first = _json.loads(lines[0])
-        assert first["notification"]["method"] == "_posthog/user_message"
-        second = _json.loads(lines[1])
-        assert second["notification"]["method"] == "session/update"
-        assert second["notification"]["params"]["update"]["sessionUpdate"] == "agent_message"
+        assert entries[0]["notification"]["method"] == "_posthog/user_message"
+        assert entries[1]["notification"]["method"] == "session/update"
+        assert entries[1]["notification"]["params"]["update"]["sessionUpdate"] == "agent_message"
+
+        # Every seeded frame must carry the `type: notification` envelope so it survives
+        # `parse_log_entry` (and the frontend's `isNotificationFrame`) on bootstrap replay. A
+        # future drop of that field would silently make the whole converted thread invisible.
+        for entry in entries:
+            assert entry["type"] == "notification"
+            assert isinstance(parse_log_entry(entry), NotificationFrame)
 
     def test_conversion_does_not_inherit_default_ttl(self):
         with (
