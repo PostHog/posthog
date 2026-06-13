@@ -1,3 +1,8 @@
+import '@testing-library/jest-dom'
+
+import { render, screen } from '@testing-library/react'
+
+import type { McpToolCallMessage } from './maxTypes'
 import { lookupMcpToolRenderer, mcpToolRegistry } from './mcpToolRegistry'
 import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
 import { ErrorTrackingWidget } from './messages/adapters/ErrorTrackingWidget'
@@ -5,6 +10,19 @@ import { QueryWidget } from './messages/adapters/QueryWidget'
 import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
 import { UpsertDashboardWidget } from './messages/adapters/UpsertDashboardWidget'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
+
+function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMessage {
+    return {
+        id: 'tc-1',
+        resolvedKey: 'Edit',
+        rawServerName: 'posthog',
+        rawToolName: '',
+        rawInput: {},
+        content: [],
+        status: 'completed',
+        ...overrides,
+    }
+}
 
 describe('mcpToolRegistry data-tool widgets', () => {
     const cases: [string, React.ComponentType<any>][] = [
@@ -96,5 +114,44 @@ describe('mcpToolRegistry data-tool widgets', () => {
         const fallback = lookupMcpToolRenderer('NotARealTool')
         expect(fallback.displayName).toEqual('NotARealTool')
         expect(fallback.Renderer).toBe(FallbackMcpToolRenderer)
+    })
+
+    // Render-level: the registry's icon/displayName must actually reach the card, not just the entry.
+    // This is the regression the entry-only assertions above cannot catch — the card hard-coded a
+    // wrench and ignored the entry, so a built-in still rendered identically to the fallback.
+    describe('rendered card consumes the registry entry', () => {
+        it('renders the registry icon (not the wrench) and the displayName as the header', () => {
+            const entry = lookupMcpToolRenderer('Edit')
+            const message = makeMessage({ resolvedKey: 'Edit', title: '' })
+            // Mounted exactly as Thread.tsx mounts it: pass the resolved entry's icon + displayName.
+            render(
+                <entry.Renderer
+                    message={message}
+                    isLastInGroup
+                    icon={<span data-attr="resolved-icon">icon</span>}
+                    displayName={entry.displayName}
+                />
+            )
+            // The friendly displayName is the header label when the wire title is empty.
+            expect(screen.getByText('Edit')).toBeInTheDocument()
+            // The provided icon renders — the card no longer ignores props.icon in favor of the wrench.
+            expect(screen.getByTestId('resolved-icon')).toBeInTheDocument()
+        })
+
+        it('prefers the wire title over the displayName when a title is present', () => {
+            const message = makeMessage({ resolvedKey: 'Edit', title: 'Edit `foo.ts`' })
+            render(<FallbackMcpToolRenderer message={message} displayName="Edit" isLastInGroup />)
+            expect(screen.getByText('Edit `foo.ts`')).toBeInTheDocument()
+        })
+
+        it('falls back to the wrench when mounted without a resolved icon', () => {
+            const { container } = render(
+                <FallbackMcpToolRenderer message={makeMessage({ title: 'Tool call' })} isLastInGroup />
+            )
+            // No sentinel icon was passed, so the header's icon slot holds the hard-coded wrench svg.
+            const iconSlot = container.querySelector('.text-base.flex.items-center')
+            expect(iconSlot).not.toBeNull()
+            expect(iconSlot?.querySelector('svg')).toBeInTheDocument()
+        })
     })
 })

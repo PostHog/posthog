@@ -46,11 +46,12 @@ export function extractNotebook(message: McpToolRendererProps['message']): Noteb
  * ProseMirror document, not the assistant block format `NotebookArtifactAnswer` renders.
  * Pre-completion or malformed output falls back to the generic card.
  */
-export function CreateNotebookWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function CreateNotebookWidget(props: McpToolRendererProps): JSX.Element {
+    const { message } = props
     const notebook = message.status === 'completed' ? extractNotebook(message) : null
 
     if (!notebook) {
-        return <FallbackMcpToolRenderer message={message} isLastInGroup={isLastInGroup} />
+        return <FallbackMcpToolRenderer {...props} />
     }
 
     return (

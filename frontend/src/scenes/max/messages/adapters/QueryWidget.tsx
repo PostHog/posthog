@@ -8,11 +8,12 @@ import { extractQueryResult } from './extractors'
  * `VisualizationWidget` as inline ephemeral visualizations. Pending calls and outputs without an
  * inline renderer fall back to the generic card.
  */
-export function QueryWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function QueryWidget(props: McpToolRendererProps): JSX.Element {
+    const { message } = props
     const result = message.status === 'completed' ? extractQueryResult(message) : null
 
     if (!result) {
-        return <FallbackMcpToolRenderer message={message} isLastInGroup={isLastInGroup} />
+        return <FallbackMcpToolRenderer {...props} />
     }
 
     return <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" />

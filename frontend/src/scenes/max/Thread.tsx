@@ -197,7 +197,15 @@ function SandboxThread(): JSX.Element {
                         return null
                     }
                     const entry = lookupMcpToolRenderer(message.resolvedKey)
-                    return <entry.Renderer key={item.id} message={message} isLastInGroup />
+                    return (
+                        <entry.Renderer
+                            key={item.id}
+                            message={message}
+                            isLastInGroup
+                            icon={entry.icon}
+                            displayName={entry.displayName}
+                        />
+                    )
                 }
                 if (item.type === 'error') {
                     return (

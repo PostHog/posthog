@@ -41,6 +41,14 @@ import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 export interface McpToolRendererProps {
     message: McpToolCallMessage
     isLastInGroup: boolean
+    /**
+     * Resolved registry entry's icon — the registry's contribution to the card. Renderers that fall
+     * through to `FallbackMcpToolRenderer` use it for the header icon (built-ins get their friendly
+     * icon instead of the generic wrench). Optional so direct mounts default to the wrench.
+     */
+    icon?: JSX.Element
+    /** Resolved registry entry's stable display name, used as the header label when no title exists. */
+    displayName?: string
 }
 
 export interface McpToolRegistryEntry {

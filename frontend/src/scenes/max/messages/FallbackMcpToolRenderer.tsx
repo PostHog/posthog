@@ -45,8 +45,11 @@ function statusBadge(status: McpToolRendererProps['message']['status']): JSX.Ele
  * MCPs, unknown inner tools, malformed `exec` commands. Renders a generic, greppable tool card so
  * the registry can ship incrementally.
  */
-export function FallbackMcpToolRenderer({ message }: McpToolRendererProps): JSX.Element {
-    const headerLabel = message.title || message.innerToolName || message.rawToolName || 'Tool call'
+export function FallbackMcpToolRenderer({ message, icon, displayName }: McpToolRendererProps): JSX.Element {
+    const headerLabel = message.title || message.innerToolName || displayName || message.rawToolName || 'Tool call'
+    // The registry entry contributes the icon (friendly built-in icons, data-tool icons); fall back to
+    // the generic wrench only when the renderer is mounted without a resolved entry.
+    const headerIcon = icon ?? <IconWrench className="text-base" />
     const contentText = message.content.length > 0 ? renderContentBlocks(message.content) : ''
     const outputText =
         message.rawOutput !== undefined && message.rawOutput !== null ? JSON.stringify(message.rawOutput, null, 2) : ''
@@ -56,7 +59,7 @@ export function FallbackMcpToolRenderer({ message }: McpToolRendererProps): JSX.
             type="ai"
             header={
                 <div className="flex items-center gap-1.5 text-sm text-secondary mb-1">
-                    <IconWrench className="text-base" />
+                    <span className="text-base flex items-center">{headerIcon}</span>
                     <span className="font-medium text-default">{headerLabel}</span>
                     {statusBadge(message.status)}
                 </div>
