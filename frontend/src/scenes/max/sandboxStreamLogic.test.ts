@@ -119,9 +119,24 @@ describe('sandboxStreamLogic', () => {
             )
         })
 
-        it('returns the wire name for non-exec MCP tools and built-ins', () => {
+        it('returns the wire name for non-exec MCP tools that carry one', () => {
             expect(resolveToolKey('user-mcp', 'do_thing', {}).resolvedKey).toEqual('do_thing')
-            expect(resolveToolKey('claude', 'TodoWrite', {}).resolvedKey).toEqual('TodoWrite')
+        })
+
+        it.each(['Edit', 'TodoWrite', 'Grep', 'Task'])(
+            'falls back to the SDK %s name when the wire toolName is empty (every Claude built-in)',
+            (sdkName) => {
+                // Built-ins carry no top-level toolName on the wire — only `_meta.claudeCode.toolName`.
+                expect(resolveToolKey('claude', '', {}, sdkName).resolvedKey).toEqual(sdkName)
+            }
+        )
+
+        it('prefers the explicit wire toolName over the SDK name when both are present', () => {
+            expect(resolveToolKey('user-mcp', 'do_thing', {}, 'Edit').resolvedKey).toEqual('do_thing')
+        })
+
+        it('resolves to empty string when neither a wire toolName nor an SDK name is present', () => {
+            expect(resolveToolKey('claude', '', {}).resolvedKey).toEqual('')
         })
     })
 
@@ -350,15 +365,16 @@ describe('sandboxStreamLogic', () => {
     })
 
     describe('streamed tool input', () => {
-        it('folds rawInput arriving on a later update into a non-exec tool call', async () => {
+        it('folds rawInput arriving on a later update into a built-in tool call keyed off _meta', async () => {
+            // Built-ins carry no top-level toolName — the SDK name arrives only on `_meta.claudeCode`.
             const frames: StoredLogEntry[] = [
                 sessionUpdate({
                     sessionUpdate: 'tool_call',
                     toolCallId: 't1',
-                    toolName: 'ToolSearch',
                     title: 'ToolSearch',
                     rawInput: {},
                     status: 'pending',
+                    _meta: { claudeCode: { toolName: 'ToolSearch' } },
                 }),
                 sessionUpdate({
                     sessionUpdate: 'tool_call_update',
@@ -375,6 +391,7 @@ describe('sandboxStreamLogic', () => {
             const invocation = logic.values.toolInvocations.get('t1')
             expect(invocation?.input).toEqual({ query: 'find recordings', max_results: 10 })
             expect(invocation?.resolvedKey).toEqual('ToolSearch')
+            expect(invocation?.claudeToolName).toEqual('ToolSearch')
         })
 
         it('re-resolves the registry key when an exec command streams in after an empty tool_call', async () => {
@@ -404,6 +421,30 @@ describe('sandboxStreamLogic', () => {
             expect(invocation?.innerToolName).toEqual('insight-create')
             expect(invocation?.innerInput).toEqual({ name: 'Signups' })
         })
+
+        it.each(['Edit', 'TodoWrite', 'Grep', 'Task'])(
+            'keys a built-in %s tool_call off _meta.claudeCode.toolName despite an empty wire toolName',
+            async (sdkName) => {
+                const frames: StoredLogEntry[] = [
+                    sessionUpdate({
+                        sessionUpdate: 'tool_call',
+                        toolCallId: 'tb',
+                        title: `${sdkName} \`foo.ts\``,
+                        rawInput: {},
+                        status: 'in_progress',
+                        _meta: { claudeCode: { toolName: sdkName } },
+                    }),
+                ]
+
+                await expectLogic(logic, () => {
+                    frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+                }).toFinishAllListeners()
+
+                const invocation = logic.values.toolInvocations.get('tb')
+                expect(invocation?.resolvedKey).toEqual(sdkName)
+                expect(invocation?.claudeToolName).toEqual(sdkName)
+            }
+        )
 
         it('keeps the resolved input when a later update carries none', async () => {
             const frames: StoredLogEntry[] = [
@@ -562,21 +603,33 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.toolInvocations.get('t2')?.error?.message).toEqual('sandbox crashed')
         })
 
-        it('falls back to the _meta decision reason when a denied update carries no error message', async () => {
+        it('surfaces the _meta.claudeCode denial reason on a failed update with no explicit error', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({
                     sessionUpdate: 'tool_call',
                     toolCallId: 't3',
-                    serverName: 'posthog',
-                    toolName: 'exec',
-                    rawInput: { command: 'call insight-create {}' },
+                    title: 'Edit `foo.ts`',
+                    rawInput: {},
                     status: 'in_progress',
+                    _meta: { claudeCode: { toolName: 'Edit' } },
                 }),
                 sessionUpdate({
                     sessionUpdate: 'tool_call_update',
                     toolCallId: 't3',
                     status: 'failed',
-                    _meta: { decision_reason: 'User rejected the operation' },
+                    content: [
+                        { type: 'content', content: { type: 'text', text: 'Permission denied: writes blocked' } },
+                    ],
+                    _meta: {
+                        claudeCode: {
+                            toolName: 'Edit',
+                            toolResponse: {
+                                decisionReason: 'Edits are not allowed in read-only mode',
+                                decisionReasonType: 'policy',
+                                message: 'denied',
+                            },
+                        },
+                    },
                 }),
             ]
 
@@ -584,7 +637,9 @@ describe('sandboxStreamLogic', () => {
                 frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
             }).toFinishAllListeners()
 
-            expect(logic.values.toolInvocations.get('t3')?.error?.message).toEqual('User rejected the operation')
+            const invocation = logic.values.toolInvocations.get('t3')
+            expect(invocation?.status).toEqual('failed')
+            expect(invocation?.error?.message).toEqual('Edits are not allowed in read-only mode')
         })
 
         it('upserts a renderable invocation from a terminal update whose tool_call frame was lost', async () => {
@@ -601,6 +656,37 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.toolInvocations.get('orphan')?.status).toEqual('completed')
             expect(logic.values.threadItems.some((item) => item.toolCallId === 'orphan')).toEqual(true)
             expect(captureSpy.mock.calls.filter((c) => c[0] === 'tool_call_completed')).toHaveLength(0)
+        })
+
+        it('does not throw and keeps no error on the inline-denial path (failed, no _meta)', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't4',
+                    title: 'Bash `rm -rf`',
+                    rawInput: {},
+                    status: 'in_progress',
+                    _meta: { claudeCode: { toolName: 'Bash' } },
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't4',
+                    status: 'failed',
+                    content: [
+                        { type: 'content', content: { type: 'text', text: 'User refused permission to run Bash' } },
+                    ],
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('t4')
+            expect(invocation?.status).toEqual('failed')
+            // No _meta and no explicit error → the renderer falls back to the content text; no error.message synthesized.
+            expect(invocation?.error?.message).toBeUndefined()
+            expect(invocation?.contentBlocks).toHaveLength(1)
         })
     })
 
@@ -1192,6 +1278,23 @@ describe('sandboxStreamLogic', () => {
             const record = parsePermissionRequestFrame(frame as unknown as PermissionRequestFrame)
             expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'allow_always', 'reject_once'])
             expect(record?.options.find((o) => o.kind === 'reject_once')?.customInput).toEqual(true)
+        })
+
+        it('names the inner tool when the toolCall carries _meta.claudeCode.toolName', () => {
+            const record = parsePermissionRequestFrame({
+                type: 'permission_request',
+                requestId: 'req-2',
+                toolCall: {
+                    toolCallId: 't9',
+                    title: 'Edit `app.ts`',
+                    status: 'pending',
+                    _meta: { claudeCode: { toolName: 'Edit' } },
+                },
+                options: [{ optionId: 'allow_once', name: 'Approve', kind: 'allow_once' }],
+            })
+            expect(record).not.toBeNull()
+            expect(record?.rawToolCall.resolvedKey).toEqual('Edit')
+            expect(record?.rawToolCall.claudeToolName).toEqual('Edit')
         })
 
         it('populates pendingPermissionRequest off a permission_request SSE frame', async () => {

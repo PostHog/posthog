@@ -52,4 +52,49 @@ describe('mcpToolRegistry data-tool widgets', () => {
         // A single LLM trace has no inline renderer, so the tool stays on the fallback card.
         expect(mcpToolRegistry.lookup('query-llm-trace')).toBeNull()
     })
+
+    // Claude built-ins are keyed by their stable SDK name and all reuse the fallback renderer; the
+    // registry contributes a friendly displayName + icon (not the wrench fallback's resolvedKey/wrench).
+    const builtinCases: [string, string][] = [
+        ['Read', 'Read'],
+        ['NotebookRead', 'Read'],
+        ['Edit', 'Edit'],
+        ['Write', 'Edit'],
+        ['NotebookEdit', 'Edit'],
+        ['MultiEdit', 'Edit'],
+        ['Grep', 'Search'],
+        ['Glob', 'Search'],
+        ['LS', 'Search'],
+        ['Bash', 'Terminal'],
+        ['BashOutput', 'Terminal'],
+        ['KillShell', 'Terminal'],
+        ['WebSearch', 'Web'],
+        ['WebFetch', 'Web'],
+        ['Task', 'Subagent'],
+        ['Agent', 'Subagent'],
+        ['TaskCreate', 'Tasks'],
+        ['TaskUpdate', 'Tasks'],
+        ['TaskGet', 'Tasks'],
+        ['TaskList', 'Tasks'],
+        ['TodoWrite', 'Tasks'],
+        ['Skill', 'Skill'],
+        ['ToolSearch', 'Tool search'],
+        ['ExitPlanMode', 'Plan'],
+        ['AskUserQuestion', 'Question'],
+    ]
+
+    it.each(builtinCases)('resolves built-in %s to a registered entry with displayName "%s"', (key, displayName) => {
+        // A registered built-in entry exists — the lookup is not the synthesized wrench fallback.
+        const entry = mcpToolRegistry.lookup(key)
+        expect(entry).not.toBeNull()
+        expect(entry?.displayName).toEqual(displayName)
+        expect(lookupMcpToolRenderer(key).displayName).toEqual(displayName)
+    })
+
+    it('still falls back to the wrench card for an unmapped built-in-looking name', () => {
+        expect(mcpToolRegistry.lookup('NotARealTool')).toBeNull()
+        const fallback = lookupMcpToolRenderer('NotARealTool')
+        expect(fallback.displayName).toEqual('NotARealTool')
+        expect(fallback.Renderer).toBe(FallbackMcpToolRenderer)
+    })
 })

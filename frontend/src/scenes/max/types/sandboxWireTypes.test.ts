@@ -177,9 +177,14 @@ const SESSION_UPDATE_CASES: { kind: string; update: Record<string, unknown> }[] 
             status: 'failed',
             error: { message: 'Permission denied by user' },
             _meta: {
-                decision_reason: 'User rejected the permission request',
-                decision_reason_type: 'user_rejection',
-                message: 'Permission denied',
+                claudeCode: {
+                    toolName: 'execute-sql',
+                    toolResponse: {
+                        decisionReason: 'User rejected the permission request',
+                        decisionReasonType: 'user_rejection',
+                        message: 'Permission denied',
+                    },
+                },
             },
         },
     },
@@ -301,14 +306,16 @@ describe('sandboxWireTypes guards', () => {
         }
     )
 
-    it('carries the v0.42 _meta denial reason on failed tool_call_update frames', () => {
+    it('carries the nested _meta.claudeCode denial reason on failed tool_call_update frames', () => {
         const failedCase = SESSION_UPDATE_CASES.find(({ update }) => update.status === 'failed')
         const wireNotification = notificationOf(sessionUpdate(failedCase!.update))
         const body = isSessionUpdateNotification(wireNotification) ? wireNotification.params?.update : undefined
         if (!isKnownSessionUpdate(body) || body.sessionUpdate !== 'tool_call_update') {
             throw new Error('expected a tool_call_update body')
         }
-        expect(body._meta?.decision_reason).toEqual(expect.any(String))
+        const toolResponse = body._meta?.claudeCode?.toolResponse as { decisionReason?: string } | undefined
+        expect(toolResponse?.decisionReason).toEqual(expect.any(String))
+        expect(body._meta?.claudeCode?.toolName).toEqual(expect.any(String))
         expect(body.error?.message).toEqual(expect.any(String))
     })
 

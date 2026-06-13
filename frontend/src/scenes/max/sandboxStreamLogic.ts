@@ -128,12 +128,54 @@ interface ResolvedToolKey {
     innerInput?: Record<string, unknown>
 }
 
+/** Reads `_meta.claudeCode` off a tool frame's `_meta` without trusting its shape. */
+function getClaudeCodeMeta(meta: unknown): Record<string, unknown> | undefined {
+    if (typeof meta !== 'object' || meta === null) {
+        return undefined
+    }
+    const claudeCode = (meta as { claudeCode?: unknown }).claudeCode
+    return typeof claudeCode === 'object' && claudeCode !== null ? (claudeCode as Record<string, unknown>) : undefined
+}
+
+/** Stable SDK tool name (`"Edit"`, `"TodoWrite"`) from `_meta.claudeCode.toolName`; undefined when absent. */
+export function extractClaudeToolName(meta: unknown): string | undefined {
+    const claudeCode = getClaudeCodeMeta(meta)
+    return typeof claudeCode?.toolName === 'string' && claudeCode.toolName ? claudeCode.toolName : undefined
+}
+
+/**
+ * Permission-denial reason from `_meta.claudeCode.toolResponse`, preferring `decisionReason` over
+ * the generic `message`. Returns undefined when no `_meta` is present (the inline `canUseTool` path),
+ * so the caller can fall back to the content text / existing error.
+ */
+export function extractDenialReason(meta: unknown): string | undefined {
+    const claudeCode = getClaudeCodeMeta(meta)
+    const toolResponse = claudeCode?.toolResponse
+    if (typeof toolResponse !== 'object' || toolResponse === null) {
+        return undefined
+    }
+    const r = toolResponse as { decisionReason?: unknown; message?: unknown }
+    if (typeof r.decisionReason === 'string' && r.decisionReason) {
+        return r.decisionReason
+    }
+    if (typeof r.message === 'string' && r.message) {
+        return r.message
+    }
+    return undefined
+}
+
 /**
  * Resolves the registry key for a tool call. The single-exec `posthog` MCP server exposes one
  * outer `exec` tool; the inner tool name is parsed out of `rawInput.command`. Non-exec MCP tools
- * and Claude built-ins look up by their wire name directly.
+ * and Claude built-ins look up by their wire name directly. Claude built-ins carry no wire
+ * `toolName`, so `claudeToolName` (from `_meta.claudeCode.toolName`) is preferred as the fallback.
  */
-export function resolveToolKey(serverName: string, toolName: string, input: Record<string, unknown>): ResolvedToolKey {
+export function resolveToolKey(
+    serverName: string,
+    toolName: string,
+    input: Record<string, unknown>,
+    claudeToolName?: string
+): ResolvedToolKey {
     const fullName = `mcp__${serverName}__${toolName}`
 
     if (POSTHOG_EXEC_TOOL_RE.test(fullName) && typeof input.command === 'string') {
@@ -167,7 +209,7 @@ export function resolveToolKey(serverName: string, toolName: string, input: Reco
         return { resolvedKey: innerToolName, innerToolName, innerInput }
     }
 
-    return { resolvedKey: toolName }
+    return { resolvedKey: toolName || claudeToolName || '' }
 }
 
 /**
@@ -257,9 +299,18 @@ export function parsePermissionRequestFrame(
     }
 
     const rawServerName = String(toolCall.serverName ?? 'posthog')
-    const rawToolName = String(toolCall.toolName ?? toolCall.title ?? '')
+    // MCP-tool approval frames stamp the inner SDK tool name under `_meta.claudeCode.toolName`; pass
+    // it through so the card names the inner tool. No-op when absent (the field may not be present yet).
+    const claudeToolName = extractClaudeToolName(toolCall._meta)
+    const wireToolName = String(toolCall.toolName ?? '')
+    const rawToolName = wireToolName || (claudeToolName ? '' : String(toolCall.title ?? ''))
     const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
-    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(rawServerName, rawToolName, input)
+    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(
+        rawServerName,
+        wireToolName,
+        input,
+        claudeToolName
+    )
 
     // Canonical ACP tool name (e.g. `mcp__posthog__exec`, or a built-in like `Bash`). The wire puts
     // it on `_meta.claudeCode.toolName`; the bare fields are the fallback. The default permission
@@ -281,6 +332,7 @@ export function parsePermissionRequestFrame(
             rawToolName,
             innerToolName,
             resolvedKey,
+            claudeToolName,
             input,
             innerInput,
             status: mapAcpStatus(toolCall.status),
@@ -1095,15 +1147,25 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         break
                     }
                     const rawServerName = String(update.serverName ?? 'posthog')
-                    const rawToolName = String(update.toolName ?? update.title ?? '')
+                    const claudeToolName = extractClaudeToolName(update._meta)
+                    const wireToolName = String(update.toolName ?? '')
+                    // `rawToolName` is the displayed name (wire name, or the human title for built-ins
+                    // that carry no name); the resolver keys off the wire name + SDK name instead.
+                    const rawToolName = wireToolName || (claudeToolName ? '' : String(update.title ?? ''))
                     const input = update.rawInput ?? update.input ?? {}
-                    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(rawServerName, rawToolName, input)
+                    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(
+                        rawServerName,
+                        wireToolName,
+                        input,
+                        claudeToolName
+                    )
                     actions.upsertToolInvocation({
                         toolCallId,
                         rawServerName,
                         rawToolName,
                         innerToolName,
                         resolvedKey,
+                        claudeToolName,
                         input,
                         innerInput,
                         status: mapAcpStatus(update.status),
@@ -1128,12 +1190,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             : update.input && typeof update.input === 'object'
                               ? update.input
                               : undefined
-                    // A rejected call carries its denial reason on `_meta` (ACP adapter v0.42+), not
-                    // `error` — fall back to it so the failed tool card explains why it was denied.
+                    // On a permission denial Twig stamps the reason under `_meta.claudeCode.toolResponse`;
+                    // prefer it for the error when the update carries no explicit error, and fall back to
+                    // the notification-level error (and, for the inline `canUseTool` path that sends no
+                    // `_meta`, to the existing/content error) so neither path regresses.
+                    const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
                     const errorMessage =
                         update.error?.message ??
-                        update._meta?.decision_reason ??
-                        update._meta?.message ??
+                        denialReason ??
                         (status === 'failed' ? notification.error?.message : undefined)
                     const updateContent = Array.isArray(update.content) ? update.content : []
 
@@ -1170,7 +1234,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     // input building up), so fold the latest rawInput in and re-resolve the registry
                     // key from it rather than freezing the empty input the initial tool_call carried.
                     const reResolved = rawInput
-                        ? resolveToolKey(existing.rawServerName, existing.rawToolName, rawInput)
+                        ? resolveToolKey(
+                              existing.rawServerName,
+                              existing.rawToolName,
+                              rawInput,
+                              existing.claudeToolName
+                          )
                         : undefined
                     actions.updateToolInvocation(toolCallId, {
                         status,

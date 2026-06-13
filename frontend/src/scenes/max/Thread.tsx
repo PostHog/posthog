@@ -132,6 +132,7 @@ function toolInvocationToMessage(
         rawServerName: invocation.rawServerName,
         rawToolName: invocation.rawToolName,
         innerToolName: invocation.innerToolName,
+        claudeToolName: invocation.claudeToolName,
         rawInput: invocation.input,
         innerInput: invocation.innerInput,
         rawOutput: invocation.output,
