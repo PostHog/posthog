@@ -7,8 +7,8 @@
 
         @media (max-width: 1200px) {
             position: fixed;
-            top: 0;
-            right: 0;
+            top: env(safe-area-inset-top);
+            right: env(safe-area-inset-right);
             box-shadow: 0 0 30px rgb(0 0 0 / 20%);
 
             [theme='dark'] & {

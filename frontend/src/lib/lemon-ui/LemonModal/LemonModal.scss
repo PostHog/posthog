@@ -5,6 +5,10 @@
     display: flex;
     align-items: flex-start;
     justify-content: center;
+
+    // viewport-fit=cover lets content fill the notch/status-bar area; keep the
+    // modal within the safe area. The backdrop still covers the full screen.
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     transition:
         background-color var(--modal-transition-time) ease-out,
         backdrop-filter var(--modal-transition-time) ease-out;

@@ -91,7 +91,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                     onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                     iconOnly
                     aria-label={isLayoutNavbarVisibleForMobile ? 'Close navigation' : 'Open navigation'}
-                    className="fixed top-1 left-1 z-760 rounded-lg bg-surface-primary border border-primary shadow-sm"
+                    className="fixed top-[calc(0.25rem+env(safe-area-inset-top))] left-[calc(0.25rem+env(safe-area-inset-left))] z-760 rounded-lg bg-surface-primary border border-primary shadow-sm"
                 >
                     {isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                 </ButtonPrimitive>
@@ -115,9 +115,9 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                               // Use CSS transform for slide animation
                               '--project-panel-width': `${panelWidth}px`,
                               position: 'fixed' as const,
-                              top: 0,
-                              left: 0,
-                              bottom: 0,
+                              top: 'env(safe-area-inset-top)',
+                              left: 'env(safe-area-inset-left)',
+                              bottom: 'env(safe-area-inset-bottom)',
                               width: 'var(--project-navbar-width)',
                               transform: isLayoutNavbarVisibleForMobile ? 'translateX(0)' : 'translateX(-100%)',
                               transition: 'transform 0.2s ease-out',

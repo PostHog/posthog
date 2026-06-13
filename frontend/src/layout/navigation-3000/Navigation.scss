@@ -724,6 +724,13 @@
     &.app-layout--mobile {
         grid-template: 'content' 1fr / minmax(0, 1fr);
 
+        // viewport-fit=cover lets web content extend under the status bar and
+        // notch; keep scene content out of those regions. The fixed nav handles
+        // its own insets. Bottom is already covered by --scene-padding-bottom.
+        padding-top: env(safe-area-inset-top);
+        padding-right: env(safe-area-inset-right);
+        padding-left: env(safe-area-inset-left);
+
         .main-content-container {
             margin-right: 0;
         }
