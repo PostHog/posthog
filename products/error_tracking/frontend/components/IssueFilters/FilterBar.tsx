@@ -221,7 +221,6 @@ const BarContents = ({
                         showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
                     }
                     comboboxLeadingEntries={searchEntries}
-                    hideRecent
                     extraMenuItems={({ close }) => (
                         <>
                             {showIssueControls && (
