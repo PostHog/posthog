@@ -13,6 +13,7 @@ from products.tasks.backend.constants import (
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    SMALL_DATA_SANDBOX_FEATURE_FLAG,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
@@ -65,6 +66,9 @@ class TaskProcessingContext:
     sandbox_event_ingest_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
+    # Captured at workflow start so the sandbox size decision is stable across
+    # activity retries (a mid-run flag flip can't change the provisioned box).
+    small_data_sandbox_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -221,6 +225,45 @@ def _is_modal_vm_sandbox_enabled(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
         use_modal_vm_sandbox=enabled,
+    )
+    return enabled
+
+
+def _is_small_data_sandbox_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("small_data_sandbox_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "small_data_sandbox_state_override",
+            run_id=run_id,
+            small_data_sandbox_enabled=state_override,
+        )
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                SMALL_DATA_SANDBOX_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("small_data_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "small_data_sandbox_flag_checked",
+        run_id=run_id,
+        small_data_sandbox_enabled=enabled,
     )
     return enabled
 
@@ -386,6 +429,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
     )
+    small_data_sandbox_enabled = _is_small_data_sandbox_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"small_data_sandbox_enabled: {small_data_sandbox_enabled} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -417,4 +471,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        small_data_sandbox_enabled=small_data_sandbox_enabled,
     )

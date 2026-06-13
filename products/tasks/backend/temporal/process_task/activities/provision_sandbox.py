@@ -17,7 +17,12 @@ from products.tasks.backend.services.connection_token import (
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    increment_sandbox_created,
+    increment_sandbox_tier,
+    increment_snapshot_usage,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
@@ -44,6 +49,24 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "POSTHOG_RESUME_RUN_ID",
     "BASH_ENV",
 }
+
+# Small spec for data-only PostHog AI conversations (no repo, no build, paged results).
+# CPU and memory take effect immediately via Modal's create_kwargs; disk is
+# documentation-only on the Modal backend (the SDK exposes no disk-size knob).
+SMALL_DATA_SANDBOX_CPU_CORES = 1.0
+SMALL_DATA_SANDBOX_MEMORY_GB = 1.0
+SMALL_DATA_SANDBOX_DISK_GB = 10.0
+
+
+def is_data_only_sandbox(ctx: TaskProcessingContext) -> bool:
+    """A data-only sandbox runs a no-repo PostHog AI data Q&A conversation.
+
+    Gated on the origin-product enum member (not a bare literal, so a value rename stays
+    caught) AND no repository — PostHog AI is the only origin that is always and only
+    no-repo. Other origins (Signals, Slack) can also be no-repo but may run real compute,
+    so they must keep the default box.
+    """
+    return ctx.origin_product == Task.OriginProduct.POSTHOG_AI and ctx.repository is None
 
 
 @dataclass
@@ -369,6 +392,22 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
+
+        # Shrink the box only for no-repo PostHog AI data Q&A, and only behind the flag.
+        # The decision is captured once in the context at workflow start, so it's stable
+        # across activity retries. Defaults fall through to the SandboxConfig defaults
+        # (4 CPU / 16 GB / 64 GB) for every other flow.
+        use_small_sandbox = is_data_only_sandbox(ctx) and ctx.small_data_sandbox_enabled
+        tier = "small" if use_small_sandbox else "default"
+        sandbox_config_kwargs: dict[str, float] = {}
+        if use_small_sandbox:
+            sandbox_config_kwargs = {
+                "cpu_cores": SMALL_DATA_SANDBOX_CPU_CORES,
+                "memory_gb": SMALL_DATA_SANDBOX_MEMORY_GB,
+                "disk_size_gb": SMALL_DATA_SANDBOX_DISK_GB,
+            }
+        emit_agent_log(ctx.run_id, "debug", f"Provisioning {tier}-tier sandbox")
+
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
@@ -377,6 +416,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             snapshot_external_id=prepared.snapshot_external_id,
             metadata={"task_id": ctx.task_id},
             vm_runtime=use_vm_sandbox,
+            **sandbox_config_kwargs,
         )
 
         # gVisor only — Modal's domain allowlist breaks vm_runtime.
@@ -388,10 +428,17 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 f"Using Modal outbound_domain_allowlist ({len(config.outbound_domain_allowlist)} domains) instead of agentsh",
             )
 
-        with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
+        origin_product = ctx.origin_product or "unknown"
+        with StepTimer(
+            "sandbox_creation",
+            used_snapshot=prepared.used_snapshot,
+            tier=tier,
+            origin_product=origin_product,
+        ):
             sandbox = Sandbox.create(config)
 
         increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
+        increment_sandbox_tier(tier, origin_product)
 
         credentials = sandbox.get_connect_credentials()
 

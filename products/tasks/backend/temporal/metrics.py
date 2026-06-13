@@ -79,10 +79,38 @@ def increment_sandbox_created(runtime: str) -> None:
         pass
 
 
+def increment_sandbox_tier(tier: str, origin_product: str) -> None:
+    """Record a sandbox provision labeled by size tier ("small" / "default") and origin product.
+
+    Both labels are low-cardinality (tier is a two-value set, origin_product is a
+    bounded enum), so the series count stays bounded. Best-effort: a metric failure
+    must never break provisioning.
+    """
+    try:
+        meter = _metric_meter({"tier": tier, "origin_product": origin_product})
+        meter.create_counter(
+            "tasks_process_sandbox_tier",
+            "Sandboxes provisioned for process-task runs by size tier and origin product",
+        ).add(1)
+    except Exception:
+        pass
+
+
 class StepTimer:
-    def __init__(self, step: str, used_snapshot: bool | None = None) -> None:
+    def __init__(
+        self,
+        step: str,
+        used_snapshot: bool | None = None,
+        *,
+        tier: str | None = None,
+        origin_product: str | None = None,
+    ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
+        # Low-cardinality provisioning labels so the latency histogram can be split
+        # small-vs-default. Only set on the sandbox_creation step.
+        self.tier = tier
+        self.origin_product = origin_product
         self._start_counter: float | None = None
 
     def set_used_snapshot(self, used_snapshot: bool) -> None:
@@ -104,6 +132,10 @@ class StepTimer:
             "used_snapshot": _bool_label(self.used_snapshot),
             "status": "FAILED" if exc_value is not None else "COMPLETED",
         }
+        if self.tier is not None:
+            attributes["tier"] = self.tier
+        if self.origin_product is not None:
+            attributes["origin_product"] = self.origin_product
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(
