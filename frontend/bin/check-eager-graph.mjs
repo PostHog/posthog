@@ -32,16 +32,16 @@ const ROOTS = [
     {
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
-        // master 2026-06-11: 14.59 MiB / 749 files (post #62923)
-        budgetBytes: 17_000_000,
+        // master 2026-06-12: 14.62 MiB / 751 files
+        budgetBytes: 16_000_000,
         forbidden: ['node_modules/monaco-editor/'],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // master 2026-06-11: 55.51 MiB / 8,325 files (ratchet down once #62957 / #62967 land)
-        budgetBytes: 64_000_000,
-        forbidden: [],
+        // master 2026-06-12: 34.44 MiB / 5,381 files (post #62957 / #62967 / #63142 / #63146)
+        budgetBytes: 38_000_000,
+        forbidden: ['node_modules/monaco-editor/'],
     },
 ]
 

@@ -52,6 +52,7 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
+    "products.replay_vision",
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",

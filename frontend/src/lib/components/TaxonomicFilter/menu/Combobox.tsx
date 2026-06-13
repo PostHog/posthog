@@ -43,6 +43,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { COLLAPSED_TO_CONTAINS_ROW, urlContainsRowLabel } from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
@@ -75,15 +76,6 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.PinnedFilters,
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.HogQLExpression,
-])
-
-/** Groups that feed the "all" surface but are collapsed to a single
- *  "URL contains <query>" suggestion rather than listing every matching value,
- *  and are not offered as a standalone chip/category. People filtering by URL
- *  overwhelmingly want a contains match, so one synthetic row (when any URL
- *  matches) beats a wall of exact URLs. */
-const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set([
-    TaxonomicFilterGroupType.PageviewUrls,
 ])
 
 /** How many recents and pinned each lead the default "All" surface, matching
@@ -347,7 +339,7 @@ export function MenuFilterCombobox({
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
                 if (trimmedQuery && items.length > 0) {
-                    const label = `URL contains "${trimmedQuery}"`
+                    const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
                         // `isContainsShortcut` tags this synthetic row so the commit
                         // telemetry can measure adoption of the contains shortcut vs

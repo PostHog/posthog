@@ -45,6 +45,7 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import str_to_bool
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -62,20 +63,25 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def _encode_groups_cursor(created_at_us: int, group_id: int) -> str:
-    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_us, "i": group_id}).encode()).decode()
+def _encode_groups_cursor(created_at_us: int, group_key: str) -> str:
+    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_us, "k": group_key}).encode()).decode()
 
 
-def _decode_groups_cursor(cursor: str) -> tuple[int, int]:
+def _decode_groups_cursor(cursor: str) -> tuple[int, str]:
     try:
         data = _json.loads(base64.urlsafe_b64decode(cursor))
+        # Pre-deploy cursors keyed the tiebreaker on the PG id ("i") instead of group_key ("k").
+        # The new keyset can't honor that boundary (different column, no id in ClickHouse), so treat
+        # an old-format cursor as no cursor — restart from the first page, like any invalid cursor.
+        if "k" not in data:
+            return 0, ""
         raw_ts = int(data.get("c", 0))
-        group_id = int(data.get("i", 0))
+        group_key = str(data.get("k", ""))
         if 0 < raw_ts < 1e15:
             raw_ts *= 1000
-        return raw_ts, group_id
+        return raw_ts, group_key
     except Exception:
-        return 0, 0
+        return 0, ""
 
 
 def detect_group_property_type(value):
@@ -386,10 +392,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         group_key = self.request.GET.get("group_key", "")
 
         cursor_created_at_us = 0
-        cursor_id = 0
+        cursor_group_key = ""
         cursor_param = self.request.GET.get("cursor")
         if cursor_param:
-            cursor_created_at_us, cursor_id = _decode_groups_cursor(cursor_param)
+            cursor_created_at_us, cursor_group_key = _decode_groups_cursor(cursor_param)
 
         result = list_groups(
             team_id=self.team.pk,
@@ -397,7 +403,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_key_contains=group_key,
             search=group_search,
             cursor_created_at_us=cursor_created_at_us,
-            cursor_id=cursor_id,
+            cursor_group_key=cursor_group_key,
         )
 
         serializer = self.get_serializer(result.groups, many=True)
@@ -405,7 +411,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         next_url = None
         if result.has_more and result.groups:
             last = result.groups[-1]
-            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1_000_000), last.id)
+            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1_000_000), last.group_key)
             params: dict[str, str | int] = {"group_type_index": group_type_index, "cursor": cursor}
             if group_search:
                 params["search"] = group_search
@@ -491,16 +497,25 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Specify the key of the group to find",
                 required=True,
             ),
+            OpenApiParameter(
+                "skip_create_notebook",
+                OpenApiTypes.BOOL,
+                description="When true, do not lazily create the group's CRM notebook. "
+                "Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.",
+                required=False,
+            ),
         ]
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
+        skip_create_notebook = str_to_bool(request.GET.get("skip_create_notebook"))
         group = get_group_by_key(self.team.pk, int(group_type_index), group_key)
         if group is None:
             raise NotFound()
         if (
-            self._is_crm_enabled(cast(User, request.user))
+            not skip_create_notebook
+            and self._is_crm_enabled(cast(User, request.user))
             and not ResourceNotebook.objects.filter(group=group.id).exists()
         ):
             try:

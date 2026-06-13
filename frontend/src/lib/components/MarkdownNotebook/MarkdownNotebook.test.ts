@@ -2021,7 +2021,12 @@ Tail paragraph`
         const selection = window.getSelection()
         expect(activeElement.textContent).toEqual('Typed while save is pending')
         expect(selection?.isCollapsed).toBe(true)
-        expect(selection?.focusOffset).toEqual('Typed while save is pending'.length)
+        // Measure the caret as a text offset: the echo may leave the original element-level
+        // selection untouched instead of normalizing it to a text-node offset.
+        const caretRange = selection!.getRangeAt(0).cloneRange()
+        caretRange.selectNodeContents(activeElement)
+        caretRange.setEnd(selection!.focusNode!, selection!.focusOffset)
+        expect(caretRange.toString().length).toEqual('Typed while save is pending'.length)
     })
 
     it('keeps the caret in place when an autosave echo arrives while editing a list item', () => {
@@ -2090,6 +2095,37 @@ Tail paragraph`
         fireEvent.keyDown(getBodyTextBlock(container), { key: 'z', metaKey: true })
 
         expect(onChange.mock.calls.at(-1)?.[0]).toEqual(initialMarkdown)
+    })
+
+    it('does not duplicate text when a stale autosave echo arrives mid-typing', () => {
+        const onChange = jest.fn()
+        // The typed paragraph must not be the last block: the serializer trims trailing
+        // whitespace at the document end, which would hide the NBSP this scenario needs.
+        const initialMarkdown = withNotebookTitle('if i\n\nlast paragraph')
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: initialMarkdown, remoteValue: initialMarkdown, onChange })
+        )
+        const bodyBlock = getBodyTextBlock(container)
+
+        // Type a trailing space — browsers put a non-breaking space in the DOM so it renders —
+        // and let the autosave of that state go in flight.
+        updateContentEditableText(bodyBlock, 'if i\u00a0')
+        const inFlightSaveMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+        // The next keystroke makes the browser turn the no-longer-trailing NBSP back into a
+        // plain space, so the local text no longer contains the saved snapshot verbatim.
+        updateContentEditableText(bodyBlock, 'if i t')
+        const localMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        expect(inFlightSaveMarkdown).toEqual(withNotebookTitle('if i\u00a0\n\nlast paragraph'))
+        expect(localMarkdown).toEqual(withNotebookTitle('if i t\n\nlast paragraph'))
+
+        // The intermediate save echoes back as the new remote state. Everything in it is already
+        // part of the local text — merging it back in would re-apply the NBSP next to the new
+        // plain space, duplicating it ("if i\u00a0 t", rendered as a double space).
+        rerender(createElement(MarkdownNotebook, { value: localMarkdown, remoteValue: inFlightSaveMarkdown, onChange }))
+
+        expect(getBodyTextBlock(container).textContent).toEqual('if i t')
+        expect(onChange.mock.calls.at(-1)?.[0]).toEqual(localMarkdown)
     })
 
     it('keeps local edits when consecutive remote updates arrive before the save lands', () => {
@@ -5905,6 +5941,102 @@ Tail with **bold** text`)
             expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n-`)
         }
     )
+
+    it.each([
+        ['[] ', '- [ ]'],
+        ['[ ] ', '- [ ]'],
+        ['[x] ', '- [x]'],
+    ])('converts a task list shortcut "%s" at the start of a text row into a task list', (shortcut, markdown) => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = shortcut
+        fireEvent.input(textBlock)
+
+        const taskItem = container.querySelector('li.MarkdownNotebook__list-item--task')
+        const checkbox = taskItem?.querySelector('input[type="checkbox"]') as HTMLInputElement
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content')
+
+        expect(taskItem).toBeInstanceOf(HTMLElement)
+        expect(checkbox.checked).toEqual(markdown === '- [x]')
+        expect(document.activeElement).toEqual(listItem)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}`)
+    })
+
+    it('converts a typed task marker at the start of a bullet list item into a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('- alpha'), onChange }))
+        const listItems = getEditableListItems(container)
+
+        act(() => {
+            listItems[0].textContent = '[x] alpha'
+        })
+        selectTextInElement(listItems[0], '[x] '.length, '[x] '.length)
+        fireEvent.input(listItems[0])
+
+        const checkbox = container.querySelector(
+            'li.MarkdownNotebook__list-item--task input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.checked).toEqual(true)
+        expect(getEditableListItems(container)[0].textContent).toEqual('alpha')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] alpha`)
+    })
+
+    it('renders task checkboxes instead of bullets and toggles them through clicks', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- [ ] open\n- [x] done'),
+                onChange,
+            })
+        )
+        const taskItems = Array.from(container.querySelectorAll('li.MarkdownNotebook__list-item--task'))
+        const checkboxes = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__task-checkbox input[type="checkbox"]')
+        ) as HTMLInputElement[]
+
+        expect(taskItems).toHaveLength(2)
+        expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([false, true])
+
+        fireEvent.click(checkboxes[0])
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] open\n- [x] done`)
+    })
+
+    it('keeps a task marker on an ordered list item as literal text without a checkbox', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('1. [x] not a task') }))
+
+        expect(container.querySelector('li.MarkdownNotebook__list-item--task')).toBeNull()
+        expect(getEditableListItems(container)[0].textContent).toEqual('[x] not a task')
+    })
+
+    it('disables task checkboxes in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [ ] open'), mode: 'view' })
+        )
+        const checkbox = container.querySelector(
+            '.MarkdownNotebook__task-checkbox input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.disabled).toEqual(true)
+    })
+
+    it('creates a new unchecked task item when pressing Enter in a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [x] done'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        pressEnterInListItem(listItems[0], 'done'.length)
+        updateActiveContentEditableText('next')
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] done\n- [ ] next`)
+    })
 
     it('keeps ordered list items stable when creating several items from the keyboard', () => {
         expectNoDuplicateKeyWarnings(() => {
