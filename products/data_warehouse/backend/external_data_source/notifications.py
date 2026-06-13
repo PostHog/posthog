@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
 
 
-def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=24)) -> list[int]:
+def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=26)) -> list[int]:
     """Teams with still-failing schemas that have an un-communicated recent failure.
 
     Powers the daily catch-up digest: failures that the one-email-per-day block
@@ -28,6 +28,11 @@ def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta
     will never produce another failed run to re-trigger the inline path. A failure
     counts only if it is newer than the schema's `last_error_notified_at` stamp,
     so failures already covered by an earlier digest don't trigger a duplicate.
+
+    The lookback exceeds the 24h digest day on purpose: a failure just after the
+    10:00 UTC rollover, blocked because that digest day's email already went out,
+    is 24h15m+ old by the next catch-up run — a 24h lookback would drop it forever
+    for paused schemas. The stamp check above keeps the wider window duplicate-free.
     """
     cutoff = dt.datetime.now(dt.UTC) - lookback
     # Drive from the schema side: the jobs table grows with every sync run and has
