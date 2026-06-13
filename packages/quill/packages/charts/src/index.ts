@@ -87,6 +87,8 @@ export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
+// Value formatter used by the built-in tooltip — guards non-finite values as an em dash
+export { formatTooltipValue, TOOLTIP_EMPTY_VALUE } from './core/tooltipFormat'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
 export { TooltipSurface, TooltipSwatch, TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './overlays/TooltipSurface'
 

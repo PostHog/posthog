@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
     colors: string[]
@@ -138,6 +140,15 @@ export interface TooltipContext<Meta = unknown> {
     isPinned: boolean
     /** Callback to unpin (close) a pinned tooltip. Only present when the tooltip is pinned. */
     onUnpin?: () => void
+    /** Formats a series value for display. The chart engine populates this with the y-axis tick
+     *  formatter (so tooltip values match axis ticks) — or {@link TooltipConfig.valueFormatter}
+     *  when set — guarding non-finite values as an em dash. {@link DefaultTooltip} uses it, and
+     *  custom tooltips can call it for axis-consistent formatting. */
+    formatValue?: (value: number) => string
+    /** Extra content rendered by {@link DefaultTooltip} below the series rows — populated from
+     *  {@link TooltipConfig.renderExtra}. Lets consumers add a contextual footer without
+     *  replacing the whole tooltip. */
+    renderExtra?: (ctx: TooltipContext) => ReactNode
 }
 
 /** Computed layout dimensions of the chart, derived from container size and margins. */
@@ -221,6 +232,14 @@ export interface TooltipConfig {
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
+    /** Formats series values in the built-in tooltip. Defaults to the y-axis tick formatter so
+     *  the tooltip and axis agree (e.g. both show "1.5s" or "98%"); non-finite values always
+     *  render as an em dash. Set this only to format the tooltip differently from the axis. */
+    valueFormatter?: (value: number) => string
+    /** Render extra content below the series rows in the built-in tooltip — e.g. a contextual
+     *  footer like "120 calls · 3 errors". Receives the full tooltip context. Avoids hand-rolling
+     *  a whole custom tooltip just to append a line. */
+    renderExtra?: (ctx: TooltipContext) => ReactNode
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal

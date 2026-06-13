@@ -1,7 +1,10 @@
 import type { TooltipContext } from '../core/types'
+import { formatTooltipValue } from '../core/tooltipFormat'
 import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
 
-export function DefaultTooltip({ label, seriesData }: TooltipContext): React.ReactElement {
+export function DefaultTooltip(ctx: TooltipContext): React.ReactElement {
+    const { label, seriesData, formatValue, renderExtra } = ctx
+    const format = formatValue ?? ((value: number): string => formatTooltipValue(value))
     return (
         <TooltipSurface>
             <div className="font-semibold mb-1">{label}</div>
@@ -9,9 +12,10 @@ export function DefaultTooltip({ label, seriesData }: TooltipContext): React.Rea
                 <div key={s.series.key} className="flex items-center gap-2">
                     <TooltipSwatch color={s.color} />
                     <span>{s.series.label}:</span>
-                    <strong>{s.value.toLocaleString()}</strong>
+                    <strong>{format(s.value)}</strong>
                 </div>
             ))}
+            {renderExtra?.(ctx)}
         </TooltipSurface>
     )
 }

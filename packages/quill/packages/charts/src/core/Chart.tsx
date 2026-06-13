@@ -15,6 +15,7 @@ import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
+import { formatTooltipValue } from './tooltipFormat'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import type {
     ChartConfig,
@@ -125,6 +126,8 @@ export function Chart<Meta = unknown>({
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
+        valueFormatter: tooltipValueFormatter,
+        renderExtra: tooltipRenderExtra,
     } = tooltipConfig ?? {}
 
     const margins = useChartMargins({
@@ -154,6 +157,12 @@ export function Chart<Meta = unknown>({
     }, [coloredSeries, labels, dimensions, createScalesFn])
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
+
+    // Tooltip values format like the y-axis by default (overridable), with non-finite guarded.
+    const formatTooltipValueFn = useMemo<(value: number) => string>(() => {
+        const base = tooltipValueFormatter ?? resolvedYFormatter
+        return (value: number): string => formatTooltipValue(value, base)
+    }, [tooltipValueFormatter, resolvedYFormatter])
 
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
@@ -279,7 +288,11 @@ export function Chart<Meta = unknown>({
                     {children}
 
                     {tooltipCtx && showTooltip && (
-                        <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement={tooltipPlacement} />
+                        <Tooltip
+                            context={{ ...tooltipCtx, formatValue: formatTooltipValueFn, renderExtra: tooltipRenderExtra }}
+                            renderTooltip={renderTooltip}
+                            placement={tooltipPlacement}
+                        />
                     )}
                 </ChartShell>
             </ChartHoverContext.Provider>

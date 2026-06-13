@@ -149,6 +149,41 @@ export const HoveringInterior: Story = {
     },
 }
 
+/** The built-in tooltip formats values via `config.tooltip.valueFormatter` and appends a
+ *  contextual footer via `config.tooltip.renderExtra` — no custom tooltip component needed. */
+export const FormattedTooltip: Story = {
+    parameters: { layout: 'fullscreen' },
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: LineChartConfig = {
+            showGrid: true,
+            showCrosshair: true,
+            yTickFormatter: (v) => `${v}ms`,
+            tooltip: {
+                valueFormatter: (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`),
+                renderExtra: (ctx) => (
+                    <div className="mt-1 opacity-70">{DAYS[ctx.dataIndex]} · p50 / p95 / p99</div>
+                ),
+            },
+        }
+        const series: Series[] = [
+            { key: 'p50', label: 'p50', color: '', data: [120, 180, 150, 470, 300, 900, 520] },
+            { key: 'p95', label: 'p95', color: '', data: [400, 600, 520, 1500, 1100, 2400, 1800] },
+        ]
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+                <Stage>
+                    <LineChart series={series} labels={DAYS} config={config} theme={theme} />
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
+    },
+}
+
 /** Multi-series hover with one series hidden from the tooltip via `tooltip: false`. */
 export const HoveringMultiSeries: Story = {
     parameters: { layout: 'fullscreen' },

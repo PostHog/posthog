@@ -68,6 +68,31 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 - `Legend` is presentational: pass `items`, `onItemClick`, `hiddenKeys` — filtering series is the caller's state.
 - y-axis `format`: `numeric | short | percentage | percentage_scaled | currency | duration | duration-ms`, plus `prefix`/`suffix`.
 
+## Tooltips
+
+The built-in tooltip handles most cases — **reach for a custom `tooltip` render prop only when you need a fundamentally different layout.** By default it formats each value with the y-axis tick formatter (so tooltip and axis agree) and renders non-finite values (NaN gap points) as an em dash.
+
+```tsx
+<TimeSeriesLineChart
+  series={series}
+  labels={labels}
+  theme={theme}
+  config={{
+    yTickFormatter: (ms) => formatMs(ms),
+    tooltip: {
+      // Override only to format the tooltip differently from the axis; otherwise omit.
+      valueFormatter: (ms) => formatMs(ms),
+      // Append a contextual footer without rebuilding the whole tooltip.
+      renderExtra: (ctx) => <div className="mt-1 opacity-70">{ctx.dataIndex} calls</div>,
+    },
+  }}
+/>
+```
+
+- `config.tooltip.valueFormatter` — defaults to the resolved y-axis formatter; set it only to diverge from the axis. Non-finite values always render as `—` (don't special-case NaN yourself).
+- `config.tooltip.renderExtra(ctx)` — extra content below the series rows (footers, context).
+- A custom `tooltip` render prop still gets `ctx.formatValue` for axis-consistent formatting.
+
 ## Maintenance
 
 When adding or changing a chart, overlay, or config option, update this guide in the same PR and add a story next to the component.
