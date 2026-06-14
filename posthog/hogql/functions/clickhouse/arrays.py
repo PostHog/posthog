@@ -36,6 +36,28 @@ ARRAY_STRING_COMMON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((UUIDType(),), IntegerType()),
         ],
     ),
+    # ClickHouse has no native isEmpty/isNotEmpty; alias them to empty/notEmpty
+    # so they resolve consistently with the type system (see type_system.py).
+    "isEmpty": HogQLFunctionMeta(
+        "empty",
+        1,
+        1,
+        signatures=[
+            ((ArrayType(),), IntegerType()),
+            ((StringType(),), IntegerType()),
+            ((UUIDType(),), IntegerType()),
+        ],
+    ),
+    "isNotEmpty": HogQLFunctionMeta(
+        "notEmpty",
+        1,
+        1,
+        signatures=[
+            ((ArrayType(),), IntegerType()),
+            ((StringType(),), IntegerType()),
+            ((UUIDType(),), IntegerType()),
+        ],
+    ),
     "length": HogQLFunctionMeta(
         "length",
         1,

@@ -1229,6 +1229,12 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
+        # isEmpty/isNotEmpty are HogQL aliases for ClickHouse empty/notEmpty
+        self.assertEqual(self._expr("empty('test')"), "empty(%(hogql_val_0)s)")
+        self.assertEqual(self._expr("isEmpty('test')"), "empty(%(hogql_val_0)s)")
+        self.assertEqual(self._expr("notEmpty('test')"), "notEmpty(%(hogql_val_0)s)")
+        self.assertEqual(self._expr("isNotEmpty('test')"), "notEmpty(%(hogql_val_0)s)")
+
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
         self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
         self.assertEqual(
