@@ -1068,7 +1068,7 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
                         {value}
                     </span>
                 )}
-                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
+                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
