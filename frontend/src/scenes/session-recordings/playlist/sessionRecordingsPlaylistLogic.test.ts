@@ -258,6 +258,27 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         selectedRecordingOutsideFilters: true,
                     })
             })
+
+            it('excludes a recording that does not match the filters from the results list', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId(outsideFiltersRecording.id))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        // outsideFiltersRecording is flagged matches_filters === false, so it must not
+                        // leak into the results list even though the backend prepends it
+                        otherRecordings: [aRecording, bRecording],
+                    })
+
+                expect(logic.values.otherRecordings.find((r) => r.id === outsideFiltersRecording.id)).toBeUndefined()
+            })
+
+            it('still opens the out-of-filter recording in the player', async () => {
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId(outsideFiltersRecording.id))
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        // even though it's excluded from the list, the player resolves it via the raw response
+                        activeSessionRecording: expect.objectContaining({ id: outsideFiltersRecording.id }),
+                    })
+            })
         })
 
         describe('nextSessionRecording', () => {

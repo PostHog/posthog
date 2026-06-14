@@ -1271,19 +1271,26 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         activeSessionRecording: [
-            (s) => [s.activeSessionRecordingId, s.recordings],
-            (activeSessionRecordingId, recordings): SessionRecordingType | undefined => {
-                return recordings.find((rec) => rec.id === activeSessionRecordingId)
+            (s) => [s.activeSessionRecordingId, s.recordings, s.sessionRecordings],
+            (activeSessionRecordingId, recordings, sessionRecordings): SessionRecordingType | undefined => {
+                // Fall back to the raw response list so a selected recording that's outside the
+                // current filters (and therefore excluded from `recordings`) still opens in the player.
+                return (
+                    recordings.find((rec) => rec.id === activeSessionRecordingId) ??
+                    sessionRecordings.find((rec) => rec.id === activeSessionRecordingId)
+                )
             },
         ],
 
         selectedRecordingOutsideFilters: [
-            (s) => [s.selectedRecordingId, s.recordings],
-            (selectedRecordingId, recordings): boolean => {
+            (s) => [s.selectedRecordingId, s.sessionRecordings],
+            (selectedRecordingId, sessionRecordings): boolean => {
                 if (!selectedRecordingId) {
                     return false
                 }
-                return recordings.find((rec) => rec.id === selectedRecordingId)?.matches_filters === false
+                // Read from the raw response list: a recording outside the filters is excluded from
+                // `recordings`, but still present here flagged with matches_filters === false.
+                return sessionRecordings.find((rec) => rec.id === selectedRecordingId)?.matches_filters === false
             },
         ],
 
@@ -1377,6 +1384,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ): SessionRecordingType[] => {
                 const filteredRecordings = sessionRecordings.filter((rec) => {
                     if (deletedRecordingIds.has(rec.id)) {
+                        return false
+                    }
+
+                    // The backend prepends the selected recording even when it doesn't match the
+                    // current filters (flagged matches_filters === false) so a direct link can still
+                    // open it. Keep it out of the results list — it's surfaced via the banner instead.
+                    if (rec.matches_filters === false) {
                         return false
                     }
 
