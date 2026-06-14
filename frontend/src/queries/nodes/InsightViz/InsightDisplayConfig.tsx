@@ -126,7 +126,10 @@ export function InsightDisplayConfig(): JSX.Element {
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
-        ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
+        // The slope graph only uses the two ends of the range, so the interval is meaningless.
+        (display !== ChartDisplayType.SlopeGraph &&
+            (isTrends || isStickiness) &&
+            !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends &&
         !hasBreakdownFilter(breakdownFilter) &&

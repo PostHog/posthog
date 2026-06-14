@@ -362,6 +362,18 @@ def get_query_runner(
                 user=user,
             )
 
+        if display_type == ChartDisplayType.SLOPE_GRAPH:
+            from .insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
+
+            return SlopeGraphTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
