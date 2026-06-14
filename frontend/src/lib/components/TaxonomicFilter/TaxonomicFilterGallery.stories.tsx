@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useActions, useMountedLogic } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { ComponentProps, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -10,6 +10,12 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import {
+    DEFAULT_UNIVERSAL_GROUP_FILTER,
+    universalFiltersLogic,
+} from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -21,9 +27,10 @@ const noop = (): void => {}
 type FilterUsage = { entry: 'filter'; props: Omit<ComponentProps<typeof TaxonomicFilter>, 'taxonomicFilterLogicKey'> }
 type PopoverUsage = { entry: 'popover'; props: ComponentProps<typeof TaxonomicPopover> }
 type PropertiesUsage = { entry: 'properties'; props: Omit<ComponentProps<typeof PropertyFilters>, 'pageKey'> }
+type UniversalUsage = { entry: 'universal'; props: { taxonomicGroupTypes: TaxonomicFilterGroupType[] } }
 
 /** One catalogued taxonomic-filter usage: a real scene's entry component + the props it passes. */
-type Usage = { name: string; site: string } & (FilterUsage | PopoverUsage | PropertiesUsage)
+type Usage = { name: string; site: string } & (FilterUsage | PopoverUsage | PropertiesUsage | UniversalUsage)
 
 const G = TaxonomicFilterGroupType
 
@@ -196,6 +203,84 @@ const USAGES: Usage[] = [
             onChange: noop,
         },
     },
+    {
+        name: 'Error tracking breakdowns',
+        site: 'error_tracking/.../Breakdowns/BreakdownsSearchBar.tsx',
+        entry: 'filter',
+        props: {
+            taxonomicGroupTypes: [G.EventProperties, G.PersonProperties],
+            onChange: noop,
+        },
+    },
+    {
+        name: 'AI observability filters',
+        site: 'ai_observability/.../AIObservabilityScene.tsx',
+        entry: 'properties',
+        props: {
+            onChange: noop,
+            taxonomicGroupTypes: [G.EventProperties, G.PersonProperties, G.Cohorts, G.HogQLExpression],
+        },
+    },
+    {
+        name: 'AI observability evaluation triggers',
+        site: 'ai_observability/.../evaluations/EvaluationTriggers.tsx',
+        entry: 'properties',
+        props: {
+            onChange: noop,
+            taxonomicGroupTypes: [G.EventProperties, G.EventMetadata, G.PersonProperties],
+        },
+    },
+    {
+        name: 'Error tracking config rule (grouping / assignment / suppression)',
+        site: 'error_tracking/.../rules/RuleModal.tsx',
+        entry: 'properties',
+        props: {
+            onChange: noop,
+            taxonomicGroupTypes: [G.EventProperties],
+        },
+    },
+    {
+        name: 'Logs filter bar',
+        site: 'logs/.../LogsViewer/Filters/LogsFilterBar.tsx',
+        entry: 'universal',
+        props: {
+            taxonomicGroupTypes: [G.Logs, G.LogResourceAttributes, G.LogAttributes],
+        },
+    },
+    {
+        name: 'Error tracking issue filters',
+        site: 'error_tracking/.../IssueFilters/FilterGroup.tsx',
+        entry: 'universal',
+        props: {
+            taxonomicGroupTypes: [
+                G.ErrorTrackingProperties,
+                G.ErrorTrackingIssues,
+                G.EventProperties,
+                G.PersonProperties,
+                G.Cohorts,
+                G.HogQLExpression,
+            ],
+        },
+    },
+    {
+        name: 'Session replay filter bar',
+        site: 'session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx',
+        entry: 'universal',
+        props: {
+            taxonomicGroupTypes: [
+                G.Replay,
+                G.ReplaySavedFilters,
+                G.Events,
+                G.EventProperties,
+                G.Actions,
+                G.Cohorts,
+                G.EventFeatureFlags,
+                G.PersonProperties,
+                G.SessionProperties,
+                G.HogQLExpression,
+            ],
+        },
+    },
 ]
 
 function formatValue(value: unknown): string {
@@ -250,6 +335,11 @@ const VARIANTS: { key: string; label: string; blurb: string }[] = [
         label: 'PropertyFilters — input trigger',
         blurb: 'Replay-style input add control (triggerVariant: input).',
     },
+    {
+        key: 'universal',
+        label: 'UniversalFilters — nested filter bar',
+        blurb: 'Events + properties in AND/OR groups; its own add-filter popover (not a rebuild wrapper).',
+    },
 ]
 
 function variantKey(usage: Usage): string {
@@ -272,8 +362,10 @@ const STORY_TITLE: Record<string, string> = {
  * explicit per cell instead of letting the story title imply otherwise.
  */
 function surfaceFor(key: string, story: string): string {
-    const isWrapper = key !== 'filter'
-    if (isWrapper && story === 'rebuild-menu') {
+    // Only the two rebuild wrappers (TaxonomicPopover, TaxonomicPropertyFilter)
+    // get the rebuild menu. Raw TaxonomicFilter and UniversalFilters never do.
+    const getsRebuild = key === 'popover' || key.startsWith('properties')
+    if (getsRebuild && story === 'rebuild-menu') {
         return 'rebuild menu'
     }
     return story === 'legacy-pill' ? 'legacy · pill' : 'legacy · control'
@@ -303,10 +395,49 @@ function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): 
     if (usage.entry === 'popover') {
         return <TaxonomicPopover {...usage.props} />
     }
+    if (usage.entry === 'universal') {
+        return (
+            <UniversalFilters
+                rootKey={storyKey}
+                group={DEFAULT_UNIVERSAL_GROUP_FILTER}
+                taxonomicGroupTypes={usage.props.taxonomicGroupTypes}
+                onChange={noop}
+            >
+                <UniversalFilterGroupBody />
+            </UniversalFilters>
+        )
+    }
     // Render inline so the taxonomic trigger itself shows (button vs input) — the
     // popover mode would only show the generic "+ Filter" row button, which is
     // identical across variants and hides the part we want to compare.
     return <PropertyFilters {...usage.props} pageKey={storyKey} disablePopover />
+}
+
+/** Minimal UniversalFilters body — renders existing values and the add-filter trigger. */
+function UniversalFilterGroupBody(): JSX.Element {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+
+    return (
+        <div className="flex items-center gap-2 flex-wrap">
+            {filterGroup.values.map((filterOrGroup, index) =>
+                isUniversalGroupFilterLike(filterOrGroup) ? (
+                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
+                        <UniversalFilterGroupBody />
+                    </UniversalFilters.Group>
+                ) : (
+                    <UniversalFilters.Value
+                        key={index}
+                        index={index}
+                        filter={filterOrGroup}
+                        onRemove={() => removeGroupValue(index)}
+                        onChange={(value) => replaceGroupValue(index, value)}
+                    />
+                )
+            )}
+            <UniversalFilters.AddFilterButton />
+        </div>
+    )
 }
 
 function Gallery({ variant }: { variant: string }): JSX.Element {
