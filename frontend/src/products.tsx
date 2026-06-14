@@ -138,6 +138,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
+    CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
@@ -263,6 +264,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
+    '/community-skills': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
@@ -747,6 +749,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    CommunitySkills: {
+        projectBased: true,
+        name: 'Community skills',
+        description: 'Discover and install agent skills shared by the PostHog community.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -1181,6 +1190,7 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    communitySkills: (): string => '/community-skills',
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -1997,7 +2007,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.skills(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
         sceneKey: 'Skills',
-        sceneKeys: ['Skills', 'Skill'],
+        sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
     },
     {
         path: 'Support',

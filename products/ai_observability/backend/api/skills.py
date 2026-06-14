@@ -29,8 +29,14 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..models.skills import LLMSkill, LLMSkillFile
+from .community_publish_services import (
+    CommunitySkillPublishError,
+    CommunitySkillPublishNotConfiguredError,
+    publish_skill_to_community,
+)
 from .metrics import llma_track_latency
 from .skill_serializers import (
+    CommunitySkillPublishResultSerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -41,6 +47,7 @@ from .skill_serializers import (
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
     LLMSkillPublishSerializer,
+    LLMSkillPublishToCommunitySerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
@@ -163,7 +170,7 @@ class LLMSkillViewSet(
         return get_active_skill_queryset(self.team)
 
     def get_throttles(self):
-        if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
+        if self.action in ["update_by_name", "get_by_name", "resolve_by_name", "publish_to_community"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
 
@@ -561,6 +568,70 @@ class LLMSkillViewSet(
             request=request,
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/publish-community",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_publish_community")
+    @monitor(feature=None, endpoint="llma_skills_publish_community", method="POST")
+    def publish_to_community(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        skill = get_skill_by_name_from_db(self.team, skill_name)
+        if skill is None:
+            return self._skill_not_found_response(skill_name)
+
+        payload = LLMSkillPublishToCommunitySerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
+        metadata_tags = (skill.metadata or {}).get("tags")
+        tags = payload.validated_data.get("tags") or (metadata_tags if isinstance(metadata_tags, list) else [])
+        # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
+        display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
+
+        try:
+            result = publish_skill_to_community(
+                slug=skill.name,
+                name=display_name,
+                description=skill.description,
+                body=skill.body,
+                files=files or None,
+                tags=tags,
+                allowed_tools=skill.allowed_tools or [],
+                license=skill.license or "",
+                compatibility=skill.compatibility or "",
+                author_handle=payload.validated_data.get("author_handle", ""),
+            )
+        except CommunitySkillPublishNotConfiguredError:
+            return Response(
+                {"detail": "Publishing to the community is not available on this instance."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except CommunitySkillPublishError as err:
+            return Response({"detail": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        props = {**_skill_analytics_props(skill), "community_pr_number": result["pr_number"]}
+        logger.info(
+            "llma_skill_published_to_community",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill published to community",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer],

@@ -69,17 +69,9 @@ export const manifest: ProductManifest = {
             href: urls.skills(),
             flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
             sceneKey: 'Skills',
-        },
-        {
-            path: 'Community skills',
-            intents: [ProductKey.LLM_PROMPTS],
-            category: ProductItemCategory.TOOLS,
-            type: 'community_skills',
-            iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
-            href: urls.communitySkills(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
-            sceneKey: 'CommunitySkills',
+            // Community is a tab within the Skills scene, not a separate nav item — keep the
+            // Skills item highlighted on the skill detail and community routes.
+            sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
         },
     ],
 }

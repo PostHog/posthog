@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconThumbsUp } from '@posthog/icons'
+import { IconGithub, IconThumbsUp } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,13 +11,12 @@ import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { usePagination } from 'lib/lemon-ui/PaginationControl/usePagination'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { CommunitySkillListApi } from 'products/ai_observability/frontend/generated/api.schemas'
 
 import { CommunitySkillTrustTier, communitySkillsLogic } from './communitySkillsLogic'
+import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
     component: CommunitySkillsScene,
@@ -56,57 +55,59 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
                     </LemonTag>
                 ))}
             </div>
-            <div className="flex items-center justify-between gap-2 pt-2 border-t">
-                <div className="flex items-center gap-3 text-muted text-xs">
-                    <span>{skill.install_count} installs</span>
-                    {skill.author_handle ? (
-                        <Link to={skill.github_url || undefined} target="_blank">
-                            @{skill.author_handle}
-                        </Link>
-                    ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        icon={<IconThumbsUp />}
-                        active={skill.has_voted}
-                        loading={voting}
-                        disabledReason={voting ? 'Saving your vote…' : undefined}
-                        onClick={() => toggleVote(skill.slug)}
-                        tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
-                    >
-                        {skill.vote_count}
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        loading={installing}
-                        disabledReason={installing ? 'Installing…' : undefined}
-                        onClick={() => installSkill(skill.slug)}
-                    >
-                        Install
-                    </LemonButton>
-                </div>
+            <div className="flex items-center gap-3 text-muted text-xs">
+                <span>{skill.install_count} installs</span>
+                {skill.author_handle ? (
+                    // author_handle is the contributor's GitHub username (from the skill's PR/frontmatter).
+                    <Link to={`https://github.com/${skill.author_handle}`} target="_blank">
+                        @{skill.author_handle}
+                    </Link>
+                ) : null}
+                {skill.github_url ? (
+                    <Link to={skill.github_url} target="_blank" className="flex items-center gap-1">
+                        <IconGithub /> View on GitHub
+                    </Link>
+                ) : null}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t">
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    icon={<IconThumbsUp />}
+                    active={skill.has_voted}
+                    loading={voting}
+                    disabledReason={voting ? 'Saving your vote…' : undefined}
+                    onClick={() => toggleVote(skill.slug)}
+                    tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
+                >
+                    {skill.vote_count}
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    loading={installing}
+                    disabledReason={installing ? 'Installing…' : undefined}
+                    onClick={() => installSkill(skill.slug)}
+                >
+                    Install
+                </LemonButton>
             </div>
         </div>
     )
 }
 
 export function CommunitySkillsScene(): JSX.Element {
+    return <SkillsSceneShell activeTab="community" content={<CommunitySkillsContent />} />
+}
+
+function CommunitySkillsContent(): JSX.Element {
     const { displaySkills, filters, pagination, skillsLoading } = useValues(communitySkillsLogic)
     const { setFilters } = useActions(communitySkillsLogic)
     // Controlled pagination: page changes write the `page` URL param, which urlToAction turns into setFilters.
     const paginationState = usePagination(displaySkills, pagination)
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Community skills"
-                description="Discover and install agent skills shared by the PostHog community."
-                resourceType={{ type: 'llm_analytics' }}
-            />
-
+        <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     type="search"
@@ -148,6 +149,6 @@ export function CommunitySkillsScene(): JSX.Element {
             )}
 
             <PaginationControl {...paginationState} nouns={['skill', 'skills']} />
-        </SceneContent>
+        </div>
     )
 }

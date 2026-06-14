@@ -13,6 +13,11 @@ import type {
     BatchCheckResponseApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    CommunitySkillApi,
+    CommunitySkillInstallApi,
+    CommunitySkillPublishResultApi,
+    CommunitySkillVoteResponseApi,
+    CommunitySkillsListParams,
     DatasetApi,
     DatasetItemApi,
     DatasetItemsListParams,
@@ -38,6 +43,7 @@ import type {
     LLMSkillFileApi,
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
+    LLMSkillPublishToCommunityApi,
     LLMSkillResolveResponseApi,
     LlmAnalyticsClusteringConfigRetrieve200,
     LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
@@ -65,6 +71,7 @@ import type {
     OfflineExperimentItemsRequestApi,
     OfflineExperimentItemsResponseApi,
     PaginatedClusteringJobListApi,
+    PaginatedCommunitySkillListListApi,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
@@ -166,6 +173,81 @@ export const llmAnalyticsPersonalSpendList = async (
     return apiMutator<PersonalSpendAnalysisResponseApi[]>(getLlmAnalyticsPersonalSpendListUrl(params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCommunitySkillsListUrl = (projectId: string, params?: CommunitySkillsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/community_skills/?${stringifiedParams}`
+        : `/api/projects/${projectId}/community_skills/`
+}
+
+export const communitySkillsList = async (
+    projectId: string,
+    params?: CommunitySkillsListParams,
+    options?: RequestInit
+): Promise<PaginatedCommunitySkillListListApi> => {
+    return apiMutator<PaginatedCommunitySkillListListApi>(getCommunitySkillsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCommunitySkillsRetrieveUrl = (projectId: string, slug: string) => {
+    return `/api/projects/${projectId}/community_skills/${slug}/`
+}
+
+export const communitySkillsRetrieve = async (
+    projectId: string,
+    slug: string,
+    options?: RequestInit
+): Promise<CommunitySkillApi> => {
+    return apiMutator<CommunitySkillApi>(getCommunitySkillsRetrieveUrl(projectId, slug), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCommunitySkillsInstallCreateUrl = (projectId: string, slug: string) => {
+    return `/api/projects/${projectId}/community_skills/${slug}/install/`
+}
+
+export const communitySkillsInstallCreate = async (
+    projectId: string,
+    slug: string,
+    communitySkillInstallApi?: CommunitySkillInstallApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getCommunitySkillsInstallCreateUrl(projectId, slug), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(communitySkillInstallApi),
+    })
+}
+
+export const getCommunitySkillsVoteCreateUrl = (projectId: string, slug: string) => {
+    return `/api/projects/${projectId}/community_skills/${slug}/vote/`
+}
+
+export const communitySkillsVoteCreate = async (
+    projectId: string,
+    slug: string,
+    options?: RequestInit
+): Promise<CommunitySkillVoteResponseApi> => {
+    return apiMutator<CommunitySkillVoteResponseApi>(getCommunitySkillsVoteCreateUrl(projectId, slug), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -2278,6 +2360,24 @@ export const llmSkillsNameFilesDestroy = async (
     return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesDestroyUrl(projectId, skillName, filePath, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLlmSkillsNamePublishCommunityCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/llm_skills/name/${skillName}/publish-community/`
+}
+
+export const llmSkillsNamePublishCommunityCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillPublishToCommunityApi?: LLMSkillPublishToCommunityApi,
+    options?: RequestInit
+): Promise<CommunitySkillPublishResultApi> => {
+    return apiMutator<CommunitySkillPublishResultApi>(getLlmSkillsNamePublishCommunityCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillPublishToCommunityApi),
     })
 }
 

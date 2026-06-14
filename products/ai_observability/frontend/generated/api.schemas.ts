@@ -138,6 +138,169 @@ export interface _ErrorResponseApi {
 }
 
 /**
+ * * `official` - Official
+ * * `verified` - Verified
+ * * `community` - Community
+ */
+export type TrustTierEnumApi = (typeof TrustTierEnumApi)[keyof typeof TrustTierEnumApi]
+
+export const TrustTierEnumApi = {
+    Official: 'official',
+    Verified: 'verified',
+    Community: 'community',
+} as const
+
+/**
+ * Arbitrary key-value metadata carried from the skill's frontmatter.
+ */
+export type CommunitySkillListApiMetadata = { [key: string]: unknown }
+
+/**
+ * List serializer that omits body and file manifest — progressive disclosure.
+ */
+export interface CommunitySkillListApi {
+    readonly id: string
+    /** Stable identifier matching the skill's directory in the community-skills repo. */
+    readonly slug: string
+    /** Display name of the skill. */
+    readonly name: string
+    /** What the skill does and when to use it. */
+    readonly description: string
+    /** License name or reference. */
+    readonly license: string
+    /** Environment requirements declared by the skill. */
+    readonly compatibility: string
+    /** Tools the skill declares it may use. Surface these to the user before install. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+    metadata?: CommunitySkillListApiMetadata
+    /** Free-form tags used for filtering and discovery. */
+    tags?: string[]
+    /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community */
+    trust_tier: TrustTierEnumApi
+    /** GitHub handle (or name) of the contributor who published the skill. */
+    readonly author_handle: string
+    /** Link to the skill's source directory on GitHub. */
+    readonly github_url: string
+    /** Number of times this skill has been installed into a team. */
+    readonly install_count: number
+    /** Total number of upvotes this skill has received. */
+    readonly vote_count: number
+    /** Whether the requesting user has upvoted this skill. */
+    readonly has_voted: boolean
+    /**
+     * When the skill was first published to the community repo.
+     * @nullable
+     */
+    readonly published_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedCommunitySkillListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CommunitySkillListApi[]
+}
+
+/**
+ * Arbitrary key-value metadata carried from the skill's frontmatter.
+ */
+export type CommunitySkillApiMetadata = { [key: string]: unknown }
+
+export interface CommunitySkillFileManifestApi {
+    /** @maxLength 500 */
+    path: string
+    /** @maxLength 100 */
+    content_type?: string
+}
+
+export interface CommunitySkillApi {
+    readonly id: string
+    /** Stable identifier matching the skill's directory in the community-skills repo. */
+    readonly slug: string
+    /** Display name of the skill. */
+    readonly name: string
+    /** What the skill does and when to use it. */
+    readonly description: string
+    /** The SKILL.md instruction content (markdown). */
+    readonly body: string
+    /** License name or reference. */
+    readonly license: string
+    /** Environment requirements declared by the skill. */
+    readonly compatibility: string
+    /** Tools the skill declares it may use. Surface these to the user before install. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+    metadata?: CommunitySkillApiMetadata
+    /** Free-form tags used for filtering and discovery. */
+    tags?: string[]
+    /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community */
+    trust_tier: TrustTierEnumApi
+    /** GitHub handle (or name) of the contributor who published the skill. */
+    readonly author_handle: string
+    /** Link to the skill's source directory on GitHub. */
+    readonly github_url: string
+    /** Bundled files manifest (path + content_type only). Fetch full content via the skill detail endpoint. */
+    readonly files: readonly CommunitySkillFileManifestApi[]
+    /** Number of times this skill has been installed into a team. */
+    readonly install_count: number
+    /** Total number of upvotes this skill has received. */
+    readonly vote_count: number
+    /** Whether the requesting user has upvoted this skill. */
+    readonly has_voted: boolean
+    /**
+     * When the skill was first published to the community repo.
+     * @nullable
+     */
+    readonly published_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface CommunitySkillInstallApi {
+    /**
+     * Name for the installed skill in your team. Defaults to the community skill's slug.
+     * @maxLength 64
+     */
+    new_name?: string
+}
+
+/**
+ * Arbitrary key-value metadata.
+ */
+export type LLMSkillApiMetadata = { [key: string]: unknown }
+
+export interface LLMSkillFileManifestApi {
+    /** @maxLength 500 */
+    path: string
+    /** @maxLength 100 */
+    content_type?: string
+}
+
+export interface LLMSkillOutlineEntryApi {
+    /**
+     * Markdown heading level (1-6).
+     * @minimum 1
+     * @maximum 6
+     */
+    level: number
+    /** Heading text. */
+    text: string
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -190,6 +353,56 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface LLMSkillApi {
+    readonly id: string
+    /**
+     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * What this skill does and when to use it. Max 4096 characters.
+     * @maxLength 4096
+     */
+    description: string
+    /** The SKILL.md instruction content (markdown). */
+    body: string
+    /**
+     * License name or reference to a bundled license file.
+     * @maxLength 255
+     */
+    license?: string
+    /**
+     * Environment requirements (intended product, system packages, network access, etc.).
+     * @maxLength 500
+     */
+    compatibility?: string
+    /** List of pre-approved tools the skill may use. */
+    allowed_tools?: string[]
+    /** Arbitrary key-value metadata. */
+    metadata?: LLMSkillApiMetadata
+    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    readonly files: readonly LLMSkillFileManifestApi[]
+    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
+    readonly outline: readonly LLMSkillOutlineEntryApi[]
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface CommunitySkillVoteResponseApi {
+    /** Total upvotes after applying the toggle. */
+    vote_count: number
+    /** Whether the requesting user is now an upvoter. */
+    has_voted: boolean
 }
 
 export interface DatasetItemApi {
@@ -2001,17 +2214,6 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
-export interface LLMSkillOutlineEntryApi {
-    /**
-     * Markdown heading level (1-6).
-     * @minimum 1
-     * @maximum 6
-     */
-    level: number
-    /** Heading text. */
-    text: string
-}
-
 /**
  * Arbitrary key-value metadata.
  */
@@ -2137,61 +2339,6 @@ export interface LLMSkillCreateApi {
 /**
  * Arbitrary key-value metadata.
  */
-export type LLMSkillApiMetadata = { [key: string]: unknown }
-
-export interface LLMSkillFileManifestApi {
-    /** @maxLength 500 */
-    path: string
-    /** @maxLength 100 */
-    content_type?: string
-}
-
-export interface LLMSkillApi {
-    readonly id: string
-    /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-     * @maxLength 64
-     */
-    name: string
-    /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
-     */
-    description: string
-    /** The SKILL.md instruction content (markdown). */
-    body: string
-    /**
-     * License name or reference to a bundled license file.
-     * @maxLength 255
-     */
-    license?: string
-    /**
-     * Environment requirements (intended product, system packages, network access, etc.).
-     * @maxLength 500
-     */
-    compatibility?: string
-    /** List of pre-approved tools the skill may use. */
-    allowed_tools?: string[]
-    /** Arbitrary key-value metadata. */
-    metadata?: LLMSkillApiMetadata
-    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
-    readonly files: readonly LLMSkillFileManifestApi[]
-    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
-    readonly outline: readonly LLMSkillOutlineEntryApi[]
-    readonly version: number
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    readonly deleted: boolean
-    readonly is_latest: boolean
-    readonly latest_version: number
-    readonly version_count: number
-    readonly first_version_created_at: string
-}
-
-/**
- * Arbitrary key-value metadata.
- */
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
 
 export interface LLMSkillEditOperationApi {
@@ -2298,6 +2445,33 @@ export interface LLMSkillFileApi {
     content: string
     /** @maxLength 100 */
     content_type?: string
+}
+
+export interface LLMSkillPublishToCommunityApi {
+    /**
+     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+     * @items.maxLength 64
+     */
+    tags?: string[]
+    /**
+     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional.
+     * @maxLength 100
+     */
+    author_handle?: string
+}
+
+export interface CommunitySkillPublishResultApi {
+    /** URL of the pull request opened in the community-skills repo for maintainer review. */
+    pr_url: string
+    /** Number of the opened pull request. */
+    pr_number: number
+    /** Name of the branch created in the community-skills repo. */
+    branch: string
 }
 
 export interface LLMSkillVersionSummaryApi {
@@ -2597,6 +2771,59 @@ export type LlmAnalyticsPersonalSpendListParams = {
      */
     refresh?: boolean
 }
+
+export type CommunitySkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort key. Defaults to most-installed first.
+     *
+     * * `-created_at` - -created_at
+     * * `-install_count` - -install_count
+     * * `-name` - -name
+     * * `-published_at` - -published_at
+     * * `-vote_count` - -vote_count
+     * * `created_at` - created_at
+     * * `install_count` - install_count
+     * * `name` - name
+     * * `published_at` - published_at
+     * * `vote_count` - vote_count
+     * @minLength 1
+     */
+    order_by?: string
+    /**
+     * Substring filter applied to skill names, descriptions, and tags.
+     */
+    search?: string
+    /**
+     * Return only skills carrying this tag.
+     */
+    tag?: string
+    /**
+     * Filter to a single moderation tier.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     * @minLength 1
+     */
+    trust_tier?: CommunitySkillsListTrustTier
+}
+
+export type CommunitySkillsListTrustTier =
+    (typeof CommunitySkillsListTrustTier)[keyof typeof CommunitySkillsListTrustTier]
+
+export const CommunitySkillsListTrustTier = {
+    Official: 'official',
+    Verified: 'verified',
+    Community: 'community',
+} as const
 
 export type DatasetItemsListParams = {
     /**

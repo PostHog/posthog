@@ -11498,6 +11498,154 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillMetadata = { [key: string]: unknown };
+
+    /**
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     */
+    export type TrustTierEnum = typeof TrustTierEnum[keyof typeof TrustTierEnum];
+
+
+    export const TrustTierEnum = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
+    } as const;
+
+    export interface CommunitySkillFileManifest {
+      /** @maxLength 500 */
+      path: string;
+      /** @maxLength 100 */
+      content_type?: string;
+    }
+
+    export interface CommunitySkill {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** The SKILL.md instruction content (markdown). */
+      readonly body: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Bundled files manifest (path + content_type only). Fetch full content via the skill detail endpoint. */
+      readonly files: readonly CommunitySkillFileManifest[];
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillInstall {
+      /**
+         * Name for the installed skill in your team. Defaults to the community skill's slug.
+         * @maxLength 64
+         */
+      new_name?: string;
+    }
+
+    /**
+     * Arbitrary key-value metadata carried from the skill's frontmatter.
+     */
+    export type CommunitySkillListMetadata = { [key: string]: unknown };
+
+    /**
+     * List serializer that omits body and file manifest — progressive disclosure.
+     */
+    export interface CommunitySkillList {
+      readonly id: string;
+      /** Stable identifier matching the skill's directory in the community-skills repo. */
+      readonly slug: string;
+      /** Display name of the skill. */
+      readonly name: string;
+      /** What the skill does and when to use it. */
+      readonly description: string;
+      /** License name or reference. */
+      readonly license: string;
+      /** Environment requirements declared by the skill. */
+      readonly compatibility: string;
+      /** Tools the skill declares it may use. Surface these to the user before install. */
+      allowed_tools?: string[];
+      /** Arbitrary key-value metadata carried from the skill's frontmatter. */
+      metadata?: CommunitySkillListMetadata;
+      /** Free-form tags used for filtering and discovery. */
+      tags?: string[];
+      /** Moderation tier: 'official' (PostHog-authored), 'verified' (reviewed), or 'community'.
+       *
+       * * `official` - Official
+       * * `verified` - Verified
+       * * `community` - Community */
+      trust_tier: TrustTierEnum;
+      /** GitHub handle (or name) of the contributor who published the skill. */
+      readonly author_handle: string;
+      /** Link to the skill's source directory on GitHub. */
+      readonly github_url: string;
+      /** Number of times this skill has been installed into a team. */
+      readonly install_count: number;
+      /** Total number of upvotes this skill has received. */
+      readonly vote_count: number;
+      /** Whether the requesting user has upvoted this skill. */
+      readonly has_voted: boolean;
+      /**
+         * When the skill was first published to the community repo.
+         * @nullable
+         */
+      readonly published_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface CommunitySkillPublishResult {
+      /** URL of the pull request opened in the community-skills repo for maintainer review. */
+      pr_url: string;
+      /** Number of the opened pull request. */
+      pr_number: number;
+      /** Name of the branch created in the community-skills repo. */
+      branch: string;
+    }
+
+    export interface CommunitySkillVoteResponse {
+      /** Total upvotes after applying the toggle. */
+      vote_count: number;
+      /** Whether the requesting user is now an upvoter. */
+      has_voted: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -22641,6 +22789,24 @@ export namespace Schemas {
       readonly first_version_created_at: string;
     }
 
+    export interface LLMSkillPublishToCommunity {
+      /**
+         * Human-friendly display name for the community listing. Defaults to a title-cased skill slug.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+         * @items.maxLength 64
+         */
+      tags?: string[];
+      /**
+         * The publisher's GitHub username, used for public attribution on the listing and PR. Optional.
+         * @maxLength 100
+         */
+      author_handle?: string;
+    }
+
     export interface LLMSkillVersionSummary {
       readonly id: string;
       readonly version: number;
@@ -25106,6 +25272,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Comment[];
+    }
+
+    export interface PaginatedCommunitySkillListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CommunitySkillList[];
     }
 
     export interface PaginatedConversationMinimalList {
@@ -49631,6 +49806,59 @@ export namespace Schemas {
       Any: 'any',
       Comment: 'comment',
       Task: 'task',
+    } as const;
+
+    export type CommunitySkillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort key. Defaults to most-installed first.
+     *
+     * * `-created_at` - -created_at
+     * * `-install_count` - -install_count
+     * * `-name` - -name
+     * * `-published_at` - -published_at
+     * * `-vote_count` - -vote_count
+     * * `created_at` - created_at
+     * * `install_count` - install_count
+     * * `name` - name
+     * * `published_at` - published_at
+     * * `vote_count` - vote_count
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Substring filter applied to skill names, descriptions, and tags.
+     */
+    search?: string;
+    /**
+     * Return only skills carrying this tag.
+     */
+    tag?: string;
+    /**
+     * Filter to a single moderation tier.
+     *
+     * * `official` - Official
+     * * `verified` - Verified
+     * * `community` - Community
+     * @minLength 1
+     */
+    trust_tier?: CommunitySkillsListTrustTier;
+    };
+
+    export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
+
+
+    export const CommunitySkillsListTrustTier = {
+      Official: 'official',
+      Verified: 'verified',
+      Community: 'community',
     } as const;
 
     export type ConversationsTicketsListParams = {

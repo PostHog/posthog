@@ -15,6 +15,7 @@ import {
     llmSkillsList,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
+    llmSkillsNamePublishCommunityCreate,
 } from 'products/ai_observability/frontend/generated/api'
 import type {
     LLMSkillListApi,
@@ -155,6 +156,12 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         loadSkills: (debounce: boolean = true) => ({ debounce }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        publishToCommunity: (
+            skillName: string,
+            options: { display_name?: string; tags?: string[]; author_handle?: string }
+        ) => ({ skillName, options }),
+        publishToCommunitySuccess: (skillName: string) => ({ skillName }),
+        publishToCommunityFailure: (skillName: string) => ({ skillName }),
     }),
 
     reducers({
@@ -167,6 +174,15 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        // Per-skill publish-in-flight state so the trigger can guard against double-submission.
+        publishingSkills: [
+            {} as Record<string, boolean>,
+            {
+                publishToCommunity: (state, { skillName }) => ({ ...state, [skillName]: true }),
+                publishToCommunitySuccess: (state, { skillName }) => ({ ...state, [skillName]: false }),
+                publishToCommunityFailure: (state, { skillName }) => ({ ...state, [skillName]: false }),
             },
         ],
     }),
@@ -280,7 +296,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         ],
     }),
 
-    listeners(({ asyncActions, values, selectors }) => ({
+    listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const { filters } = values
@@ -311,6 +327,36 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             } catch (e) {
                 console.error('Failed to duplicate skill', e)
                 lemonToast.error('Failed to duplicate skill')
+            }
+        },
+
+        publishToCommunity: async ({ skillName, options }) => {
+            try {
+                const result = await llmSkillsNamePublishCommunityCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    skillName,
+                    {
+                        display_name: options.display_name,
+                        tags: options.tags,
+                        author_handle: options.author_handle,
+                    }
+                )
+                lemonToast.success(
+                    `Opened a community pull request for "${skillName}" — a maintainer will review it.`,
+                    {
+                        button: { label: 'View PR', action: () => window.open(result.pr_url, '_blank', 'noopener') },
+                    }
+                )
+                actions.publishToCommunitySuccess(skillName)
+            } catch (e: any) {
+                console.error('Failed to publish skill to community', e)
+                const detail = e?.data?.detail || e?.detail
+                lemonToast.error(
+                    e?.status === 503
+                        ? 'Publishing to the community is not available on this instance yet.'
+                        : detail || 'Failed to publish skill to the community'
+                )
+                actions.publishToCommunityFailure(skillName)
             }
         },
     })),

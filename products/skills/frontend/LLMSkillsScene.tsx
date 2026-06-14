@@ -15,8 +15,6 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
@@ -30,6 +28,7 @@ import type { LLMSkillListApi } from 'products/ai_observability/frontend/generat
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
+import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
     component: LLMSkillsScene,
@@ -40,7 +39,8 @@ export const scene: SceneExport = {
 function buildSkillColumns(
     skillUrl: (name: string) => string,
     duplicateSkill: (name: string, newName: string) => void,
-    deleteSkill: (name: string) => void
+    deleteSkill: (name: string) => void,
+    publishToCommunity: (skill: LLMSkillListApi) => void
 ): LemonTableColumns<LLMSkillListApi> {
     return [
         {
@@ -136,6 +136,19 @@ function buildSkillColumns(
                                         fullWidth
                                     >
                                         Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => publishToCommunity(skill)}
+                                        data-attr="llma-skill-dropdown-publish-community"
+                                        fullWidth
+                                    >
+                                        Publish to community
                                     </LemonButton>
                                 </AccessControlAction>
 
@@ -256,123 +269,172 @@ function GroupedSkillsView({
 }
 
 export function LLMSkillsScene(): JSX.Element {
-    const { setFilters, deleteSkill, duplicateSkill } = useActions(llmSkillsLogic)
+    const { searchParams } = useValues(router)
+    const actions = (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.LlmAnalytics}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonButton
+                type="primary"
+                to={combineUrl(urls.skill('new'), searchParams).url}
+                icon={<IconPlusSmall />}
+                data-attr="new-skill-button"
+            >
+                New skill
+            </LemonButton>
+        </AccessControlAction>
+    )
+    return <SkillsSceneShell activeTab="your" actions={actions} content={<YourSkillsContent />} />
+}
+
+function YourSkillsContent(): JSX.Element {
+    const { setFilters, deleteSkill, duplicateSkill, publishToCommunity } = useActions(llmSkillsLogic)
     const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills } =
         useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
 
+    const openPublishDialog = (skill: LLMSkillListApi): void => {
+        LemonDialog.openForm({
+            title: 'Publish to community',
+            description:
+                'Open a pull request adding this skill to the PostHog community catalog. A maintainer reviews it before it goes live.',
+            initialValues: {
+                display_name: skill.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+                tags: '',
+                author_handle: '',
+            },
+            content: (
+                <div className="flex flex-col gap-2">
+                    <LemonField name="display_name" label="Display name">
+                        <LemonInput data-attr="llma-publish-display-name" autoFocus />
+                    </LemonField>
+                    <LemonField name="tags" label="Tags (comma-separated)">
+                        <LemonInput data-attr="llma-publish-tags" placeholder="web-analytics, triage" />
+                    </LemonField>
+                    <LemonField name="author_handle" label="Your GitHub handle (optional)">
+                        <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
+                    </LemonField>
+                </div>
+            ),
+            onSubmit: ({ display_name, tags, author_handle }) =>
+                publishToCommunity(skill.name, {
+                    display_name: display_name?.trim() || undefined,
+                    tags: tags
+                        ? tags
+                              .split(',')
+                              .map((t: string) => t.trim())
+                              .filter(Boolean)
+                        : undefined,
+                    author_handle: author_handle?.trim() || undefined,
+                }),
+        })
+    }
+
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill),
+        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, openPublishDialog),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill]
+        [searchParams, duplicateSkill, deleteSkill, publishToCommunity]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
     const showGroupedLoadingSkeleton = filters.group_by_prefix && skillsLoading
     const truncated = filters.group_by_prefix && skills.count > skills.results.length
 
+    // Discovery nudge: an empty project is the moment to point people at the community catalog.
+    const showCommunityCallout = skills.count === 0 && !skillsLoading && !filters.search
+
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Skills"
-                description="Manage versioned agent skills that any MCP-connected agent can discover and use."
-                resourceType={{ type: 'llm_analytics' }}
-                actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            to={skillUrl('new')}
-                            icon={<IconPlusSmall />}
-                            data-attr="new-skill-button"
-                        >
-                            New skill
+        <div className="space-y-4">
+            {showCommunityCallout && (
+                <LemonBanner type="info" className="mb-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span>
+                            New here? Browse skills shared by the PostHog community and install one to get started.
+                        </span>
+                        <LemonButton type="secondary" size="small" to={urls.communitySkills()}>
+                            Browse community
                         </LemonButton>
-                    </AccessControlAction>
-                }
-            />
-
-            <div className="space-y-4">
-                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search skills..."
-                        value={filters.search}
-                        data-attr="skills-search-input"
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                    />
-                    <LemonSwitch
-                        label="Group by prefix"
-                        checked={filters.group_by_prefix}
-                        onChange={(checked) => setFilters({ group_by_prefix: checked })}
-                        bordered
-                        size="small"
-                        data-attr="skills-group-by-prefix-toggle"
-                    />
-                    <div className="text-muted-alt">{skillCountLabel}</div>
-                    <div className="flex-1" />
-                    <span>
-                        <b>Created by</b>
-                    </span>
-                    <MemberSelect
-                        defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
-                        size="xsmall"
-                        onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
-                    />
-                </div>
-
-                {filters.group_by_prefix ? (
-                    <>
-                        {truncated && (
-                            <LemonBanner type="warning">
-                                Showing the first {skills.results.length} of {skills.count} skills. The grouped view is
-                                capped at {SKILLS_GROUP_LIMIT} skills — use search or turn off grouping to see the rest.
-                            </LemonBanner>
-                        )}
-                        {showGroupedLoadingSkeleton ? (
-                            <LemonTable
-                                loading
-                                columns={columns}
-                                dataSource={[]}
-                                rowKey="id"
-                                loadingSkeletonRows={SKILLS_PER_PAGE}
-                                nouns={['skill', 'skills']}
-                            />
-                        ) : (
-                            showGroupedView && <GroupedSkillsView tree={groupedSkills!} columns={columns} />
-                        )}
-                    </>
-                ) : (
-                    <LemonTable
-                        loading={skillsLoading}
-                        columns={columns}
-                        // Drop the cached results while a reload is in flight if they exceed the
-                        // expected page size — otherwise toggling out of grouped mode flashes the
-                        // full 500-item payload through the controlled-paginated flat table.
-                        dataSource={skillsLoading && skills.results.length > SKILLS_PER_PAGE ? [] : skills.results}
-                        pagination={pagination}
-                        noSortingCancellation
-                        sorting={sorting}
-                        onSort={(newSorting) =>
-                            setFilters({
-                                order_by: newSorting
-                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                    : undefined,
-                            })
-                        }
-                        rowKey="id"
-                        loadingSkeletonRows={SKILLS_PER_PAGE}
-                        nouns={['skill', 'skills']}
-                    />
-                )}
+                    </div>
+                </LemonBanner>
+            )}
+            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                <LemonInput
+                    type="search"
+                    placeholder="Search skills..."
+                    value={filters.search}
+                    data-attr="skills-search-input"
+                    onChange={(value) => setFilters({ search: value })}
+                    className="max-w-md"
+                />
+                <LemonSwitch
+                    label="Group by prefix"
+                    checked={filters.group_by_prefix}
+                    onChange={(checked) => setFilters({ group_by_prefix: checked })}
+                    bordered
+                    size="small"
+                    data-attr="skills-group-by-prefix-toggle"
+                />
+                <div className="text-muted-alt">{skillCountLabel}</div>
+                <div className="flex-1" />
+                <span>
+                    <b>Created by</b>
+                </span>
+                <MemberSelect
+                    defaultLabel="Any user"
+                    value={filters.created_by_id ?? null}
+                    size="xsmall"
+                    onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+                />
             </div>
-        </SceneContent>
+
+            {filters.group_by_prefix ? (
+                <>
+                    {truncated && (
+                        <LemonBanner type="warning">
+                            Showing the first {skills.results.length} of {skills.count} skills. The grouped view is
+                            capped at {SKILLS_GROUP_LIMIT} skills — use search or turn off grouping to see the rest.
+                        </LemonBanner>
+                    )}
+                    {showGroupedLoadingSkeleton ? (
+                        <LemonTable
+                            loading
+                            columns={columns}
+                            dataSource={[]}
+                            rowKey="id"
+                            loadingSkeletonRows={SKILLS_PER_PAGE}
+                            nouns={['skill', 'skills']}
+                        />
+                    ) : (
+                        showGroupedView && <GroupedSkillsView tree={groupedSkills!} columns={columns} />
+                    )}
+                </>
+            ) : (
+                <LemonTable
+                    loading={skillsLoading}
+                    columns={columns}
+                    // Drop the cached results while a reload is in flight if they exceed the
+                    // expected page size — otherwise toggling out of grouped mode flashes the
+                    // full 500-item payload through the controlled-paginated flat table.
+                    dataSource={skillsLoading && skills.results.length > SKILLS_PER_PAGE ? [] : skills.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    onSort={(newSorting) =>
+                        setFilters({
+                            order_by: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={SKILLS_PER_PAGE}
+                    nouns={['skill', 'skills']}
+                />
+            )}
+        </div>
     )
 }

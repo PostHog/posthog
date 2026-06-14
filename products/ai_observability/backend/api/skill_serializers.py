@@ -544,3 +544,31 @@ class LLMSkillFileDeleteQuerySerializer(serializers.Serializer):
             "when another write has landed in the meantime."
         ),
     )
+
+
+class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    display_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Human-friendly display name for the community listing. Defaults to a title-cased skill slug.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        help_text="Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].",
+    )
+    author_handle = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=100,
+        help_text="The publisher's GitHub username, used for public attribution on the listing and PR. Optional.",
+    )
+
+
+class CommunitySkillPublishResultSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(
+        help_text="URL of the pull request opened in the community-skills repo for maintainer review."
+    )
+    pr_number = serializers.IntegerField(help_text="Number of the opened pull request.")
+    branch = serializers.CharField(help_text="Name of the branch created in the community-skills repo.")
