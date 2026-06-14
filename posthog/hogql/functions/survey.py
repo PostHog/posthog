@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
@@ -57,7 +59,7 @@ def _build_id_based_key(question_index: int, question_id: str | None) -> str | a
                         array=ast.Call(
                             name="JSONExtractArrayRaw",
                             args=[
-                                ast.Field(chain=["properties"]),
+                                _properties_json_expr(),
                                 ast.Constant(value="$survey_questions"),
                             ],
                         ),
@@ -86,7 +88,7 @@ def _build_property_access(key: str | ast.Expr) -> ast.Expr:
     """
     return ast.Call(
         name="JSONExtractString",
-        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+        args=[_properties_json_expr(), _key_as_expr(key)],
     )
 
 
@@ -114,6 +116,12 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
     return ast.Constant(value=key) if isinstance(key, str) else key
 
 
+def _properties_json_expr() -> ast.Expr:
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return ast.Field(chain=["properties"])
+    return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+
+
 def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
     """Build if() expression for multiple-choice survey response.
 
@@ -127,7 +135,7 @@ def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: s
                 exprs=[
                     ast.Call(
                         name="JSONHas",
-                        args=[ast.Field(chain=["properties"]), id_key_expr],
+                        args=[_properties_json_expr(), id_key_expr],
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Gt,
@@ -136,7 +144,7 @@ def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: s
                             args=[
                                 ast.Call(
                                     name="JSONExtractArrayRaw",
-                                    args=[ast.Field(chain=["properties"]), id_key_expr],
+                                    args=[_properties_json_expr(), id_key_expr],
                                 ),
                             ],
                         ),
@@ -146,11 +154,11 @@ def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: s
             ),
             ast.Call(
                 name="JSONExtractArrayRaw",
-                args=[ast.Field(chain=["properties"]), id_key_expr],
+                args=[_properties_json_expr(), id_key_expr],
             ),
             ast.Call(
                 name="JSONExtractArrayRaw",
-                args=[ast.Field(chain=["properties"]), ast.Constant(value=index_based_key)],
+                args=[_properties_json_expr(), ast.Constant(value=index_based_key)],
             ),
         ],
     )

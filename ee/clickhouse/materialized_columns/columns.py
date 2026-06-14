@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
 
+from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 
@@ -51,6 +52,10 @@ SHORT_TABLE_COLUMN_NAME = {
     "group3_properties": "gp3",
     "group4_properties": "gp4",
 }
+
+
+def _event_materialized_columns_are_disabled(table: TableWithProperties) -> bool:
+    return table == "events" and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 
 
 def _clear_materialized_columns_cache(table: TablesWithMaterializedColumns) -> None:
@@ -97,6 +102,9 @@ class MaterializedColumn:
 
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
+        if _event_materialized_columns_are_disabled(table):
+            return []
+
         refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
         if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
             cache_key = get_materialized_columns_cache_key(table)
@@ -446,14 +454,26 @@ def materialize(
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
 ) -> MaterializedColumn:
+    if table_column not in SHORT_TABLE_COLUMN_NAME:
+        raise ValueError(f"Invalid table_column={table_column} for materialisation")
+
+    if _event_materialized_columns_are_disabled(table):
+        return MaterializedColumn(
+            name=column_name or _materialized_column_name(table, property, table_column),
+            details=MaterializedColumnDetails(
+                table_column=table_column,
+                property_name=property,
+                is_disabled=False,
+            ),
+            is_nullable=is_nullable,
+            column_type=column_type,
+        )
+
     if existing_column := get_materialized_columns(table).get((property, table_column)):
         if TEST:
             return existing_column
 
         raise ValueError(f"Property already materialized. table={table}, property={property}, column={table_column}")
-
-    if table_column not in SHORT_TABLE_COLUMN_NAME:
-        raise ValueError(f"Invalid table_column={table_column} for materialisation")
 
     cluster = get_cluster()
     table_info = tables[table]
@@ -517,6 +537,9 @@ class UpdateColumnCommentTask:
 def update_column_is_disabled(
     table: TablesWithMaterializedColumns, column_names: Iterable[str], is_disabled: bool
 ) -> None:
+    if _event_materialized_columns_are_disabled(table):
+        return
+
     cluster = get_cluster()
     table_info = tables[table]
 
@@ -600,6 +623,9 @@ class DropColumnTask:
 
 
 def drop_column(table: TablesWithMaterializedColumns, column_names: Iterable[str]) -> None:
+    if _event_materialized_columns_are_disabled(table):
+        return
+
     cluster = get_cluster()
     table_info = tables[table]
     column_names = [*column_names]
@@ -661,6 +687,9 @@ def backfill_materialized_columns(
 
     This will require reading and writing a lot of data on clickhouse disk.
     """
+    if _event_materialized_columns_are_disabled(table):
+        return
+
     cluster = get_cluster()
     table_info = tables[table]
 

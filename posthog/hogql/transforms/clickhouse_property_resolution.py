@@ -24,6 +24,8 @@ exist in the blob" test, but tightening it would change query results.
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
@@ -45,6 +47,11 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
+from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+)
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
@@ -71,7 +78,7 @@ class MaterializedPropertySource:
     rewrites need to keep that column usable by a skip index.
     """
 
-    kind: Literal["materialized_column", "dmat", "property_group"]
+    kind: Literal["materialized_column", "dmat", "property_group", "json_subcolumn"]
     column: str
     is_nullable: bool
     # The column's physical ClickHouse type (e.g. "Nullable(Float64)"); None means the string default. Typed columns
@@ -82,6 +89,7 @@ class MaterializedPropertySource:
     has_ngram_lower_index: bool = False
     has_bloom_filter_index: bool = False
     has_bloom_filter_lower_index: bool = False
+    json_value_type: str | None = None
 
 
 def _unwrap_to_table_type(field_type: ast.FieldType) -> ast.TableType | None:
@@ -102,9 +110,6 @@ def resolve_materialized_property_source(
     backing column (so it stays a JSON read), when materialization is turned off, or when the property is access-
     restricted.
     """
-    if context.modifiers.materializationMode == "disabled":
-        return None
-
     # Property-level access control: a restricted property must never resolve to a backing column, on any path (value
     # read, comparison, key-existence). The column holds the raw value, so a comparison like `WHERE properties.x = 'y'`
     # could otherwise read it and probe the value. Declining here makes the comparison optimizers fall back; the read
@@ -127,6 +132,12 @@ def resolve_materialized_property_source(
         # printer did here, rather than silently degrading to a raw JSON read.
         raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
     field_name = field.name
+
+    if json_source := resolve_json_subcolumn_source(table_name, field_name, property_name):
+        return json_source
+
+    if context.modifiers.materializationMode == "disabled":
+        return None
 
     # 1) static materialized column (mat_* / pmat_*)
     materialized_column = get_materialized_column_for_property(
@@ -156,6 +167,38 @@ def resolve_materialized_property_source(
     return resolve_property_group_source(field_type, property_name, context)
 
 
+def resolve_json_subcolumn_source(
+    table_name: str, field_name: str, property_name: str
+) -> MaterializedPropertySource | None:
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return None
+    if table_name not in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+        return None
+    json_subcolumns_by_field = {
+        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    }
+    subcolumns = json_subcolumns_by_field.get(field_name)
+    if subcolumns is None:
+        return None
+
+    column_type = subcolumns.get(property_name)
+    if column_type is None:
+        return MaterializedPropertySource(
+            kind="json_subcolumn",
+            column=property_name,
+            is_nullable=True,
+            column_type="Dynamic",
+        )
+
+    return MaterializedPropertySource(
+        kind="json_subcolumn",
+        column=property_name,
+        is_nullable=column_type.startswith("Nullable("),
+        column_type=column_type,
+    )
+
+
 def resolve_property_group_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
@@ -183,6 +226,8 @@ def resolve_property_group_source(
         return None
 
     table_name = table_type.table.to_printed_clickhouse(context)
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and table_name in ("events", DISTRIBUTED_EVENTS_JSON_TABLE):
+        return None
     for group_column in property_groups.get_property_group_columns(table_name, field.name, property_name):
         return MaterializedPropertySource(kind="property_group", column=group_column, is_nullable=True)
     return None
@@ -266,6 +311,15 @@ def _materialized_head_expr(
     materialization_mode: MaterializationMode | None,
 ) -> ast.Expr | None:
     """The read for the top-level key (chain[0]) from a backing column: a property-group map lookup, or a scrubbed column."""
+    if source.kind == "json_subcolumn":
+        return _json_subcolumn_value_expr(
+            field_type,
+            [first_key],
+            source=source,
+            as_json=not is_single,
+            materialization_mode=materialization_mode,
+        )
+
     if source.kind == "property_group":
         # has(map, key) ? map[key] : null — guard the map read so a missing key returns NULL, not the map's '' default.
         has_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
@@ -301,6 +355,50 @@ def _materialized_head_expr(
     return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
 
 
+def _json_subcolumn_access(
+    field_type: ast.FieldType,
+    keys: list[str],
+    *,
+    source: MaterializedPropertySource,
+    is_nullable: bool,
+) -> ast.JSONSubcolumnAccess:
+    return ast.JSONSubcolumnAccess(
+        expr=ast.Field(chain=[field_type.name], type=field_type),
+        keys=keys,
+        value_type=source.json_value_type,
+        type=ast.StringType(nullable=is_nullable),
+    )
+
+
+def _json_subcolumn_value_expr(
+    field_type: ast.FieldType,
+    keys: list[str],
+    *,
+    source: MaterializedPropertySource,
+    as_json: bool = False,
+    materialization_mode: MaterializationMode | None,
+) -> ast.Expr:
+    value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
+    if _is_dynamic_json_source(source):
+        string_function = "toJSONString" if as_json else "toString"
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="isNull", args=[value]),
+                ast.Constant(value=None, type=ast.StringType(nullable=True)),
+                ast.Call(name=string_function, args=[value], type=ast.StringType(nullable=False)),
+            ],
+            type=ast.StringType(nullable=True),
+        )
+    if source.is_nullable or not _is_string_column(source):
+        return value
+
+    scrubbed_empty = ast.Call(name="nullIf", args=[value, _sentinel("")])
+    if materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
+        return scrubbed_empty
+    return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
+
+
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
     """The backing-column read for a `PropertyAccess`, or None to leave it as the JSON extract.
 
@@ -328,6 +426,27 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     _record_property_usage(context, source.kind if source is not None else None)
     if source is None:
         return None
+
+    if source.kind == "json_subcolumn" and deeper_keys:
+        subcolumn_keys = [first_key]
+        remaining_keys: list[str | int] = []
+        for index, key in enumerate(deeper_keys):
+            if isinstance(key, str):
+                subcolumn_keys.append(key)
+                continue
+            remaining_keys = deeper_keys[index:]
+            break
+
+        head = _json_subcolumn_value_expr(
+            field_type,
+            subcolumn_keys,
+            source=source,
+            as_json=bool(remaining_keys),
+            materialization_mode=context.modifiers.materializationMode,
+        )
+        if not remaining_keys:
+            return head
+        return ast.PropertyAccess(expr=head, keys=remaining_keys, type=ast.StringType(nullable=True))
 
     head = _materialized_head_expr(
         source,
@@ -383,7 +502,13 @@ def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantTyp
 
 
 def _is_string_column(source: MaterializedPropertySource) -> bool:
+    if _is_dynamic_json_source(source):
+        return False
     return isinstance(_column_constant_type(source), ast.StringType)
+
+
+def _is_dynamic_json_source(source: MaterializedPropertySource) -> bool:
+    return source.kind == "json_subcolumn" and source.column_type == "Dynamic"
 
 
 # Comparison compatibilities the rewrites accept: provably comparable as-is, or via a cast ClickHouse does cheaply.
@@ -407,6 +532,7 @@ _USAGE_BY_SOURCE_KIND = {
     "materialized_column": "materialized_column",
     "dmat": "dynamic_materialized_column",
     "property_group": "property_group",
+    "json_subcolumn": "json_subcolumn",
 }
 
 
@@ -429,19 +555,39 @@ class _OptimizableProperty:
     key: str
     source: MaterializedPropertySource
 
-    def bare_column(self) -> ast.Field:
-        """The backing column as a bare `Field`, typed non-nullable.
+    def bare_column(self) -> ast.Expr:
+        """The backing value as a bare expression, typed non-nullable.
 
         Non-nullable typing stops the printer from `ifNull`-wrapping the comparison — the wrapping that hides the column
         from skip indexes. A genuinely Nullable column is guarded separately (see `is_not_null`). This doubles as the
         map column for a property group, where a missing key reads as the '' default rather than SQL NULL.
         """
+        if self.source.kind == "json_subcolumn":
+            return _json_subcolumn_access(
+                self.field_type,
+                [self.key],
+                source=self.source,
+                is_nullable=False,
+            )
+
         field = _synthetic_column_field(self.field_type, self.source.column, is_nullable=False)
         assert field is not None  # the source was resolved from this same field_type
         return field
 
     def is_not_null(self) -> ast.Call:
         """`isNotNull(col)` over the nullable read of the column — guards a bare comparison against NULL rows."""
+        if self.source.kind == "json_subcolumn":
+            return _call(
+                "isNotNull",
+                [
+                    _json_subcolumn_access(
+                        self.field_type,
+                        [self.key],
+                        source=self.source,
+                        is_nullable=True,
+                    )
+                ],
+            )
         field = _synthetic_column_field(self.field_type, self.source.column, is_nullable=True)
         assert field is not None
         return _call("isNotNull", [field])
@@ -557,6 +703,10 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        optimized_json_has = self._optimize_json_has_on_events_json(node)
+        if optimized_json_has is not None:
+            return optimized_json_has
+
         # `isNull` / `isNotNull` / `JSONHas` on a property-group property can be answered by `has(map, key)` alone,
         # without reading the values subcolumn — so it stays eligible for the keys bloom-filter index.
         optimized = self._optimize_property_group_call(node)
@@ -581,6 +731,28 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
 
         return super().visit_call(node)
+
+    def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONHas" or len(node.args) < 2:
+            return None
+        if not all(isinstance(arg, ast.Constant) for arg in node.args[1:]):
+            return None
+
+        field_type = resolve_field_type(node.args[0])
+        if not isinstance(field_type, ast.FieldType):
+            return None
+        table_type = _unwrap_to_table_type(field_type)
+        if table_type is None or table_type.table.to_printed_clickhouse(self.context) not in (
+            "events",
+            DISTRIBUTED_EVENTS_JSON_TABLE,
+        ):
+            return None
+        field = field_type.resolve_database_field(self.context)
+        if not isinstance(field, DatabaseField) or field.name not in ("properties", "person_properties"):
+            return None
+
+        key = ".".join(str(cast(ast.Constant, arg).value) for arg in node.args[1:])
+        return _call("has", [_call("JSONAllPaths", [node.args[0]]), _const(key)])
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
@@ -627,7 +799,11 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return None
 
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind not in ("materialized_column", "dmat") or not _is_string_column(source):
+        if (
+            source is None
+            or source.kind not in ("materialized_column", "dmat", "json_subcolumn")
+            or not _is_string_column(source)
+        ):
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -642,7 +818,11 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind not in ("materialized_column", "dmat") or not _is_string_column(source):
+        if (
+            source is None
+            or source.kind not in ("materialized_column", "dmat", "json_subcolumn")
+            or not _is_string_column(source)
+        ):
             return None
         return _OptimizableProperty(
             field_type=field_type,

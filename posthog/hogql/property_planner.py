@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, cast
 
+from django.conf import settings
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
@@ -30,6 +32,7 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.clickhouse.property_groups import property_groups
+from posthog.models.event.sql import EVENTS_JSON_INDEXED_PROPERTY_NAMES
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema_enums import PropertyGroupsMode
 
@@ -297,7 +300,12 @@ def _plan_property_source(
     table_name, field_name = table_info
     restricted = is_property_type_restricted(property_type, context)
     if restricted or context.modifiers.materializationMode == "disabled":
-        return _json_source_plan(table_name=table_name, field_name=field_name, restricted=restricted)
+        return _json_source_plan(
+            table_name=table_name,
+            field_name=field_name,
+            property_name=property_name,
+            restricted=restricted,
+        )
 
     materialized_column = get_materialized_column_for_property(
         cast(TablesWithMaterializedColumns, table_name),
@@ -340,14 +348,18 @@ def _plan_property_source(
                 has_bloom_filter_index=True,
             )
 
-    return _json_source_plan(table_name=table_name, field_name=field_name)
+    return _json_source_plan(table_name=table_name, field_name=field_name, property_name=property_name)
 
 
 def _json_source_plan(
     table_name: str | None = None,
     field_name: str | None = None,
+    property_name: str | None = None,
     restricted: bool = False,
 ) -> PropertySourcePlan:
+    has_minmax_index = _json_source_has_index(table_name, field_name, property_name, "minmax")
+    has_bloom_filter_index = _json_source_has_index(table_name, field_name, property_name, "bloom_filter")
+
     return PropertySourcePlan(
         kind=PropertySourceKind.JSON,
         table_name=table_name,
@@ -355,8 +367,20 @@ def _json_source_plan(
         column_name=field_name,
         physical_type=ast.StringType(nullable=True),
         is_nullable=True,
+        has_minmax_index=has_minmax_index,
+        has_bloom_filter_index=has_bloom_filter_index,
         restricted=restricted,
     )
+
+
+def _json_source_has_index(
+    table_name: str | None, field_name: str | None, property_name: str | None, index_type: str
+) -> bool:
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return False
+    if table_name != "events" or field_name not in ("properties", "person_properties") or property_name is None:
+        return False
+    return property_name in EVENTS_JSON_INDEXED_PROPERTY_NAMES(field_name, index_type)
 
 
 def _unwrap_table_type(table_type: ast.Type) -> ast.Type:

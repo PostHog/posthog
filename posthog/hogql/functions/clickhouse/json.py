@@ -17,6 +17,12 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             max_paths=5,
         ),
     ),
+    "JSONAllPaths": HogQLFunctionMeta(
+        "JSONAllPaths",
+        1,
+        1,
+        signatures=[((StringType(),), ArrayType(item_type=StringType()))],
+    ),
     "JSONLength": HogQLFunctionMeta(
         "JSONLength",
         1,

@@ -23,7 +23,7 @@ from posthog.models.data_deletion_request import (
     jsonhas_expr,
     verify_queued_request,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_recording_deletion,
@@ -365,7 +365,7 @@ def _run_immediate_event_deletion(
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     shards = sorted(cluster.shards)
 
     context.log.info(f"Starting immediate event deletion across {len(shards)} shards on table {table}")
@@ -399,7 +399,7 @@ def _queue_events_for_deferred_deletion(
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
-    source_table = EVENTS_DATA_TABLE()
+    source_table = EVENTS_INSERT_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
     predicate, params = event_removal_where(deletion_request)
@@ -548,7 +548,7 @@ def process_property_removal_per_shard(
     """
     from django.utils import timezone
 
-    source = EVENTS_DATA_TABLE()
+    source = EVENTS_INSERT_DATA_TABLE()
     temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     db = django_settings.CLICKHOUSE_DATABASE
     properties = deletion_request.properties
@@ -823,7 +823,7 @@ def delete_person_events_op(
         context.log.info("No persons resolved; nothing to delete")
         return person_removal
 
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     predicate, params = _person_event_predicate(person_removal)
     shards = sorted(cluster.shards)
     context.log.info(f"Deleting events for {len(person_removal.person_uuids)} persons across {len(shards)} shards")

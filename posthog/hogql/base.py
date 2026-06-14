@@ -19,6 +19,7 @@ _VISIT_NAME_REPLACEMENTS = {
     "hog_qlxattribute": "hogqlx_attribute",
     "uuidtype": "uuid_type",
     "string_jsontype": "string_json_type",
+    "jsonsubcolumn": "json_subcolumn",
 }
 
 

@@ -41,6 +41,11 @@ class HogQLPrinter(BasePrinter):
         parts.extend(self._print_identifier(str(key)) for key in node.keys)
         return ".".join(parts)
 
+    def visit_json_subcolumn_access(self, node: ast.JSONSubcolumnAccess) -> str:
+        parts = [self.visit(node.expr)]
+        parts.extend(self._print_identifier(key) for key in node.keys)
+        return ".".join(parts)
+
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
         return node.name
 

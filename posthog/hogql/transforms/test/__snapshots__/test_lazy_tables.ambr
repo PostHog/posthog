@@ -1,11 +1,11 @@
 # serializer version: 1
-# name: TestLazyJoins.test_events_session_join_with_multiple_predicates
+# name: TestLazyJoins.test_events_session_join_with_multiple_predicates[new_events_schema]
   '''
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
   FROM (
     SELECT toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, events.event AS event 
-    FROM events 
+    FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s)), equals(events.event, %(hogql_val_5)s), isNotNull(events.`$session_id`)) 
     LIMIT 50000) AS events LEFT JOIN (
     SELECT dateDiff(%(hogql_val_6)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_7)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_8)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -15,11 +15,12 @@
   LIMIT 50000
   '''
 # ---
-# name: TestLazyJoins.test_events_session_join_with_session_duration_filter
+# ---
+# name: TestLazyJoins.test_events_session_join_with_session_duration_filter[new_events_schema]
   '''
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
-  FROM events LEFT JOIN (
+  FROM events_json AS events LEFT JOIN (
     SELECT dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
     FROM raw_sessions 
     WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
@@ -28,13 +29,14 @@
   LIMIT 50000
   '''
 # ---
-# name: TestLazyJoins.test_events_session_join_with_timestamp_filter
+# ---
+# name: TestLazyJoins.test_events_session_join_with_timestamp_filter[new_events_schema]
   '''
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
   FROM (
     SELECT toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, events.event AS event 
-    FROM events 
+    FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s))) 
     LIMIT 50000) AS events LEFT JOIN (
     SELECT dateDiff(%(hogql_val_5)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_6)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_7)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -44,13 +46,14 @@
   LIMIT 50000
   '''
 # ---
-# name: TestLazyJoins.test_events_sessions_join_with_alias
+# ---
+# name: TestLazyJoins.test_events_sessions_join_with_alias[new_events_schema]
   '''
   
   SELECT e.event AS event, e__session.`$session_duration` AS `$session_duration` 
   FROM (
     SELECT toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, e.event AS event 
-    FROM events AS e 
+    FROM events_json AS e 
     WHERE and(equals(e.team_id, 420), greaterOrEquals(e.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), equals(e.event, %(hogql_val_3)s)) 
     LIMIT 50000) AS e LEFT JOIN (
     SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
@@ -59,6 +62,7 @@
     GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(e.__pd_expr_0, e__session.session_id_v7) 
   LIMIT 50000
   '''
+# ---
 # ---
 # name: TestLazyJoins.test_lazy_join_on_lazy_table
   '''
@@ -79,7 +83,8 @@
   LIMIT 50000
   '''
 # ---
-# name: TestLazyJoins.test_lazy_join_on_lazy_table_with_person_properties
+# ---
+# name: TestLazyJoins.test_lazy_join_on_lazy_table_with_person_properties[new_events_schema]
   '''
   
   SELECT persons__events.event AS event 
@@ -91,10 +96,11 @@
     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
     SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
     SELECT events.event AS event, event AS persons__events___event 
-    FROM events 
+    FROM events_json AS events 
     WHERE equals(events.team_id, 420)) AS persons__events ON equals(persons.persons___properties___email, persons__events.persons__events___event) 
   LIMIT 50000
   '''
+# ---
 # ---
 # name: TestLazyJoins.test_lazy_join_on_lazy_table_with_properties
   '''
@@ -115,6 +121,7 @@
   LIMIT 50000
   '''
 # ---
+# ---
 # name: TestLazyJoins.test_resolve_lazy_table_as_select_table
   '''
   
@@ -128,6 +135,333 @@
     SETTINGS optimize_aggregation_in_order=1) AS persons 
   LIMIT 50000
   '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_as_table_in_join[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, events.distinct_id AS distinct_id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, persons.properties___email AS email 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 420) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 10
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_indirect_duplicate_references[new_events_schema]
+  '''
+  
+  SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id, events__person.properties AS properties 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 420) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
+    SELECT tupleElement(argMax(tuple(person.properties), person.version), 1) AS properties, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_table_indirectly_referenced[new_events_schema]
+  '''
+  
+  SELECT events__person.id AS id 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 420) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
+    SELECT person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, events__pdi.person_id AS person_id 
+  FROM events_json AS events INNER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 420) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties
+  '''
+  
+  SELECT person_distinct_ids__person.`properties___$browser` AS `$browser` 
+  FROM (
+    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_distinct_ids___person_id, tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 420) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids LEFT JOIN (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$browser`, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties_deep
+  '''
+  
+  SELECT person_distinct_ids__person.`properties___$browser___in___json` AS `$browser__in__json` 
+  FROM (
+    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_distinct_ids___person_id, tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 420) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids LEFT JOIN (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$browser___in___json`, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_3)s)), person.version), 1), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_traversed_fields[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 420) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, events__pdi__person.id AS id 
+  FROM events_json AS events INNER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id, tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 420) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+    SELECT person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, events__pdi__person.`properties___$browser` AS `$browser` 
+  FROM events_json AS events INNER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id, tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
+    FROM person_distinct_id2 
+    WHERE equals(person_distinct_id2.team_id, 420) 
+    GROUP BY person_distinct_id2.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$browser`, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties_duplicate[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, events__person.properties AS properties, events__person.properties___name AS name 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 420) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name, tupleElement(argMax(tuple(person.properties), person.version), 1) AS properties, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_resolve_lazy_tables_two_levels_traversed[new_events_schema]
+  '''
+  
+  SELECT events.event AS event, events__person.id AS id 
+  FROM events_json AS events LEFT OUTER JOIN (
+    SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
+    FROM person_distinct_id_overrides 
+    WHERE equals(person_distinct_id_overrides.team_id, 420) 
+    GROUP BY person_distinct_id_overrides.distinct_id 
+    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
+    SELECT person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_select_count_from_lazy_table
+  '''
+  
+  SELECT count() AS `count()` 
+  FROM (
+    SELECT person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS persons 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_events_session_join_with_multiple_predicates
+  '''
+  
+  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
+  FROM (
+    SELECT toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, events.event AS event 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s)), equals(events.event, %(hogql_val_5)s), isNotNull(events.`$session_id`)) 
+    LIMIT 50000) AS events LEFT JOIN (
+    SELECT dateDiff(%(hogql_val_6)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_7)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_8)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+    FROM raw_sessions 
+    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_9)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(%(hogql_val_10)s, toIntervalDay(3)))) 
+    GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.__pd_expr_0, events__session.session_id_v7) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_events_session_join_with_session_duration_filter
+  '''
+  
+  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
+  FROM events LEFT JOIN (
+    SELECT dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+    FROM raw_sessions 
+    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
+    GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_4)s)), events__session.session_id_v7) 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)), greater(events__session.`$session_duration`, 0)) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_events_session_join_with_timestamp_filter
+  '''
+  
+  SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
+  FROM (
+    SELECT toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, events.event AS event 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s))) 
+    LIMIT 50000) AS events LEFT JOIN (
+    SELECT dateDiff(%(hogql_val_5)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_6)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_7)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+    FROM raw_sessions 
+    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_8)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(%(hogql_val_9)s, toIntervalDay(3)))) 
+    GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.__pd_expr_0, events__session.session_id_v7) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_events_sessions_join_with_alias
+  '''
+  
+  SELECT e.event AS event, e__session.`$session_duration` AS `$session_duration` 
+  FROM (
+    SELECT toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, e.event AS event 
+    FROM events AS e 
+    WHERE and(equals(e.team_id, 420), greaterOrEquals(e.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), equals(e.event, %(hogql_val_3)s)) 
+    LIMIT 50000) AS e LEFT JOIN (
+    SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+    FROM raw_sessions 
+    WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
+    GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(e.__pd_expr_0, e__session.session_id_v7) 
+  LIMIT 50000
+  '''
+# ---
+# ---
+# name: TestLazyJoins.test_lazy_join_on_lazy_table_with_person_properties
+  '''
+  
+  SELECT persons__events.event AS event 
+  FROM (
+    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS persons___properties___email, person.id AS id 
+    FROM person 
+    WHERE equals(person.team_id, 420) 
+    GROUP BY person.id 
+    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+    SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
+    SELECT events.event AS event, event AS persons__events___event 
+    FROM events 
+    WHERE equals(events.team_id, 420)) AS persons__events ON equals(persons.persons___properties___email, persons__events.persons__events___event) 
+  LIMIT 50000
+  '''
+# ---
 # ---
 # name: TestLazyJoins.test_resolve_lazy_table_as_table_in_join
   '''
@@ -150,6 +484,7 @@
   LIMIT 10
   '''
 # ---
+# ---
 # name: TestLazyJoins.test_resolve_lazy_table_indirect_duplicate_references
   '''
   
@@ -170,6 +505,7 @@
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
+# ---
 # ---
 # name: TestLazyJoins.test_resolve_lazy_table_indirectly_referenced
   '''
@@ -192,6 +528,7 @@
   LIMIT 50000
   '''
 # ---
+# ---
 # name: TestLazyJoins.test_resolve_lazy_tables
   '''
   
@@ -207,45 +544,6 @@
   LIMIT 50000
   '''
 # ---
-# name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties
-  '''
-  
-  SELECT person_distinct_ids__person.`properties___$browser` AS `$browser` 
-  FROM (
-    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_distinct_ids___person_id, tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
-    FROM person_distinct_id2 
-    WHERE equals(person_distinct_id2.team_id, 420) 
-    GROUP BY person_distinct_id2.distinct_id 
-    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
-    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids LEFT JOIN (
-    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$browser`, person.id AS id 
-    FROM person 
-    WHERE equals(person.team_id, 420) 
-    GROUP BY person.id 
-    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_1)s)), person.version), 1), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
-    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties_deep
-  '''
-  
-  SELECT person_distinct_ids__person.`properties___$browser___in___json` AS `$browser__in__json` 
-  FROM (
-    SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_distinct_ids___person_id, tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
-    FROM person_distinct_id2 
-    WHERE equals(person_distinct_id2.team_id, 420) 
-    GROUP BY person_distinct_id2.distinct_id 
-    HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) 
-    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids LEFT JOIN (
-    SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$browser___in___json`, person.id AS id 
-    FROM person 
-    WHERE equals(person.team_id, 420) 
-    GROUP BY person.id 
-    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_3)s)), person.version), 1), plus(now64(6, %(hogql_val_4)s), toIntervalDay(1)))) 
-    SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids__person ON equals(person_distinct_ids.person_distinct_ids___person_id, person_distinct_ids__person.id) 
-  LIMIT 50000
-  '''
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_traversed_fields
   '''
@@ -261,6 +559,7 @@
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
+# ---
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels
   '''
@@ -283,6 +582,7 @@
   LIMIT 50000
   '''
 # ---
+# ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties
   '''
   
@@ -303,6 +603,7 @@
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
+# ---
 # ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties_duplicate
   '''
@@ -325,6 +626,7 @@
   LIMIT 50000
   '''
 # ---
+# ---
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_traversed
   '''
   
@@ -343,20 +645,6 @@
     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
     SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestLazyJoins.test_select_count_from_lazy_table
-  '''
-  
-  SELECT count() AS `count()` 
-  FROM (
-    SELECT person.id AS id 
-    FROM person 
-    WHERE equals(person.team_id, 420) 
-    GROUP BY person.id 
-    HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))) 
-    SETTINGS optimize_aggregation_in_order=1) AS persons 
   LIMIT 50000
   '''
 # ---

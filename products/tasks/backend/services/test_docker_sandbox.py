@@ -64,6 +64,15 @@ class TestSandboxFactory:
         assert sandbox_class == DockerSandbox
 
     @patch("products.tasks.backend.services.sandbox.settings")
+    def test_docker_sandbox_opt_in_with_test(self, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = "docker"
+        mock_settings.DEBUG = False
+        mock_settings.TEST = True
+
+        sandbox_class = get_sandbox_class()
+        assert sandbox_class == DockerSandbox
+
+    @patch("products.tasks.backend.services.sandbox.settings")
     def test_modal_sandbox_default_in_debug(self, mock_settings):
         mock_settings.SANDBOX_PROVIDER = None
         mock_settings.DEBUG = True

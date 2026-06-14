@@ -15,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -59,6 +60,15 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     snapshot: Any
     maxDiff = None
 
+    def _events_table_ref(self) -> str:
+        return "events_json" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
+    def _events_schema_snapshot(self):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return self.snapshot(name="new_events_schema")
+        return self.snapshot
+
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
@@ -78,7 +88,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         printed = self._print_select(
             "SELECT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_with_alias_and_session_join(self):
@@ -86,7 +96,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         printed = self._print_select(
             "SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01'"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     def test_aliased_events_pushdown_subquery_defines_its_own_alias(self):
         # When the events table is aliased (FROM events AS e), the pushed predicate keeps referencing `e`.
@@ -103,7 +113,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
 
         # The subquery aliases its own events scan as `e`, so the pushed `e.timestamp` predicate resolves
         # against it, not the out-of-scope outer alias.
-        assert "FROM events AS e" in events_subquery, (
+        assert f"FROM {self._events_table_ref()} AS e" in events_subquery, (
             "expected the inner subquery to alias events as `e` so pushed `e.*` predicates resolve:\n" + events_subquery
         )
         assert "e.timestamp" in events_subquery, (
@@ -152,13 +162,13 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     def test_events_without_join_no_pushdown(self):
         """No pushdown when there are no lazy joins."""
         printed = self._print_select("SELECT event FROM events WHERE timestamp >= '2024-01-01'")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_without_where_no_pushdown(self):
         """No pushdown when there is no WHERE clause."""
         printed = self._print_select("SELECT event, session.$session_duration FROM events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_session_duration_filter_declines(self):
@@ -169,7 +179,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
         )
         assert ") AS events LEFT JOIN" not in printed, printed
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multiple_pushable_predicates(self):
@@ -178,7 +188,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "SELECT event, session.$session_duration FROM events "
             "WHERE timestamp >= '2024-01-01' AND event = '$pageview'"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery_with_pushdown(self):
@@ -192,14 +202,14 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "LIMIT 100"
             ") GROUP BY event"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_simple_events_with_person_join(self):
         printed = self._print_select(
             "SELECT event, person.id FROM events WHERE timestamp > '2024-01-01'",
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_poe_properties_with_session_join(self):
@@ -208,7 +218,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "SELECT event, poe.properties, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
         )
         assert ") AS events LEFT JOIN" in printed, printed
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_poe_id_with_session_join(self):
@@ -216,7 +226,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         printed = self._print_select(
             "SELECT poe.id, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_poe_created_at_with_session_join(self):
@@ -225,7 +235,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "SELECT event, poe.created_at, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"
         )
         assert ") AS events LEFT JOIN" in printed, printed
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multiple_poe_fields_with_session_join(self):
@@ -235,7 +245,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "WHERE timestamp >= '2024-01-01'"
         )
         assert ") AS events LEFT JOIN" in printed, printed
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     # Only LEFT [OUTER] joins preserve every events row, so only they let the pushed inner LIMIT stay
     # result-equivalent and push. INNER / CROSS can drop an events row, and RIGHT / FULL can synthesize null
@@ -264,7 +274,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             f"SELECT sessions.session_id, uuid FROM events {join_clause} WHERE events.timestamp > '2021-01-01'"
         )
         assert ") AS events LEFT" in printed, f"{_name} should push the predicate into a subquery:\n{printed}"
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @parameterized.expand(_NON_ROW_PRESERVING_JOINS)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -275,7 +285,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             f"SELECT sessions.session_id, uuid FROM events {join_clause} WHERE events.timestamp > '2021-01-01'"
         )
         assert ") AS events LEFT JOIN" not in printed, f"{_name} should not push the predicate:\n{printed}"
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_bare_timestamp_with_select_alias_pushes_down(self):
@@ -284,7 +294,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
             "FROM events "
             "WHERE timestamp >= '2024-01-01' AND timestamp <= today()"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     def test_non_pushable_prewhere_bails(self):
         # A PREWHERE with a non-events (joined) predicate can't be pushed, and can't stay on the outer query
@@ -988,6 +998,33 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
         extra = {"propertyGroupsMode": self._property_groups_mode} if self._property_groups_mode is not None else {}
         return HogQLQueryModifiers(pushDownPredicates=push_down, **extra)
 
+    def _events_table_ref(self) -> str:
+        return "events_json" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
+    def _events_schema_snapshot(self):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return self.snapshot(name="new_events_schema")
+        return self.snapshot
+
+    def _assert_events_property_source(self, subquery: str, property_name: str, legacy_column: str) -> None:
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert legacy_column not in subquery, f"new events schema should not use {legacy_column}:\n{subquery}"
+            assert f"events.properties.{property_name}" in subquery, (
+                f"expected JSON subcolumn for {property_name}:\n{subquery}"
+            )
+        else:
+            assert legacy_column in subquery, f"expected legacy materialized column {legacy_column}:\n{subquery}"
+
+    def _assert_json_has_source(self, subquery: str) -> None:
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "properties_group" not in subquery, f"new events schema should not use property groups:\n{subquery}"
+            assert "JSONAllPaths(events.properties)" in subquery, (
+                f"expected JSONAllPaths on JSON properties:\n{subquery}"
+            )
+        else:
+            assert "properties_group" in subquery, f"expected the property-group Map column exposed:\n{subquery}"
+
     def _print_pushdown_sql(self, select: str) -> str:
         context = HogQLContext(
             team_id=self.team.pk,
@@ -1343,7 +1380,7 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
         assert "LIMIT" in self._events_subquery(printed)
         self._assert_pushdown_equivalent(select, expected_rows=3)
 
@@ -1355,7 +1392,7 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             "WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
         assert ") AS e LEFT JOIN" in printed, f"expected pushdown to wrap events:\n{printed}"
         subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
         assert "LIMIT" in subquery
@@ -1372,7 +1409,11 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         )
         subquery = self._events_subquery(self._print_pushdown_sql(select))
         assert "LIMIT 50" in subquery, f"expected the pushed LIMIT in the events subquery:\n{subquery}"
-        assert "JSONExtract" in subquery, f"expected the raw-blob filter in the subquery:\n{subquery}"
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events.properties.tier" in subquery, f"expected JSON subcolumn filter in the subquery:\n{subquery}"
+            assert "JSONExtract" not in subquery, f"new events schema should not use JSONExtract here:\n{subquery}"
+        else:
+            assert "JSONExtract" in subquery, f"expected the raw-blob filter in the subquery:\n{subquery}"
         on = self._assert_results_equivalent(select)
         assert len(on) == 2
 
@@ -1387,7 +1428,9 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         printed = self._print_pushdown_sql(select)
         assert ") AS e LEFT JOIN" in printed, f"expected property filter pushed into an events subquery:\n{printed}"
         subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
-        assert "FROM events AS e" in subquery, f"expected the subquery to define alias `e`:\n{subquery}"
+        assert f"FROM {self._events_table_ref()} AS e" in subquery, (
+            f"expected the subquery to define alias `e`:\n{subquery}"
+        )
         assert "LIMIT 50" in subquery, f"expected the pushed LIMIT in the subquery:\n{subquery}"
         on = self._assert_results_equivalent(select)
         assert len(on) == 2
@@ -1699,7 +1742,7 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             )
             printed = self._print_pushdown_sql(select)
             subquery = self._events_subquery(printed)
-            assert mat_col.name in subquery, f"expected the materialized column exposed in the subquery:\n{printed}"
+            self._assert_events_property_source(subquery, "tier", mat_col.name)
             assert "LIMIT" in subquery, f"expected the pushed subquery to carry an inner LIMIT:\n{printed}"
             # The materialized property must NOT also drag the raw `properties` blob into the subquery
             # projection (over-projection would force a ~100x-slower full-Map read). Guards drift on the
@@ -1723,9 +1766,7 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
                 "WHERE events.timestamp >= '2024-01-01' AND events.timestamp < '2024-01-08' LIMIT 50"
             )
             subquery = self._events_subquery(self._print_pushdown_sql(select))
-            assert mat_col.name in subquery, (
-                f"expected the materialized column exposed for the property join key:\n{subquery}"
-            )
+            self._assert_events_property_source(subquery, "tier", mat_col.name)
 
     def test_exec_materialized_property_in_order_by_declines(self):
         # A materialized property in ORDER BY: any ORDER BY blocks the inner LIMIT, so the pushdown declines
@@ -1747,9 +1788,7 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             select = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} AND properties.tier = 'pro' LIMIT 50"
             printed = self._print_pushdown_sql(select)
             subquery = self._events_subquery(printed)
-            assert mat_col.name in subquery, (
-                f"expected the materialized column used in the pushed predicate:\n{printed}"
-            )
+            self._assert_events_property_source(subquery, "tier", mat_col.name)
             assert "JSONExtract" not in subquery, (
                 f"materialized column should avoid the JSONExtract blob path:\n{printed}"
             )
@@ -1773,8 +1812,14 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
                 f"expected the materialized property filter pushed into a subquery:\n{printed}"
             )
             subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
-            assert mat_col.name in subquery, f"expected the materialized column in the pushed predicate:\n{printed}"
-            assert "FROM events AS e" in subquery, f"expected the subquery to define alias `e`:\n{subquery}"
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert mat_col.name not in subquery, f"new events schema should not use {mat_col.name}:\n{subquery}"
+                assert "e.properties.tier" in subquery, f"expected JSON subcolumn in the pushed predicate:\n{subquery}"
+            else:
+                assert mat_col.name in subquery, f"expected the materialized column in the pushed predicate:\n{printed}"
+            assert f"FROM {self._events_table_ref()} AS e" in subquery, (
+                f"expected the subquery to define alias `e`:\n{subquery}"
+            )
             assert "LIMIT" in subquery, f"expected the pushed subquery to carry an inner LIMIT:\n{printed}"
             self._assert_equivalent(select, expected_rows=2)
 
@@ -1785,7 +1830,7 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             self._create_data()
             select = f"SELECT event, session.$session_duration FROM events WHERE {self._RANGE} AND properties.tier IN ('pro', 'free') LIMIT 50"
             printed = self._print_pushdown_sql(select)
-            assert mat_col.name in self._events_subquery(printed)
+            self._assert_events_property_source(self._events_subquery(printed), "tier", mat_col.name)
             self._assert_equivalent(select, expected_rows=3)
 
     MATERIALIZED_SHAPES = [
@@ -1804,9 +1849,7 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
         with materialized("events", "tier") as mat_col:
             self._create_data()
             printed = self._print_pushdown_sql(select)
-            assert mat_col.name in self._events_subquery(printed), (
-                f"{_name}: materialized column not exposed:\n{printed}"
-            )
+            self._assert_events_property_source(self._events_subquery(printed), "tier", mat_col.name)
             with_pushdown = self._results(select, push_down=True)
             without_pushdown = self._results(select, push_down=False)
             assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1855,9 +1898,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
             f"WHERE {self._RANGE} LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), (
-            f"expected the property-group Map column exposed in the subquery:\n{printed}"
-        )
+        self._assert_json_has_source(self._events_subquery(printed))
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1875,7 +1916,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
             f"WHERE {self._RANGE} LIMIT 50"
         )
         subquery = self._events_subquery(self._print_pushdown_sql(select))
-        assert "properties_group" in subquery, f"expected the group Map column exposed:\n{subquery}"
+        self._assert_json_has_source(subquery)
         assert "properties AS properties" not in subquery, (
             f"the raw properties blob must NOT be projected when only JSONHas reads it:\n{subquery}"
         )
@@ -1887,7 +1928,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
             f"WHERE {self._RANGE} LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
+        self._assert_json_has_source(self._events_subquery(printed))
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1916,7 +1957,12 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         self._create_data()
         select = f"SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE {self._RANGE} LIMIT 50"
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
+        subquery = self._events_subquery(printed)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "properties_group" not in subquery, f"new events schema should not use property groups:\n{subquery}"
+            assert "events.properties.tier" in subquery, f"expected JSON subcolumn in subquery:\n{subquery}"
+        else:
+            assert "properties_group" in subquery, printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1934,7 +1980,12 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
             f"FROM events WHERE {self._RANGE} LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
+        subquery = self._events_subquery(printed)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "properties_group" not in subquery, f"new events schema should not use property groups:\n{subquery}"
+            assert "events.properties.tier" in subquery, f"expected JSON subcolumn in subquery:\n{subquery}"
+        else:
+            assert "properties_group" in subquery, printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert self._sorted(with_pushdown) == self._sorted(without_pushdown), (
@@ -1983,6 +2034,15 @@ class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
             state=MaterializedColumnSlotState.READY,
         )
         for distinct_id, tier in [("u1", "pro"), ("u2", "free")]:
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                _create_event(
+                    team=self.team,
+                    event="watched movie",
+                    distinct_id=distinct_id,
+                    timestamp="2024-01-02T10:00:00",
+                    properties={"tier": tier},
+                )
+                continue
             sync_execute(
                 f"""
                 INSERT INTO sharded_events (uuid, team_id, event, distinct_id, timestamp, properties, dmat_string_{self._SLOT_INDEX})
@@ -1997,11 +2057,18 @@ class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
                 },
                 flush=False,
             )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            flush_persons_and_events()
 
     def test_exec_dmat_property_in_select_stays_equivalent(self):
         self._setup_dmat_events()
         select = "SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE timestamp >= '2020-01-01' LIMIT 50"
         printed = self._print_pushdown_sql(select)
-        assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
+        subquery = self._events_subquery(printed)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert f"dmat_string_{self._SLOT_INDEX}" not in subquery, printed
+            assert "events.properties.tier" in subquery, printed
+        else:
+            assert f"dmat_string_{self._SLOT_INDEX}" in subquery, printed
         on = self._assert_results_equivalent(select)
         assert len(on) == 2

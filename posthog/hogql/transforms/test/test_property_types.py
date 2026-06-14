@@ -14,6 +14,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -126,6 +127,12 @@ class TestPropertyTypes(BaseTest):
             defaults={"property_type": "Boolean", "group_type_index": 0},
         )
 
+    def _events_schema_snapshot(self):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return self.snapshot(name="new_events_schema")
+        return self.snapshot
+
     def _plan_where_comparison(
         self,
         select: str,
@@ -172,8 +179,19 @@ class TestPropertyTypes(BaseTest):
         return context, prepared
 
     def test_property_comparison_planner_marks_string_minmax_ready(self) -> None:
-        with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
-            plan = self._plan_where_comparison("select count() from events where properties.$browser < 'm'")
+        property_name = "$session_id" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "$browser"
+        with materialized("events", property_name, is_nullable=True, create_minmax_index=True):
+            plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} < 'm'")
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.StringType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.physical_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+            assert plan.can_compare_physical_source_directly is True
+            assert plan.can_use_minmax_index is True
+            assert plan.minmax_blocker is None
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.StringType(nullable=True)
@@ -186,6 +204,17 @@ class TestPropertyTypes(BaseTest):
     def test_property_comparison_planner_blocks_numeric_minmax_until_source_type_matches(self) -> None:
         with materialized("events", "$screen_width", is_nullable=True, create_minmax_index=True):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.FloatType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
+            assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.FloatType(nullable=True)
@@ -228,6 +257,17 @@ class TestPropertyTypes(BaseTest):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < toDateTime('2024-01-01')"
             )
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+            assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
@@ -311,7 +351,7 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select(
             "select properties.$screen_width * properties.$screen_height, properties.bool from events"
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):
@@ -331,19 +371,19 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_combined(self):
         printed = self._print_select("select properties.$screen_width * person.properties.tickets from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_resolve_property_types_event_person_poe_off(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_resolve_property_types_event_person_poe_on(self):
         printed = self._print_select("select person.properties.provided_timestamp from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     def test_resolve_property_types_from_qualified_posthog_events(self):
         # Selecting from the qualified `posthog.events` form must produce the same property-type
@@ -359,7 +399,7 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_group_property_types(self):
         printed = self._print_select("select organization.properties.inty from events")
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -371,7 +411,7 @@ class TestPropertyTypes(BaseTest):
             organization.properties.group_boolean is null
             from events"""
         )
-        assert printed == self.snapshot
+        assert printed == self._events_schema_snapshot()
         assert (
             "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
@@ -460,6 +500,12 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         )
         return pretty_print_in_tests(query, self.team.pk)
 
+    def _assert_typed_jsonextract_fallback(self, printed: str) -> None:
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "JSONExtract(toString(events.properties)" in printed, printed
+        else:
+            assert "JSONExtract(events.properties" in printed, printed
+
     @parameterized.expand(
         [
             ("bare_properties", "select JSONExtractString(properties, '$browser') from events"),
@@ -469,6 +515,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
     def test_jsonextractstring_rewritten_to_mat_column(self, _name: str, query: str):
         with materialized("events", "$browser"):
             printed = self._print_select(query)
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events_json" in printed, printed
+                assert "properties.`$browser`" in printed, printed
+                assert "mat_$browser" not in printed, printed
+                assert "JSONExtractString" not in printed, printed
+                return
+
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
@@ -477,6 +530,14 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select(
                 "select JSONExtractString(properties, '$browser'), JSONExtractString(properties, '$os') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events_json" in printed, printed
+                assert "properties.`$browser`" in printed, printed
+                assert "properties.`$os`" in printed, printed
+                assert "mat_" not in printed, printed
+                assert "JSONExtractString(events.properties" not in printed, printed
+                return
+
             assert "mat_$browser" in printed, printed
             assert "mat_$os" in printed, printed
             assert "JSONExtractString(events.properties" not in printed, printed
@@ -502,6 +563,11 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select(
                 "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self._assert_typed_jsonextract_fallback(printed)
+                assert "mat_typed_json_float" not in printed, printed
+                return
+
             assert "mat_typed_json_float" in printed, printed
             assert "JSONExtract(events.properties" not in printed, printed
 
@@ -511,13 +577,18 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
                 "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
             )
             assert "mat_typed_json_float" not in printed, printed
-            assert "JSONExtract(events.properties" in printed, printed
+            self._assert_typed_jsonextract_fallback(printed)
 
     def test_typed_jsonextract_rewritten_despite_type_spelling_differences(self):
         with materialized("events", "typed_json_dt", column_type="DateTime64(6, 'UTC')"):
             printed = self._print_select(
                 "select JSONExtract(properties, 'typed_json_dt', 'DateTime64(6,\\'UTC\\')') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self._assert_typed_jsonextract_fallback(printed)
+                assert "mat_typed_json_dt" not in printed, printed
+                return
+
             assert "mat_typed_json_dt" in printed, printed
             assert "JSONExtract(events.properties" not in printed, printed
 
@@ -564,6 +635,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             event="pageview",
             properties={"tag": "unset"},
         )
+        flush_persons_and_events()
 
     def _run_and_collect(
         self, extract_expr: str = "JSONExtractString(properties, '$browser')"
@@ -577,6 +649,15 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
     def test_rewrite_value_semantics_no_mat_column(self):
         self._seed_edge_case_events()
         values, sql = self._run_and_collect()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            access_values, _ = self._run_and_collect("properties.$browser")
+            assert values == access_values
+            assert "events_json" in sql, sql
+            assert "events.properties.`$browser`" in sql, sql
+            assert "JSONExtractString(events.properties" not in sql, sql
+            assert "mat_$browser" not in sql, sql
+            return
+
         assert "JSONExtractString(events.properties" in sql, sql
         assert "mat_$browser" not in sql, sql
         # JSONExtractString returns '' for JSON null (type mismatch), not 'null'.
@@ -587,6 +668,14 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=False):
             values, sql = self._run_and_collect()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            access_values, _ = self._run_and_collect("properties.$browser")
+            assert values == access_values
+            assert "events_json" in sql, sql
+            assert "events.properties.`$browser`" in sql, sql
+            assert "mat_$browser" not in sql, sql
+            return
+
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
         # Rewritten call goes through the standard property-access path, so the mat
@@ -598,6 +687,14 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
             values, sql = self._run_and_collect()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            access_values, _ = self._run_and_collect("properties.$browser")
+            assert values == access_values
+            assert "events_json" in sql, sql
+            assert "events.properties.`$browser`" in sql, sql
+            assert "mat_$browser" not in sql, sql
+            return
+
         assert "JSONExtractString(events.properties" not in sql, sql
         assert "mat_$browser" in sql, sql
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": None, "unset": None}
@@ -652,6 +749,16 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
                 )
         flush_persons_and_events()
 
+    def _events_table_ref(self) -> str:
+        return "events_json" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
+    def _assert_primary_key_uses_timestamp_range(self, primary_key: dict) -> None:
+        pk_keys = primary_key.get("Keys", [])
+        expected_timestamp_key = "timestamp" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "toDate(timestamp)"
+        assert any(expected_timestamp_key in key for key in pk_keys), (
+            f"Expected PK to use {expected_timestamp_key}, got Keys={pk_keys}"
+        )
+
     def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
         self.team.timezone = timezone
         self.team.save()
@@ -671,7 +778,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
     def test_bare_timestamp_prunes_partition_and_primary_key(self):
         """Bare timestamp comparisons allow partition and primary key pruning."""
         sql = (
-            f"SELECT count() FROM events "
+            f"SELECT count() FROM {self._events_table_ref()} "
             f"WHERE team_id = {self.team.pk} "
             f"AND timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"
         )
@@ -685,10 +792,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         primary_key = _get_index_by_type(indexes, "PrimaryKey")
         assert primary_key is not None
-        pk_keys = primary_key.get("Keys", [])
-        assert any("toDate(timestamp)" in k for k in pk_keys), (
-            f"PrimaryKey should use toDate(timestamp), got Keys={pk_keys}"
-        )
+        self._assert_primary_key_uses_timestamp_range(primary_key)
         assert primary_key.get("Condition") != "true"
 
     @parameterized.expand(["UTC", "America/New_York"])
@@ -701,7 +805,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         entirely (PropertySwapper.visit_compare_operation).
         """
         sql = (
-            f"SELECT count() FROM events "
+            f"SELECT count() FROM {self._events_table_ref()} "
             f"WHERE team_id = {self.team.pk} "
             f"AND toTimeZone(timestamp, '{tz}') >= '2024-03-01' "
             f"AND toTimeZone(timestamp, '{tz}') < '2024-04-01'"
@@ -732,10 +836,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         primary_key = _get_index_by_type(indexes, "PrimaryKey")
         assert primary_key is not None
-        pk_keys = primary_key.get("Keys", [])
-        assert any("toDate(timestamp)" in k for k in pk_keys), (
-            f"Expected PK to use toDate(timestamp), got Keys={pk_keys}"
-        )
+        self._assert_primary_key_uses_timestamp_range(primary_key)
 
     def test_toTimeZone_stripped_from_where_but_kept_in_select(self):
         """toTimeZone should be stripped from top-level WHERE range comparisons

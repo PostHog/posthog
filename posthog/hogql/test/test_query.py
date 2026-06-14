@@ -8,6 +8,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
@@ -50,6 +51,27 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    allow_dual_schema_snapshots = True
+
+    def _schema_snapshot(self):
+        if not getattr(self, "_use_new_events_schema_snapshots", False):
+            self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+            return self.snapshot
+
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+        self._new_events_schema_snapshot_index = snapshot_index + 1
+        snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+        return self.snapshot(name=snapshot_name)
+
+    def assertResponseMatchesSnapshot(self, response) -> None:
+        snapshot_value = pretty_print_response_in_tests(response, self.team.pk)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in snapshot_value.lower():
+            self._use_new_events_schema_snapshots = True
+        assert snapshot_value == self._schema_snapshot()
+
+    def assertHogQLMatchesSnapshot(self, query: str | None) -> None:
+        assert pretty_print_in_tests(query, self.team.pk) == self._schema_snapshot()
 
     def _create_random_events(self) -> str:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
@@ -88,7 +110,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [(2, "random event")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -102,7 +124,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [(2, "random event")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -116,7 +138,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [(2, "random event")])
 
     def test_cte_with_unaliased_expression_and_outer_star(self):
@@ -187,7 +209,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [("tim@posthog.com",)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -199,7 +221,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertTrue(len(response.results) > 0)
 
     def test_query_timings(self):
@@ -234,7 +256,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][4], "tim@posthog.com")
@@ -260,7 +282,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
 
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertTrue(len(response.results) > 0)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -273,7 +295,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
@@ -292,7 +314,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10",
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
@@ -353,7 +375,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids AS pdi LIMIT 10",
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(
                 response.results[0][1],
@@ -374,7 +396,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 "SELECT pdi.distinct_id, pdi.person.properties.sneaky_mail FROM person_distinct_ids AS pdi LIMIT 10",
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(response.results[0][1], "tim@posthog.com")
 
@@ -402,7 +424,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertTrue(len(response.results) >= 1)
             self.assertEqual(response.results[0][0], "pageview")
             self.assertEqual(response.results[0][1], "test@posthog.com")
@@ -437,7 +459,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(len(response.results), 1)
             self.assertEqual(response.results[0][0], "pageview")
             self.assertEqual(response.results[0][1], "click")
@@ -464,7 +486,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(len(response.results), 1)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -477,7 +499,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
@@ -493,7 +515,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -508,7 +530,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -523,7 +545,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "tim@posthog.com")
 
@@ -536,7 +558,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -548,7 +570,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -562,7 +584,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -578,7 +600,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], UUID("00000000-0000-4000-8000-000000000000"))
             self.assertEqual(response.results[0][3], "tim@posthog.com")
@@ -637,7 +659,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                     pretty=False,
                 )
-                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+                self.assertResponseMatchesSnapshot(response)
                 self.assertEqual(response.results, [("$pageview", 2)])
 
             with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
@@ -652,7 +674,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                     pretty=False,
                 )
-                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+                self.assertResponseMatchesSnapshot(response)
                 self.assertEqual(response.results, [("$pageview", 2)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -697,7 +719,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     pretty=False,
                 )
                 self.assertEqual(response.results, [("$pageview", 1)])
-                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+                self.assertResponseMatchesSnapshot(response)
 
             with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
@@ -711,7 +733,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                     pretty=False,
                 )
-                assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+                self.assertResponseMatchesSnapshot(response)
                 self.assertEqual(response.results, [("$pageview", 1)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -747,8 +769,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
+            self.assertHogQLMatchesSnapshot(response.hogql)
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
             response = execute_hogql_query(
@@ -790,8 +812,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
+            self.assertHogQLMatchesSnapshot(response.hogql)
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
             response = execute_hogql_query(
@@ -810,7 +832,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
             self.assertEqual(response.results, [([2, 4, 6], 1)])
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_groupby_unnecessary_ifnull(self):
@@ -826,7 +848,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2025-02-15 22:52:00"):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_unnecessary_ifnull(self):
@@ -842,7 +864,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2025-02-15 22:52:00"):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):
@@ -864,7 +886,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2025-02-15 22:52:00"):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_arrays(self):
@@ -876,7 +898,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             # Following SQL tradition, ClickHouse array indexes start at 1, not from zero.
             self.assertEqual(response.results, [([1, 2, 3], 10)])
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_access(self):
@@ -906,7 +928,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [("0", [("random event", 1)]), ("1", [("random event", 1)])],
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     def test_null_properties(self):
         with freeze_time("2020-01-10"):
@@ -1191,7 +1213,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [("0", [("random event", 1)]), ("1", [("random event", 1)])],
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_2_levels(self):
@@ -1231,7 +1253,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [("0", [("random event", 1)]), ("1", [("random event", 1)])],
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     def test_property_access_with_arrays(self):
         with freeze_time("2020-01-10"):
@@ -1276,7 +1298,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            self.assertEqual(
+            expected_legacy_clickhouse = (
                 f"SELECT "
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS string, "
                 f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', ''), "
@@ -1295,9 +1317,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
-                response.clickhouse,
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self.assertIn("FROM events_json AS events", response.clickhouse)
+                self.assertIn(
+                    "if(isNull(events.properties.string), NULL, toString(events.properties.string)) AS string",
+                    response.clickhouse,
+                )
+                self.assertNotIn("JSONExtractRaw(events.properties,", response.clickhouse)
+                for property_key in [
+                    "array_str",
+                    "obj_array",
+                    "array_array_str",
+                    "array_obj",
+                    "array_obj_array",
+                    "array_obj_array_obj",
+                ]:
+                    self.assertIn(f"events.properties.{property_key}", response.clickhouse)
+                self.assertIn("JSONExtractRaw(if(isNull(events.properties.array_str)", response.clickhouse)
+                self.assertIn("JSONExtractRaw(if(isNull(events.properties.obj_array.id)", response.clickhouse)
+            else:
+                self.assertEqual(expected_legacy_clickhouse, response.clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
 
     def test_property_access_with_arrays_zero_index_error(self):
@@ -1656,8 +1697,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 placeholders=placeholders,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
+            self.assertHogQLMatchesSnapshot(response.hogql)
             self.assertEqual(len(response.results), 1)
 
             filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-01-02")
@@ -1668,8 +1709,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 placeholders=placeholders,
                 pretty=False,
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
+            self.assertHogQLMatchesSnapshot(response.hogql)
             self.assertEqual(len(response.results), 0)
 
             filters.dateRange = DateRange(date_from="2020-01-01", date_to="2020-02-02")
@@ -1710,7 +1751,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2025-02-15 22:52:00"):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
 
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
@@ -1759,7 +1800,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.hogql,
                 f"SELECT event, distinct_id FROM events AS e WHERE equals(properties.random_uuid, '{random_uuid}') LIMIT 100",
             )
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(len(response.results), 2)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1774,7 +1815,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response.hogql,
             f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_session_filters(self):
@@ -1807,8 +1848,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
             assert response.hogql is not None
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
+            self.assertHogQLMatchesSnapshot(response.hogql)
             self.assertEqual(response.results, [(s1, "https://example.com/1")])
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1840,8 +1881,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 pretty=False,
             )
             assert response.hogql is not None
-            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
-            assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+            self.assertResponseMatchesSnapshot(response)
+            self.assertHogQLMatchesSnapshot(response.hogql)
             self.assertEqual(response.results, [(s2, "https://example.com/2")])
 
     def test_events_sessions_table(self):

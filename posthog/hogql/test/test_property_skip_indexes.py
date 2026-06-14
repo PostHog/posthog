@@ -19,6 +19,8 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -124,6 +126,8 @@ def _run_explain_and_get_skip_indexes(query: str, values: dict[str, Any]) -> set
 class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
     """Shared scaffolding. Subclasses fix a (scope, materialization, index) combination."""
 
+    allow_dual_schema_snapshots = True
+
     SCOPE: Literal["event", "person_on_events", "person"]
     PROPERTY_TO_EXPR_SCOPE: Literal["event", "person"]
     FILTER_TYPE: Literal["event", "person"]
@@ -220,6 +224,9 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
         used = _run_explain_and_get_skip_indexes(query, values)
         expected_used_set = set(expected_used)
         expected_not_used_set = set(expected_not_used)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and self.SCOPE != "person":
+            expected_not_used_set |= expected_used_set
+            expected_used_set = set()
         if not expected_used_set.issubset(used):
             missing = expected_used_set - used
             raise AssertionError(
@@ -521,8 +528,12 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
                 "value": 5,
             }
         )
-        assert f"less(events.{mat_col.name}, 5)" in query
-        assert "accurateCastOrNull" not in query
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert f"events.properties.{property_key}" in query
+            assert mat_col.name not in query
+        else:
+            assert f"less(events.{mat_col.name}, 5)" in query
+            assert "accurateCastOrNull" not in query
         self._assert_indexes(
             {
                 "type": "event",
@@ -569,8 +580,12 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
                 "value": "2024-01-05 00:00:00",
             }
         )
-        assert f"less(events.{mat_col.name}, toDateTime64(" in query
-        assert "parseDateTime64BestEffortOrNull" not in query
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert f"events.properties.{property_key}" in query
+            assert mat_col.name not in query
+        else:
+            assert f"less(events.{mat_col.name}, toDateTime64(" in query
+            assert "parseDateTime64BestEffortOrNull" not in query
         self._assert_indexes(
             {
                 "type": "event",
@@ -738,7 +753,12 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
         query, _ = self._filter_to_sql(self._filter(PropertyOperator.EXACT, "5"))
-        assert "dmat_string_0" in query, f"Expected dmat_string_0 in SQL, got: {query}"
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json AS events" in query, f"Expected events_json in SQL, got: {query}"
+            assert "events.properties.test_prop" in query, f"Expected JSON subcolumn in SQL, got: {query}"
+            assert "dmat_" not in query, f"Expected JSON schema to bypass dmat columns, got: {query}"
+        else:
+            assert "dmat_string_0" in query, f"Expected dmat_string_0 in SQL, got: {query}"
         # No skip indexes are configured on dmat columns today.
         self._assert_indexes(self._filter(PropertyOperator.EXACT, "5"), expected_used=set())
 
@@ -752,8 +772,13 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
             self._filter_to_sql(self._filter(PropertyOperator.LT, "5"))
 
-        assert stats.materialized_range_rewrite["fired_compare"] >= 1
-        assert stats.materialized_property_usage["materialized_column"] >= 1
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert stats.materialized_range_rewrite["fired_compare"] == 0
+            assert stats.materialized_property_usage["json_subcolumn"] >= 1
+            assert stats.materialized_property_usage["materialized_column"] == 0
+        else:
+            assert stats.materialized_range_rewrite["fired_compare"] >= 1
+            assert stats.materialized_property_usage["materialized_column"] >= 1
 
     def test_observability_records_json_property_usage(self) -> None:
         self._seed()
@@ -766,7 +791,11 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
                 materialization_mode=MaterializationMode.DISABLED,
             )
 
-        assert stats.materialized_property_usage["json"] >= 1
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert stats.materialized_property_usage["json_subcolumn"] >= 1
+            assert stats.materialized_property_usage["json"] == 0
+        else:
+            assert stats.materialized_property_usage["json"] >= 1
         assert stats.materialized_property_usage["materialized_column"] == 0
 
 

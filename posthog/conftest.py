@@ -6,7 +6,11 @@ from typing import Any
 from urllib.parse import quote_plus
 
 import pytest
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+from posthog.test.base import (
+    PostHogTestCase,
+    enforce_clickhouse_events_schema_setting,
+    run_clickhouse_statement_in_parallel,
+)
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
@@ -71,6 +75,7 @@ def create_clickhouse_tables():
 
     data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
     run_clickhouse_statement_in_parallel(data_queries)
+    enforce_clickhouse_events_schema_setting()
 
 
 def reset_clickhouse_tables():
@@ -150,6 +155,7 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
+    enforce_clickhouse_events_schema_setting()
 
 
 def run_persons_sqlx_migrations(keepdb: bool = False):

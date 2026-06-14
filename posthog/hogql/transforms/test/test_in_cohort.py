@@ -1,6 +1,7 @@
 import pytest
-from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
 
+from django.conf import settings
 from django.test import override_settings
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, InlineCohortCalculation
@@ -15,13 +16,28 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import UUIDT
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.cohorts.backend.models.util import insert_static_cohort, recalculate_cohortpeople
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
 
 
-class TestInCohort(BaseTest):
+class EventsSchemaSnapshotMixin:
+    def _events_schema_snapshot(self, printed: str):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
+            snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+            self._new_events_schema_snapshot_index = snapshot_index + 1
+            snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+            return self.snapshot(name=snapshot_name)
+        return self.snapshot
+
+    def _assert_response_matches_snapshot(self, response) -> None:
+        printed = pretty_print_response_in_tests(response, self.team.pk)
+        assert printed == self._events_schema_snapshot(printed)
+
+
+class TestInCohort(EventsSchemaSnapshotMixin, BaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
@@ -50,7 +66,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
         self.assertEqual(len(response.results or []), 1)
         self.assertEqual((response.results or [])[0][0], random_uuid)
 
@@ -67,7 +83,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -83,7 +99,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -108,7 +124,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
@@ -145,7 +161,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -160,7 +176,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -177,7 +193,7 @@ class TestInCohort(BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
         self.assertEqual(len(response.results or []), 1)
         self.assertEqual((response.results or [])[0][0], random_uuid)
 
@@ -203,7 +219,7 @@ class TestInCohort(BaseTest):
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
 
 
-class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
+class TestInlineCohortLeftjoin(EventsSchemaSnapshotMixin, QueryMatchingTest, BaseTest):
     maxDiff = None
 
     def _setup_cohort_with_new_person_after_calculation(self):
@@ -250,7 +266,7 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             pretty=False,
         )
         assert len(off_response.results or []) == 1
-        assert pretty_print_response_in_tests(off_response, self.team.pk) == self.snapshot
+        self._assert_response_matches_snapshot(off_response)
 
         always_response = execute_hogql_query(
             query,
@@ -261,7 +277,7 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             pretty=False,
         )
         assert len(always_response.results or []) == 2
-        assert pretty_print_response_in_tests(always_response, self.team.pk) == self.snapshot
+        self._assert_response_matches_snapshot(always_response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -284,7 +300,7 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
         )
         # person1 matches both cohorts (2 rows) + person2 matches only cohort2 (1 row) = 3
         assert len(off_response.results or []) == 3
-        assert pretty_print_response_in_tests(off_response, self.team.pk) == self.snapshot
+        self._assert_response_matches_snapshot(off_response)
 
         always_response = execute_hogql_query(
             query,
@@ -296,7 +312,7 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
         )
         # both persons match both cohorts inline: 2 persons × 2 cohorts = 4
         assert len(always_response.results or []) == 4
-        assert pretty_print_response_in_tests(always_response, self.team.pk) == self.snapshot
+        self._assert_response_matches_snapshot(always_response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -312,13 +328,13 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             pretty=False,
         )
         assert len(response.results or []) == 2
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        self._assert_response_matches_snapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_inline_static_always_uses_cohortpeople(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        _create_person(
+        person = _create_person(
             properties={"$os": "Chrome"},
             team=self.team,
             distinct_ids=["person1"],
@@ -327,7 +343,8 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
         _create_event(distinct_id="person1", event=random_uuid, team=self.team)
 
         cohort = Cohort.objects.create(team=self.team, is_static=True)
-        cohort.insert_users_by_list(["person1"])
+        flush_persons_and_events()
+        insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event = '{random_uuid}'",
             self.team,
@@ -337,4 +354,4 @@ class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):
             pretty=False,
         )
         assert len(response.results or []) == 1
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+        self._assert_response_matches_snapshot(response)

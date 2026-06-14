@@ -9,10 +9,21 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, SavedQuery, StructDatabaseField
+from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    SavedQuery,
+    StringJSONDatabaseField,
+    StructDatabaseField,
+)
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_json_subcolumn_identifier,
+    escape_clickhouse_string,
+    safe_identifier,
+)
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -136,6 +147,8 @@ class ClickHousePrinter(BasePrinter):
                         args.append(f"ifNull({self.visit(arg)}, '')")
                 else:
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
+        elif node.name == "JSONAllPaths":
+            args = [self._visit_json_function_argument(arg) for arg in node_args]
         else:
             args = [self.visit(arg) for arg in node_args]
 
@@ -456,7 +469,35 @@ class ClickHousePrinter(BasePrinter):
 
     def visit_field_type(self, type: ast.FieldType):
         field_sql = super().visit_field_type(type)
+        field_sql = self._maybe_stringify_events_json_field(type, field_sql)
         return self._maybe_apply_json_drop_keys(type, field_sql)
+
+    def _maybe_stringify_events_json_field(self, type: ast.FieldType, field_sql: str) -> str:
+        if not django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return field_sql
+        if getattr(self, "_json_function_argument_depth", 0) > 0:
+            return field_sql
+
+        resolved_field = type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, StringJSONDatabaseField):
+            return field_sql
+        if resolved_field.name not in ("properties", "person_properties"):
+            return field_sql
+        if not isinstance(type.table_type, ast.BaseTableType):
+            return field_sql
+
+        if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
+            return field_sql
+
+        return f"toString({field_sql})"
+
+    def _visit_json_function_argument(self, node: ast.Expr) -> str:
+        depth = getattr(self, "_json_function_argument_depth", 0)
+        self._json_function_argument_depth = depth + 1
+        try:
+            return self.visit(node)
+        finally:
+            self._json_function_argument_depth = depth
 
     def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
         """
@@ -465,8 +506,6 @@ class ClickHousePrinter(BasePrinter):
         """
         if not self.context.restricted_properties:
             return field_sql
-
-        from posthog.hogql.database.models import StringJSONDatabaseField
 
         resolved_field = type.resolve_database_field(self.context)
         if not isinstance(resolved_field, StringJSONDatabaseField):
@@ -502,13 +541,23 @@ class ClickHousePrinter(BasePrinter):
             and expr_type.field_type.name == "properties"
         ):
             table_type = expr_type.field_type.table_type
+        elif (
+            isinstance(node, ast.JSONSubcolumnAccess)
+            and node.keys == ["$session_id"]
+            and isinstance(resolve_field_type(node.expr), ast.FieldType)
+        ):
+            field_type = cast(ast.FieldType, resolve_field_type(node.expr))
+            if field_type.name != "properties":
+                return None
+            table_type = field_type.table_type
         else:
             return None
 
-        while isinstance(table_type, ast.TableAliasType):
+        original_table_type = table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             table_type = table_type.table_type
         if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-            return table_type
+            return cast(ast.BaseTableType, original_table_type)
         return None
 
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
@@ -817,7 +866,11 @@ class ClickHousePrinter(BasePrinter):
             return team_id_guard_for_table(node_type, self.context)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        sql = table_type.table.to_printed_clickhouse(self.context)
+        if hasattr(table_type.table, "to_printed_clickhouse_table_ref"):
+            use_logical_alias = not isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType))
+            sql = table_type.table.to_printed_clickhouse_table_ref(self.context, use_logical_alias=use_logical_alias)
+        else:
+            sql = table_type.table.to_printed_clickhouse(self.context)
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table_type.table, S3Table) and (
@@ -933,3 +986,14 @@ class ClickHousePrinter(BasePrinter):
             return expr
 
         return super().visit_property_type(type)
+
+    def visit_json_subcolumn_access(self, node: ast.JSONSubcolumnAccess) -> str:
+        if isinstance(node.expr, ast.Field) and isinstance(node.expr.type, ast.FieldType):
+            expr = super().visit_field_type(node.expr.type)
+        else:
+            expr = self.visit(node.expr)
+        for key in node.keys:
+            expr = f"{expr}.{escape_clickhouse_json_subcolumn_identifier(key)}"
+        if node.value_type is not None:
+            expr = f"{expr}.:{node.value_type}"
+        return expr

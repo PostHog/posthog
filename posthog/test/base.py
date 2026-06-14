@@ -49,6 +49,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
 )
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
     CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
@@ -98,11 +99,19 @@ from posthog.models.cohortmembership.sql import (
     KAFKA_COHORT_MEMBERSHIP_TABLE_SQL,
 )
 from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_EVENTS_TABLE_SQL,
+    EVENTS_DATA_TABLE,
+    EVENTS_JSON_DATA_TABLE,
+    EVENTS_JSON_TABLE_SQL,
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
+    WRITABLE_EVENTS_DATA_TABLE,
+    WRITABLE_EVENTS_JSON_TABLE,
+    WRITABLE_EVENTS_JSON_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
 from posthog.models.exchange_rate.sql import (
@@ -144,6 +153,7 @@ from posthog.models.raw_sessions.sessions_v2 import (
     DROP_RAW_SESSION_SHARDED_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL,
+    RAW_SESSION_TABLE_UPDATE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_SQL,
@@ -157,6 +167,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
     DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
     DROP_RAW_SESSION_VIEW_SQL_V3,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
+    RAW_SESSION_TABLE_MV_UPDATE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
     RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3,
     RAW_SESSIONS_TABLE_MV_SQL_V3,
@@ -168,6 +179,7 @@ from posthog.models.sessions.sql import (
     DROP_SESSION_MATERIALIZED_VIEW_SQL,
     DROP_SESSION_TABLE_SQL,
     DROP_SESSION_VIEW_SQL,
+    SESSION_TABLE_UPDATE_SQL,
     SESSIONS_TABLE_MV_SQL,
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
@@ -1064,12 +1076,14 @@ def cleanup_materialized_columns():
         if table == "events":
             sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
-    default_column_names = {
-        get_materialized_columns("events")[(prop, "properties")].name
-        for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
-    }
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        default_column_names = {
+            get_materialized_columns("events")[(prop, "properties")].name
+            for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+        }
 
-    optionally_drop("events", lambda name: name not in default_column_names)
+        optionally_drop("events", lambda name: name not in default_column_names)
+
     optionally_drop("person")
     optionally_drop("groups")
 
@@ -1209,18 +1223,22 @@ def materialized(
         yield column
     finally:
         if column is not None:
-            data_table = "sharded_events" if table == "events" else table
-            indexes_to_drop = []
-            if create_minmax_index:
-                indexes_to_drop.append(get_minmax_index_name(column.name))
-            if create_bloom_filter_index:
-                indexes_to_drop.append(get_bloom_filter_index_name(column.name))
-            if create_ngram_lower_index:
-                indexes_to_drop.append(get_ngram_lower_index_name(column.name))
-            if create_bloom_filter_lower_index:
-                indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
-            for index_name in indexes_to_drop:
-                sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
+            event_materialization_disabled = table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            if not event_materialization_disabled:
+                data_table = "sharded_events" if table == "events" else table
+                indexes_to_drop = []
+                if create_minmax_index:
+                    indexes_to_drop.append(get_minmax_index_name(column.name))
+                if create_bloom_filter_index:
+                    indexes_to_drop.append(get_bloom_filter_index_name(column.name))
+                if create_ngram_lower_index:
+                    indexes_to_drop.append(get_ngram_lower_index_name(column.name))
+                if create_bloom_filter_lower_index:
+                    indexes_to_drop.append(get_bloom_filter_lower_index_name(column.name))
+                for index_name in indexes_to_drop:
+                    sync_execute(
+                        f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2"
+                    )
         cleanup_materialized_columns()
 
 
@@ -1288,25 +1306,45 @@ class QueryMatchingTest:
     snapshot: Any
     replace_all_numbers: bool = False
 
+    def _allow_dual_schema_snapshots(self) -> None:
+        if getattr(self, "allow_dual_schema_snapshots", False):
+            self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+
+    def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False):
+        if not use_new_events_schema_snapshot:
+            self._allow_dual_schema_snapshots()
+            return self.snapshot
+
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
+        self._new_events_schema_snapshot_index = snapshot_index + 1
+        snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
+        return self.snapshot(name=snapshot_name)
+
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
 
         query = clean_varying_query_parts(query, replace_all_numbers)
+        use_new_events_schema_snapshot = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in query.lower()
+        )
 
+        query_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
         try:
-            assert sqlparse.format(query, reindent=True) == self.snapshot
+            assert sqlparse.format(query, reindent=True) == query_snapshot
         except AssertionError:
-            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            diff_lines = "\n".join(query_snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
             raise AssertionError(error_message)
 
         if params is not None:
             del params["team_id"]  # Changes every run
+            params_snapshot = self._schema_snapshot(use_new_events_schema_snapshot)
             try:
-                assert params == self.snapshot
+                assert params == params_snapshot
             except AssertionError:
-                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_diff_lines = "\n".join(params_snapshot.get_assert_diff())
                 params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
                 raise AssertionError(params_error_message)
 
@@ -1631,7 +1669,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
-def run_clickhouse_statement_in_parallel(statements: list[str]):
+def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
@@ -1659,6 +1697,64 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             raise exceptions[0]
 
 
+def refresh_clickhouse_events_schema_dependent_objects() -> None:
+    for statement in [
+        SESSION_TABLE_UPDATE_SQL(),
+        RAW_SESSION_TABLE_UPDATE_SQL(),
+        RAW_SESSION_TABLE_MV_UPDATE_SQL_V3(),
+        RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
+        RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
+    ]:
+        sync_execute(statement, flush=False)
+
+
+def enforce_clickhouse_events_schema_setting() -> None:
+    refresh_clickhouse_events_schema_dependent_objects()
+
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return
+
+    drop_clickhouse_legacy_events_tables()
+
+
+def drop_clickhouse_legacy_events_tables() -> None:
+    for table_name in ["events", WRITABLE_EVENTS_DATA_TABLE(), EVENTS_DATA_TABLE()]:
+        sync_execute(f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}", flush=False)
+
+
+def clickhouse_events_table_drop_statements() -> list[str]:
+    statements = [
+        DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+        DROP_EVENTS_TABLE_SQL(),
+    ]
+
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        statements = [
+            f"DROP TABLE IF EXISTS {DISTRIBUTED_EVENTS_JSON_TABLE}",
+            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_JSON_TABLE}",
+            f"DROP TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE}",
+            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}",
+            *statements,
+        ]
+
+    return statements
+
+
+def clickhouse_events_data_table_sql() -> str:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return EVENTS_JSON_TABLE_SQL()
+    return EVENTS_TABLE_SQL()
+
+
+def clickhouse_events_distributed_table_sqls() -> list[str]:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return [
+            WRITABLE_EVENTS_JSON_TABLE_SQL(),
+            DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
+        ]
+    return [DISTRIBUTED_EVENTS_TABLE_SQL()]
+
+
 def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
@@ -1680,8 +1776,7 @@ def reset_clickhouse_database() -> None:
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
             DROP_EXCHANGE_RATE_TABLE_SQL(),
             DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-            DROP_EVENTS_TABLE_SQL(),
+            *clickhouse_events_table_drop_statements(),
             DROP_PERSON_TABLE_SQL,
             DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
             DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
@@ -1723,7 +1818,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
-            EVENTS_TABLE_SQL(),
+            clickhouse_events_data_table_sql(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -1748,7 +1843,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_DICTIONARY_SQL(),
             EXCHANGE_RATE_DICTIONARY_SQL(),
-            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            *clickhouse_events_distributed_table_sqls(),
             DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
@@ -1789,6 +1884,7 @@ def reset_clickhouse_database() -> None:
             ),
         ]
     )
+    enforce_clickhouse_events_schema_setting()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):

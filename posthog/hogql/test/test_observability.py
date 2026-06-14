@@ -147,10 +147,12 @@ class TestHogQLTypeObservability(SimpleTestCase):
 
         stats.record_materialized_property_usage("materialized_column")
         stats.record_materialized_property_usage("json")
+        stats.record_materialized_property_usage("json_subcolumn")
         stats.record_materialized_property_usage("not_a_real_source_kind")
 
         self.assertEqual(stats.materialized_property_usage["materialized_column"], 1)
         self.assertEqual(stats.materialized_property_usage["json"], 1)
+        self.assertEqual(stats.materialized_property_usage["json_subcolumn"], 1)
         self.assertEqual(stats.materialized_property_usage["unknown"], 1)
 
     def test_records_and_emits_materialized_range_rewrites(self):

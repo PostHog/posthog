@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.hogql.database.lazy_join_tags import (
     EVENTS_TO_SESSIONS_V1,
     GROUP_N,
@@ -22,6 +24,16 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsT
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
+
+
+def events_table_clickhouse_name() -> str:
+    return "events"
+
+
+def events_table_clickhouse_table_ref() -> str:
+    return DISTRIBUTED_EVENTS_JSON_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
 
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
@@ -36,6 +48,14 @@ class EventsPersonSubTable(VirtualTable):
     }
 
     def to_printed_clickhouse(self, context):
+        return events_table_clickhouse_name()
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref()} AS events"
+        return events_table_clickhouse_table_ref()
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):
@@ -56,6 +76,14 @@ class EventsGroupSubTable(VirtualTable):
         return []
 
     def to_printed_clickhouse(self, context):
+        return events_table_clickhouse_name()
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref()} AS events"
+        return events_table_clickhouse_table_ref()
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):
@@ -139,6 +167,14 @@ class EventsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
+        return events_table_clickhouse_name()
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and use_logical_alias:
+            return f"{events_table_clickhouse_table_ref()} AS events"
+        return events_table_clickhouse_table_ref()
+
+    def to_printed_postgres(self, context):
         return "events"
 
     def to_printed_hogql(self):

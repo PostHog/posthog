@@ -9,6 +9,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -75,9 +76,13 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         assert f"dictGetStringOrDefault('{get_geoip_city_postal_dict()}', '{dict_attribute}'" in sql
         assert "toIPv6OrDefault" in sql
         # The recovery is guarded on enrichment having run, so never-enriched rows stay blank. The property keys print
-        # as bound parameters, so look for them in the context values rather than the SQL text.
-        assert "$geoip_country_code" in context.values.values()
-        assert "$ip" in context.values.values()
+        # as bound parameters on legacy JSONExtract reads, and as identifiers on JSON subcolumn reads.
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "properties.`$geoip_country_code`" in sql
+            assert "properties.`$ip`" in sql
+        else:
+            assert "$geoip_country_code" in context.values.values()
+            assert "$ip" in context.values.values()
 
     @parameterized.expand(
         [
@@ -238,10 +243,18 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         ):
             sql, _ = self._print_select("SELECT properties.$geoip_city_name FROM events")
         assert "dictGetStringOrDefault" in sql
-        # All three reads in the fallback expression resolve to their materialized columns, not JSON extracts.
-        assert "mat_$geoip_city_name" in sql
-        assert "mat_$geoip_country_code" in sql
-        assert "mat_$ip" in sql
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "properties.`$geoip_city_name`" in sql
+            assert "properties.`$geoip_country_code`" in sql
+            assert "properties.`$ip`" in sql
+            assert "mat_$geoip_city_name" not in sql
+            assert "mat_$geoip_country_code" not in sql
+            assert "mat_$ip" not in sql
+        else:
+            # All three reads in the fallback expression resolve to their materialized columns, not JSON extracts.
+            assert "mat_$geoip_city_name" in sql
+            assert "mat_$geoip_country_code" in sql
+            assert "mat_$ip" in sql
         assert "JSONExtract" not in sql
 
     def test_lookup_functions_render_for_direct_use_when_enabled(self) -> None:
@@ -342,6 +355,7 @@ class TestGeoipDictFallbackExecution(ClickhouseTestMixin, BaseTest):
     """End-to-end: real events, materialized columns, and a real ip_trie dictionary on the test ClickHouse."""
 
     maxDiff = None
+    allow_dual_schema_snapshots = True
     SOURCE_TABLE = f"{CLICKHOUSE_DATABASE}.geoip_dict_fallback_test_source"
 
     def setUp(self) -> None:

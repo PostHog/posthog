@@ -137,6 +137,17 @@ class GeoipDictFallback(CloningVisitor):
         super().__init__(clear_types=False)
         self.context = context
 
+    def visit_alias(self, node: ast.Alias) -> ast.Alias:
+        new_node = cast(ast.Alias, super().visit_alias(node))
+        if (
+            isinstance(new_node.type, ast.FieldAliasType)
+            and isinstance(new_node.type.type, ast.PropertyType)
+            and not isinstance(new_node.expr, ast.PropertyAccess)
+            and new_node.expr.type is not None
+        ):
+            new_node.type = ast.FieldAliasType(alias=new_node.type.alias, type=new_node.expr.type)
+        return new_node
+
     def visit_property_access(self, node: ast.PropertyAccess) -> ast.Expr:
         node = super().visit_property_access(node)
         if len(node.keys) != 1:

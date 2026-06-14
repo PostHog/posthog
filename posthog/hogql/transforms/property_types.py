@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional, cast
 
+from django.conf import settings
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
@@ -341,6 +342,20 @@ class PropertySwapper(CloningVisitor):
 
         table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
         if table_name not in MATERIALIZATION_VALID_TABLES:
+            return None
+
+        if (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            and table_name == "events"
+            and field_type.name in ("properties", "person_properties")
+        ):
+            if node.name == "JSONExtractString":
+                return ast.Field(
+                    start=node.start,
+                    end=node.end,
+                    chain=[*field_arg.chain, property_name],
+                    type=ast.PropertyType(chain=[property_name], field_type=field_type),
+                )
             return None
 
         field_name = cast(TableColumn, database_field.name)

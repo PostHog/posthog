@@ -21,6 +21,12 @@ from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
+from posthog.models.group_type_mapping import (
+    GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_CACHE_TTL,
+    invalidate_group_types_cache,
+)
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,
@@ -44,6 +50,7 @@ from posthog.utils import (
     relative_date_parse,
     resolve_dogfood_flags_team,
     resolve_self_capture_team,
+    safe_cache_set,
     str_to_int_set,
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
@@ -854,6 +861,13 @@ def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping"
     instance = GroupTypeMapping.objects.create(**kwargs)
     GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
     instance.refresh_from_db()
+    invalidate_group_types_cache(instance.project_id)
+    mappings = list(
+        GroupTypeMapping.objects.filter(project_id=instance.project_id)
+        .order_by("group_type_index")
+        .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+    )
+    safe_cache_set(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{instance.project_id}", mappings, GROUP_TYPES_CACHE_TTL)
     return instance
 
 
