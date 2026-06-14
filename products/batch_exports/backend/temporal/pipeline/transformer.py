@@ -8,7 +8,6 @@ import functools
 import contextlib
 import collections
 import collections.abc
-import multiprocessing as mp
 import concurrent.futures
 
 from django.conf import settings
@@ -122,7 +121,7 @@ class JSONLStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+            max_workers=self.max_workers,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
@@ -189,7 +188,7 @@ class JSONLBrotliStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+            max_workers=self.max_workers,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
