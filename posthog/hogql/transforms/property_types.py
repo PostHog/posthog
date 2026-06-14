@@ -19,6 +19,7 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -31,6 +32,21 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
+
+_JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
+    "JSONExtractString": ("String", ""),
+    "JSONExtractInt": ("Int64", 0),
+    "JSONExtractUInt": ("UInt64", 0),
+    "JSONExtractFloat": ("Float64", 0.0),
+    "JSONExtractBool": ("Bool", 0),
+    "simpleJSONExtractString": ("String", ""),
+    "simpleJSONExtractInt": ("Int64", 0),
+    "simpleJSONExtractUInt": ("UInt64", 0),
+    "simpleJSONExtractFloat": ("Float64", 0.0),
+    "simpleJSONExtractBool": ("Bool", 0),
+}
+
+_JSON_EXTRACT_COMPLEX_TYPE_FAMILIES = {"array", "map", "tuple", "unknown"}
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -300,20 +316,19 @@ class PropertySwapper(CloningVisitor):
         finally:
             self._inside_call_depth -= 1
 
-    def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
-        """Rewrite safe direct JSON property extraction to use a materialized column.
+    def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Expr | None:
+        """Rewrite safe direct JSON property extraction to avoid reading the raw JSON blob.
 
-        When users write raw JSONExtractString(properties, '$foo') in HogQL,
-        ClickHouse decompresses the full properties JSON blob. If '$foo' has a
-        materialized column (mat_$foo), this is unnecessary I/O. We rewrite the
-        call to a property access node that the printer resolves to the mat_ column.
+        When users write raw JSONExtractString(properties, '$foo') in HogQL, ClickHouse otherwise decompresses the full
+        properties JSON blob. Under the native JSON events schema, scalar extracts with constant string paths become
+        direct JSON subcolumn reads plus an explicit cast. Under the legacy schema, simple extracts still rewrite through
+        property access only when that can resolve to an equivalent materialized column.
 
-        Typed JSONExtract(...) calls are only rewritten when the physical column type
-        exactly matches the requested ClickHouse type, because JSON helper semantics
-        for missing keys and type mismatches differ by function family.
+        Complex typed JSONExtract(...) values are left alone because ClickHouse's native JSON subcolumn access exposes
+        leaf values reliably, but not every object/array path round-trips as a standalone subcolumn value.
         """
-        property_name = self._simple_json_extract_property_name(node)
-        if property_name is None:
+        property_path = self._simple_json_extract_property_path(node)
+        if property_path is None:
             return None
 
         # Unwrap Alias if present (resolver wraps fields in Alias nodes)
@@ -349,14 +364,11 @@ class PropertySwapper(CloningVisitor):
             and table_name == "events"
             and field_type.name in ("properties", "person_properties")
         ):
-            if node.name == "JSONExtractString":
-                return ast.Field(
-                    start=node.start,
-                    end=node.end,
-                    chain=[*field_arg.chain, property_name],
-                    type=ast.PropertyType(chain=[property_name], field_type=field_type),
-                )
+            return self._json_extract_subcolumn_expr(node, field_type, property_path)
+
+        if len(property_path) != 1:
             return None
+        property_name = property_path[0]
 
         field_name = cast(TableColumn, database_field.name)
         mat_col = get_materialized_column_for_property(
@@ -378,17 +390,84 @@ class PropertySwapper(CloningVisitor):
         )
 
     @staticmethod
-    def _simple_json_extract_property_name(node: ast.Call) -> str | None:
-        if node.name == "JSONExtractString" and len(node.args) == 2:
-            prop_name_arg = node.args[1]
-        elif node.name == "JSONExtract" and len(node.args) == 3:
-            prop_name_arg = node.args[1]
+    def _simple_json_extract_property_path(node: ast.Call) -> list[str] | None:
+        if node.name == "JSONExtract":
+            if len(node.args) < 3:
+                return None
+            type_arg = node.args[-1]
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                return None
+            path_args = node.args[1:-1]
+        elif node.name in _JSON_EXTRACT_SCALAR_CASTS:
+            path_args = node.args[1:]
         else:
             return None
 
-        if isinstance(prop_name_arg, ast.Constant) and isinstance(prop_name_arg.value, str):
-            return prop_name_arg.value
-        return None
+        if not path_args:
+            return None
+
+        property_path: list[str] = []
+        for path_arg in path_args:
+            if not isinstance(path_arg, ast.Constant) or not isinstance(path_arg.value, str):
+                return None
+            property_path.append(path_arg.value)
+        return property_path
+
+    def _json_extract_subcolumn_expr(
+        self,
+        node: ast.Call,
+        field_type: ast.FieldType,
+        property_path: list[str],
+    ) -> ast.Expr | None:
+        property_field = ast.JSONSubcolumnAccess(
+            start=node.start,
+            end=node.end,
+            expr=ast.Field(chain=[field_type.name], type=field_type),
+            keys=property_path,
+            type=ast.StringType(nullable=True),
+        )
+
+        if scalar_cast := _JSON_EXTRACT_SCALAR_CASTS.get(node.name):
+            cast_type, default_value = scalar_cast
+            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+                return ast.Constant(value=default_value)
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(
+                        name="accurateCastOrNull",
+                        args=[property_field, ast.Constant(value=cast_type)],
+                    ),
+                    ast.Constant(value=default_value),
+                ],
+            )
+
+        if node.name != "JSONExtract" or len(node.args) < 3:
+            return None
+
+        type_arg = node.args[-1]
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            return None
+
+        requested_type = parse_sql_runtime_type(type_arg.value)
+        if requested_type.family in _JSON_EXTRACT_COMPLEX_TYPE_FAMILIES:
+            return None
+
+        if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            if requested_type.nullable:
+                return ast.Constant(value=None)
+            return ast.Call(name="defaultValueOfTypeName", args=[type_arg])
+
+        casted = ast.Call(name="accurateCastOrNull", args=[property_field, type_arg])
+        if requested_type.nullable:
+            return casted
+        return ast.Call(
+            name="ifNull",
+            args=[
+                casted,
+                ast.Call(name="defaultValueOfTypeName", args=[type_arg]),
+            ],
+        )
 
     @staticmethod
     def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:

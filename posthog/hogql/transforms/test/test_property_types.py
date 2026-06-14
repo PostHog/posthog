@@ -491,18 +491,23 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    def _print_select(self, select: str):
+    def _print_select(self, select: str, restricted_properties: set[tuple[str, int]] | None = None):
         expr = parse_select(select)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        if restricted_properties is not None:
+            context.restricted_properties = restricted_properties
         query, _ = prepare_and_print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            context,
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)
 
     def _assert_typed_jsonextract_fallback(self, printed: str) -> None:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "JSONExtract(toString(events.properties)" in printed, printed
+            assert "JSONExtract" not in printed, printed
+            assert "events.properties." in printed, printed
+            assert "accurateCastOrNull" in printed, printed
         else:
             assert "JSONExtract(events.properties" in printed, printed
 
@@ -564,7 +569,10 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
                 "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
             )
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                self._assert_typed_jsonextract_fallback(printed)
+                assert "events_json" in printed, printed
+                assert "events.properties.typed_json_float" in printed, printed
+                assert "accurateCastOrNull" in printed, printed
+                assert "JSONExtract" not in printed, printed
                 assert "mat_typed_json_float" not in printed, printed
                 return
 
@@ -576,6 +584,13 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             printed = self._print_select(
                 "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
             )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.typed_json_float" in printed, printed
+                assert "accurateCastOrNull" in printed, printed
+                assert "JSONExtract" not in printed, printed
+                assert "mat_typed_json_float" not in printed, printed
+                return
+
             assert "mat_typed_json_float" not in printed, printed
             self._assert_typed_jsonextract_fallback(printed)
 
@@ -585,7 +600,9 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
                 "select JSONExtract(properties, 'typed_json_dt', 'DateTime64(6,\\'UTC\\')') from events"
             )
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                self._assert_typed_jsonextract_fallback(printed)
+                assert "events.properties.typed_json_dt" in printed, printed
+                assert "accurateCastOrNull" in printed, printed
+                assert "JSONExtract" not in printed, printed
                 assert "mat_typed_json_dt" not in printed, printed
                 return
 
@@ -597,12 +614,103 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         # column yields NULL, so this rewrite would change results despite looking lossless.
         with materialized("events", "$browser", is_nullable=True):
             printed = self._print_select("select JSONExtract(properties, '$browser', 'String') from events")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.`$browser`" in printed, printed
+                assert "accurateCastOrNull" in printed, printed
+                assert "JSONExtract" not in printed, printed
+                assert "mat_" not in printed, printed
+                return
+
             assert "mat_" not in printed, printed
 
-    def test_jsonextractint_not_rewritten_even_with_mat_column(self):
+    def test_jsonextractint_rewritten_only_for_new_events_schema(self):
         with materialized("events", "$browser"):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert "events.properties.`$browser`" in printed, printed
+                assert "accurateCastOrNull" in printed, printed
+                assert "JSONExtractInt" not in printed, printed
+                assert "mat_" not in printed, printed
+                return
+
             assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_rewrites_use_json_subcolumns(self):
+        printed = self._print_select(
+            "select JSONExtractInt(properties, 'metric'), "
+            "JSONExtract(properties, 'score', 'Nullable(Float64)'), "
+            "simpleJSONExtractString(properties, 'email') "
+            "from events"
+        )
+
+        assert "events_json" in printed, printed
+        assert "events.properties.metric" in printed, printed
+        assert "events.properties.score" in printed, printed
+        assert "events.properties.email" in printed, printed
+        assert "accurateCastOrNull" in printed, printed
+        assert "JSONExtract" not in printed, printed
+        assert "toJSONString" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_non_nullable_type_uses_default(self):
+        printed = self._print_select("select JSONExtract(properties, 'score', 'Float64') from events")
+
+        assert "events.properties.score" in printed, printed
+        assert "accurateCastOrNull" in printed, printed
+        assert "defaultValueOfTypeName" in printed, printed
+        assert "JSONExtract" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_respects_restricted_properties(self):
+        printed = self._print_select(
+            "select JSONExtractInt(properties, 'secret'), "
+            "JSONExtract(properties, 'secret', 'Nullable(Float64)'), "
+            "simpleJSONExtractString(properties, 'email') "
+            "from events",
+            restricted_properties={
+                ("secret", PropertyDefinition.Type.EVENT),
+                ("email", PropertyDefinition.Type.EVENT),
+            },
+        )
+
+        assert "events.properties.secret" not in printed, printed
+        assert "events.properties.email" not in printed, printed
+        assert "JSONExtract" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_case_insensitive_jsonextract_not_rewritten(self):
+        printed = self._print_select("select JSONExtractStringCaseInsensitive(properties, 'email') from events")
+
+        assert "JSONExtractStringCaseInsensitive(toString(events.properties)" in printed, printed
+        assert "events.properties.email" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("int", "JSONExtractInt(properties, 'metric')", "Int64", "0"),
+            ("uint", "JSONExtractUInt(properties, 'metric')", "UInt64", "0"),
+            ("float", "JSONExtractFloat(properties, 'metric')", "Float64", "0.0"),
+            ("bool", "JSONExtractBool(properties, 'flag')", "Bool", "0"),
+            ("simple_int", "simpleJSONExtractInt(properties, 'metric')", "Int64", "0"),
+            ("simple_uint", "simpleJSONExtractUInt(properties, 'metric')", "UInt64", "0"),
+            ("simple_float", "simpleJSONExtractFloat(properties, 'metric')", "Float64", "0.0"),
+            ("simple_bool", "simpleJSONExtractBool(properties, 'flag')", "Bool", "0"),
+        ]
+    )
+    def test_scalar_jsonextract_rewritten_to_casted_json_subcolumn(
+        self, _name: str, expression: str, cast_type: str, default_value: str
+    ):
+        printed = self._print_select(f"select {expression} from events")
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events.properties." not in printed, printed
+            return
+
+        property_name = "flag" if "flag" in expression else "metric"
+        assert f"events.properties.{property_name}" in printed, printed
+        assert "accurateCastOrNull" in printed, printed
+        assert cast_type in printed, printed
+        assert f", {default_value})" in printed, printed
+        assert "JSONExtract" not in printed, printed
 
     def _seed_edge_case_events(self):
         _create_event(

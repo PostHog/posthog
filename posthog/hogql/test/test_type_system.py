@@ -500,7 +500,22 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type(
             "SELECT JSONExtractString('{\"name\": \"Ada\"}', 'name')", ast.StringType(nullable=False)
         )
+        self._assert_first_column_type(
+            "SELECT JSONExtractStringCaseInsensitive('{\"Name\": \"Ada\"}', 'name')", ast.StringType(nullable=False)
+        )
+        self._assert_first_column_type(
+            "SELECT simpleJSONExtractString('{\"name\": \"Ada\"}', 'name')", ast.StringType(nullable=False)
+        )
+        self._assert_first_column_type(
+            "SELECT simpleJSONExtractInt('{\"num\": 42}', 'num')", ast.IntegerType(nullable=False)
+        )
         self._assert_first_column_type("SELECT JSONExtractRaw('{\"num\": 42}', 'num')", ast.StringType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT JSONExtractRawCaseInsensitive('{\"Num\": 42}', 'num')", ast.StringType(nullable=False)
+        )
+        self._assert_first_column_type(
+            "SELECT simpleJSONExtractRaw('{\"num\": 42}', 'num')", ast.StringType(nullable=False)
+        )
         self._assert_first_column_type(
             "SELECT JSONExtractKeys('{\"num\": 42}')",
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),

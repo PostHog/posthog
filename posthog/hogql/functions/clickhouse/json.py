@@ -123,6 +123,109 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             max_paths=5,
         ),
     ),
+    "JSONExtractCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractCaseInsensitive",
+        2,
+        7,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            suffix_types=[StringType()],
+            return_type=StringType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractUIntCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractUIntCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=IntegerType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractIntCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractIntCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=IntegerType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractFloatCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractFloatCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=FloatType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractBoolCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractBoolCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=BooleanType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractStringCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractStringCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=StringType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "simpleJSONExtractUInt": HogQLFunctionMeta(
+        "simpleJSONExtractUInt",
+        2,
+        2,
+        signatures=[((StringType(), StringType()), IntegerType())],
+    ),
+    "simpleJSONExtractInt": HogQLFunctionMeta(
+        "simpleJSONExtractInt",
+        2,
+        2,
+        signatures=[((StringType(), StringType()), IntegerType())],
+    ),
+    "simpleJSONExtractFloat": HogQLFunctionMeta(
+        "simpleJSONExtractFloat",
+        2,
+        2,
+        signatures=[((StringType(), StringType()), FloatType())],
+    ),
+    "simpleJSONExtractBool": HogQLFunctionMeta(
+        "simpleJSONExtractBool",
+        2,
+        2,
+        signatures=[((StringType(), StringType()), BooleanType())],
+    ),
+    "simpleJSONExtractString": HogQLFunctionMeta(
+        "simpleJSONExtractString",
+        2,
+        2,
+        signatures=[((StringType(), StringType()), StringType())],
+    ),
+    "simpleJSONExtractRaw": HogQLFunctionMeta(
+        "simpleJSONExtractRaw",
+        2,
+        2,
+        signatures=[((StringType(), StringType()), StringType())],
+    ),
     "JSONExtractKeys": HogQLFunctionMeta(
         "JSONExtractKeys",
         1,
@@ -134,8 +237,30 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             max_paths=4,
         ),
     ),
+    "JSONExtractKeysCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractKeysCaseInsensitive",
+        1,
+        5,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=ArrayType(item_type=StringType()),
+            min_paths=0,
+            max_paths=4,
+        ),
+    ),
     "JSONExtractRaw": HogQLFunctionMeta(
         "JSONExtractRaw",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=StringType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractRawCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractRawCaseInsensitive",
         1,
         6,
         signatures=generate_json_path_signatures(
@@ -156,6 +281,17 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             max_paths=5,
         ),
     ),
+    "JSONExtractArrayRawCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractArrayRawCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=StringType(),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
     "JSONExtractKeysAndValues": HogQLFunctionMeta(
         "JSONExtractKeysAndValues",
         2,
@@ -169,6 +305,18 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             max_paths=5,
         ),
     ),
+    "JSONExtractKeysAndValuesCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractKeysAndValuesCaseInsensitive",
+        2,
+        7,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            suffix_types=[StringType()],
+            return_type=ArrayType(item_type=TupleType(item_types=[StringType(), StringType()])),
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
     "JSONExtractKeysAndValuesRaw": HogQLFunctionMeta(
         "JSONExtractKeysAndValuesRaw",
         1,
@@ -177,6 +325,17 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             fixed_types=[StringType()],  # JSON parameter
             return_type=ArrayType(item_type=TupleType(item_types=[StringType(), StringType()])),
             # Returns array of (key, raw_value) tuples
+            min_paths=0,
+            max_paths=5,
+        ),
+    ),
+    "JSONExtractKeysAndValuesRawCaseInsensitive": HogQLFunctionMeta(
+        "JSONExtractKeysAndValuesRawCaseInsensitive",
+        1,
+        6,
+        signatures=generate_json_path_signatures(
+            fixed_types=[StringType()],
+            return_type=ArrayType(item_type=TupleType(item_types=[StringType(), StringType()])),
             min_paths=0,
             max_paths=5,
         ),
