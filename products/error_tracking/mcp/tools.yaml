@@ -255,7 +255,22 @@ tools:
         enabled: false
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking recommendations
+        description: >
+            List error tracking recommendations for the current project. Each recommendation is a server-computed
+            suggestion of a fixed type — `alerts` (issue alerts worth enabling), `rate_limits` (project-wide or
+            per-issue ingestion limits to set), `source_maps` (share of stack frames left unresolved), and
+            `long_running_issues` (issues open and recurring for a long time). The `meta` payload carries the
+            type-specific details, `completed` indicates whether the recommended action has already been satisfied,
+            `dismissed_at` is set if the user dismissed it, and `status` is `computing` while a refresh is in
+            progress or `ready` once `meta` is fresh.
     error-tracking-recommendations-refresh-create:
         operation: error_tracking_recommendations_refresh_create
         enabled: false
