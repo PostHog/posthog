@@ -234,6 +234,7 @@ def _send_digest_notification(
             body=_build_body(busiest),
             target_type=TargetType.USER,
             target_id=str(user.id),
+            resource_type="web_analytics",
             priority=Priority.NORMAL,
             source_url=f"/project/{busiest_team_id}/web?utm_source=web_analytics_digest&utm_medium=in_app",
             metadata=_build_digest_metadata(busiest),
