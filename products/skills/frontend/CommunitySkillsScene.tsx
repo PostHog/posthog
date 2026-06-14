@@ -55,42 +55,44 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
                     </LemonTag>
                 ))}
             </div>
-            <div className="flex items-center gap-3 text-muted text-xs">
-                <span>{skill.install_count} installs</span>
-                {skill.author_handle ? (
-                    // author_handle is the contributor's GitHub username (from the skill's PR/frontmatter).
-                    <Link to={`https://github.com/${skill.author_handle}`} target="_blank">
-                        @{skill.author_handle}
-                    </Link>
-                ) : null}
-                {skill.github_url ? (
-                    <Link to={skill.github_url} target="_blank" className="flex items-center gap-1">
-                        <IconGithub /> View on GitHub
-                    </Link>
-                ) : null}
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t">
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    icon={<IconThumbsUp />}
-                    active={skill.has_voted}
-                    loading={voting}
-                    disabledReason={voting ? 'Saving your vote…' : undefined}
-                    onClick={() => toggleVote(skill.slug)}
-                    tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
-                >
-                    {skill.vote_count}
-                </LemonButton>
-                <LemonButton
-                    size="small"
-                    type="primary"
-                    loading={installing}
-                    disabledReason={installing ? 'Installing…' : undefined}
-                    onClick={() => installSkill(skill.slug)}
-                >
-                    Install
-                </LemonButton>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted text-xs">
+                    <span>{skill.install_count} installs</span>
+                    {skill.author_handle ? (
+                        // author_handle is the contributor's GitHub username (from the skill's PR/frontmatter).
+                        <Link to={`https://github.com/${skill.author_handle}`} target="_blank">
+                            @{skill.author_handle}
+                        </Link>
+                    ) : null}
+                    {skill.github_url ? (
+                        <Link to={skill.github_url} target="_blank" className="flex items-center gap-1">
+                            <IconGithub /> View on GitHub
+                        </Link>
+                    ) : null}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        icon={<IconThumbsUp />}
+                        active={skill.has_voted}
+                        loading={voting}
+                        disabledReason={voting ? 'Saving your vote…' : undefined}
+                        onClick={() => toggleVote(skill.slug)}
+                        tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
+                    >
+                        {skill.vote_count}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        loading={installing}
+                        disabledReason={installing ? 'Installing…' : undefined}
+                        onClick={() => installSkill(skill.slug)}
+                    >
+                        Install
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )
