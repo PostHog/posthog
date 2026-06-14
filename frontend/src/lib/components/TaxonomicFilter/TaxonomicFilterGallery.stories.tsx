@@ -1,13 +1,15 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useMountedLogic } from 'kea'
+import { useActions, useMountedLogic } from 'kea'
 import { ComponentProps } from 'react'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -241,6 +243,13 @@ function renderEntry(usage: Usage, key: string): JSX.Element {
 function Gallery({ variant }: { variant: string }): JSX.Element {
     useMountedLogic(actionsModel)
     useMountedLogic(cohortsModel)
+
+    // The rebuild menu is gated by both the flag (set per story) and this
+    // persisted preference. The preference is a real-user escape hatch back to
+    // the classic UI; a fixture should always show the rebuild when flagged in,
+    // regardless of whatever a dev left in their Storybook localStorage.
+    const { setUseNewMenu } = useActions(taxonomicMenuPreferenceLogic)
+    useOnMountEffect(() => setUseNewMenu(true))
 
     return (
         <div className="p-4">
