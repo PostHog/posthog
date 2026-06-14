@@ -1,0 +1,161 @@
+# serializer version: 1
+# name: TestSlopeGraphTrendsQueryRunner.test_breakdown_produces_one_two_point_line_per_value
+  '''
+  SELECT sum(total) AS total,
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT count AS total,
+                     breakdown_value AS breakdown_value,
+                     row_number() OVER (
+                                        ORDER BY total DESC) AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'plan'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-01-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        ORDER BY breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_breakdown_produces_one_two_point_line_per_value.1
+  '''
+  SELECT sum(total) AS total,
+         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT count AS total,
+                     breakdown_value AS breakdown_value,
+                     row_number() OVER (
+                                        ORDER BY total DESC) AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'plan'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-10 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-01-19 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        ORDER BY breakdown_value ASC)
+     ORDER BY total DESC,
+              breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_no_events_yields_zero_endpoints
+  '''
+  SELECT count() AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-01-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_no_events_yields_zero_endpoints.1
+  '''
+  SELECT count() AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-10 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-01-19 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_returns_two_points_collapsing_first_and_second_half
+  '''
+  SELECT count() AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-01-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_returns_two_points_collapsing_first_and_second_half.1
+  '''
+  SELECT count() AS total
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-10 12:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-01-19 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+  ORDER BY 1 DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
