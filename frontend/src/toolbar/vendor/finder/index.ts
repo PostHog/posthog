@@ -202,7 +202,7 @@ function* search(input: Element, config: Options, rootDocument: Element | Docume
 }
 
 function wordLike(name: string): boolean {
-    if (/^[a-z\-]{3,}$/i.test(name)) {
+    if (/^[a-z-]{3,}$/i.test(name)) {
         const words = name.split(/-|[A-Z]/)
         for (const word of words) {
             if (word.length <= 2) {

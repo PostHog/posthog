@@ -1,4 +1,3 @@
-import { finder } from '~/toolbar/vendor/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
@@ -8,6 +7,7 @@ import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import { finder } from '~/toolbar/vendor/finder'
 import { ActionStepType } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
