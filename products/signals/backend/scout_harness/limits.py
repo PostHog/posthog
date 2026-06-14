@@ -18,8 +18,9 @@ ACTIVITY_SLACK_S = 60
 WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
-# is a recurring LLM sandbox run, so this bounds what one team can switch on. Sized well
-# above the canonical fleet (~16 scouts) to leave room for hand-authored specialists.
-# Enforced at the write surfaces (config create/update) and in auto-registration, which
-# falls back to registering new scouts disabled once the team is at the cap.
-MAX_ENABLED_SCOUTS_PER_TEAM = 30
+# is a recurring LLM sandbox run, so this bounds what one team can switch on. Set high so
+# teams can freely author scouts with minimal friction; it's a backstop against runaway
+# spend, not a routine limit (the canonical fleet is ~16 scouts). Enforced at the write
+# surfaces (config create/update) and in auto-registration, which falls back to registering
+# new scouts disabled once the team is at the cap.
+MAX_ENABLED_SCOUTS_PER_TEAM = 100
