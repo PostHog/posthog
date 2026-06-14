@@ -311,6 +311,9 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_values_query(self, node: ast.ValuesQuery):
+        if self.dialect not in _POSTGRES_FAMILY:
+            raise QueryError(f"VALUES clause is not allowed in {self.dialect} dialect")
+
         resolved_rows: list[list[ast.Expr]] = []
         for row in node.rows:
             resolved_rows.append([self.visit(expr) for expr in row])

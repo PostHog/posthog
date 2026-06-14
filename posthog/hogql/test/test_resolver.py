@@ -1741,6 +1741,11 @@ class TestResolver(BaseTest):
             expr = self._select("SELECT * FROM (VALUES (1, 'a')) AS v (id, name, extra)")
             resolve_types(expr, self.context, dialect="postgres")
 
+    def test_values_query_rejected_in_clickhouse_dialect(self):
+        with self.assertRaisesMessage(QueryError, "VALUES clause is not allowed in clickhouse dialect"):
+            expr = self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)")
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     def test_unpivot_basic_resolves(self):
         expr = self._select(
             "SELECT field_name, field_value, distinct_id FROM events UNPIVOT (field_value FOR field_name IN (event))"
