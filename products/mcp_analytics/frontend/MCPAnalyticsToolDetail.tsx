@@ -5,15 +5,29 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
+    MetricCard,
+    type MetricChange,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
-import { Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+    Skeleton,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@posthog/quill-primitives'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -51,55 +65,42 @@ function percentDelta(current: number, previous: number): number | null {
     return ((current - previous) / previous) * 100
 }
 
-function DeltaTag({ value, invertColor = false }: { value: number | null; invertColor?: boolean }): JSX.Element | null {
-    if (value == null || !isFinite(value) || Math.abs(value) < 1) {
-        return null
-    }
-    const positive = value > 0
-    // For error rate, "up" is bad — invert color semantics.
-    const goodDirection = invertColor ? !positive : positive
-    const Icon = positive ? IconArrowUp : IconArrowDown
-    return (
-        <span
-            className={`inline-flex items-center gap-0.5 text-xs leading-none ${
-                goodDirection ? 'text-success' : 'text-danger'
-            }`}
-        >
-            <Icon className="text-sm" />
-            {Math.abs(Math.round(value))}%
-        </span>
-    )
-}
-
-function Stat({
+function StatTile({
     label,
     value,
-    delta,
-    deltaInvertColor,
+    formatValue,
+    change,
+    goodDirection,
     loading,
-    tooltip,
 }: {
     label: string
-    value: React.ReactNode
-    delta?: number | null
-    deltaInvertColor?: boolean
-    loading?: boolean
-    tooltip?: string
+    value: number
+    formatValue: (n: number) => string
+    change?: MetricChange | null
+    goodDirection?: 'up' | 'down'
+    loading: boolean
 }): JSX.Element {
-    const content = (
-        <div className="flex flex-col gap-1 min-w-[110px]">
-            <span className="text-[11px] uppercase tracking-wider text-secondary">{label}</span>
+    return (
+        <Card size="sm" className="flex-1">
             {loading ? (
-                <LemonSkeleton className="h-6 w-16" />
+                <CardContent className="flex flex-col gap-2">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-7 w-20" />
+                </CardContent>
             ) : (
-                <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-semibold leading-none">{value}</span>
-                    <DeltaTag value={delta ?? null} invertColor={deltaInvertColor} />
-                </div>
+                <CardContent>
+                    <MetricCard
+                        className="text-primary"
+                        title={label}
+                        value={value}
+                        formatValue={formatValue}
+                        change={change}
+                        goodDirection={goodDirection}
+                    />
+                </CardContent>
             )}
-        </div>
+        </Card>
     )
-    return tooltip ? <Tooltip title={tooltip}>{content}</Tooltip> : content
 }
 
 // Renderer for the "person" column in the Top users table. The query selects
@@ -137,20 +138,38 @@ const neighborColumns: ResultColumn[] = [
     { header: 'In same conversation', align: 'right', render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)) },
 ]
 
-// Renders raw HogQL result rows (positional columns) as a quill table, with loading/empty states.
+// Renders raw HogQL result rows (positional columns) as a card-wrapped quill table,
+// matching the dashboard table cards, with loading/empty states.
 function ResultTable({
+    title,
+    description,
+    action,
     rows,
     loading,
     columns,
     emptyMessage = 'No data for the last 7 days.',
 }: {
+    title?: React.ReactNode
+    description?: React.ReactNode
+    action?: React.ReactNode
     rows: ResultRows
     loading: boolean
     columns: ResultColumn[]
     emptyMessage?: string
 }): JSX.Element {
     return (
-        <div data-quill>
+        <Card size="sm" className="gap-0">
+            {title != null && (
+                <CardHeader
+                    className={`border-b border-border pb-3${
+                        action != null ? ' !flex flex-row items-center justify-between gap-2' : ''
+                    }`}
+                >
+                    <CardTitle>{title}</CardTitle>
+                    {description != null && <CardDescription>{description}</CardDescription>}
+                    {action}
+                </CardHeader>
+            )}
             <Table fullWidth>
                 <TableHeader>
                     <TableRow>
@@ -191,7 +210,7 @@ function ResultTable({
                     )}
                 </TableBody>
             </Table>
-        </div>
+        </Card>
     )
 }
 
@@ -214,36 +233,50 @@ function formatDurationMs(ms: number | null): string {
     return humanFriendlyDuration(ms / 1000, { secondsFixed: 2 })
 }
 
-function StatStrip({ summary, loading }: { summary: ToolSummary | null; loading: boolean }): JSX.Element {
+function StatTiles({ summary, loading }: { summary: ToolSummary | null; loading: boolean }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRatePrev = summary && summary.calls_prev ? (summary.errors_prev / summary.calls_prev) * 100 : 0
+    const callsDelta = summary ? percentDelta(calls, summary.calls_prev) : null
+    const errorRateDelta = summary ? percentDelta(errorRate, errorRatePrev) : null
+
     return (
-        <div className="flex flex-wrap items-end gap-x-10 gap-y-4 py-1">
-            <Stat
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" data-quill>
+            <StatTile
                 label="Calls"
                 loading={loading}
-                value={humanFriendlyNumber(calls)}
-                delta={summary ? percentDelta(calls, summary.calls_prev) : null}
-                tooltip="Last 7 days vs prior 7 days."
+                value={calls}
+                formatValue={humanFriendlyNumber}
+                change={callsDelta != null ? { value: callsDelta } : null}
+                goodDirection="up"
             />
-            <Stat
+            <StatTile
                 label="Error rate"
                 loading={loading}
-                value={`${errorRate.toFixed(1)}%`}
-                delta={summary ? percentDelta(errorRate, errorRatePrev) : null}
-                deltaInvertColor
-                tooltip="Share of calls with $mcp_is_error = true."
+                value={errorRate}
+                formatValue={(n) => `${n.toFixed(1)}%`}
+                change={errorRateDelta != null ? { value: errorRateDelta } : null}
+                goodDirection="down"
             />
-            <Stat label="p50 latency" loading={loading} value={formatDurationMs(summary?.p50_ms ?? null)} />
-            <Stat label="p95 latency" loading={loading} value={formatDurationMs(summary?.p95_ms ?? null)} />
-            <Stat label="Users" loading={loading} value={humanFriendlyNumber(summary?.users ?? 0)} />
-            <Stat
+            <StatTile
+                label="p50 latency"
+                loading={loading}
+                value={summary?.p50_ms ?? 0}
+                formatValue={formatDurationMs}
+            />
+            <StatTile
+                label="p95 latency"
+                loading={loading}
+                value={summary?.p95_ms ?? 0}
+                formatValue={formatDurationMs}
+            />
+            <StatTile label="Users" loading={loading} value={summary?.users ?? 0} formatValue={humanFriendlyNumber} />
+            <StatTile
                 label="Sessions"
                 loading={loading}
-                value={humanFriendlyNumber(summary?.conversations ?? 0)}
-                tooltip="Unique $mcp_session_id values, falling back to $session_id where missing."
+                value={summary?.conversations ?? 0}
+                formatValue={humanFriendlyNumber}
             />
         </div>
     )
@@ -451,7 +484,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />
-                <StatStrip summary={summary} loading={summaryLoading} />
+                <StatTiles summary={summary} loading={summaryLoading} />
             </div>
 
             <LemonDivider />
@@ -485,48 +518,44 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <SectionHeader title="Usage flow" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-2 bg-bg-light border rounded p-3">
-                        <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-medium uppercase text-secondary">Sample intents</span>
-                            <IntentCoverageTag coverage={intentCoverage} loading={intentCoverageLoading} />
-                        </div>
+                    <ResultTable
+                        title="Sample intents"
+                        action={<IntentCoverageTag coverage={intentCoverage} loading={intentCoverageLoading} />}
+                        rows={sampleIntentRows}
+                        loading={sampleIntentRowsLoading}
+                        emptyMessage="No intents captured in the last 7 days."
+                        columns={[
+                            { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
+                            { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
+                            { header: 'Intent source', render: (r) => <span>{String(r[2] ?? '')}</span> },
+                            { header: 'Harness', render: (r) => <span>{String(r[3] ?? '')}</span> },
+                        ]}
+                    />
+                    <div className="flex flex-col gap-4">
                         <ResultTable
-                            rows={sampleIntentRows}
-                            loading={sampleIntentRowsLoading}
-                            emptyMessage="No intents captured in the last 7 days."
-                            columns={[
-                                { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
-                                { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
-                                { header: 'Intent source', render: (r) => <span>{String(r[2] ?? '')}</span> },
-                                { header: 'Harness', render: (r) => <span>{String(r[3] ?? '')}</span> },
-                            ]}
+                            title={
+                                <span className="flex items-center gap-1">
+                                    <IconArrowLeft className="text-base" />
+                                    Often called before (same conversation)
+                                </span>
+                            }
+                            rows={neighborsBeforeRows}
+                            loading={neighborsBeforeRowsLoading}
+                            emptyMessage="No tools commonly precede this one."
+                            columns={neighborColumns}
                         />
-                    </div>
-                    <div className="flex flex-col gap-3">
-                        <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
-                            <div className="flex items-center gap-1 text-xs font-medium uppercase text-secondary">
-                                <IconArrowLeft className="text-base" />
-                                Often called before (same conversation)
-                            </div>
-                            <ResultTable
-                                rows={neighborsBeforeRows}
-                                loading={neighborsBeforeRowsLoading}
-                                emptyMessage="No tools commonly precede this one."
-                                columns={neighborColumns}
-                            />
-                        </div>
-                        <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
-                            <div className="flex items-center gap-1 text-xs font-medium uppercase text-secondary">
-                                <IconArrowRight className="text-base" />
-                                Often called after (same conversation)
-                            </div>
-                            <ResultTable
-                                rows={neighborsAfterRows}
-                                loading={neighborsAfterRowsLoading}
-                                emptyMessage="No tools commonly follow this one."
-                                columns={neighborColumns}
-                            />
-                        </div>
+                        <ResultTable
+                            title={
+                                <span className="flex items-center gap-1">
+                                    <IconArrowRight className="text-base" />
+                                    Often called after (same conversation)
+                                </span>
+                            }
+                            rows={neighborsAfterRows}
+                            loading={neighborsAfterRowsLoading}
+                            emptyMessage="No tools commonly follow this one."
+                            columns={neighborColumns}
+                        />
                     </div>
                 </div>
             </div>
@@ -536,80 +565,74 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <SectionHeader title="Who uses it" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
-                        <span className="text-xs font-medium uppercase text-secondary">By harness</span>
-                        <ResultTable
-                            rows={byHarnessRows}
-                            loading={byHarnessRowsLoading}
-                            columns={[
-                                {
-                                    header: 'Harness',
-                                    expand: true,
-                                    render: (r) => {
-                                        const raw = String(r[0] ?? '')
-                                        return raw ? (
-                                            <HarnessPill category={categorizeHarness(raw)} title={raw} />
-                                        ) : (
-                                            <span className="text-muted">Unknown</span>
-                                        )
-                                    },
+                    <ResultTable
+                        title="By harness"
+                        rows={byHarnessRows}
+                        loading={byHarnessRowsLoading}
+                        columns={[
+                            {
+                                header: 'Harness',
+                                expand: true,
+                                render: (r) => {
+                                    const raw = String(r[0] ?? '')
+                                    return raw ? (
+                                        <HarnessPill category={categorizeHarness(raw)} title={raw} />
+                                    ) : (
+                                        <span className="text-muted">Unknown</span>
+                                    )
                                 },
-                                {
-                                    header: 'Calls',
-                                    align: 'right',
-                                    render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
-                                },
-                                {
-                                    header: 'Errors',
-                                    align: 'right',
-                                    render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
-                                },
-                                { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
-                                {
-                                    header: 'Users',
-                                    align: 'right',
-                                    render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
-                                },
-                            ]}
-                        />
-                    </div>
-                    <div className="bg-bg-light border rounded p-3 flex flex-col gap-2">
-                        <span className="text-xs font-medium uppercase text-secondary">Top users</span>
-                        <ResultTable
-                            rows={topUserRows}
-                            loading={topUserRowsLoading}
-                            columns={[
-                                { header: 'User', expand: true, render: (r) => renderPersonCell(r[0]) },
-                                {
-                                    header: 'Calls',
-                                    align: 'right',
-                                    render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
-                                },
-                                {
-                                    header: 'Errors',
-                                    align: 'right',
-                                    render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
-                                },
-                                { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
-                                {
-                                    header: 'Harnesses',
-                                    render: (r) => <span className="text-secondary">{String(r[4] ?? '')}</span>,
-                                },
-                                { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
-                            ]}
-                        />
-                    </div>
+                            },
+                            {
+                                header: 'Calls',
+                                align: 'right',
+                                render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                            },
+                            {
+                                header: 'Errors',
+                                align: 'right',
+                                render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                            },
+                            { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
+                            {
+                                header: 'Users',
+                                align: 'right',
+                                render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
+                            },
+                        ]}
+                    />
+                    <ResultTable
+                        title="Top users"
+                        rows={topUserRows}
+                        loading={topUserRowsLoading}
+                        columns={[
+                            { header: 'User', expand: true, render: (r) => renderPersonCell(r[0]) },
+                            {
+                                header: 'Calls',
+                                align: 'right',
+                                render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                            },
+                            {
+                                header: 'Errors',
+                                align: 'right',
+                                render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                            },
+                            { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
+                            {
+                                header: 'Harnesses',
+                                render: (r) => <span className="text-secondary">{String(r[4] ?? '')}</span>,
+                            },
+                            { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
+                        ]}
+                    />
                 </div>
             </div>
 
             <LemonDivider />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
-                <SectionHeader
-                    title="Failures"
-                    subtitle="Top exception messages paired with this tool. Sourced from $exception events."
-                />
                 <ResultTable
+                    title="Failures"
+                    description="Top exception messages paired with this tool. Sourced from $exception events."
                     rows={failureRows}
                     loading={failureRowsLoading}
                     emptyMessage="No exceptions recorded for this tool in the last 7 days."
