@@ -1,12 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { ComponentProps, useState } from 'react'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { ComponentProps, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilter, TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -28,9 +29,16 @@ type FilterUsage = { entry: 'filter'; props: Omit<ComponentProps<typeof Taxonomi
 type PopoverUsage = { entry: 'popover'; props: ComponentProps<typeof TaxonomicPopover> }
 type PropertiesUsage = { entry: 'properties'; props: Omit<ComponentProps<typeof PropertyFilters>, 'pageKey'> }
 type UniversalUsage = { entry: 'universal'; props: { taxonomicGroupTypes: TaxonomicFilterGroupType[] } }
+type SearchUsage = { entry: 'search'; props: { taxonomicGroupTypes: TaxonomicFilterGroupType[] } }
 
 /** One catalogued taxonomic-filter usage: a real scene's entry component + the props it passes. */
-type Usage = { name: string; site: string } & (FilterUsage | PopoverUsage | PropertiesUsage | UniversalUsage)
+type Usage = { name: string; site: string } & (
+    | FilterUsage
+    | PopoverUsage
+    | PropertiesUsage
+    | UniversalUsage
+    | SearchUsage
+)
 
 const G = TaxonomicFilterGroupType
 
@@ -241,8 +249,8 @@ const USAGES: Usage[] = [
     },
     {
         name: 'Logs filter bar',
-        site: 'logs/.../LogsViewer/Filters/LogsFilterBar.tsx',
-        entry: 'universal',
+        site: 'logs/.../LogsViewer/Filters/FilterGroup.tsx',
+        entry: 'search',
         props: {
             taxonomicGroupTypes: [G.Logs, G.LogResourceAttributes, G.LogAttributes],
         },
@@ -250,7 +258,7 @@ const USAGES: Usage[] = [
     {
         name: 'Error tracking issue filters',
         site: 'error_tracking/.../IssueFilters/FilterGroup.tsx',
-        entry: 'universal',
+        entry: 'search',
         props: {
             taxonomicGroupTypes: [
                 G.ErrorTrackingProperties,
@@ -337,8 +345,13 @@ const VARIANTS: { key: string; label: string; blurb: string }[] = [
     },
     {
         key: 'universal',
-        label: 'UniversalFilters — nested filter bar',
-        blurb: 'Events + properties in AND/OR groups; its own add-filter popover (not a rebuild wrapper).',
+        label: 'UniversalFilters — add-filter pills',
+        blurb: 'Standard UniversalFilters flow: AND/OR groups + an add-filter pill button. Used by session replay.',
+    },
+    {
+        key: 'search',
+        label: 'Search bar — taxonomic primitives',
+        blurb: 'Bespoke per-product search box (TaxonomicFilterSearchInput + InfiniteSelectResults) with inline pills. Logs and error tracking each hand-rolled their own.',
     },
 ]
 
@@ -407,10 +420,45 @@ function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): 
             </UniversalFilters>
         )
     }
+    if (usage.entry === 'search') {
+        return <SearchBarPreview taxonomicGroupTypes={usage.props.taxonomicGroupTypes} storyKey={storyKey} />
+    }
     // Render inline so the taxonomic trigger itself shows (button vs input) — the
     // popover mode would only show the generic "+ Filter" row button, which is
     // identical across variants and hides the part we want to compare.
     return <PropertyFilters {...usage.props} pageKey={storyKey} disablePopover />
+}
+
+/**
+ * The bespoke search-bar presentation logs and error tracking build by hand from
+ * taxonomic primitives. The real components wire it to product logics; here we
+ * render just the resting search input so its distinct shape (a search box, not
+ * pill buttons) is visible.
+ */
+function SearchBarPreview({
+    taxonomicGroupTypes,
+    storyKey,
+}: {
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    storyKey: string
+}): JSX.Element {
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
+    return (
+        <BindLogic
+            logic={taxonomicFilterLogic}
+            props={{ taxonomicFilterLogicKey: storyKey, taxonomicGroupTypes, onChange: noop }}
+        >
+            <TaxonomicFilterSearchInput
+                searchInputRef={searchInputRef}
+                onClose={noop}
+                onChange={noop}
+                autoFocus={false}
+                fullWidth
+                size="small"
+                placeholder="Add a filter or search..."
+            />
+        </BindLogic>
+    )
 }
 
 /** Minimal UniversalFilters body — renders existing values and the add-filter trigger. */
