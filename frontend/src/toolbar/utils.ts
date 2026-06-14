@@ -1,4 +1,4 @@
-import { finder } from '@medv/finder'
+import { finder } from '~/toolbar/vendor/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
