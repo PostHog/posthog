@@ -207,14 +207,14 @@ function formatValue(value: unknown): string {
     return String(value)
 }
 
+const ENTRY_COMPONENT_NAME: Record<Usage['entry'], string> = {
+    filter: 'TaxonomicFilter',
+    popover: 'TaxonomicPopover',
+    properties: 'PropertyFilters',
+}
+
 function formatProps(usage: Usage): string {
-    const entryName =
-        usage.entry === 'filter'
-            ? 'TaxonomicFilter'
-            : usage.entry === 'popover'
-              ? 'TaxonomicPopover'
-              : 'PropertyFilters'
-    const lines = [`entry: <${entryName}>`, `site: ${usage.site}`]
+    const lines = [`entry: <${ENTRY_COMPONENT_NAME[usage.entry]}>`, `site: ${usage.site}`]
     for (const [key, value] of Object.entries(usage.props)) {
         lines.push(`${key}: ${formatValue(value)}`)
     }
