@@ -383,7 +383,7 @@ export const MultipleColumnsWithTotal: Story = {
 
 export const ComparisonNoTotal: Story = {
     args: {
-        showTotal: true,
+        showTotal: false,
         seriesData: [
             {
                 id: 0,
