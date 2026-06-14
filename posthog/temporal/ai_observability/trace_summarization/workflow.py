@@ -177,7 +177,10 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             BatchSummarizationResult containing metrics and results
         """
         start_time = temporalio.workflow.now()
-        batch_run_id = f"{inputs.team_id}_{start_time.isoformat()}"
+        # `batch_run_id` is written to the LowCardinality `rendering` column (and the
+        # matching $ai_batch_run_id summary property), so keep it low cardinality: one
+        # stable value per (team, job), not a fresh one per run.
+        batch_run_id = f"{inputs.team_id}"
         if inputs.job_id:
             batch_run_id = f"{batch_run_id}_{inputs.job_id}"
         metrics = BatchSummarizationMetrics()

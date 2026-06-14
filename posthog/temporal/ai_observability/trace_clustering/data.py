@@ -45,7 +45,8 @@ def fetch_item_embeddings_for_clustering(
     """Query item IDs and embeddings from document_embeddings table.
 
     Two paths:
-    - job_id present: filter by rendering suffix (batch_run_id = {team}_{ts}_{job_id})
+    - job_id present: filter by rendering suffix (batch_run_id = {team}_{job_id}; older
+      rows use {team}_{ts}_{job_id} and still resolve via the suffix match)
     - no job_id: return all embeddings for the document type (legacy/unfiltered)
     """
     document_type = (
@@ -137,7 +138,7 @@ def fetch_item_embeddings_for_clustering(
 
         # Only store as batch_run_id if it's not a legacy rendering constant
         # Legacy embeddings have rendering like "llma_trace_detailed"
-        # New embeddings have rendering = batch_run_id (e.g., "1_2025-12-13T...")
+        # New embeddings have rendering = batch_run_id (e.g., "1_<job_id>")
         rendering_value = row[2]
         if rendering_value and rendering_value not in legacy_rendering_values:
             batch_run_ids_map[item_id] = rendering_value
