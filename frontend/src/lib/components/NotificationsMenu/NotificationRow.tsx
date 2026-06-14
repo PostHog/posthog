@@ -50,11 +50,13 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
 export function NotificationRow({
     notification,
     onNavigate,
+    readOnly = false,
 }: {
     notification: InAppNotification
     onNavigate?: () => void
+    readOnly?: boolean
 }): JSX.Element {
-    const { navigateToNotification, toggleRead, clearNotification } = useActions(sidePanelNotificationsLogic)
+    const { navigateToNotification, toggleRead, archiveNotification } = useActions(sidePanelNotificationsLogic)
     const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
     const [expanded, setExpanded] = useState(false)
 
@@ -74,9 +76,9 @@ export function NotificationRow({
         toggleRead(notification.id)
     }
 
-    const handleClear = (e: React.MouseEvent): void => {
+    const handleArchive = (e: React.MouseEvent): void => {
         e.stopPropagation()
-        clearNotification(notification.id)
+        archiveNotification(notification.id)
     }
 
     return (
@@ -103,26 +105,28 @@ export function NotificationRow({
                                 </button>
                             </Tooltip>
                         )}
-                        <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
-                            <button
-                                className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
-                                onClick={handleToggleRead}
-                            >
-                                {notification.read ? (
-                                    <IconCheckCircle className="size-4 text-success" />
-                                ) : (
-                                    <>
-                                        <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
-                                        <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
-                                    </>
-                                )}
-                            </button>
-                        </Tooltip>
-                        {notification.clearable && (
-                            <Tooltip title="Clear">
+                        {!readOnly && (
+                            <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
+                                <button
+                                    className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
+                                    onClick={handleToggleRead}
+                                >
+                                    {notification.read ? (
+                                        <IconCheckCircle className="size-4 text-success" />
+                                    ) : (
+                                        <>
+                                            <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
+                                            <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
+                                        </>
+                                    )}
+                                </button>
+                            </Tooltip>
+                        )}
+                        {!readOnly && notification.archivable && (
+                            <Tooltip title="Archive">
                                 <button
                                     className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
-                                    onClick={handleClear}
+                                    onClick={handleArchive}
                                 >
                                     <IconX className="size-4" />
                                 </button>

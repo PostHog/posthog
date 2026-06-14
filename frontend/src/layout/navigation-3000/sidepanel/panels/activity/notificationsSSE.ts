@@ -33,7 +33,7 @@ export function connectToNotificationsSSE(
             }
             try {
                 const parsed = JSON.parse(event.data) as InAppNotification
-                const notification = { ...parsed, clearable: parsed.clearable ?? false }
+                const notification = { ...parsed, archivable: parsed.archivable ?? false }
                 onNotification(notification)
             } catch {
                 // Ignore malformed messages

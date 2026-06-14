@@ -16,24 +16,30 @@ import {
 export function NotificationGroupRow({
     group,
     onNavigate,
+    readOnly = false,
 }: {
     group: NotificationGroup
     onNavigate?: () => void
+    readOnly?: boolean
 }): JSX.Element {
     const { expandedGroupKeys, loadingGroupKeys } = useValues(sidePanelNotificationsLogic)
-    const { toggleGroupExpanded, loadGroupChildren, toggleGroupRead, clearGroup } =
+    const { toggleGroupExpanded, loadGroupChildren, loadArchivedGroupChildren, toggleGroupRead, archiveGroup } =
         useActions(sidePanelNotificationsLogic)
     const isExpanded = expandedGroupKeys.has(group.group_key)
     const isLoading = loadingGroupKeys.has(group.group_key)
 
     if (group.count === 1) {
-        return <NotificationRow notification={group.representative} onNavigate={onNavigate} />
+        return <NotificationRow notification={group.representative} onNavigate={onNavigate} readOnly={readOnly} />
     }
 
     const handleExpand = (e: React.MouseEvent): void => {
         e.stopPropagation()
         if (!group.full_children_loaded && !isExpanded) {
-            void loadGroupChildren(group)
+            if (readOnly) {
+                void loadArchivedGroupChildren(group)
+            } else {
+                void loadGroupChildren(group)
+            }
         }
         toggleGroupExpanded(group.group_key)
     }
@@ -43,9 +49,9 @@ export function NotificationGroupRow({
         toggleGroupRead(group)
     }
 
-    const handleClear = (e: React.MouseEvent): void => {
+    const handleArchive = (e: React.MouseEvent): void => {
         e.stopPropagation()
-        clearGroup(group)
+        archiveGroup(group)
     }
 
     const allRead = !group.has_unread
@@ -68,26 +74,28 @@ export function NotificationGroupRow({
                             <span className="text-[10px] text-muted bg-fill-highlight-100 px-1.5 py-px rounded">
                                 {group.count}
                             </span>
-                            <Tooltip title={allRead ? 'Mark group as unread' : 'Mark group as read'}>
-                                <button
-                                    className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
-                                    onClick={handleToggleRead}
-                                >
-                                    {allRead ? (
-                                        <IconCheckCircle className="size-4 text-success" />
-                                    ) : (
-                                        <>
-                                            <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
-                                            <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
-                                        </>
-                                    )}
-                                </button>
-                            </Tooltip>
-                            {group.representative.clearable && (
-                                <Tooltip title="Clear group">
+                            {!readOnly && (
+                                <Tooltip title={allRead ? 'Mark group as unread' : 'Mark group as read'}>
+                                    <button
+                                        className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
+                                        onClick={handleToggleRead}
+                                    >
+                                        {allRead ? (
+                                            <IconCheckCircle className="size-4 text-success" />
+                                        ) : (
+                                            <>
+                                                <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
+                                                <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
+                                            </>
+                                        )}
+                                    </button>
+                                </Tooltip>
+                            )}
+                            {!readOnly && group.has_archivable && (
+                                <Tooltip title="Archive group">
                                     <button
                                         className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
-                                        onClick={handleClear}
+                                        onClick={handleArchive}
                                     >
                                         <IconX className="size-4" />
                                     </button>
@@ -113,7 +121,12 @@ export function NotificationGroupRow({
                 <div className="pl-6 pr-1 flex flex-col gap-px border-l-2 border-fill-highlight-100 ml-3 my-1">
                     {isLoading && !group.full_children_loaded && <div className="text-xs text-muted p-2">Loading…</div>}
                     {group.children.map((child) => (
-                        <NotificationRow key={child.id} notification={child} onNavigate={onNavigate} />
+                        <NotificationRow
+                            key={child.id}
+                            notification={child}
+                            onNavigate={onNavigate}
+                            readOnly={readOnly}
+                        />
                     ))}
                 </div>
             )}

@@ -1,1 +1,1 @@
-0012_notificationevent_clearable_notificationclearstate
+0012_notificationevent_archivable_notificationarchivestate

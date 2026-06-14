@@ -41,12 +41,16 @@ export const notificationsList = async (
     })
 }
 
-export const getNotificationsClearCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/notifications/${id}/clear/`
+export const getNotificationsArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notifications/${id}/archive/`
 }
 
-export const notificationsClearCreate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getNotificationsClearCreateUrl(projectId, id), {
+export const notificationsArchiveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotificationsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -82,27 +86,27 @@ export const notificationsMarkUnreadCreate = async (
     })
 }
 
-export const getNotificationsClearAllCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/notifications/clear_all/`
+export const getNotificationsArchiveAllCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/archive_all/`
 }
 
-export const notificationsClearAllCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getNotificationsClearAllCreateUrl(projectId), {
+export const notificationsArchiveAllCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotificationsArchiveAllCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
 }
 
-export const getNotificationsClearBulkCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/notifications/clear_bulk/`
+export const getNotificationsArchiveBulkCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/archive_bulk/`
 }
 
-export const notificationsClearBulkCreate = async (
+export const notificationsArchiveBulkCreate = async (
     projectId: string,
     bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getNotificationsClearBulkCreateUrl(projectId), {
+    return apiMutator<void>(getNotificationsArchiveBulkCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

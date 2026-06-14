@@ -29,5 +29,5 @@ class NotificationData:
     source_type: SourceType | None = None
     source_id: str | None = None
     priority: Priority = Priority.NORMAL
-    clearable: bool = False
+    archivable: bool = False
     resolver: RecipientsResolver | None = field(default=None, compare=False)

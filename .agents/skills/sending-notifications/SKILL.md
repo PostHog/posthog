@@ -59,14 +59,14 @@ Returns a `NotificationEvent` on success, or `None` if the feature flag is disab
 
 **Optional:**
 
-| Field           | Type                               | Default  | Description                                                                                                                     |
-| --------------- | ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `resource_type` | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access                                       |
-| `resource_id`   | `str`                              | `""`     | ID of the resource for linking                                                                                                  |
-| `source_url`    | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                              |
-| `priority`      | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                |
-| `clearable`     | `bool`                             | `False`  | Opt in to a per-recipient "clear" (dismiss) action. When `False`, recipients can only mark it read/unread (the default pattern) |
-| `resolver`      | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                         |
+| Field           | Type                               | Default  | Description                                                                                                                                                                                   |
+| --------------- | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resource_type` | `NotificationResourceType \| None` | `None`   | Access-controlled types (e.g. `"dashboard"`) auto-filter recipients without viewer access                                                                                                     |
+| `resource_id`   | `str`                              | `""`     | ID of the resource for linking                                                                                                                                                                |
+| `source_url`    | `str`                              | `""`     | Relative URL path (e.g. `/dashboard/42`), shown as link icon in UI                                                                                                                            |
+| `priority`      | `Priority`                         | `NORMAL` | `normal` = popover only; `critical` = popover + persistent toast                                                                                                                              |
+| `archivable`    | `bool`                             | `False`  | Opt in to a per-recipient "archive" (dismiss) action that moves the notification to the recipient's Archived tab. When `False`, recipients can only mark it read/unread (the default pattern) |
+| `resolver`      | `RecipientsResolver \| None`       | `None`   | Custom recipient resolver. Default handles user/team/org/role targeting                                                                                                                       |
 
 ## Choosing parameters
 

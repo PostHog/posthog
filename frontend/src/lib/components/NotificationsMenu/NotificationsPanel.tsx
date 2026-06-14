@@ -20,16 +20,26 @@ export function NotificationsPanel(): JSX.Element {
     const { setActiveTab } = useActions(notificationsMenuLogic)
     const {
         groups,
+        archivedGroups,
+        archivedLoaded,
         inAppUnreadCount,
         importantChangesLoading,
         hasMoreNotifications,
+        hasMoreArchived,
         isLoadingMore,
-        hasClearableNotifications,
+        isLoadingMoreArchived,
+        hasArchivableNotifications,
     } = useValues(sidePanelNotificationsLogic)
-    const { markAllAsRead, loadMoreNotifications, clearAll } = useActions(sidePanelNotificationsLogic)
+    const { markAllAsRead, loadMoreNotifications, loadMoreArchived, archiveAll } =
+        useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
-    const filteredGroups = activeTab === 'unread' ? groups.filter((g: NotificationGroup) => g.has_unread) : groups
+    const isArchivedTab = activeTab === 'archived'
+    const filteredGroups = isArchivedTab
+        ? archivedGroups
+        : activeTab === 'unread'
+          ? groups.filter((g: NotificationGroup) => g.has_unread)
+          : groups
 
     const header = (
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -56,19 +66,29 @@ export function NotificationsPanel(): JSX.Element {
                         <span className="ml-1 text-[10px] text-danger font-bold">{inAppUnreadCount}</span>
                     )}
                 </button>
+                <button
+                    className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                        isArchivedTab ? 'bg-fill-highlight-100 text-primary' : 'text-secondary hover:text-primary'
+                    }`}
+                    onClick={() => setActiveTab('archived')}
+                >
+                    Archived
+                </button>
             </div>
-            <div className="flex items-center gap-1 ml-auto">
-                {inAppUnreadCount > 0 && (
-                    <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()}>
-                        Mark all as read
-                    </LemonButton>
-                )}
-                {hasClearableNotifications && (
-                    <LemonButton size="xsmall" type="secondary" onClick={() => clearAll()}>
-                        Clear all
-                    </LemonButton>
-                )}
-            </div>
+            {!isArchivedTab && (
+                <div className="flex items-center gap-1 ml-auto">
+                    {inAppUnreadCount > 0 && (
+                        <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()}>
+                            Mark all as read
+                        </LemonButton>
+                    )}
+                    {hasArchivableNotifications && (
+                        <LemonButton size="xsmall" type="secondary" onClick={() => archiveAll()}>
+                            Archive all
+                        </LemonButton>
+                    )}
+                </div>
+            )}
         </div>
     )
 
@@ -80,7 +100,7 @@ export function NotificationsPanel(): JSX.Element {
                 className="flex-1 overflow-hidden"
                 innerClassName="p-1"
             >
-                {importantChangesLoading && groups.length === 0 ? (
+                {(isArchivedTab ? !archivedLoaded : importantChangesLoading && groups.length === 0) ? (
                     <div className="p-2">
                         <LemonSkeleton className="h-10 my-1" repeat={5} fade />
                     </div>
@@ -92,10 +112,25 @@ export function NotificationsPanel(): JSX.Element {
                                     key={group.group_key}
                                     group={group}
                                     onNavigate={() => closePanel()}
+                                    readOnly={isArchivedTab}
                                 />
                             ))}
                         </div>
-                        {hasMoreNotifications && activeTab === 'all' && (
+                        {isArchivedTab && hasMoreArchived && (
+                            <div className="p-2">
+                                <LemonButton
+                                    type="secondary"
+                                    fullWidth
+                                    center
+                                    size="small"
+                                    loading={isLoadingMoreArchived}
+                                    onClick={() => loadMoreArchived()}
+                                >
+                                    Load more
+                                </LemonButton>
+                            </div>
+                        )}
+                        {!isArchivedTab && hasMoreNotifications && activeTab === 'all' && (
                             <div className="p-2">
                                 <LemonButton
                                     type="secondary"
@@ -114,7 +149,11 @@ export function NotificationsPanel(): JSX.Element {
                     <div className="flex flex-col items-center justify-center p-6 text-center">
                         <IconNotification className="size-8 text-muted mb-2" />
                         <span className="text-sm text-secondary">
-                            {activeTab === 'unread' ? "You're all caught up!" : 'No notifications yet'}
+                            {isArchivedTab
+                                ? 'No archived notifications'
+                                : activeTab === 'unread'
+                                  ? "You're all caught up!"
+                                  : 'No notifications yet'}
                         </span>
                     </div>
                 )}

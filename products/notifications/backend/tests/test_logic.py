@@ -47,26 +47,26 @@ class TestCreateNotification(BaseTest):
         assert event.resolved_user_ids == [self.user.id]
         assert event.organization_id == self.organization.id
         assert event.notification_type == "comment_mention"
-        assert event.clearable is False
+        assert event.archivable is False
         assert NotificationEvent.objects.count() == 1
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
-    def test_create_notification_clearable(self, mock_publish, mock_ff):
+    def test_create_notification_archivable(self, mock_publish, mock_ff):
         data = NotificationData(
             team_id=self.team.id,
             notification_type=NotificationType.COMMENT_MENTION,
-            title="Clearable notification",
+            title="Archivable notification",
             body="Test body",
             target_type=TargetType.USER,
             target_id=str(self.user.id),
-            clearable=True,
+            archivable=True,
         )
         event = create_notification(data)
 
         assert event is not None
-        assert event.clearable is True
-        assert NotificationEvent.objects.get(id=event.id).clearable is True
+        assert event.archivable is True
+        assert NotificationEvent.objects.get(id=event.id).archivable is True
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")

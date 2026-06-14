@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, Team, User
 
 from products.notifications.backend.cache import _unread_count_cache_key
-from products.notifications.backend.models import NotificationClearState, NotificationEvent, NotificationReadState
+from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 
 
 class TestNotificationsAPI(BaseTest):
@@ -374,7 +374,7 @@ class TestNotificationsAPI(BaseTest):
         )
         assert resp.status_code == 400
 
-    def _create_clearable(self, title: str = "Clearable") -> NotificationEvent:
+    def _create_archivable(self, title: str = "Archivable") -> NotificationEvent:
         return NotificationEvent.objects.create(
             organization=self.organization,
             team=self.team,
@@ -384,61 +384,71 @@ class TestNotificationsAPI(BaseTest):
             target_type="user",
             target_id=str(self.user.id),
             resolved_user_ids=[self.user.id],
-            clearable=True,
+            archivable=True,
         )
 
-    def test_serializer_exposes_clearable(self):
-        self._create_clearable()
+    def test_serializer_exposes_archivable(self):
+        self._create_archivable()
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
         by_title = {r["title"]: r for r in resp.json()["results"]}
-        assert by_title["Clearable"]["clearable"] is True
-        assert by_title["Test notification"]["clearable"] is False
+        assert by_title["Archivable"]["archivable"] is True
+        assert by_title["Test notification"]["archivable"] is False
 
-    def test_clear_clearable_notification(self):
-        event = self._create_clearable()
-        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/clear/")
+    def test_archive_archivable_notification(self):
+        event = self._create_archivable()
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
         assert resp.status_code == 200
-        assert NotificationClearState.objects.filter(notification_event=event, user=self.user).exists()
+        assert NotificationArchiveState.objects.filter(notification_event=event, user=self.user).exists()
 
-    def test_clear_is_noop_for_non_clearable(self):
-        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/clear/")
+    def test_archive_is_noop_for_non_archivable(self):
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/archive/")
         assert resp.status_code == 200
-        assert not NotificationClearState.objects.filter(notification_event=self.event, user=self.user).exists()
+        assert not NotificationArchiveState.objects.filter(notification_event=self.event, user=self.user).exists()
 
-    def test_cleared_notification_excluded_from_list(self):
-        event = self._create_clearable()
-        NotificationClearState.objects.create(notification_event=event, user=self.user)
+    def test_archived_notification_excluded_from_list(self):
+        event = self._create_archivable()
+        NotificationArchiveState.objects.create(notification_event=event, user=self.user)
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
         ids = {r["id"] for r in resp.json()["results"]}
         assert str(event.id) not in ids
         assert str(self.event.id) in ids
 
-    def test_cleared_notification_excluded_from_unread_count(self):
-        event = self._create_clearable()
-        NotificationClearState.objects.create(notification_event=event, user=self.user)
+    def test_archived_list_returns_only_archived(self):
+        archived = self._create_archivable("Archived item")
+        NotificationArchiveState.objects.create(notification_event=archived, user=self.user)
+        active = self._create_archivable("Still active")
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?archived=true")
+        ids = {r["id"] for r in resp.json()["results"]}
+        assert str(archived.id) in ids
+        assert str(active.id) not in ids
+        assert str(self.event.id) not in ids
+
+    def test_archived_notification_excluded_from_unread_count(self):
+        event = self._create_archivable()
+        NotificationArchiveState.objects.create(notification_event=event, user=self.user)
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
         assert resp.json()["count"] == 1
 
-    def test_clear_invalidates_cache(self):
-        event = self._create_clearable()
+    def test_archive_invalidates_cache(self):
+        event = self._create_archivable()
         cache_key = _unread_count_cache_key(self.user.id, self.organization.id)
         cache.set(cache_key, 5, 60)
-        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/clear/")
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
         assert cache.get(cache_key) is None
 
-    def test_clear_bulk_only_clears_clearable(self):
-        clearable = self._create_clearable("Bulk clearable")
+    def test_archive_bulk_only_archives_archivable(self):
+        archivable = self._create_archivable("Bulk archivable")
         resp = self.client.post(
-            f"/api/environments/{self.team.id}/notifications/clear_bulk/",
-            {"notification_ids": [str(clearable.id), str(self.event.id)]},
+            f"/api/environments/{self.team.id}/notifications/archive_bulk/",
+            {"notification_ids": [str(archivable.id), str(self.event.id)]},
             format="json",
         )
         assert resp.status_code == 200
         assert resp.json()["updated"] == 1
-        assert NotificationClearState.objects.filter(notification_event=clearable, user=self.user).exists()
-        assert not NotificationClearState.objects.filter(notification_event=self.event, user=self.user).exists()
+        assert NotificationArchiveState.objects.filter(notification_event=archivable, user=self.user).exists()
+        assert not NotificationArchiveState.objects.filter(notification_event=self.event, user=self.user).exists()
 
-    def test_clear_bulk_skips_non_recipient(self):
+    def test_archive_bulk_skips_non_recipient(self):
         other_event = NotificationEvent.objects.create(
             organization=self.organization,
             team=self.team,
@@ -448,33 +458,33 @@ class TestNotificationsAPI(BaseTest):
             target_type="user",
             target_id="999",
             resolved_user_ids=[],
-            clearable=True,
+            archivable=True,
         )
         resp = self.client.post(
-            f"/api/environments/{self.team.id}/notifications/clear_bulk/",
+            f"/api/environments/{self.team.id}/notifications/archive_bulk/",
             {"notification_ids": [str(other_event.id)]},
             format="json",
         )
         assert resp.status_code == 200
         assert resp.json()["updated"] == 0
-        assert not NotificationClearState.objects.filter(notification_event=other_event, user=self.user).exists()
+        assert not NotificationArchiveState.objects.filter(notification_event=other_event, user=self.user).exists()
 
-    def test_clear_all_only_clears_clearable(self):
-        c1 = self._create_clearable("C1")
-        c2 = self._create_clearable("C2")
-        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/clear_all/")
+    def test_archive_all_only_archives_archivable(self):
+        a1 = self._create_archivable("A1")
+        a2 = self._create_archivable("A2")
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/archive_all/")
         assert resp.status_code == 200
         assert resp.json()["updated"] == 2
-        assert NotificationClearState.objects.filter(user=self.user).count() == 2
-        assert not NotificationClearState.objects.filter(notification_event=self.event, user=self.user).exists()
-        for ev in (c1, c2):
-            assert NotificationClearState.objects.filter(notification_event=ev, user=self.user).exists()
+        assert NotificationArchiveState.objects.filter(user=self.user).count() == 2
+        assert not NotificationArchiveState.objects.filter(notification_event=self.event, user=self.user).exists()
+        for ev in (a1, a2):
+            assert NotificationArchiveState.objects.filter(notification_event=ev, user=self.user).exists()
 
-    def test_clear_is_per_user(self):
-        other_user = User.objects.create_and_join(self.organization, "clearother@test.com", "password")
-        event = self._create_clearable()
+    def test_archive_is_per_user(self):
+        other_user = User.objects.create_and_join(self.organization, "archiveother@test.com", "password")
+        event = self._create_archivable()
         NotificationEvent.objects.filter(pk=event.pk).update(resolved_user_ids=[self.user.id, other_user.id])
-        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/clear/")
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
 
         other_client = APIClient()
         other_client.force_authenticate(user=other_user)

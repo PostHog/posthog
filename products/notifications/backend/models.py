@@ -20,7 +20,7 @@ class NotificationEvent(UUIDModel):
     target_type = models.CharField(max_length=16, choices=[(t.value, t.name) for t in TargetType])
     target_id = models.CharField(max_length=64)
     resolved_user_ids = models.JSONField(default=list)
-    clearable = models.BooleanField(default=False, db_default=False)
+    archivable = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -52,16 +52,16 @@ class NotificationReadState(UUIDModel):
         ]
 
 
-class NotificationClearState(UUIDModel):
+class NotificationArchiveState(UUIDModel):
     notification_event = models.ForeignKey(
         NotificationEvent,
         on_delete=models.CASCADE,
-        related_name="clear_states",
+        related_name="archive_states",
     )
     user = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
-        related_name="notification_clear_states",
+        related_name="notification_archive_states",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -69,6 +69,6 @@ class NotificationClearState(UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["notification_event", "user"],
-                name="unique_clear_state_per_user",
+                name="unique_archive_state_per_user",
             ),
         ]

@@ -16,11 +16,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="notificationevent",
-            name="clearable",
+            name="archivable",
             field=models.BooleanField(db_default=False, default=False),
         ),
         migrations.CreateModel(
-            name="NotificationClearState",
+            name="NotificationArchiveState",
             fields=[
                 (
                     "id",
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                     "notification_event",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="clear_states",
+                        related_name="archive_states",
                         to="notifications.notificationevent",
                     ),
                 ),
@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
                     "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="notification_clear_states",
+                        related_name="notification_archive_states",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("notification_event", "user"),
-                        name="unique_clear_state_per_user",
+                        name="unique_archive_state_per_user",
                     )
                 ],
             },
