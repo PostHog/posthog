@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
     const mockMe = vi.fn()
-    const mockApiClientCtor = vi.fn().mockImplementation(() => ({
-        users: () => ({ me: mockMe }),
-    }))
+    // Regular function (not arrow) so `new ApiClient()` can construct the mock under vitest 4.
+    const mockApiClientCtor = vi.fn().mockImplementation(function () {
+        return {
+            users: () => ({ me: mockMe }),
+        }
+    })
     return { mockMe, mockApiClientCtor }
 })
 

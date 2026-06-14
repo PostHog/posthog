@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mockIsFeatureEnabled = vi.fn()
 const mockGetAllFlags = vi.fn()
 vi.mock('posthog-node', () => ({
-    PostHog: vi.fn().mockImplementation(() => ({
-        isFeatureEnabled: mockIsFeatureEnabled,
-        getAllFlags: mockGetAllFlags,
-    })),
+    // Regular function (not arrow) so client.ts's `new PostHog()` can construct it under vitest 4.
+    PostHog: vi.fn().mockImplementation(function () {
+        return {
+            isFeatureEnabled: mockIsFeatureEnabled,
+            getAllFlags: mockGetAllFlags,
+        }
+    }),
 }))
 
 // Must import after vi.mock
