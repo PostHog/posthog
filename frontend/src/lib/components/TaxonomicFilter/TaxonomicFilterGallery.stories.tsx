@@ -1,6 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
-import { ComponentProps } from 'react'
+import { ComponentProps, useState } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
@@ -223,12 +225,25 @@ function formatProps(usage: Usage): string {
     return lines.join('\n')
 }
 
-function renderEntry(usage: Usage, key: string): JSX.Element {
+function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): JSX.Element {
+    // Raw TaxonomicFilter has no resting state — it IS the open panel, and it
+    // autofocuses its search input on mount. Mounting ~8 of those at once made
+    // the page jump on load and fight over focus, so reveal them one at a time
+    // on click. The wrapper entries already render a compact resting trigger.
+    const [open, setOpen] = useState(false)
+
     if (usage.entry === 'filter') {
         return (
-            <div className="border rounded bg-surface-primary w-full max-w-md">
-                <TaxonomicFilter {...usage.props} taxonomicFilterLogicKey={key} />
-            </div>
+            <>
+                <LemonButton type="secondary" size="small" onClick={() => setOpen((v) => !v)}>
+                    {open ? 'Hide picker' : 'Show picker'}
+                </LemonButton>
+                {open && (
+                    <div className="border rounded bg-surface-primary w-full max-w-md mt-2">
+                        <TaxonomicFilter {...usage.props} taxonomicFilterLogicKey={storyKey} />
+                    </div>
+                )}
+            </>
         )
     }
     if (usage.entry === 'popover') {
@@ -237,7 +252,7 @@ function renderEntry(usage: Usage, key: string): JSX.Element {
     // Render inline so the taxonomic trigger itself shows (button vs input) — the
     // popover mode would only show the generic "+ Filter" row button, which is
     // identical across variants and hides the part we want to compare.
-    return <PropertyFilters {...usage.props} pageKey={key} disablePopover />
+    return <PropertyFilters {...usage.props} pageKey={storyKey} disablePopover />
 }
 
 function Gallery({ variant }: { variant: string }): JSX.Element {
@@ -256,12 +271,11 @@ function Gallery({ variant }: { variant: string }): JSX.Element {
             <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery — {variant}</h1>
             <p className="text-sm text-secondary mb-4 max-w-3xl">
                 Every distinct taxonomic-filter usage in one place, so we can compare them and start to simplify. Each
-                cell lists the entry component and the props that scene passes, then renders it. Raw
-                <code> TaxonomicFilter</code> renders its inline panel; <code>PropertyFilters</code> cells are forced
-                inline (<code>disablePopover</code>) so the taxonomic trigger itself shows — button vs replay-style
-                input; <code>TaxonomicPopover</code> renders its resting trigger (click to open). The rebuild menu only
-                replaces the two wrapper entry points, so raw <code>TaxonomicFilter</code> cells stay on the legacy UI
-                here.
+                cell lists the entry component and the props that scene passes, then renders it.{' '}
+                <code>TaxonomicPopover</code> and <code>PropertyFilters</code> cells show their resting trigger (button
+                vs replay-style input); raw <code>TaxonomicFilter</code> has no resting state, so those reveal the panel
+                on "Show picker". The rebuild menu only replaces the two wrapper entry points, so raw{' '}
+                <code>TaxonomicFilter</code> cells stay on the legacy UI here.
             </p>
             <div className="grid grid-cols-1 xl:grid-cols-2 border-l border-t">
                 {USAGES.map((usage, index) => {
@@ -272,7 +286,9 @@ function Gallery({ variant }: { variant: string }): JSX.Element {
                             <pre className="text-xs bg-surface-secondary p-2 rounded whitespace-pre-wrap break-words">
                                 {formatProps(usage)}
                             </pre>
-                            <div className="mt-2 min-w-0">{renderEntry(usage, key)}</div>
+                            <div className="mt-2 min-w-0">
+                                <UsagePreview usage={usage} storyKey={key} />
+                            </div>
                         </div>
                     )
                 })}
