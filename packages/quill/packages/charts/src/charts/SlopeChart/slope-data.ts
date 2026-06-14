@@ -9,8 +9,26 @@ export interface SlopeSeriesMeta {
     showEndLabel?: boolean
 }
 
-/** A slope chart series carries exactly two values — `[start, end]`. These helpers read them
- *  defensively (first and last entry) so a malformed series degrades gracefully. */
+export type SlopeSide = 'start' | 'end'
+
+/** Whether a series' value label for `side` should render. Excluded/hidden series never show one;
+ *  otherwise the per-series `meta` override wins over the chart-level default. Shared by the gutter
+ *  sizing and the label rendering so the reserved margin always matches what is drawn. */
+export function slopeLabelVisible(
+    series: Pick<Series, 'visibility' | 'meta'>,
+    side: SlopeSide,
+    chartDefault: boolean
+): boolean {
+    if (series.visibility?.excluded || series.visibility?.valueLabel === false) {
+        return false
+    }
+    const meta = series.meta as SlopeSeriesMeta | undefined
+    const override = side === 'start' ? meta?.showStartLabel : meta?.showEndLabel
+    return override ?? chartDefault
+}
+
+/** A slope chart series carries exactly two values — `[start, end]`. These helpers read the first
+ *  and last entry, substituting 0 when an endpoint is absent. */
 export function slopeStart(series: Pick<Series, 'data'>): number {
     return series.data[0] ?? 0
 }

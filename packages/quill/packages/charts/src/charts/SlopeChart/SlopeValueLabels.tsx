@@ -2,9 +2,7 @@ import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ResolvedSeries } from '../../core/types'
-import { defaultValueFormatter, slopeEnd, slopeStart, type SlopeSeriesMeta } from './slope-data'
-
-type SlopeSide = 'start' | 'end'
+import { defaultValueFormatter, slopeEnd, slopeLabelVisible, type SlopeSide, slopeStart } from './slope-data'
 
 export interface SlopeValueLabelsProps {
     valueFormatter?: (value: number) => string
@@ -65,11 +63,7 @@ export function SlopeValueLabels({
         const start: ValueCandidate[] = []
         const end: ValueCandidate[] = []
         for (const s of series as ResolvedSeries[]) {
-            if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
-                continue
-            }
-            const meta = s.meta as SlopeSeriesMeta | undefined
-            if ((meta?.showStartLabel ?? showStartLabels) && x0 != null) {
+            if (slopeLabelVisible(s, 'start', showStartLabels) && x0 != null) {
                 const y = scales.y(slopeStart(s))
                 if (isFinite(y)) {
                     start.push({
@@ -82,7 +76,7 @@ export function SlopeValueLabels({
                     })
                 }
             }
-            if ((meta?.showEndLabel ?? showEndLabels) && x1 != null) {
+            if (slopeLabelVisible(s, 'end', showEndLabels) && x1 != null) {
                 const y = scales.y(slopeEnd(s))
                 if (isFinite(y)) {
                     end.push({ key: s.key, side: 'end', text: valueFormatter(slopeEnd(s)), color: s.color, x: x1, y })

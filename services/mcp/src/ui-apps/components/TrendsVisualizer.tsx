@@ -101,10 +101,12 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     // A slope needs a start and an end, so only offer it when there are at least two time points.
     const slopeAvailable = labels.length >= 2
     const chartModeOptions = slopeAvailable ? [...CHART_MODE_OPTIONS, SLOPE_MODE_OPTION] : CHART_MODE_OPTIONS
+    // Results can shrink below two points after slope was selected; fall back rather than render blank.
+    const effectiveMode = chartMode === 'slope' && !slopeAvailable ? 'line' : chartMode
 
     // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
     const renderChart = (): ReactElement => {
-        if (chartMode === 'slope') {
+        if (effectiveMode === 'slope') {
             const slopeSeries = trendResults
                 .map((item, index) => {
                     if (item.data.length < 2) {
@@ -128,7 +130,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 />
             )
         }
-        if (chartMode === 'bar') {
+        if (effectiveMode === 'bar') {
             const { series, config } = buildTrendsBarChartModel(trendResults, {
                 getColor: (_, index) => colorAt(index),
                 labels,
@@ -159,7 +161,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         <div>
             <div className="mb-2 flex justify-end">
                 {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={chartMode} onChange={setChartMode} options={chartModeOptions} />
+                <Select value={effectiveMode} onChange={setChartMode} options={chartModeOptions} />
             </div>
             <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>

@@ -22,7 +22,14 @@ import type {
     ValueDomain,
 } from '../../core/types'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
-import { defaultDeltaFormatter, defaultValueFormatter, slopeEnd, slopeStart, type SlopeSeriesMeta } from './slope-data'
+import {
+    defaultDeltaFormatter,
+    defaultValueFormatter,
+    slopeEnd,
+    slopeLabelVisible,
+    slopeStart,
+    type SlopeSeriesMeta,
+} from './slope-data'
 import { slopeLegendItems } from './slope-legend'
 import { SlopeSeriesLabels } from './SlopeSeriesLabels'
 import { SlopeValueLabels } from './SlopeValueLabels'
@@ -118,21 +125,11 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
     // Per-series start/end value labels can be toggled via `meta`; fall back to the chart default.
     const showsStart = useCallback(
-        (s: Series<Meta>): boolean => {
-            if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
-                return false
-            }
-            return (s.meta as SlopeSeriesMeta | undefined)?.showStartLabel ?? showStartLabels
-        },
+        (s: Series<Meta>): boolean => slopeLabelVisible(s, 'start', showStartLabels),
         [showStartLabels]
     )
     const showsEnd = useCallback(
-        (s: Series<Meta>): boolean => {
-            if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
-                return false
-            }
-            return (s.meta as SlopeSeriesMeta | undefined)?.showEndLabel ?? showEndLabels
-        },
+        (s: Series<Meta>): boolean => slopeLabelVisible(s, 'end', showEndLabels),
         [showEndLabels]
     )
 
