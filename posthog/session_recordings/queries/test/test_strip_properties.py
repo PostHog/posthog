@@ -14,6 +14,7 @@ from posthog.schema import (
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
+    is_hogql_property,
     is_recording_property,
     is_session_property,
 )
@@ -78,6 +79,15 @@ class TestStripProperties:
         assert is_session_property(HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"))
         assert not is_session_property(
             PersonPropertyFilter(key="email", operator=PropertyOperator.EXACT, value="a@b.com")
+        )
+
+    def test_is_hogql_property_matches_any_hogql_filter(self) -> None:
+        # A generic, event-referencing hogql filter is a valid, handled filter — it must be
+        # recognised as hogql so the UnexpectedQueryProperties telemetry isn't tripped for it.
+        assert is_hogql_property(HogQLPropertyFilter(key="event = 'paywall_viewed'"))
+        assert is_hogql_property(HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"))
+        assert not is_hogql_property(
+            EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
         )
 
     def test_is_recording_property_matches_type(self) -> None:

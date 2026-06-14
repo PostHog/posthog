@@ -33,6 +33,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_hogql_property,
     is_session_property,
 )
 from posthog.types import AnyPropertyFilter
@@ -418,7 +419,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
-            capture_exception(UnexpectedQueryProperties(remaining_properties))
+            # Generic HogQL filters (e.g. `event = 'paywall_viewed'`) are valid and handled
+            # by property_to_expr below — they only fall through the strip helper because it
+            # recognises hogql keys by their `person.`/`session.properties` prefix. Only fire
+            # the telemetry for property types we genuinely don't handle.
+            unexpected_properties = [p for p in remaining_properties if not is_hogql_property(p)]
+            if unexpected_properties:
+                capture_exception(UnexpectedQueryProperties(unexpected_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:

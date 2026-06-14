@@ -91,6 +91,10 @@ def is_session_property(p: AnyPropertyFilter) -> bool:
     return p_type == "session" or (p_type == "hogql" and "session.properties" in p_key)
 
 
+def is_hogql_property(p: AnyPropertyFilter) -> bool:
+    return getattr(p, "type", None) == "hogql"
+
+
 def is_recording_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return p_type == "recording"
