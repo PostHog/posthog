@@ -13,6 +13,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.test import override_settings
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
@@ -1036,6 +1038,47 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             materialised_table_column="person_properties",
         )
         self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_get_property_string_expr_uses_json_subcolumn_for_new_events_schema(self):
+        string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
+        self.assertEqual(
+            string_expr,
+            (
+                "ifNull(toString(properties.some_non_mat_prop), '')",
+                False,
+            ),
+        )
+
+        string_expr = get_property_string_expr(
+            "events",
+            "$current_url",
+            "'$current_url'",
+            "properties",
+            table_alias="e",
+        )
+        self.assertEqual(
+            string_expr,
+            (
+                "ifNull(toString(e.properties.`$current_url`), '')",
+                False,
+            ),
+        )
+
+        string_expr = get_property_string_expr(
+            "events",
+            "email",
+            "'email'",
+            "person_properties",
+            materialised_table_column="person_properties",
+        )
+        self.assertEqual(
+            string_expr,
+            (
+                "ifNull(toString(person_properties.email), '')",
+                False,
+            ),
+        )
 
 
 @pytest.mark.django_db

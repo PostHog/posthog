@@ -6,12 +6,14 @@ from collections import (
 from collections.abc import Callable, Iterable
 from typing import Any, Literal, Optional, Union, cast
 
+from django.conf import settings as django_settings
 from django.db.models import QuerySet
 
 from rest_framework import exceptions
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.escape_sql import escape_clickhouse_json_subcolumn_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -62,6 +64,12 @@ StringMatching = Literal["selector", "tag_name", "href", "text"]
 # {type: 'AND', groups: [
 #     A, B, C, D
 # ]}
+
+
+def _events_json_subcolumn_string_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
+    table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
+    field = f"{table_string}{column}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
+    return f"ifNull(toString({field}), '')"
 
 
 # Property json is of the form:
@@ -735,6 +743,13 @@ def get_property_string_expr(
             f'{table_string}"{materialized_column.name}"',
             True,
         )
+
+    if (
+        django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        and table == "events"
+        and materialised_table_column in ("properties", "person_properties")
+    ):
+        return _events_json_subcolumn_string_expr(column, str(property_name), table_alias), False
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 

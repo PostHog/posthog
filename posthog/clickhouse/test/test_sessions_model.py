@@ -1,7 +1,10 @@
 from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
 
+from django.test import override_settings
+
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models import Team
+from posthog.models.sessions.sql import SESSION_TABLE_MV_SELECT_SQL
 
 distinct_id_counter = 0
 session_id_counter = 0
@@ -22,6 +25,16 @@ def create_session_id():
 # only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
 TEAM_ID = 2
 TEAM = Team(id=TEAM_ID)
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+def test_sessions_mv_reads_new_events_schema_properties_from_subcolumns():
+    sql = SESSION_TABLE_MV_SELECT_SQL()
+
+    assert "toJSONString(properties)" not in sql
+    assert "JSONExtractRaw(properties" not in sql
+    assert "properties.`$current_url`" in sql
+    assert "properties.utm_source" in sql
 
 
 class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseTest):

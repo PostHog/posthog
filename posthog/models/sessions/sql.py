@@ -3,7 +3,7 @@ from django.conf import settings
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE, json_subcolumn_expr
 
 # V1 Sessions table
 TABLE_BASE_NAME = "sessions"
@@ -141,12 +141,18 @@ SETTINGS index_granularity=512
     )
 
 
+def _events_json_subcolumn_string_expr(column_name: str) -> str:
+    field = json_subcolumn_expr("properties", column_name)
+    return f"ifNull(toString({field}), '')"
+
+
 def source_column(column_name: str) -> str:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return _events_json_subcolumn_string_expr(column_name)
     return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
-SESSION_TABLE_MV_SELECT_SQL = (
-    lambda: """
+SESSION_TABLE_MV_SELECT_SQL = lambda: """
 SELECT
 
 `$session_id` as session_id,
@@ -193,58 +199,53 @@ FROM {database}.{events_source_table}
 WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN ({allowed_team_ids})
 GROUP BY `$session_id`, team_id
 """.format(
-        database=settings.CLICKHOUSE_DATABASE,
-        events_source_table=EVENTS_INSERT_DATA_TABLE(),
-        current_url_property=source_column("$current_url"),
-        referring_domain_property=source_column("$referring_domain"),
-        utm_source_property=source_column("utm_source"),
-        utm_campaign_property=source_column("utm_campaign"),
-        utm_medium_property=source_column("utm_medium"),
-        utm_term_property=source_column("utm_term"),
-        utm_content_property=source_column("utm_content"),
-        gclid_property=source_column("gclid"),
-        gad_source_property=source_column("gad_source"),
-        gclsrc_property=source_column("gclsrc"),
-        dclid_property=source_column("dclid"),
-        gbraid_property=source_column("gbraid"),
-        wbraid_property=source_column("wbraid"),
-        fbclid_property=source_column("fbclid"),
-        msclkid_property=source_column("msclkid"),
-        twclid_property=source_column("twclid"),
-        li_fat_id_property=source_column("li_fat_id"),
-        mc_cid_property=source_column("mc_cid"),
-        igshid_property=source_column("igshid"),
-        ttclid_property=source_column("ttclid"),
-        epik_property=source_column("epik"),
-        qclid_property=source_column("qclid"),
-        sccid_property=source_column("sccid"),
-        allowed_team_ids=ALLOWED_TEAM_IDS_SQL,
-    )
+    database=settings.CLICKHOUSE_DATABASE,
+    events_source_table=EVENTS_INSERT_DATA_TABLE(),
+    current_url_property=source_column("$current_url"),
+    referring_domain_property=source_column("$referring_domain"),
+    utm_source_property=source_column("utm_source"),
+    utm_campaign_property=source_column("utm_campaign"),
+    utm_medium_property=source_column("utm_medium"),
+    utm_term_property=source_column("utm_term"),
+    utm_content_property=source_column("utm_content"),
+    gclid_property=source_column("gclid"),
+    gad_source_property=source_column("gad_source"),
+    gclsrc_property=source_column("gclsrc"),
+    dclid_property=source_column("dclid"),
+    gbraid_property=source_column("gbraid"),
+    wbraid_property=source_column("wbraid"),
+    fbclid_property=source_column("fbclid"),
+    msclkid_property=source_column("msclkid"),
+    twclid_property=source_column("twclid"),
+    li_fat_id_property=source_column("li_fat_id"),
+    mc_cid_property=source_column("mc_cid"),
+    igshid_property=source_column("igshid"),
+    ttclid_property=source_column("ttclid"),
+    epik_property=source_column("epik"),
+    qclid_property=source_column("qclid"),
+    sccid_property=source_column("sccid"),
+    allowed_team_ids=ALLOWED_TEAM_IDS_SQL,
 )
 
-SESSIONS_TABLE_MV_SQL = (
-    lambda: """
+SESSIONS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
-        database=settings.CLICKHOUSE_DATABASE,
-        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
-    )
+    table_name=f"{TABLE_BASE_NAME}_mv",
+    target_table=f"writable_{TABLE_BASE_NAME}",
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
+    database=settings.CLICKHOUSE_DATABASE,
+    select_sql=SESSION_TABLE_MV_SELECT_SQL(),
 )
 
-SESSION_TABLE_UPDATE_SQL = (
-    lambda: """
+SESSION_TABLE_UPDATE_SQL = lambda: """
 ALTER TABLE {table_name} MODIFY QUERY
 {select_sql}
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
-    )
+    table_name=f"{TABLE_BASE_NAME}_mv",
+    select_sql=SESSION_TABLE_MV_SELECT_SQL(),
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED

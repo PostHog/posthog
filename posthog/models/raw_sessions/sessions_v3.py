@@ -3,7 +3,7 @@ from typing import Optional
 from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE, EVENTS_QUERY_TABLE
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE, EVENTS_QUERY_TABLE, json_subcolumn_expr
 
 """Raw sessions table v3
 
@@ -326,8 +326,13 @@ LEGACY_PROPERTIES = f"""
         tupleElement(p, '$host') as _host"""
 
 
+def _json_subcolumn_expr(column: str, key: str) -> str:
+    return json_subcolumn_expr(column, key)
+
+
 def _json_string_property_expr(key: str) -> str:
-    return f"if(isNull(properties.`{key}`), NULL, nullIf(toString(properties.`{key}`), ''))"
+    field = _json_subcolumn_expr("properties", key)
+    return f"if(isNull({field}), NULL, nullIf(toString({field}), ''))"
 
 
 def _json_int_property_expr(key: str) -> str:
@@ -335,7 +340,8 @@ def _json_int_property_expr(key: str) -> str:
 
 
 def _json_person_string_property_expr(key: str) -> str:
-    return f"if(isNull(person_properties.`{key}`), NULL, nullIf(toString(person_properties.`{key}`), ''))"
+    field = _json_subcolumn_expr("person_properties", key)
+    return f"if(isNull({field}), NULL, nullIf(toString({field}), ''))"
 
 
 def _json_properties_sql() -> str:
@@ -351,6 +357,8 @@ def _json_properties_sql() -> str:
 
     return f"""
         {_json_person_string_property_expr("email")} as _person_email,
+        -- Feature flag names are dynamic keys under `$feature/`; this still needs a full-object
+        -- enumeration until the cluster supports reading JSON path values without serializing.
         mapSort(
             mapFilter(
                 (key, _) -> key like '$feature/%',

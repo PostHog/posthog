@@ -2,8 +2,13 @@ import datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
+from django.test import override_settings
+
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
+from posthog.models.raw_sessions.sessions_v2 import (
+    RAW_SESSION_TABLE_BACKFILL_SELECT_SQL,
+    RAW_SESSION_TABLE_MV_SELECT_SQL,
+)
 from posthog.models.utils import uuid7
 
 distinct_id_counter = 0
@@ -20,6 +25,17 @@ def create_session_id():
     global session_id_counter
     session_id_counter += 1
     return str(uuid7(random=session_id_counter))
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+def test_raw_sessions_v2_reads_new_events_schema_properties_from_subcolumns():
+    for sql in (RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(), RAW_SESSION_TABLE_MV_SELECT_SQL()):
+        assert "toJSONString(properties)" not in sql
+        assert "JSONExtractString(properties" not in sql
+        assert "JSONExtractInt(properties" not in sql
+        assert "JSONExtractRaw(properties" not in sql
+        assert "properties.`$current_url`" in sql
+        assert "properties.utm_source" in sql
 
 
 class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
