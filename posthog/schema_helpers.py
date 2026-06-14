@@ -169,6 +169,8 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
             | ChartDisplayType.ACTIONS_STACKED_BAR
             | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
+            # slope graph reuses the standard trends query — only the rendering differs
+            | ChartDisplayType.SLOPE_GRAPH
         ):
             # standard time series
             return ChartDisplayType.ACTIONS_LINE_GRAPH

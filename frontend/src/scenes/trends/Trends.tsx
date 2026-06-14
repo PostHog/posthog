@@ -23,6 +23,12 @@ const TrendsCalendarHeatMap = lazy(() =>
     import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
 )
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
+// Flag-gated — keep the quill/d3 slope chart out of the eager Trends/Dashboard bundle
+const TrendsSlopeChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart').then((m) => ({
+        default: m.TrendsSlopeChart,
+    }))
+)
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
 const TrendsLineChart = lazy(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart').then((m) => ({
@@ -166,6 +172,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.BoxPlot) {
             return <BoxPlotChart {...commonProps} inCardView={embedded} />
+        }
+        if (display === ChartDisplayType.SlopeGraph) {
+            return <TrendsSlopeChart context={context} inSharedMode={inSharedMode} />
         }
     }
 
