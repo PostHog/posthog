@@ -1028,7 +1028,7 @@ environment:
         hidden: true
     agent:tunnel:
         bin_script: agent-tunnel
-        description: 'TODO: add description for agent-tunnel'
+        description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
         description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate when POSTHOG_DEV_SANDBOX=1)'
@@ -1043,5 +1043,5 @@ environment:
         hidden: true
     start:ai:gateway:
         bin_script: start-ai-gateway
-        description: 'TODO: add description for start-ai-gateway'
+        description: 'Bring up the local Go ai-gateway via docker compose and top up the anonymous-team ledger for AGENT_USE_AI_GATEWAY dev'
         hidden: true
