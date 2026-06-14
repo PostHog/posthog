@@ -309,6 +309,11 @@ pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_remote_config_rate_limit_bypassed_total";
 pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
 
+// Remote config auth method
+// Labels: method (project_secret_api_key, secret_api_key, personal_api_key). The secret-vs-personal
+// split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
+pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
+
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";

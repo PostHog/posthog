@@ -20,6 +20,7 @@ use crate::{
     api::{auth, errors::FlagError, flag_definitions},
     database::get_connection_with_metrics,
     flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
+    metrics::consts::REMOTE_CONFIG_AUTH_COUNTER,
     router::State as AppState,
     team::team_models::Team,
 };
@@ -29,6 +30,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
+use common_metrics::inc;
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -66,9 +68,11 @@ pub async fn remote_config(
     method: Method,
     headers: HeaderMap,
 ) -> Result<Response, FlagError> {
-    // Match the sibling endpoint: Django serves HEAD as 200 and answers OPTIONS with an
-    // Allow header (DRF maps HEAD to the GET action), so probes and the phase 2 diff don't
-    // diverge on method.
+    // Non-GET methods are handled before auth, matching the sibling endpoint: HEAD -> 200 and
+    // unsupported methods -> 405 with an Allow header. (OPTIONS is answered upstream by the
+    // permissive CORS layer with 200, so it never reaches here.) HEAD diverges from Django, which
+    // maps HEAD to the GET action and runs the full pipeline -- an unauthenticated HEAD is 401
+    // there, 200 here -- but no SDK sends HEAD, so phase 2 only sees the diff on HEAD probes.
     if method != Method::GET {
         return Ok(flag_definitions::handle_non_get_method(&method));
     }
@@ -95,7 +99,13 @@ pub async fn remote_config(
                     // for cache entries written before the field existed.
                     let project_id = match team.project_id {
                         Some(pid) => pid,
-                        None => project_id_for_team(&state, team.id).await?,
+                        // A missing row means the team was deleted from Postgres but is still
+                        // cached: treat it like an invalid token (401, as Django resolves the
+                        // token against PG), not a 5xx.
+                        None => match project_id_for_team(&state, team.id).await? {
+                            Some(pid) => pid,
+                            None => return Ok(StatusCode::UNAUTHORIZED.into_response()),
+                        },
                     };
                     // Hold onto the team so the personal-key path below doesn't re-query it.
                     (team.id, project_id, Some(team))
@@ -147,40 +157,22 @@ pub async fn remote_config(
 
     let stored = filters.get("payloads").and_then(|p| p.get("true"));
 
-    // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`:
-    // the stored value (unencrypted), the decrypted plaintext (personal key), or the
-    // redacted marker (secret key on an encrypted flag).
+    // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`: the stored
+    // value (unencrypted), the decrypted plaintext (personal key), or the redacted marker (secret
+    // key on an encrypted flag).
     //
-    // Deliberate divergence on malformed rows: when an encrypted flag is missing the
-    // "true" entry, Django raises KeyError and 500s; with a non-string stored value it
-    // feeds `str(value)` to Fernet and 500s on InvalidToken. Both are shapes the
-    // serializer shouldn't allow. We return gracefully (no payload -> empty body) rather
-    // than reproduce those 500s, so phase 2 will show these rare rows as a known diff.
+    // Deliberate divergence on malformed rows: an encrypted flag missing the "true" entry makes
+    // Django 500 (both credential paths index `decrypted_payloads["true"]` -> KeyError); a
+    // non-string stored value makes the decrypt path feed `str(value)` to Fernet and 500 on
+    // InvalidToken. Both are shapes the serializer shouldn't allow. We return gracefully instead
+    // -- a missing payload is an empty body on either credential, and the redact path only marks a
+    // payload that actually exists -- so phase 2 reads these rare rows as a known diff, not a bug.
     let payload: Option<Value> = if has_encrypted_payloads != Some(true) {
         stored.cloned()
     } else if should_decrypt {
-        match stored {
-            Some(Value::String(token)) => {
-                let Some(decryptor) = state.flag_payload_decryptor.as_ref() else {
-                    return Err(FlagError::Internal(
-                        "no FLAGS_SECRET_KEYS configured; cannot decrypt remote config payload"
-                            .to_string(),
-                    ));
-                };
-                match decryptor.decrypt(token) {
-                    Ok(plaintext) => Some(Value::String(plaintext)),
-                    Err(e) => {
-                        warn!("remote_config payload decrypt failed: {e}");
-                        return Err(FlagError::Internal(
-                            "failed to decrypt remote config payload".to_string(),
-                        ));
-                    }
-                }
-            }
-            _ => None,
-        }
+        resolve_decrypted_payload(&state, stored)?
     } else {
-        Some(Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
+        stored.map(|_| Value::String(REDACTED_PAYLOAD_VALUE.to_string()))
     };
 
     // Django applies `or None` to the final value and renders None as an empty body, not
@@ -190,6 +182,30 @@ pub async fn remote_config(
         Some(v) => Ok(Json(v).into_response()),
         None => Ok(empty_json_ok()),
     }
+}
+
+/// Decrypts the stored ciphertext on the personal-key path. Returns `None` when there is no
+/// stored value or it is not a string (Django 500s on those malformed rows; we render an empty
+/// body instead). Errors (500) on a decrypt failure or a missing decryptor.
+fn resolve_decrypted_payload(
+    state: &AppState,
+    stored: Option<&Value>,
+) -> Result<Option<Value>, FlagError> {
+    let Some(Value::String(token)) = stored else {
+        return Ok(None);
+    };
+    let Some(decryptor) = state.flag_payload_decryptor.as_ref() else {
+        return Err(FlagError::Internal(
+            "no FLAGS_SECRET_KEYS configured; cannot decrypt remote config payload".to_string(),
+        ));
+    };
+    decryptor
+        .decrypt(token)
+        .map(|plaintext| Some(Value::String(plaintext)))
+        .map_err(|e| {
+            warn!("remote_config payload decrypt failed: {e}");
+            FlagError::Internal("failed to decrypt remote config payload".to_string())
+        })
 }
 
 /// 200 with an empty body and no Content-Type, matching DRF's `Response(None)`: the renderer
@@ -226,7 +242,7 @@ async fn authenticate(
     headers: &HeaderMap,
 ) -> Result<AuthOutcome, FlagError> {
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        let (team_id, _api_token, _is_project_secret) =
+        let (team_id, _api_token, is_project_secret) =
             auth::validate_secret_api_token(state, &token).await?;
         // Django: authenticated_team.id == view.team.id.
         if team_id != scope_team_id {
@@ -241,6 +257,20 @@ async fn authenticate(
                 Err(e) => Err(e),
             };
         }
+        // Mirror the sibling's per-method auth counter; the secret-vs-personal split matters here
+        // because it decides redact-vs-decrypt, so the mix is worth watching during phase 2/3.
+        inc(
+            REMOTE_CONFIG_AUTH_COUNTER,
+            &[(
+                "method".to_string(),
+                if is_project_secret {
+                    "project_secret_api_key".to_string()
+                } else {
+                    "secret_api_key".to_string()
+                },
+            )],
+            1,
+        );
         // Secret-key requests are not throttled by Django's RemoteConfigThrottle.
         return Ok(AuthOutcome::Authorized {
             should_decrypt: false,
@@ -268,6 +298,11 @@ async fn authenticate(
         };
         let pak_id =
             auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
+        inc(
+            REMOTE_CONFIG_AUTH_COUNTER,
+            &[("method".to_string(), "personal_api_key".to_string())],
+            1,
+        );
         // Per-credential throttle bucket (Django keys on the hashed bearer token; the stable
         // pak id is an equivalent per-credential identifier for our in-memory limiter).
         let rate_limit_key = Some(pak_id.clone());
@@ -292,9 +327,11 @@ async fn authenticate(
     Err(FlagError::NoAuthenticationProvided)
 }
 
-/// Resolves a team's `project_id` (falling back to its own id if unset). Used on the
-/// `?token=` path, where the flag is scoped to the token team's project, not its team id.
-async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<i64, FlagError> {
+/// Resolves a team's `project_id`. Used on the `?token=` path only for cache entries that predate
+/// the cached `project_id`, where the flag is scoped to the token team's project, not its team id.
+/// Returns `None` when no such team exists (stale cache: team deleted from Postgres). `project_id`
+/// is non-null (validated constraint), matching the flag-lookup JOINs that compare it directly.
+async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<Option<i64>, FlagError> {
     let client: common_database::PostgresReader = state.database_pools.non_persons_reader.clone();
     let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "remote_config")
         .await
@@ -302,16 +339,16 @@ async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<i64, Flag
             warn!("remote_config: failed to get db connection: {e}");
             FlagError::DatabaseUnavailable
         })?;
-    let row: (i64,) =
-        sqlx::query_as("SELECT COALESCE(project_id, id)::bigint FROM posthog_team WHERE id = $1")
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT project_id::bigint FROM posthog_team WHERE id = $1")
             .bind(team_id)
-            .fetch_one(&mut *conn)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| {
                 warn!("remote_config project lookup failed: {e}");
                 FlagError::DatabaseUnavailable
             })?;
-    Ok(row.0)
+    Ok(row.map(|r| r.0))
 }
 
 /// Loads `(filters, is_remote_configuration, has_encrypted_payloads)` for a flag matched
@@ -368,4 +405,28 @@ async fn load_remote_config_flag(
         warn!("remote_config flag query failed: {e}");
         FlagError::DatabaseUnavailable
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_falsy;
+    use serde_json::json;
+
+    #[test]
+    fn is_falsy_matches_python_truthiness() {
+        // Django's `payloads["true"] or None` nulls out every falsy JSON value.
+        assert!(is_falsy(&json!(null)));
+        assert!(is_falsy(&json!(false)));
+        assert!(is_falsy(&json!(0)));
+        assert!(is_falsy(&json!(0.0)));
+        assert!(is_falsy(&json!("")));
+        assert!(is_falsy(&json!([])));
+        assert!(is_falsy(&json!({})));
+        // Truthy values pass through.
+        assert!(!is_falsy(&json!(true)));
+        assert!(!is_falsy(&json!(1)));
+        assert!(!is_falsy(&json!("x")));
+        assert!(!is_falsy(&json!([1])));
+        assert!(!is_falsy(&json!({"k": "v"})));
+    }
 }

@@ -27,11 +27,32 @@ async fn insert_rc_flag(
     is_remote_configuration: bool,
     has_encrypted_payloads: bool,
 ) -> i32 {
-    let mut conn = context.get_non_persons_connection().await.unwrap();
     let filters = serde_json::json!({
         "groups": [{"properties": [], "rollout_percentage": 100}],
         "payloads": {"true": payload_true},
     });
+    insert_flag_with_filters(
+        context,
+        team_id,
+        key,
+        filters,
+        is_remote_configuration,
+        has_encrypted_payloads,
+    )
+    .await
+}
+
+/// Like `insert_rc_flag` but with full control over the `filters` JSON — used for the rare
+/// shape of an encrypted flag whose `payloads` map has no `"true"` entry.
+async fn insert_flag_with_filters(
+    context: &TestContext,
+    team_id: i32,
+    key: &str,
+    filters: Value,
+    is_remote_configuration: bool,
+    has_encrypted_payloads: bool,
+) -> i32 {
+    let mut conn = context.get_non_persons_connection().await.unwrap();
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_featureflag
         (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
@@ -49,6 +70,27 @@ async fn insert_rc_flag(
     .await
     .unwrap();
     row.0
+}
+
+/// Poll until `last_used_at` is set for the given PAK, or panic after ~4s. (Replicated from
+/// test_flag_definitions.rs — integration test binaries can't share helpers.)
+async fn poll_for_pak_last_used_at(context: &TestContext, pak_id: &str, message: &str) {
+    use tokio::time::{sleep, Duration};
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    for _ in 0..80 {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at IS NOT NULL",
+        )
+        .bind(pak_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        if count.0 > 0 {
+            return;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{message}");
 }
 
 fn url(addr: &std::net::SocketAddr, project_id: i32, key: &str) -> String {
@@ -118,7 +160,15 @@ async fn test_remote_config_empty_token_falls_through_to_numeric_segment() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    insert_rc_flag(&context, team.id, "rc-emptytok", "plain-payload", true, false).await;
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-emptytok",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
 
     let server = common::ServerHandle::for_config(config.clone()).await;
     // Empty ?token= is treated as absent (Django's get_token), so the numeric segment wins.
@@ -662,8 +712,8 @@ async fn test_remote_config_head_returns_200() {
     let config = Config::default_test_config();
     let _context = TestContext::new(Some(&config)).await;
     let server = common::ServerHandle::for_config(config.clone()).await;
-    // Django serves HEAD on this action as 200 (method handled before auth), so no
-    // credential is needed.
+    // HEAD is handled before auth here (no credential needed). This diverges from Django, which
+    // maps HEAD to the GET action and would 401 an unauthenticated HEAD -- but no SDK sends HEAD.
     let response = reqwest::Client::new()
         .head(format!(
             "http://{}/api/projects/1/feature_flags/x/remote_config",
@@ -674,4 +724,213 @@ async fn test_remote_config_head_returns_200() {
         .unwrap();
 
     assert_eq!(response.status(), 200);
+}
+
+#[tokio::test]
+async fn test_remote_config_options_preflight_returns_200() {
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    // The service's permissive CORS layer answers an OPTIONS preflight with 200 before the
+    // handler runs (so this never reaches `handle_non_get_method`). 200 also matches Django's
+    // OPTIONS, so phase 2 won't flag it.
+    let response = reqwest::Client::new()
+        .request(
+            reqwest::Method::OPTIONS,
+            format!(
+                "http://{}/api/projects/1/feature_flags/x/remote_config",
+                server.addr
+            ),
+        )
+        .header("Origin", "https://example.com")
+        .header("Access-Control-Request-Method", "GET")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    let allow_methods = response
+        .headers()
+        .get("access-control-allow-methods")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        allow_methods.contains("GET"),
+        "access-control-allow-methods was: {allow_methods:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_encrypted_missing_true_returns_empty_body() {
+    // An encrypted flag whose payloads map has no "true" entry: Django 500s (KeyError) but we
+    // return an empty body. The secret-key path must NOT emit the redacted marker when there is
+    // nothing to redact.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let filters = serde_json::json!({
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {},
+    });
+    insert_flag_with_filters(&context, team.id, "rc-no-true", filters, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-no-true"))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "");
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_token_personal_key_returns_plaintext() {
+    // The SDK hot path for encrypted flags: `@current` + a `?token=` project key + a personal
+    // API key. The token resolves the project and the resolved team is threaded into auth, so
+    // this exercises the personal-key branch of the `?token=` path (untested by the others).
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_current_pak");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC Current PAK",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-current-pak", TOK_PRIMARY, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-current-pak/remote_config?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = response.json::<Value>().await.unwrap();
+    assert_eq!(status, 200, "body: {body}");
+    assert_eq!(body, Value::String(PLAINTEXT.to_string()));
+}
+
+#[tokio::test]
+async fn test_remote_config_cross_org_personal_key_denied() {
+    // A personal key from another org must not read (or decrypt) a flag in a project it can't
+    // access, even via `?token=`. The org-membership check rejects it before any payload is
+    // returned, pinning that auth validates against the token-resolved team, not the key's own.
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+
+    // Team A holds the encrypted flag; the caller's key belongs to org B.
+    let team_a = context.insert_new_team(None).await.unwrap();
+    let team_b = context
+        .insert_new_team_with_org(None, "0b0b0b0b-0000-0000-0000-0000000b0002")
+        .await
+        .unwrap();
+    let org_b = context.get_organization_id_for_team(&team_b).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_xorg");
+    let user_id = context
+        .create_user(&user_email, &org_b, team_b.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_b, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC XOrg", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team_a.id, "rc-xorg", TOK_PRIMARY, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-xorg/remote_config?token={}",
+            server.addr, team_a.api_token
+        ))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = response.text().await.unwrap();
+    // Not a member of team A's org -> PersonalApiKeyInvalid -> 401, and the body must never leak
+    // the decrypted plaintext (`{"hello":"world",...}`).
+    assert_eq!(status, 401, "body: {body}");
+    assert!(!body.contains("world"), "leaked plaintext: {body}");
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_updates_last_used_at() {
+    // A key used only for remote config must still get last_used_at set, or it looks dormant and
+    // could be rotated as unused (Django tracks this; flag_definitions ports it too).
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_lastused");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC LastUsed",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-lastused", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-lastused"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    poll_for_pak_last_used_at(
+        &context,
+        &pak_id,
+        "Timed out waiting for last_used_at to be set for the remote_config PAK",
+    )
+    .await;
 }
