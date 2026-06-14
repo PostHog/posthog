@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconExpand45, IconMinus, IconPlus, IconRefresh } from '@posthog/icons'
+import { IconMinus, IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 const MIN_SCALE = 1
@@ -160,14 +160,6 @@ export function ZoomableImage({ src, alt, resetKey, className }: ZoomableImagePr
                     onClick={reset}
                     disabledReason={!isZoomed ? 'Nothing to reset' : undefined}
                     tooltip="Reset zoom"
-                    noPadding
-                />
-                <LemonButton
-                    icon={<IconExpand45 />}
-                    size="small"
-                    to={src}
-                    targetBlank
-                    tooltip="Open full size in new tab"
                     noPadding
                 />
             </div>
