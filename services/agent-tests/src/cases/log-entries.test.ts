@@ -11,7 +11,15 @@ import request from 'supertest'
 
 import type { SessionEvent } from '@posthog/agent-shared'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxErrorTurn, fauxText } from '../harness'
+import {
+    buildCluster,
+    closeSharedPool,
+    Cluster,
+    fakeAuthProvider,
+    fauxCallTool,
+    fauxErrorTurn,
+    fauxText,
+} from '../harness'
 
 describe('log sink: real e2e', () => {
     let c: Cluster
@@ -48,12 +56,21 @@ describe('log sink: real e2e', () => {
     })
 
     it('logs tool_call + tool_result events when the model invokes a tool', async () => {
+        // @posthog/query reads the *calling* posthog user's team, so the run
+        // must authenticate as a posthog principal — otherwise the tool errors
+        // and tool_result.ok would be false.
+        const PAT = 'phx_log_entries'
+        await c.teardown()
+        c = await buildCluster({ authProvider: fakeAuthProvider({ posthog: PAT }) })
         c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
         await c.deployAgent({
             slug: 'logs-tool',
-            spec: { tools: [{ kind: 'native', id: '@posthog/query' }] },
+            spec: { tools: [{ kind: 'native', id: '@posthog/query' }], auth: { modes: [{ type: 'posthog' }] } },
         })
-        const run = await request(c.ingress).post('/agents/logs-tool/run').send({ message: 'go' })
+        const run = await request(c.ingress)
+            .post('/agents/logs-tool/run')
+            .set('authorization', `Bearer ${PAT}`)
+            .send({ message: 'go' })
         await c.drain()
 
         const entries = c.logs.forSession(run.body.session_id)

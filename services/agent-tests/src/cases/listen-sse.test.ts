@@ -9,7 +9,7 @@ import request from 'supertest'
 
 import type { SessionEvent } from '@posthog/agent-shared'
 
-import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxCallTool, fauxText } from '../harness'
 
 describe('listen SSE: real e2e', () => {
     let c: Cluster
@@ -76,13 +76,22 @@ describe('listen SSE: real e2e', () => {
     })
 
     it('publishes tool_call + tool_result events when the model invokes a tool', async () => {
+        // @posthog/query reads the *calling* posthog user's team, so the run
+        // must authenticate as a posthog principal — otherwise the tool errors
+        // and tool_result.ok would be false.
+        const PAT = 'phx_listen_sse'
+        await c.teardown()
+        c = await buildCluster({ authProvider: fakeAuthProvider({ posthog: PAT }) })
         c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
         await c.deployAgent({
             slug: 'ssee-2',
-            spec: { tools: [{ kind: 'native', id: '@posthog/query' }] },
+            spec: { tools: [{ kind: 'native', id: '@posthog/query' }], auth: { modes: [{ type: 'posthog' }] } },
         })
         const events: SessionEvent[] = []
-        const run = await request(c.ingress).post('/agents/ssee-2/run').send({ message: 'go' })
+        const run = await request(c.ingress)
+            .post('/agents/ssee-2/run')
+            .set('authorization', `Bearer ${PAT}`)
+            .send({ message: 'go' })
         const sid = run.body.session_id
 
         const unsubscribe = c.bus.subscribe(sid, (e) => events.push(e))
