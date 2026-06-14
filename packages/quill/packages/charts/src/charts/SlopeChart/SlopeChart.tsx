@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { drawAxes } from '../../core/canvas-renderer'
+import { drawAxes, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -186,50 +186,25 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
             if (!d3Scales || drawLabels.length < 2) {
                 return
             }
+            const drawCtx: DrawContext = { ctx, dimensions, xScale: d3Scales.x, yScale: d3Scales.y, labels: drawLabels }
 
             if (config?.showAxisLines) {
-                const baseDrawCtx: DrawContext = {
-                    ctx,
-                    dimensions,
-                    xScale: d3Scales.x,
-                    yScale: d3Scales.y,
-                    labels: drawLabels,
-                }
-                drawAxes(baseDrawCtx, { axisColor: drawTheme.gridColor })
+                drawAxes(drawCtx, { axisColor: drawTheme.gridColor })
             }
 
-            const x0 = d3Scales.x(drawLabels[0])
-            const x1 = d3Scales.x(drawLabels[drawLabels.length - 1])
-            if (x0 == null || x1 == null) {
-                return
-            }
-
-            ctx.lineWidth = 2
-            ctx.lineCap = 'round'
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
                 }
-                const y0 = d3Scales.y(slopeStart(s))
-                const y1 = d3Scales.y(slopeEnd(s))
-                if (!isFinite(y0) || !isFinite(y1)) {
-                    continue
+                // Collapse to the two endpoints so the shared line/point renderers map them to the
+                // start and end columns — a slope is a two-point line with a dot at each end.
+                const endpoints: ResolvedSeries = {
+                    ...s,
+                    data: [slopeStart(s), slopeEnd(s)],
+                    points: { radius: endpointRadius },
                 }
-                ctx.strokeStyle = s.color
-                ctx.beginPath()
-                ctx.moveTo(x0, y0)
-                ctx.lineTo(x1, y1)
-                ctx.stroke()
-
-                ctx.fillStyle = s.color
-                for (const [x, y] of [
-                    [x0, y0],
-                    [x1, y1],
-                ]) {
-                    ctx.beginPath()
-                    ctx.arc(x, y, endpointRadius, 0, Math.PI * 2)
-                    ctx.fill()
-                }
+                drawLine(drawCtx, endpoints)
+                drawPoints(drawCtx, endpoints)
             }
         },
         [config?.showAxisLines, endpointRadius]
@@ -262,15 +237,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 if (!isFinite(y)) {
                     continue
                 }
-                // Halo + filled dot, matching the line color.
-                ctx.fillStyle = background
-                ctx.beginPath()
-                ctx.arc(x, y, endpointRadius + 2, 0, Math.PI * 2)
-                ctx.fill()
-                ctx.fillStyle = s.color
-                ctx.beginPath()
-                ctx.arc(x, y, endpointRadius, 0, Math.PI * 2)
-                ctx.fill()
+                drawHighlightPoint(ctx, x, y, s.color, background, endpointRadius)
                 drewAny = true
             }
             return drewAny
