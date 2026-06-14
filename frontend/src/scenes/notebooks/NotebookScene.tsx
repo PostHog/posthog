@@ -14,6 +14,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -46,9 +47,10 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, conflictWarningVisible, accessDeniedToNotebook } = useValues(
+    const { notebook, content, conflictWarningVisible, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
@@ -149,7 +151,8 @@ export function NotebookScene(): JSX.Element {
                     </LemonButton>
                     <NotebookTableOfContentsButton type="secondary" size="small" />
                     <NotebookKernelInfoButton type="secondary" size="small" />
-                    <NotebookExpandButton type="secondary" size="small" inPanel={false} />
+                    {/* Markdown notebooks have no width toggle — they always fill the content width. */}
+                    {!isMarkdownNotebook && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -163,9 +166,10 @@ export function NotebookScene(): JSX.Element {
                                 feature flags into your active notebook.
                             </>
                         }
+                        aria-label="Open in context panel"
                         sideIcon={<IconOpenSidebar />}
                     >
-                        Open in context panel
+                        <span className="hidden lg:inline">Open in context panel</span>
                     </LemonButton>
                 </div>
             </div>

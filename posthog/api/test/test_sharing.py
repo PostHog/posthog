@@ -598,6 +598,77 @@ class TestSharing(APIBaseTest):
         assert original_config.expires_at is not None
         assert original_config.expires_at > timezone.now()  # Should be in the future
 
+    @parameterized.expand(
+        [
+            # action, expected active configs after the call: reads leave duplicates alone,
+            # authorized writes (patch/refresh) collapse them to one.
+            ("get", 2),
+            ("patch", 1),
+            ("refresh", 1),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_sharing_endpoints_succeed_with_duplicate_active_configs(
+        self, action: str, expected_active_configs: int, _patched_exporter_task: Mock
+    ) -> None:
+        share_settings = {"whitelabel": True, "hideExtraDetails": True}
+        dashboard = Dashboard.objects.create(team=self.team, name="duplicate sharing dashboard", created_by=self.user)
+        for token in ("duplicate_token_one", "duplicate_token_two"):
+            SharingConfiguration.objects.create(
+                team=self.team,
+                dashboard=dashboard,
+                enabled=True,
+                access_token=token,
+                settings=share_settings,
+            )
+
+        base_url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
+        if action == "get":
+            response = self.client.get(base_url)
+        elif action == "patch":
+            response = self.client.patch(base_url, {"enabled": True})
+        else:
+            response = self.client.post(f"{base_url}/refresh/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (
+            SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count()
+            == expected_active_configs
+        )
+        body = response.json()
+        assert body["enabled"] is True
+        assert body["settings"] == share_settings
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_legacy_dashboard_share_token_does_not_500_when_token_already_used(
+        self, _patched_exporter_task: Mock
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="legacy token dashboard", created_by=self.user)
+        SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=True,
+            access_token="active_token",
+        )
+        expired_config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=True,
+            access_token="legacy_token",
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        dashboard.share_token = expired_config.access_token
+        dashboard.is_shared = True
+        dashboard.save(update_fields=["share_token", "is_shared"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
+
+        assert response.status_code == status.HTTP_200_OK
+        dashboard.refresh_from_db()
+        assert dashboard.share_token == "active_token"
+        assert dashboard.is_shared is True
+        assert response.json()["access_token"] == "active_token"
+
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_sharing_configuration_settings_field_defaults(self, patched_exporter_task: Mock):
         """Test that settings field defaults to empty dict"""

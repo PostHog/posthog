@@ -293,7 +293,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
-        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=issue.team_id)
         return Response({"success": True})
 
     @validated_request(
@@ -305,7 +304,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue: ErrorTrackingIssue = self.get_object()
         fingerprints = request.validated_data["fingerprints"]
         new_issues = issue.split(fingerprints=fingerprints)
-        sync_issues_to_clickhouse(issue_ids=[issue.id] + [i.id for i in new_issues], team_id=issue.team_id)
         return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)

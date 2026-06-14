@@ -1383,14 +1383,28 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project.is_pending_deletion = True
         project.save(update_fields=["is_pending_deletion"])
 
-        # Queue background task to handle all deletion
-        # bulky postgres, batch exports, project/team records, ClickHouse, email
-        delete_project_data_and_notify_task.delay(
-            team_ids=team_ids,
-            project_id=project_id,
-            user_id=user.id,
-            project_name=project_name,
+        # Hand off all deletion work (bulky postgres, batch exports, project/team records,
+        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
+        # is enabled for this org; otherwise keep the legacy Celery task.
+        from posthog.temporal.delete_teams.dispatch import (
+            delete_via_temporal_enabled,
+            start_delete_project_data_workflow,
         )
+
+        if delete_via_temporal_enabled(str(organization_id)):
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project_id,
+                user_id=user.id,
+                project_name=project_name,
+            )
+        else:
+            delete_project_data_and_notify_task.delay(
+                team_ids=team_ids,
+                project_id=project_id,
+                user_id=user.id,
+                project_name=project_name,
+            )
 
         for team in teams:
             log_activity(

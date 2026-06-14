@@ -1,10 +1,15 @@
+from typing import TYPE_CHECKING
+
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
-from posthog.schema import RecordingsQuery
-
 from posthog.models.utils import UUIDModel
+
+# This model loads at django.setup() in every process; posthog.schema (the pydantic
+# models) is runtime-imported in the accessor that materializes the typed query.
+if TYPE_CHECKING:
+    from posthog.schema import RecordingsQuery
 
 
 class ScannerType(models.TextChoices):
@@ -114,19 +119,13 @@ class ReplayScanner(UUIDModel):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
-            track_enabled = "enabled" in update_fields
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
-            track_enabled = True
-        if self.pk and (relevant or track_enabled):
+        if self.pk and relevant:
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
-                    type(self)
-                    .objects.select_for_update()
-                    .filter(pk=self.pk)
-                    .only("scanner_version", "enabled", *relevant)
-                    .first()
+                    type(self).objects.select_for_update().filter(pk=self.pk).only("scanner_version", *relevant).first()
                 )
                 if old is not None:
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
@@ -134,9 +133,7 @@ class ReplayScanner(UUIDModel):
                     if changed:
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
-                    # Re-enabling resurfaces a possibly long-stale estimate in the quota sum, so it invalidates too.
-                    reenabled = track_enabled and self.enabled and not old.enabled
-                    if (changed & self._ESTIMATE_FIELDS) or reenabled:
+                    if changed & self._ESTIMATE_FIELDS:
                         self.estimated_at = None
                         extra_fields.append("estimated_at")
                     if update_fields is not None and extra_fields:
@@ -145,8 +142,10 @@ class ReplayScanner(UUIDModel):
             return
         super().save(*args, **kwargs)
 
-    def recordings_query(self) -> RecordingsQuery:
+    def recordings_query(self) -> "RecordingsQuery":
         """The persisted candidate filter; an empty `query` parses as a bare RecordingsQuery."""
+        from posthog.schema import RecordingsQuery  # noqa: PLC0415
+
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
 
     def __str__(self) -> str:
