@@ -18,9 +18,9 @@ description: >
 questions, so **clarify before you build** unless the user already named one:
 
 - **Change over time (line)** — the value at every interval across the range.
-  Shows the *path*: dips, spikes, when it moved. This is the default trend.
+  Shows the _path_: dips, spikes, when it moved. This is the default trend.
 - **Start vs end (slope)** — only the first and last point, one line per series
-  connecting them. Shows the *net change* and, across many series, which rose,
+  connecting them. Shows the _net change_ and, across many series, which rose,
   which fell, and any rank flips — without the noise of the path between.
 
 When the request could be either, ask a short either/or, e.g.:
@@ -64,7 +64,7 @@ are the points you want compared (the slope uses the first and last interval).
 ## Important limits
 
 - **Slope is a view, not a saved insight type.** It lives on Max's inline trends
-  result card (the `query-trends` visualizer). A *saved* insight has no slope
+  result card (the `query-trends` visualizer). A _saved_ insight has no slope
   display — `SlopeChart` is not a `ChartDisplayType`, so `posthog:insight-create`
   with a slope display is not available. If the user wants a saved/dashboard chart,
   save the line and offer the slope as the inline view, or note the limitation.

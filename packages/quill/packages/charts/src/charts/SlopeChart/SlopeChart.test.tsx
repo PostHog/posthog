@@ -63,17 +63,19 @@ describe('SlopeChart', () => {
         })
 
         it.each([
-            ['showStartLabels: false', { showStartLabels: true } as const, { showStartLabel: false }, 'start', 'a'],
-            ['showEndLabels: false', { showEndLabels: true } as const, { showEndLabel: false }, 'end', 'a'],
-        ])('honors per-series %s via meta', (_label, _config, metaOverride, side, key) => {
+            ['showStartLabels: false', { showStartLabels: true } as const, { showStartLabel: false }, 'start'],
+            ['showEndLabels: false', { showEndLabels: true } as const, { showEndLabel: false }, 'end'],
+        ])('honors per-series %s via meta', (_label, config, metaOverride, side) => {
             const series: Series<SlopeSeriesMeta>[] = [
                 { key: 'a', label: 'A', data: [10, 90], meta: metaOverride },
                 { key: 'b', label: 'B', data: [80, 20] },
             ]
-            const { chart } = renderHogChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
+            const { chart } = renderHogChart(
+                <SlopeChart series={series} labels={LABELS} theme={THEME} config={config} />
+            )
             const sideTexts = chart.slopeValueLabels().filter((l) => l.side === side)
             // The toggled series (`a`) is missing from that column, the other (`b`) remains.
-            const aValue = key === 'a' && side === 'start' ? '10' : '90'
+            const aValue = side === 'start' ? '10' : '90'
             expect(sideTexts.map((l) => l.text)).not.toContain(aValue)
             expect(sideTexts).toHaveLength(1)
         })

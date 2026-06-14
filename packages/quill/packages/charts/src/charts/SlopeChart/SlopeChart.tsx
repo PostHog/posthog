@@ -113,6 +113,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         deltaFormatter = defaultDeltaFormatter,
         endpointRadius = DEFAULT_ENDPOINT_RADIUS,
         valueDomain,
+        yScaleType = 'linear',
     } = config ?? {}
 
     // Per-series start/end value labels can be toggled via `meta`; fall back to the chart default.
@@ -166,7 +167,10 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
-            const d3Scales = createSlopeScales(coloredSeries, scaleLabels, dimensions, { valueDomain })
+            const d3Scales = createSlopeScales(coloredSeries, scaleLabels, dimensions, {
+                scaleType: yScaleType,
+                valueDomain,
+            })
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
             const slopePrivate: SlopeChartPrivate = { __slopeChart: d3Scales }
             return {
@@ -176,7 +180,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 _private: slopePrivate,
             }
         },
-        [valueDomain]
+        [valueDomain, yScaleType]
     )
 
     const drawStatic = useCallback(

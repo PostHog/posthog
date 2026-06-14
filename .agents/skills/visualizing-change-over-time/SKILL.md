@@ -24,16 +24,16 @@ Present the fitting option(s) and let the user choose — none of these is manda
 
 ## Pick by the shape of the change
 
-| The change is…                                                                 | Reach for          | Why                                                                                          |
-| ------------------------------------------------------------------------------ | ------------------ | -------------------------------------------------------------------------------------------- |
-| A continuous series over many time points (a trend)                            | `TimeSeriesLineChart` / `LineChart` (area fill for emphasis) | The standard trend; the slope between every pair of points is visible.       |
-| **Two points only** (before → after) across **several series/categories**       | **`SlopeChart`**   | One line per entity from a left "before" to a right "after" — direction and magnitude of each entity's change, and rank flips, read at a glance. |
-| Magnitude comparison at points in time (not the path between them)             | `BarChart` / `TimeSeriesBarChart` | Bars compare discrete values; group/stack for sub-series.                      |
-| A single headline number plus its change vs a prior period                     | `MetricCard`       | Big number + sparkline + change pill.                                                        |
+| The change is…                                                            | Reach for                                                    | Why                                                                                                                                              |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A continuous series over many time points (a trend)                       | `TimeSeriesLineChart` / `LineChart` (area fill for emphasis) | The standard trend; the slope between every pair of points is visible.                                                                           |
+| **Two points only** (before → after) across **several series/categories** | **`SlopeChart`**                                             | One line per entity from a left "before" to a right "after" — direction and magnitude of each entity's change, and rank flips, read at a glance. |
+| Magnitude comparison at points in time (not the path between them)        | `BarChart` / `TimeSeriesBarChart`                            | Bars compare discrete values; group/stack for sub-series.                                                                                        |
+| A single headline number plus its change vs a prior period                | `MetricCard`                                                 | Big number + sparkline + change pill.                                                                                                            |
 
 If the user is comparing exactly **two snapshots** (this week vs last, control vs
 treatment, Q1 vs Q2) and especially when there are **many categories** whose
-*relative* movement matters, offer the slope graph as the cleaner alternative to a
+_relative_ movement matters, offer the slope graph as the cleaner alternative to a
 grouped bar or a 2-point line chart.
 
 ## Using the SlopeChart

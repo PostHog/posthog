@@ -21,7 +21,7 @@ export function slopeLegendItems(
         items.push({
             key: s.key,
             label: s.label,
-            color: s.color ?? fallback,
+            color: s.color || fallback,
             secondaryLabel: deltaFormatter(slopeDelta(s)),
         })
     }

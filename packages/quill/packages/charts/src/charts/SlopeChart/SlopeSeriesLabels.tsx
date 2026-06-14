@@ -65,11 +65,11 @@ export function SlopeSeriesLabels({ show = true, offsetX = 8 }: SlopeSeriesLabel
         return out
     }, [series, scales, labels, show, offsetX])
 
+    const visibleKeys = useMemo(() => nonCollidingKeys(entries.map((e) => e.box)), [entries])
+
     if (entries.length === 0) {
         return null
     }
-
-    const visibleKeys = nonCollidingKeys(entries.map((e) => e.box))
 
     return (
         <>
