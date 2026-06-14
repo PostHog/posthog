@@ -898,6 +898,26 @@ describe('toolbar toolbarConfigLogic', () => {
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect(logic.values.accessToken).toBe('access-token')
         })
+
+        it('returns a failed Response when fetch resolves to a non-Response value', async () => {
+            // A site-level window.fetch wrapper on the host page can resolve to undefined.
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockResolvedValue(undefined)
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            // No throw on `.status`/`.ok`; caller gets a real, failed Response.
+            expect(response).toBeInstanceOf(Response)
+            expect(response.ok).toBe(false)
+            expect(response.status).toBe(503)
+        })
     })
 
     describe('authorization code extraction and hash cleanup', () => {

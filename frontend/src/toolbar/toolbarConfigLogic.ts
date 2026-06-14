@@ -875,6 +875,13 @@ export async function toolbarFetch(
         })
     })
 
+    // A site-level `window.fetch` wrapper on the host page can resolve to a nullish value
+    // instead of a Response. Coerce it to a failed Response so this function honours its
+    // `Promise<Response>` contract and callers never dereference `.status`/`.ok` on undefined.
+    if (!response) {
+        response = new Response(JSON.stringify({ results: [] }), { status: 503 })
+    }
+
     const durationMs = Math.round(performance.now() - startTime)
     const { pathname } = combineUrl(url)
 

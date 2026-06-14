@@ -67,7 +67,7 @@ export async function withTokenRefresh(
     const clientId = logic?.values.clientId
     const uiHost = logic?.values.uiHost
 
-    if (response.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
+    if (response?.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
         return response
     }
 

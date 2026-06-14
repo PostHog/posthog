@@ -76,7 +76,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                     )
                     breakpoint()
 
-                    if (!response.ok) {
+                    if (!response || !response.ok) {
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
