@@ -42,7 +42,9 @@ DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
 # we run the most-overdue first and the rest catch up next tick (a poor-man's queue).
-MAX_RUNS_PER_TICK = 50
+# Set generously for now while scouts roll out to more teams — the per-team tick cap and
+# round-robin allocation do the day-to-day fairness work; this is the global ceiling.
+MAX_RUNS_PER_TICK = 1000
 
 # Per-team slice of the tick budget. Bounds what one team can consume per tick (and thus
 # per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
