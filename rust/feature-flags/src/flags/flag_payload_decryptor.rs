@@ -58,6 +58,11 @@ impl FlagPayloadDecryptor {
     /// Resolve keys Django-style (`FLAGS_SECRET_KEYS = get_list(...) or [SECRET_KEY]`)
     /// and build the decryptor. Fails loudly at startup if no keys resolve or any key
     /// fails to build, rather than silently dropping keys and failing every decrypt.
+    ///
+    /// Note: empty comma-entries are dropped (`"k1,,k2"` -> `["k1", "k2"]`), unlike Django's
+    /// `get_list`, which keeps them. This is safe because Django encrypts only with the first key
+    /// (the first non-empty entry in both); an empty entry would only ever be an unused decrypt
+    /// fallback.
     pub fn from_config(
         flags_secret_keys: &str,
         secret_key: &str,

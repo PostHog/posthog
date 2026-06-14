@@ -68,10 +68,11 @@ pub async fn remote_config(
     headers: HeaderMap,
 ) -> Result<Response, FlagError> {
     // Non-GET methods are handled before auth, matching the sibling endpoint: HEAD -> 200 and
-    // unsupported methods -> 405 with an Allow header. (OPTIONS is answered upstream by the
-    // permissive CORS layer with 200, so it never reaches here.) HEAD diverges from Django, which
-    // maps HEAD to the GET action and runs the full pipeline -- an unauthenticated HEAD is 401
-    // there, 200 here -- but no SDK sends HEAD, so phase 2 only sees the diff on HEAD probes.
+    // unsupported methods -> 405 with an Allow header. A CORS *preflight* OPTIONS (one carrying
+    // Access-Control-Request-Method) is answered upstream by the permissive CORS layer with 200; a
+    // bare OPTIONS falls through to here and `handle_non_get_method` returns 204. HEAD diverges from
+    // Django, which maps HEAD to the GET action and runs the full pipeline -- an unauthenticated
+    // HEAD is 401 there, 200 here -- but no SDK sends either method.
     if method != Method::GET {
         return Ok(flag_definitions::handle_non_get_method(&method));
     }
@@ -150,15 +151,13 @@ pub async fn remote_config(
         None => i64::from(scope_team_id),
     };
 
-    // Flag lookup scoped to the project. 404 if missing or not a remote config flag.
-    let Some((filters, is_remote_configuration, has_encrypted_payloads)) =
+    // Flag lookup scoped to the project. 404 if missing or not a remote config flag (the query
+    // filters on `is_remote_configuration`).
+    let Some((filters, has_encrypted_payloads)) =
         load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
-    if is_remote_configuration != Some(true) {
-        return Ok(StatusCode::NOT_FOUND.into_response());
-    }
 
     let stored = filters.get("payloads").and_then(|p| p.get("true"));
 
@@ -185,7 +184,7 @@ pub async fn remote_config(
     // string nulls out too.
     match payload.filter(|v| !is_falsy(v)) {
         Some(v) => Ok(Json(v).into_response()),
-        None => Ok(empty_json_ok()),
+        None => Ok(empty_ok_no_content_type()),
     }
 }
 
@@ -213,9 +212,9 @@ fn resolve_decrypted_payload(
         })
 }
 
-/// 200 with an empty body and no Content-Type, matching DRF's `Response(None)`: the renderer
-/// emits no bytes and DRF then deletes the Content-Type header.
-fn empty_json_ok() -> Response {
+/// 200 with an empty body and no Content-Type (NOT a JSON `null`), matching DRF's `Response(None)`:
+/// the renderer emits no bytes and DRF then deletes the Content-Type header.
+fn empty_ok_no_content_type() -> Response {
     StatusCode::OK.into_response()
 }
 
@@ -350,14 +349,15 @@ async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<Option<i6
     Ok(row.map(|r| r.0))
 }
 
-/// Loads `(filters, is_remote_configuration, has_encrypted_payloads)` for a flag matched
-/// by numeric id (if `key` is all digits) or key, scoped to `team.project_id == project_id`.
-/// Uses its own query — not the flag-list path, which excludes encrypted RC flags.
+/// Loads `(filters, has_encrypted_payloads)` for a remote-config flag matched by numeric id (if
+/// `key` is all digits) or key, scoped to `team.project_id == project_id`. The query filters on
+/// `is_remote_configuration IS TRUE`, so a non-remote-config flag returns `None` and the caller
+/// 404s. Uses its own query — not the flag-list path, which excludes encrypted RC flags.
 async fn load_remote_config_flag(
     state: &AppState,
     project_id: i64,
     key: &str,
-) -> Result<Option<(Value, Option<bool>, Option<bool>)>, FlagError> {
+) -> Result<Option<(Value, Option<bool>)>, FlagError> {
     let client: common_database::PostgresReader = state.database_pools.non_persons_reader.clone();
     let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "remote_config")
         .await
@@ -379,20 +379,22 @@ async fn load_remote_config_flag(
     };
 
     let result = if let Some(id) = parsed_id {
-        sqlx::query_as::<_, (Value, Option<bool>, Option<bool>)>(
-            "SELECT f.filters, f.is_remote_configuration, f.has_encrypted_payloads \
+        sqlx::query_as::<_, (Value, Option<bool>)>(
+            "SELECT f.filters, f.has_encrypted_payloads \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
-             WHERE t.project_id = $1 AND f.deleted = false AND f.id = $2 LIMIT 1",
+             WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
+             AND f.id = $2 LIMIT 1",
         )
         .bind(project_id)
         .bind(id)
         .fetch_optional(&mut *conn)
         .await
     } else {
-        sqlx::query_as::<_, (Value, Option<bool>, Option<bool>)>(
-            "SELECT f.filters, f.is_remote_configuration, f.has_encrypted_payloads \
+        sqlx::query_as::<_, (Value, Option<bool>)>(
+            "SELECT f.filters, f.has_encrypted_payloads \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
-             WHERE t.project_id = $1 AND f.deleted = false AND f.key = $2 LIMIT 1",
+             WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
+             AND f.key = $2 LIMIT 1",
         )
         .bind(project_id)
         .bind(key)

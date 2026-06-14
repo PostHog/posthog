@@ -1017,3 +1017,253 @@ async fn test_remote_config_token_without_auth_returns_401() {
 
     assert_eq!(response.status(), 401);
 }
+
+#[tokio::test]
+async fn test_remote_config_personal_key_no_decryptor_returns_500() {
+    // With no FLAGS_SECRET_KEYS/SECRET_KEY the decryptor is None; an encrypted-flag decrypt
+    // request must 500 (FlagError::Internal), never leak ciphertext.
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = String::new();
+    config.secret_key = String::new();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_nodecryptor");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC NoDecryptor",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-nodecryptor", TOK_PRIMARY, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-nodecryptor"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = response.text().await.unwrap();
+    assert_eq!(status, 500, "body: {body}");
+    assert!(!body.contains("world"), "leaked plaintext: {body}");
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_decrypt_failure_returns_500() {
+    // A stored value that is not valid ciphertext under the configured keys must 500, not leak.
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_decryptfail");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC DecryptFail",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-decryptfail",
+        "not-a-fernet-token",
+        true,
+        true,
+    )
+    .await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-decryptfail"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 500);
+}
+
+#[tokio::test]
+async fn test_remote_config_project_secret_api_key_encrypted_returns_redacted() {
+    // A `phs_` project-secret API key (distinct from the team secret token) takes the redact path
+    // and the project_secret_api_key auth-counter branch — never decrypts.
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let team = context.insert_new_team(None).await.unwrap();
+    let psak = context
+        .create_project_secret_api_key(team.id, "RC PSAK", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-psak-enc", TOK_PRIMARY, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-psak-enc"))
+        .header("Authorization", format!("Bearer {psak}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String(REDACTED.to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_falsy_payloads_return_empty_body() {
+    // Django's `payloads["true"] or None` nulls out falsy values; each must render as an empty
+    // body (not the JSON literal) through the handler, mirroring is_falsy.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let cases = [
+        ("rc-falsy-false", serde_json::json!(false)),
+        ("rc-falsy-zero", serde_json::json!(0)),
+        ("rc-falsy-arr", serde_json::json!([])),
+        ("rc-falsy-obj", serde_json::json!({})),
+    ];
+    for (key, value) in &cases {
+        let filters = serde_json::json!({
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {"true": value},
+        });
+        insert_flag_with_filters(&context, team.id, key, filters, true, false).await;
+    }
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    for (key, _) in &cases {
+        let response = client
+            .get(url(&server.addr, team.id, key))
+            .header("Authorization", format!("Bearer {secret_token}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "key {key}");
+        assert_eq!(
+            response.text().await.unwrap(),
+            "",
+            "key {key} should return an empty body"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_remote_config_allowlisted_team_not_throttled() {
+    // An allowlisted team bypasses the per-credential throttle even past the per-minute rate.
+    let mut config = Config::default_test_config();
+    config.remote_config_default_rate_per_minute = 1; // would 429 the 2nd call otherwise
+    let context = TestContext::new(Some(&config)).await;
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_allow");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC Allow", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-allow", "plain", true, false).await;
+    // Allowlist this team so the limiter is skipped (parsed via RateLimitingAllowList::from_str).
+    config.rate_limiting_allow_list_teams = format!("{}", team.id).parse().unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let get = || {
+        client
+            .get(url(&server.addr, team.id, "rc-allow"))
+            .header("Authorization", format!("Bearer {api_key}"))
+            .send()
+    };
+    assert_eq!(get().await.unwrap().status(), 200);
+    assert_eq!(get().await.unwrap().status(), 200);
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_encrypted_missing_true_returns_empty_body() {
+    // Personal-key decrypt path with an encrypted flag that has no "true" entry: empty body
+    // (resolve_decrypted_payload returns None), not 500 and not the marker. Django 500s here.
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_pak_notrue");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC PAK NoTrue",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let filters = serde_json::json!({
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {},
+    });
+    insert_flag_with_filters(&context, team.id, "rc-pak-notrue", filters, true, true).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-pak-notrue"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "");
+}

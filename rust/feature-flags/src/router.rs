@@ -83,8 +83,8 @@ pub struct State {
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
-    /// Per-team limiter for the remote_config endpoint (mirrors Django's
-    /// RemoteConfigThrottle). Separate budget from flag definitions.
+    /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
+    /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
     pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
     pub config: Config,
     pub(crate) flags_rate_limiter: FlagsRateLimiter,
