@@ -37,9 +37,10 @@ function TrustTierBadge({ tier }: { tier: CommunitySkillTrustTier }): JSX.Elemen
 }
 
 function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
-    const { installingSlugs } = useValues(communitySkillsLogic)
+    const { installingSlugs, votingSlugs } = useValues(communitySkillsLogic)
     const { installSkill, toggleVote } = useActions(communitySkillsLogic)
     const installing = !!installingSlugs[skill.slug]
+    const voting = !!votingSlugs[skill.slug]
 
     return (
         <div className="flex flex-col gap-2 border rounded p-4 bg-bg-light h-full">
@@ -70,6 +71,8 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
                         type="tertiary"
                         icon={<IconThumbsUp />}
                         active={skill.has_voted}
+                        loading={voting}
+                        disabledReason={voting ? 'Saving your vote…' : undefined}
                         onClick={() => toggleVote(skill.slug)}
                         tooltip={skill.has_voted ? 'Remove your vote' : 'Upvote this skill'}
                     >

@@ -159,3 +159,14 @@ class TestCommunitySkillSync(APIBaseTest):
 
         result = sync_community_skills_from_github()
         self.assertEqual(result, {"synced": 0, "skipped": 1, "removed": 0})
+
+    @patch("products.ai_observability.backend.api.community_skill_services.requests.get")
+    def test_sync_empty_registry_does_not_wipe_catalog(self, mock_get) -> None:
+        _create_community_skill(slug="keep-me")
+
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = {"skills": []}
+
+        result = sync_community_skills_from_github()
+        self.assertEqual(result, {"synced": 0, "skipped": 0, "removed": 0})
+        self.assertFalse(CommunitySkill.objects.get(slug="keep-me").deleted)

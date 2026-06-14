@@ -16,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import get_organization_from_view
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from .community_skill_serializers import (
@@ -29,11 +29,26 @@ from .community_skill_serializers import (
 )
 from .community_skill_services import CommunitySkillNotFoundError, install_community_skill, toggle_community_skill_vote
 from .skill_serializers import LLMSkillSerializer
-from .skill_services import LLMSkillDuplicateNameConflictError
+from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimitError, LLMSkillFilePathConflictError
 
 logger = structlog.get_logger(__name__)
 
 COMMUNITY_SKILL_FEATURE_FLAG = "llm-analytics-community-skills"
+# Installing copies into a regular LLMSkill, whose UI and APIs are gated by this base flag — so the
+# marketplace also requires it, otherwise installed skills would be unreachable.
+BASE_SKILL_FEATURE_FLAG = "llm-analytics-skills"
+
+
+class CommunitySkillBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Web-aware burst throttle: this endpoint is session-authenticated, so the default
+    # PersonalApiKeyRateThrottle (personal-API-key only) would leave it unthrottled.
+    scope = "burst"
+    rate = "480/minute"
+
+
+class CommunitySkillSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
 
 
 class CommunitySkillFeatureFlagPermission(BasePermission):
@@ -43,15 +58,18 @@ class CommunitySkillFeatureFlagPermission(BasePermission):
         org_id = str(organization.id)
         distinct_id = user.distinct_id or str(user.uuid)
 
-        return bool(
-            posthoganalytics.feature_enabled(
-                COMMUNITY_SKILL_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+        return all(
+            bool(
+                posthoganalytics.feature_enabled(
+                    flag,
+                    distinct_id,
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
             )
+            for flag in (COMMUNITY_SKILL_FEATURE_FLAG, BASE_SKILL_FEATURE_FLAG)
         )
 
 
@@ -70,7 +88,7 @@ class CommunitySkillViewSet(
 
     def get_throttles(self):
         if self.action in ("install", "vote"):
-            return [BurstRateThrottle(), SustainedRateThrottle()]
+            return [CommunitySkillBurstThrottle(), CommunitySkillSustainedThrottle()]
         return super().get_throttles()
 
     def dangerously_get_queryset(self) -> QuerySet[CommunitySkill]:
@@ -153,6 +171,12 @@ class CommunitySkillViewSet(
         except LLMSkillDuplicateNameConflictError:
             return Response(
                 {"attr": "new_name", "detail": "A skill with this name already exists in your project."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (LLMSkillFileLimitError, LLMSkillFilePathConflictError):
+            # The synced community payload violates the skill limits (too many files / bad paths).
+            return Response(
+                {"detail": "This community skill can't be installed because its bundled files are invalid."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

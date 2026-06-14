@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -88,8 +88,13 @@ def toggle_community_skill_vote(*, slug: str, user: User) -> tuple[int, bool]:
             existing.delete()
             has_voted = False
         else:
-            CommunitySkillVote.objects.create(skill=community_skill, user=user)
-            has_voted = True
+            try:
+                CommunitySkillVote.objects.create(skill=community_skill, user=user)
+                has_voted = True
+            except IntegrityError:
+                # A concurrent request created the vote first — converge on the "voted" state
+                # rather than surfacing the unique-constraint violation.
+                has_voted = True
         vote_count = CommunitySkillVote.objects.filter(skill=community_skill).count()
 
     return vote_count, has_voted
@@ -155,6 +160,14 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
     response.raise_for_status()
     payload = response.json()
     entries = payload.get("skills", [])
+
+    # Fail closed on malformed/empty payloads: a missing/empty `skills` key (bad generated
+    # registry, proxy error, rate-limit body) would otherwise soft-delete the entire catalog.
+    if not isinstance(entries, list):
+        raise ValueError("Registry payload 'skills' must be a list")
+    if not entries:
+        logger.warning("community_skills_sync_skipped_empty_registry")
+        return {"synced": 0, "skipped": 0, "removed": 0}
 
     synced = 0
     skipped = 0

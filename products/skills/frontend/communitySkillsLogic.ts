@@ -74,6 +74,7 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             slug,
             voteResult,
         }),
+        toggleVoteFailure: (slug: string) => ({ slug }),
     }),
 
     reducers({
@@ -103,6 +104,14 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 installSkillFailure: (state, { slug }) => ({ ...state, [slug]: false }),
             },
         ],
+        votingSlugs: [
+            {} as Record<string, boolean>,
+            {
+                toggleVote: (state, { slug }) => ({ ...state, [slug]: true }),
+                toggleVoteSuccess: (state, { slug }) => ({ ...state, [slug]: false }),
+                toggleVoteFailure: (state, { slug }) => ({ ...state, [slug]: false }),
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -110,9 +119,9 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             { results: [], count: 0 } as PaginatedCommunitySkillListListApi,
             {
                 loadSkills: async ({ debounce }, breakpoint) => {
-                    if (debounce && values.skills.results.length > 0) {
-                        await breakpoint(300)
-                    }
+                    // Always breakpoint so a slower in-flight request can't overwrite newer results;
+                    // the delay only debounces rapid filter/search changes.
+                    await breakpoint(debounce ? 300 : 0)
                     const { filters } = values
                     return await communitySkillsList(String(ApiConfig.getCurrentTeamId()), {
                         search: filters.search,
@@ -187,6 +196,7 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             } catch (e) {
                 console.error('Failed to vote on community skill', e)
                 lemonToast.error('Failed to register your vote')
+                actions.toggleVoteFailure(slug)
             }
         },
     })),
