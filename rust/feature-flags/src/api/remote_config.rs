@@ -76,48 +76,37 @@ pub async fn remote_config(
         return Ok(flag_definitions::handle_non_get_method(&method));
     }
 
-    // Resolve the target project. SDKs call this with `@current` as the URL segment plus a
-    // `?token=phc_...` project key; Django resolves the project from the token first, so the
-    // token wins when present (and `@current` never needs interpreting). Without a token, a
-    // numeric segment is the project id; `@current` and other non-numeric values 404 — the
-    // `@current`-without-token path resolves the caller's current team, which is not an SDK
-    // call and is not ported (Django's `int()` ValueError also maps non-numeric to 404).
-    // Django's `get_token` treats an empty `?token=` as absent and accepts `?api_key=` as an
-    // alias, so resolve the effective token the same way before deciding the project source.
+    // Resolve the effective `?token=` (Django's `get_token`: an empty value is absent, and
+    // `?api_key=` is an alias). SDKs call this with `@current` as the URL segment plus a
+    // `?token=phc_...` project key; Django resolves the project from the token first, so the token
+    // wins when present (and `@current` never needs interpreting). Without a token, a numeric
+    // segment is the project id; `@current` and other non-numeric values 404 (Django's `int()`
+    // ValueError), and the `@current`-without-token path that resolves the caller's current team
+    // is not an SDK call and is not ported.
     let token_param = params
         .token
         .as_deref()
         .filter(|t| !t.is_empty())
         .or_else(|| params.api_key.as_deref().filter(|t| !t.is_empty()));
 
-    let (scope_team_id, scope_project_id, resolved_team): (i32, i64, Option<Team>) =
-        if let Some(token) = token_param {
-            match state.flag_service().verify_token_and_get_team(token).await {
-                Ok(team) => {
-                    // The cached team payload carries project_id; only fall back to a query
-                    // for cache entries written before the field existed.
-                    let project_id = match team.project_id {
-                        Some(pid) => pid,
-                        // A missing row means the team was deleted from Postgres but is still
-                        // cached: treat it like an invalid token (401, as Django resolves the
-                        // token against PG), not a 5xx.
-                        None => match project_id_for_team(&state, team.id).await? {
-                            Some(pid) => pid,
-                            None => return Ok(StatusCode::UNAUTHORIZED.into_response()),
-                        },
-                    };
-                    // Hold onto the team so the personal-key path below doesn't re-query it.
-                    (team.id, project_id, Some(team))
-                }
-                // Django raises AuthenticationFailed for an invalid `?token=`.
-                Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
-            }
-        } else {
-            match project_segment.parse::<i32>() {
-                Ok(id) => (id, i64::from(id), None),
-                Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
-            }
-        };
+    // Resolve only what auth needs here: the team id, and (on the `?token=` path) the resolved
+    // team. The project id is needed solely for the flag lookup, so it is computed after auth and
+    // the throttle — no DB read happens before an unauthenticated caller is rejected.
+    // `verify_token_and_get_team` is cache-backed, so the `?token=` path does no uncached DB work
+    // at this point either.
+    let (scope_team_id, resolved_team): (i32, Option<Team>) = if let Some(token) = token_param {
+        match state.flag_service().verify_token_and_get_team(token).await {
+            // Keep the team so the personal-key auth path and the project lookup below don't
+            // re-query it. Django raises AuthenticationFailed for an invalid `?token=`.
+            Ok(team) => (team.id, Some(team)),
+            Err(_) => return Ok(StatusCode::UNAUTHORIZED.into_response()),
+        }
+    } else {
+        match project_segment.parse::<i32>() {
+            Ok(id) => (id, None),
+            Err(_) => return Ok(StatusCode::NOT_FOUND.into_response()),
+        }
+    };
 
     let (should_decrypt, team_id, rate_limit_key) =
         match authenticate(&state, scope_team_id, resolved_team.as_ref(), &headers).await? {
@@ -143,6 +132,23 @@ pub async fn remote_config(
             state.remote_config_limiter.check_rate_limit(cred_key)?;
         }
     }
+
+    // Resolve the project to scope the flag lookup, now that the caller is authenticated and past
+    // the throttle (deferred so no DB read precedes an unauthenticated rejection). On the
+    // `?token=` path the cached team usually carries project_id; only entries predating that field
+    // hit the DB, and a missing row means the team was deleted from Postgres but is still cached
+    // -> 401 (as Django resolves the token against PG), not a 5xx. On the numeric path the segment
+    // is itself the project id.
+    let scope_project_id: i64 = match &resolved_team {
+        Some(team) => match team.project_id {
+            Some(pid) => pid,
+            None => match project_id_for_team(&state, team.id).await? {
+                Some(pid) => pid,
+                None => return Ok(StatusCode::UNAUTHORIZED.into_response()),
+            },
+        },
+        None => i64::from(scope_team_id),
+    };
 
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag.
     let Some((filters, is_remote_configuration, has_encrypted_payloads)) =

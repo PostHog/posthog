@@ -992,3 +992,28 @@ async fn test_remote_config_skip_writes_does_not_update_last_used_at() {
         "last_used_at must stay NULL when skip_writes is on"
     );
 }
+
+#[tokio::test]
+async fn test_remote_config_token_without_auth_returns_401() {
+    // A public ?token= with no bearer is rejected at auth (401). The project/flag DB lookups are
+    // deferred until after auth, so an unauthenticated caller can't drive reads off a public token.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, _secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-tok-noauth", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-tok-noauth/remote_config?token={}",
+            server.addr, team.api_token
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
