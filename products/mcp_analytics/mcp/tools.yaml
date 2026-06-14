@@ -56,9 +56,6 @@ tools:
             summary.
         requires_ai_consent: true
         feature_flag: mcp-analytics
-    # Session listing and per-session tool calls are intentionally NOT exposed as tools — they are
-    # plain aggregations over mcp_tool_call events, fully served by execute-sql + the querying-posthog-data
-    # `models-mcp` reference. Only the three capabilities SQL can't express stay as tools (clustering + LLM intent).
     mcp-analytics-sessions-list:
         operation: mcp_analytics_sessions_list
         enabled: false
