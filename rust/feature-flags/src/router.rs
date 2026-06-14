@@ -140,6 +140,21 @@ impl State {
             *self.config.skip_pg_team_fallback,
         )
     }
+
+    /// Records personal-API-key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
+    /// personal-key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
+    /// client choices instead of copying them per handler. Advisory: uses the shared Redis client
+    /// (not the flags cache) and the non-persons writer, and the DB write only fires when the
+    /// Redis debounce key is newly set.
+    pub(crate) async fn record_pak_last_used(&self, pak_id: String) {
+        if *self.config.skip_writes {
+            return;
+        }
+        let redis = self.redis_client.clone();
+        let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+            self.database_pools.non_persons_writer.clone();
+        drop(crate::api::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

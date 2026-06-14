@@ -934,3 +934,61 @@ async fn test_remote_config_personal_key_updates_last_used_at() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_remote_config_skip_writes_does_not_update_last_used_at() {
+    // The shared State::record_pak_last_used helper must honor skip_writes: with it on, a
+    // personal-key request still authenticates (200) but records no last_used_at. Complements
+    // test_remote_config_personal_key_updates_last_used_at, which covers the write path.
+    let mut config = Config::default_test_config();
+    config.skip_writes = feature_flags::config::FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_skipwrites");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (pak_id, api_key) = context
+        .create_personal_api_key(
+            user_id,
+            "RC SkipWrites",
+            vec!["feature_flag:read"],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    insert_rc_flag(&context, team.id, "rc-skipwrites", "plain", true, false).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(url(&server.addr, team.id, "rc-skipwrites"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // skip_writes returns before any write is scheduled, so last_used_at stays NULL. A brief
+    // settle window guards against a stray async write sneaking in.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at IS NOT NULL",
+    )
+    .bind(&pak_id)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    assert_eq!(
+        count.0, 0,
+        "last_used_at must stay NULL when skip_writes is on"
+    );
+}

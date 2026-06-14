@@ -27,7 +27,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::sync::Arc;
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -499,18 +498,8 @@ async fn authenticate_flag_definitions(
             1,
         );
 
-        if !*state.config.skip_writes {
-            // Use shared Redis, not the dedicated flags cache client —
-            // PAK last_used_at tracking is advisory and shouldn't steal
-            // capacity from the critical path.
-            let redis = state.redis_client.clone();
-            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
-                state.database_pools.non_persons_writer.clone();
-            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
-            // spawning a background task on every request. Only the DB write
-            // (triggered when the key is newly set) runs in a spawned task.
-            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
-        }
+        // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
+        state.record_pak_last_used(pak_id).await;
 
         return Ok(());
     }
