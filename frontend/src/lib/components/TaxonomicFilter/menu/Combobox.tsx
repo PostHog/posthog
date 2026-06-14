@@ -1012,9 +1012,9 @@ function resolveRowCells(entry: MenuFilterEntry): { name: string; category: stri
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
-    const url = parseUrl(entry.name)
-    if (url) {
-        return { name: url.pathTail, category: entry.group.name }
+    const pathTail = parseUrlPathTail(entry.name)
+    if (pathTail !== null) {
+        return { name: pathTail, category: entry.group.name }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
         return { name: friendly, category: entry.group.name }
@@ -1119,16 +1119,15 @@ function Fetcher({
 }
 
 /** Skeleton placeholder shown in place of the result list while a remote
- *  fetch is in flight and we have nothing to show yet. Matches the row
- *  layout (two-line label + tag stub) so the popover height doesn't jump
- *  when results arrive. */
+ *  fetch is in flight and we have nothing to show yet. Matches the
+ *  single-line row layout so the popover height doesn't jump when results
+ *  arrive. */
 function LoadingRows(): JSX.Element {
     return (
         <div className="flex flex-col gap-1 p-2" data-attr="menu-filter-loading">
             {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className="flex flex-col gap-1 px-2 py-1">
+                <div key={i} className="px-2 py-1">
                     <Skeleton className="h-3.5 w-2/3 rounded" />
-                    <Skeleton className="h-3 w-1/3 rounded" />
                 </div>
             ))}
         </div>
@@ -1136,18 +1135,17 @@ function LoadingRows(): JSX.Element {
 }
 
 /**
- * Parse a URL-shaped string into `{ host, pathTail }` for two-line row
- * rendering. Returns `null` for anything that isn't a `http(s)://` URL or
- * fails to parse — caller falls back to default rendering.
+ * Parse a URL-shaped string into its path tail (path + search + hash) for
+ * row rendering. Returns `null` for anything that isn't a `http(s)://` URL
+ * or fails to parse — caller falls back to default rendering.
  */
-function parseUrl(s: string): { host: string; pathTail: string } | null {
+function parseUrlPathTail(s: string): string | null {
     if (typeof s !== 'string' || !/^https?:\/\//i.test(s)) {
         return null
     }
     try {
         const u = new URL(s)
-        const tail = (u.pathname || '/') + u.search + u.hash
-        return { host: u.host, pathTail: tail }
+        return (u.pathname || '/') + u.search + u.hash
     } catch {
         return null
     }
