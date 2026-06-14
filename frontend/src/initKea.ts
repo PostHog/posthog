@@ -41,6 +41,29 @@ issues. 500 is intentionally excluded: those are genuine backend exceptions wort
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
+/*
+Decides whether a kea-loaders failure should be reported to error tracking. We skip:
+- Statusless failures (`status === undefined`): native `fetch()` failures with no HTTP response
+  (navigate away mid-request, connectivity drop, ad blocker, offline). `handleFetch` in api.ts
+  wraps these raw `TypeError`s into an `ApiError` with `status === undefined` — they are transient
+  client-side network noise, not code regressions.
+- Transient gateway statuses (502/503/504): see above.
+- Allow-listed actions: already deemed gracefully handled in the UI, so their failures are noise.
+Everything else (500s, application errors with a real status) still flows to error tracking.
+*/
+export function shouldCaptureLoaderError(error: any, actionKey: string): boolean {
+    if (error?.status === undefined) {
+        return false
+    }
+    if (TRANSIENT_GATEWAY_STATUSES.includes(error.status)) {
+        return false
+    }
+    if (ERROR_FILTER_ALLOW_LIST.includes(actionKey)) {
+        return false
+    }
+    return true
+}
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -140,7 +163,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                if (shouldCaptureLoaderError(error, actionKey)) {
                     posthog.captureException(error)
                 }
             },
