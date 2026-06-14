@@ -3464,6 +3464,35 @@ class TestExperimentService(APIBaseTest):
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
 
+    @parameterized.expand(
+        [
+            ("ascending", "conclusion", ["Won", "Lost", "Inconclusive", "Stopped", "Invalid", "None"]),
+            ("descending", "-conclusion", ["None", "Invalid", "Stopped", "Inconclusive", "Lost", "Won"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        service.create_experiment(name="Won", feature_flag_key="order-conclusion-won", conclusion="won")
+        service.create_experiment(name="Lost", feature_flag_key="order-conclusion-lost", conclusion="lost")
+        service.create_experiment(
+            name="Inconclusive", feature_flag_key="order-conclusion-inconclusive", conclusion="inconclusive"
+        )
+        service.create_experiment(
+            name="Stopped", feature_flag_key="order-conclusion-stopped", conclusion="stopped_early"
+        )
+        service.create_experiment(name="Invalid", feature_flag_key="order-conclusion-invalid", conclusion="invalid")
+        service.create_experiment(name="None", feature_flag_key="order-conclusion-none")
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:6]) == expected_order
+
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self._service().filter_experiments_queryset(
@@ -4249,6 +4278,8 @@ class TestExperimentService(APIBaseTest):
             ("-duration",),
             ("status",),
             ("-status",),
+            ("conclusion",),
+            ("-conclusion",),
         ]
     )
     def test_order_by_valid_fields_works(self, order: str):
