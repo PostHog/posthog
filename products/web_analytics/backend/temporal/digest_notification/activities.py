@@ -1,5 +1,6 @@
 import time
 from itertools import batched
+from typing import cast
 from uuid import UUID
 
 from django.db import close_old_connections
@@ -64,12 +65,15 @@ def _org_has_realtime_notifications(org: Organization) -> bool:
 
 def _get_digest_variant(user: User, org_id: str, flag_key: str) -> str | None:
     try:
-        variant = posthoganalytics.get_feature_flag(
-            flag_key,
-            distinct_id=str(user.distinct_id),
-            groups={"organization": org_id},
-            only_evaluate_locally=False,
-            send_feature_flag_events=True,
+        variant = cast(
+            "bool | str | None",
+            posthoganalytics.get_feature_flag(
+                flag_key,
+                distinct_id=str(user.distinct_id),
+                groups={"organization": org_id},
+                only_evaluate_locally=False,
+                send_feature_flag_events=True,
+            ),
         )
     except Exception as e:
         logger.warning(

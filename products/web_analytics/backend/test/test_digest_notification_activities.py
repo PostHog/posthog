@@ -395,7 +395,7 @@ class TestGetOrgBatchPage(_DigestNotificationTestBase):
         assert first_page.cursor == expected_ids[1]
 
         final_ids: list[str] = []
-        cursor = first_page.cursor
+        cursor: str | None = first_page.cursor
         while cursor is not None:
             page = _get_org_batch_page(
                 OrgBatchPageInput(workflow_input=WADigestNotificationInput(batch_size=2), cursor=cursor, page_size=2)
