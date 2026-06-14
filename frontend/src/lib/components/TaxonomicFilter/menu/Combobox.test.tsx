@@ -99,13 +99,6 @@ function rowTexts(): string[] {
     )
 }
 
-// Each row's DOM id encodes its underlying value (e.g. `$current_url`), which
-// the row itself no longer renders — the raw "Sent as" value lives in the
-// preview pane. Match rows by id when asserting on the underlying definition.
-function rowIds(): string[] {
-    return Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]')).map((el) => el.id)
-}
-
 describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
@@ -361,9 +354,9 @@ describe('MenuFilterCombobox', () => {
         renderAll({ groupTypes: [TaxonomicFilterGroupType.EventProperties], searchQuery: searchTerm })
 
         await waitFor(() => expect(screen.getByText('other_prop')).toBeInTheDocument())
-        const ids = rowIds()
-        const promotedIdx = ids.findIndex((id) => id.endsWith(`-${promotedName}`))
-        const otherIdx = ids.findIndex((id) => id.endsWith('-other_prop'))
+        const rows = rowTexts()
+        const promotedIdx = rows.findIndex((t) => t.includes(promotedName))
+        const otherIdx = rows.findIndex((t) => t.includes('other_prop'))
         expect(promotedIdx).toBeGreaterThanOrEqual(0)
         expect(promotedIdx).toBeLessThan(otherIdx)
     })
@@ -470,7 +463,7 @@ describe('MenuFilterCombobox', () => {
             // Stranded-scope regression: the category dropdown must read "All"
             // (pageview_urls is not a navigable option) and the All-surface
             // content must render rather than an empty hidden-category list.
-            await waitFor(() => expect(rowIds().some((id) => id.endsWith('-$browser'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('$browser'))).toBe(true))
             expect(screen.getByRole('combobox', { name: 'Filter category' })).toHaveTextContent('All')
             // The committed selection stays reachable via the selected-entry prepend.
             expect(rowTexts().some((t) => t.includes('checkout'))).toBe(true)

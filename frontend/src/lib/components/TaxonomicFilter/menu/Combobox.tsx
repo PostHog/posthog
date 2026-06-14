@@ -999,31 +999,35 @@ interface RowProps {
 }
 
 /**
- * Resolve a row's two normalized cells:
+ * Resolve a row's normalized cells:
  *   - name:     human-friendly label (e.g. "Pageview", "/checkout")
+ *   - value:    raw underlying value when distinct from the name (the full
+ *               URL, or the raw `$key`). The preview pane is the primary home
+ *               for this ("Sent as"), but the preview is hidden below `md`, so
+ *               the row keeps a narrow-screen-only copy of it.
  *   - category: group name shown as an uppercase tag at the bottom
  *
  * URLs surface their path tail as the name; friendly definitions surface
- * the friendly label; everything else uses the entry name. The raw
- * underlying value ("Sent as") now lives in the preview pane, not the row.
+ * the friendly label; everything else uses the entry name and has no
+ * distinct raw value to show.
  */
-function resolveRowCells(entry: MenuFilterEntry): { name: string; category: string } {
+function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
     const pathTail = parseUrlPathTail(entry.name)
     if (pathTail !== null) {
-        return { name: pathTail, category: entry.group.name }
+        return { name: pathTail, value: entry.name, category: entry.group.name }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
-        return { name: friendly, category: entry.group.name }
+        return { name: friendly, value: entry.name, category: entry.group.name }
     }
     return { name: entry.name, category: entry.group.name }
 }
 
 function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSelect }: RowProps): JSX.Element {
-    const { name, category } = resolveRowCells(entry)
+    const { name, value, category } = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
     return (
@@ -1057,6 +1061,13 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
+                {/* The preview pane (hidden below `md`) is the primary home for the
+                    raw value, so only narrow screens keep it inline on the row. */}
+                {value && (
+                    <span className="md:hidden font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                        {value}
+                    </span>
+                )}
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
             {recency && (
