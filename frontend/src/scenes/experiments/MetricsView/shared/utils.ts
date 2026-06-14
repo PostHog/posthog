@@ -21,7 +21,7 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal } from '~/types'
+import { ExperimentMetricGoal, ExperimentStatsMethod } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -192,7 +192,7 @@ export function formatChanceToWin(chanceToWin: number | null | undefined): strin
 }
 
 export function isBayesianResult(result: ExperimentVariantResult): result is ExperimentVariantResultBayesian {
-    return result.method === 'bayesian'
+    return result.method === ExperimentStatsMethod.Bayesian
 }
 
 export function isFrequentistResult(result: ExperimentVariantResult): result is ExperimentVariantResultFrequentist {

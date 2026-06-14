@@ -25,6 +25,7 @@ import {
 import {
     EntityType,
     Experiment,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
@@ -177,7 +178,7 @@ export function ResultDetails({
     const { featureFlags, statsMethod } = useValues(experimentLogic)
 
     const confidenceLevel =
-        statsMethod === 'bayesian'
+        statsMethod === ExperimentStatsMethod.Bayesian
             ? Math.round((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100)
             : Math.round((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100)
 

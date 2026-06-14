@@ -100,7 +100,7 @@ export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOp
  * Hosts that go key-only for a group almost always also want
  * `excludedOperators` set for that group, otherwise a recent stored with a
  * different operator silently applies as that operator with no UI to show it.
- * The shared `COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS` preset bundles both.
+ * The shared `COHORT_KEY_ONLY_PICKER_PROPS` preset bundles both.
  */
 export type SelectingKeyOnly = boolean | { [key in TaxonomicFilterGroupType]?: boolean }
 

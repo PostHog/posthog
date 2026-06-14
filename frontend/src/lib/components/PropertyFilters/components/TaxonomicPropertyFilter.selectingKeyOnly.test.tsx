@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
+import { COHORT_KEY_ONLY_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -85,7 +85,7 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
     it.each([
         {
             name: 'feature-flag preset hides the operator+value pair for cohort rows',
-            extraProps: COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS,
+            extraProps: COHORT_KEY_ONLY_PICKER_PROPS,
         },
         {
             name: 'inline selectingKeyOnly={{ Cohorts: true }} also hides it',
@@ -117,7 +117,7 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
                     onChange={jest.fn()}
                     disablePopover
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.EventProperties]}
-                    {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
+                    {...COHORT_KEY_ONLY_PICKER_PROPS}
                 />
             </Provider>
         )
