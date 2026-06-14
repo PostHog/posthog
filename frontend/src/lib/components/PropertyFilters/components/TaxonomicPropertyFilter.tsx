@@ -87,6 +87,7 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
+    triggerVariant = 'button',
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -325,13 +326,13 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
-            triggerVariant="input"
+            triggerVariant={triggerVariant}
             triggerButtonProps={{
                 type: 'secondary',
                 size,
                 truncate: true,
                 sideIcon: null,
-                fullWidth: true,
+                fullWidth: triggerVariant === 'input',
                 icon: !valuePresent ? <IconPlusSmall /> : undefined,
             }}
         />
