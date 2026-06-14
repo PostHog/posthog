@@ -309,6 +309,65 @@ async fn test_check_cohort_membership() {
     ctx.cleanup().await.ok();
 }
 
+async fn cohort_row_count(pool: &sqlx::PgPool, cohort_id: i64, person_ids: &[i64]) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = ANY($2)",
+    )
+    .bind(cohort_id)
+    .bind(person_ids)
+    .fetch_one(pool)
+    .await
+    .expect("count cohort rows")
+}
+
+// Idempotency across the concurrent chunked insert: a re-send of the full list (the retry /
+// partial-failure recovery case) must skip already-present members and never duplicate rows.
+#[rstest]
+#[case::all_new(0, 120)]
+#[case::retry_after_partial(70, 50)]
+#[case::full_retry(120, 0)]
+#[tokio::test]
+async fn test_insert_cohort_members_idempotent(
+    #[case] prior: usize,
+    #[case] expected_inserted: i64,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7700;
+
+    // 120 persons exercises the concurrent chunk path (bulk_chunk_size = 50 → 3 chunks).
+    let mut person_ids = Vec::new();
+    for i in 0..120 {
+        let p = ctx
+            .insert_person(&format!("cohort_insert_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        person_ids.push(p.id);
+    }
+
+    // Seed `prior` members to simulate a prior partial commit that a retry re-sends in full.
+    for &pid in &person_ids[..prior] {
+        ctx.add_person_to_cohort(pid, cohort_id)
+            .await
+            .expect("seed prior members");
+    }
+
+    let inserted = ctx
+        .storage
+        .insert_cohort_members(cohort_id, &person_ids, Some(1))
+        .await
+        .expect("insert cohort members");
+
+    // Only the not-yet-present members are inserted; NOT EXISTS skips the rest.
+    assert_eq!(inserted, expected_inserted);
+    // Exactly one row per person — no duplicates, regardless of prior state or chunk fan-out.
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &person_ids).await,
+        120
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_person_properties() {
     let ctx = TestContext::new().await;

@@ -56,9 +56,9 @@ function IdleInput(): JSX.Element {
                 htmlFor="homepage-input"
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
-                <div className="flex w-full py-1 px-2">
+                <div className="flex w-full py-1 px-1 max-h-[300px]">
                     {!query && (
-                        <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
+                        <span className="text-tertiary pointer-events-none absolute left-2.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">What can I help you with?</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
                                 / for commands
@@ -117,7 +117,7 @@ function IdleInput(): JSX.Element {
                         className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
                         autoFocus
                     />
-                    <div className="flex items-end shrink-0">
+                    <div className="flex items-end shrink-0 absolute right-[0.5rem] bottom-[0.2rem]">
                         <div className="flex items-center gap-1 ">
                             <ButtonPrimitive
                                 size="xs"

@@ -1496,6 +1496,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_removing_insight_from_dashboard_fires_tile_removed_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"insight": "STICKINESS"}, "dashboards": [dashboard_id]}
+        )
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_insight(insight_id, {"dashboards": []})
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {"tile_type": "insight", "insight_type": "stickiness", "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
+        )
+
     def test_can_update_insight_dashboards_without_deleting_tiles(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({})
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({})

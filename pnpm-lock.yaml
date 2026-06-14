@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@base-ui/react':
-      specifier: 1.4.0
-      version: 1.4.0
+      specifier: 1.5.0
+      version: 1.5.0
     '@parcel/packager-ts':
       specifier: 2.16.4
       version: 2.16.4
@@ -85,8 +85,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.386.4
-      version: 1.386.4
+      specifier: ^1.386.6
+      version: 1.386.6
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -336,7 +336,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -364,7 +364,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -537,7 +537,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.5.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@dagrejs/dagre':
         specifier: ^1.1.5
         version: 1.1.5
@@ -762,7 +762,7 @@ importers:
         version: link:../packages/quill/packages/charts
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.386.4)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.386.6)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1089,7 +1089,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1504,8 +1504,8 @@ importers:
         specifier: 1.15.0
         version: 1.15.0
       '@temporalio/client':
-        specifier: ^1.12.0
-        version: 1.13.1
+        specifier: 1.15.0
+        version: 1.15.0
       '@temporalio/common':
         specifier: 1.15.0
         version: 1.15.0
@@ -1513,7 +1513,7 @@ importers:
         specifier: 1.15.0
         version: 1.15.0
       '@temporalio/worker':
-        specifier: ^1.12.0
+        specifier: 1.15.0
         version: 1.15.0(esbuild@0.28.0)(postcss@8.5.15)(tslib@2.8.1)
       '@types/node':
         specifier: 'catalog:'
@@ -2035,7 +2035,7 @@ importers:
     dependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.5.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-tokens':
         specifier: workspace:^
         version: link:../tokens
@@ -2112,7 +2112,7 @@ importers:
     devDependencies:
       '@base-ui/react':
         specifier: 'catalog:'
-        version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.5.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-blocks':
         specifier: workspace:*
         version: link:../blocks
@@ -2253,7 +2253,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2293,7 +2293,7 @@ importers:
         version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2339,7 +2339,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2438,7 +2438,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2448,6 +2448,19 @@ importers:
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
+    devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/user-event':
+        specifier: ^14.6.1
+        version: 14.6.1(@testing-library/dom@10.4.0)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
 
   products/core_events: {}
 
@@ -2503,7 +2516,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2539,7 +2552,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2623,7 +2636,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2771,7 +2784,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2852,7 +2865,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2863,6 +2876,8 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+
+  products/field_notes: {}
 
   products/games:
     dependencies:
@@ -2954,7 +2969,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3107,7 +3122,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3165,6 +3180,9 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
@@ -3186,6 +3204,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/mcp_store:
     dependencies:
@@ -3238,7 +3260,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3334,7 +3356,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3392,6 +3414,9 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      clsx:
+        specifier: '*'
+        version: 2.1.1
       fast-deep-equal:
         specifier: '*'
         version: 3.1.3
@@ -3648,7 +3673,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3688,7 +3713,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3703,7 +3728,7 @@ importers:
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.386.4)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.386.6)(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3803,7 +3828,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.386.4
+        version: 1.386.6
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3880,6 +3905,9 @@ importers:
       ioredis:
         specifier: ^4.28.5
         version: 4.28.5
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
@@ -5301,8 +5329,8 @@ packages:
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
 
-  '@base-ui/react@1.4.0':
-    resolution: {integrity: sha512-QcqdVbr/+ba2/RAKJIV1PV6S02Q5+r6a4Eym8ndBw+ZbBILkkmQAyRxXCg/pArrHnkrGeU8goe26aw0h6eE8pg==}
+  '@base-ui/react@1.5.0':
+    resolution: {integrity: sha512-z1gSAlced1yY+iM+mHDEtIkD8UI3Ebs52MuBPxvV6f5hRutk+xvCH/wuB7hDqDzK9JG5FoMz5nhrqtSs1wjt1A==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
       '@date-fns/tz': ^1.2.0
@@ -5311,11 +5339,15 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
     peerDependenciesMeta:
+      '@date-fns/tz':
+        optional: true
       '@types/react':
         optional: true
+      date-fns:
+        optional: true
 
-  '@base-ui/utils@0.2.7':
-    resolution: {integrity: sha512-nXYKhiL/0JafyJE8PfcflipGftOftlIwKd72rU15iZ1M5yqgg5J9P8NHU71GReDuXco5MJA/eVQqUT5WRqX9sA==}
+  '@base-ui/utils@0.2.9':
+    resolution: {integrity: sha512-x/PDDCYzoqPpjrdyb3VcyylTI2IjUXEtYDGi5foh7KsnmNJIIaVwA2GLgDH1dps1GgXiJbA60hM+AyuTfQzIvw==}
     peerDependencies:
       '@types/react': 18.3.27
       react: 18.3.1
@@ -6851,10 +6883,6 @@ packages:
   '@google-cloud/storage@5.20.5':
     resolution: {integrity: sha512-lOs/dCyveVF8TkVFnFSF7IGd0CJrTm91qiK6JLu+Z8qiT+7Ag0RyVhxZIWkhiACqwABo7kSHDm8FdH8p2wxSSw==}
     engines: {node: '>=10'}
-
-  '@grpc/grpc-js@1.13.4':
-    resolution: {integrity: sha512-GsFaMXCkMqkKIvwCQjCrwH+GHbPKBjhwo/8ZuUkWHqbI73Kky9I+pQltrlT0+MWpedCoosda53lgjYfyEPgxBg==}
-    engines: {node: '>=12.10.0'}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -11206,17 +11234,9 @@ packages:
     resolution: {integrity: sha512-kKEIrHMTsANiEpDVZd+v3OT6kU20UtcvAK7iibJNzQnoZUGC7XnqdKQlBuGYBxgpJzD9ppGgskXRczW+XU5Kng==}
     engines: {node: '>= 20.0.0'}
 
-  '@temporalio/client@1.13.1':
-    resolution: {integrity: sha512-EW++yWZhMhHOBCJ5hz4EZank9D5NskJO2zq25THXWGWRDNLeZPGT2rblOPz38Yexu7N6JcSLh8OglWRDohMCzg==}
-    engines: {node: '>= 18.0.0'}
-
   '@temporalio/client@1.15.0':
     resolution: {integrity: sha512-SxTGqRIa2+Vy4P9+06ZpUf4u7ZZmOXfx/kr9XvNqAApLxTMKjTQIg5OH5Wt4JLUtIR7dFkuHIyhewdRyG+hSsQ==}
     engines: {node: '>= 20.0.0'}
-
-  '@temporalio/common@1.13.1':
-    resolution: {integrity: sha512-Z8t+uN33gu0Hw0T6o0J0Lmn2v6KJ2j7rDBjPYJwRTqrzY8On8wCkgkrq0JaqNRoMzkSJCjj+eanuBswiltsZlg==}
-    engines: {node: '>= 18.0.0'}
 
   '@temporalio/common@1.15.0':
     resolution: {integrity: sha512-tBfC3fdOExsNoS5krkMUXnaMtCRKj05Jts4+TH+cgHpbys68nslFvUQLqwPIw2x6155Divb9MF219a/75itbTg==}
@@ -11229,10 +11249,6 @@ packages:
   '@temporalio/nexus@1.15.0':
     resolution: {integrity: sha512-E6CdIjskkbK2aObxcb76Z4V3o1D3QDxEtsxmuHX5D7HEABuYGdV+oeOzDyxMlfeY9GyIM9Nvky4XCiSz2h2XRA==}
     engines: {node: '>= 20.0.0'}
-
-  '@temporalio/proto@1.13.1':
-    resolution: {integrity: sha512-Lx7ge+XEk9Gk7z5gXX5VreSNLr4GfBxhe4wxmoDI618PilL0hA14nTh48fZxi72gfSFSfZmJCDBEak6lNdbA2A==}
-    engines: {node: '>= 18.0.0'}
 
   '@temporalio/proto@1.15.0':
     resolution: {integrity: sha512-Awy4Fjzyba7Pg/CVZjjQ3x2CWkDL1qELyTZWcLlyjXq8bX694JVfBsmiMmF6tHn5/ySOIxDTcc0MSScZ0oKX5A==}
@@ -16961,6 +16977,9 @@ packages:
   jose@6.1.3:
     resolution: {integrity: sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ==}
 
+  jose@6.2.3:
+    resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
+
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
     engines: {node: '>=10'}
@@ -17544,9 +17563,6 @@ packages:
 
   long-timeout@0.1.1:
     resolution: {integrity: sha512-BFRuQUqc7x2NWxfJBCyUrN8iYUYznzL9JROmRz1gZ6KlOIgmoD+njPVbb+VNn2nGMKggMsK79iUNErillsrx7w==}
-
-  long@5.2.4:
-    resolution: {integrity: sha512-qtzLbJE8hq7VabR3mISmVGtoXP8KGc2Z/AT8OuqlYD7JTR3oqrgwdjnk07wpj1twXxYmgDXgoKVWUG/fReSzHg==}
 
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
@@ -19333,8 +19349,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.386.4:
-    resolution: {integrity: sha512-QaMsFqGjo7FT2n3V9mr5Taf4wkDabj2SIxCb8S8f57KRdrCYjyxVGNSptNzaTgLWs6Z+7wue7D5sNcSVNM6EKA==}
+  posthog-js@1.386.6:
+    resolution: {integrity: sha512-xRcbToRtU07Ojk+VaCCos6I/zD60sNKfWxdeZih0xbncgegIqLZJmBzi4HdkSkXrf14b6HhwMI/s2GxWha5ADQ==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -25898,21 +25914,21 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
-  '@base-ui/react@1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@base-ui/react@1.5.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.29.2
-      '@base-ui/utils': 0.2.7(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@date-fns/tz': 1.4.1
+      '@base-ui/utils': 0.2.9(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/react-dom': 2.1.8(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@floating-ui/utils': 0.2.11
-      date-fns: 4.1.0
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       use-sync-external-store: 1.6.0(react@18.3.1)
     optionalDependencies:
+      '@date-fns/tz': 1.4.1
       '@types/react': 18.3.27
+      date-fns: 4.1.0
 
-  '@base-ui/utils@0.2.7(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@base-ui/utils@0.2.9(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@babel/runtime': 7.29.2
       '@floating-ui/utils': 0.2.11
@@ -26326,7 +26342,8 @@ snapshots:
       pprof-format: 2.2.1
       source-map: 0.7.6
 
-  '@date-fns/tz@1.4.1': {}
+  '@date-fns/tz@1.4.1':
+    optional: true
 
   '@derhuerst/http-basic@8.2.4':
     dependencies:
@@ -27013,11 +27030,6 @@ snapshots:
     transitivePeerDependencies:
       - encoding
       - supports-color
-
-  '@grpc/grpc-js@1.13.4':
-    dependencies:
-      '@grpc/proto-loader': 0.7.15
-      '@js-sdsl/ordered-map': 4.4.2
 
   '@grpc/grpc-js@1.14.4':
     dependencies:
@@ -28195,7 +28207,7 @@ snapshots:
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
       hono: 4.12.18
-      jose: 6.1.3
+      jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
       raw-body: 3.0.1
@@ -30129,9 +30141,9 @@ snapshots:
     transitivePeerDependencies:
       - rxjs
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.386.4)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.386.6)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.386.4
+      posthog-js: 1.386.6
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -32416,15 +32428,6 @@ snapshots:
       '@temporalio/common': 1.15.0
       abort-controller: 3.0.0
 
-  '@temporalio/client@1.13.1':
-    dependencies:
-      '@grpc/grpc-js': 1.13.4
-      '@temporalio/common': 1.13.1
-      '@temporalio/proto': 1.13.1
-      abort-controller: 3.0.0
-      long: 5.2.4
-      uuid: 9.0.1
-
   '@temporalio/client@1.15.0':
     dependencies:
       '@grpc/grpc-js': 1.14.4
@@ -32433,14 +32436,6 @@ snapshots:
       abort-controller: 3.0.0
       long: 5.3.2
       uuid: 11.1.1
-
-  '@temporalio/common@1.13.1':
-    dependencies:
-      '@temporalio/proto': 1.13.1
-      long: 5.3.2
-      ms: 3.0.0-canary.1
-      nexus-rpc: 0.0.1
-      proto3-json-serializer: 2.0.2
 
   '@temporalio/common@1.15.0':
     dependencies:
@@ -32463,11 +32458,6 @@ snapshots:
       long: 5.3.2
       nexus-rpc: 0.0.1
 
-  '@temporalio/proto@1.13.1':
-    dependencies:
-      long: 5.3.2
-      protobufjs: 7.6.1
-
   '@temporalio/proto@1.15.0':
     dependencies:
       long: 5.3.2
@@ -32475,7 +32465,7 @@ snapshots:
 
   '@temporalio/worker@1.15.0(esbuild@0.28.0)(postcss@8.5.15)(tslib@2.8.1)':
     dependencies:
-      '@grpc/grpc-js': 1.13.4
+      '@grpc/grpc-js': 1.14.4
       '@swc/core': 1.15.18
       '@temporalio/activity': 1.15.0
       '@temporalio/client': 1.15.0
@@ -40199,6 +40189,8 @@ snapshots:
 
   jose@6.1.3: {}
 
+  jose@6.2.3: {}
+
   joycon@3.1.1: {}
 
   js-big-decimal@2.2.0: {}
@@ -40799,8 +40791,6 @@ snapshots:
   loglevel@1.9.2: {}
 
   long-timeout@0.1.1: {}
-
-  long@5.2.4: {}
 
   long@5.3.2: {}
 
@@ -43122,7 +43112,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.386.4:
+  posthog-js@1.386.6:
     dependencies:
       '@posthog/core': 1.32.3
       '@posthog/types': 1.386.3

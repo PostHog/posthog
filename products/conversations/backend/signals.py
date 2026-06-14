@@ -14,7 +14,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.tasks.email import send_new_ticket_notification
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
@@ -147,6 +146,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 try:
                     conversations_settings = ticket.team.conversations_settings or {}
                     if conversations_settings.get("notification_recipients"):
+                        # posthog.tasks.__init__ eagerly imports every task module; this signal
+                        # module is wired at django.setup(), so import the task lazily.
+                        from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
+
                         send_new_ticket_notification.delay(
                             ticket_id=item_id,
                             team_id=team_id,

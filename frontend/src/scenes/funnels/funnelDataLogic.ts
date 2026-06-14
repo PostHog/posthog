@@ -141,6 +141,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'insightData',
                 'insightDataError',
                 'getTheme',
+                'showLegend',
                 'showValuesOnSeries',
                 'hasDataWarehouseSeries',
                 'labelGroupType',

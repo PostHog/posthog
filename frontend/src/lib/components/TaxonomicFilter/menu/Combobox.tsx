@@ -43,6 +43,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { COLLAPSED_TO_CONTAINS_ROW, urlContainsRowLabel } from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
@@ -75,15 +76,6 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.PinnedFilters,
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.HogQLExpression,
-])
-
-/** Groups that feed the "all" surface but are collapsed to a single
- *  "URL contains <query>" suggestion rather than listing every matching value,
- *  and are not offered as a standalone chip/category. People filtering by URL
- *  overwhelmingly want a contains match, so one synthetic row (when any URL
- *  matches) beats a wall of exact URLs. */
-const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set([
-    TaxonomicFilterGroupType.PageviewUrls,
 ])
 
 /** How many recents and pinned each lead the default "All" surface, matching
@@ -347,7 +339,7 @@ export function MenuFilterCombobox({
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
                 if (trimmedQuery && items.length > 0) {
-                    const label = `URL contains "${trimmedQuery}"`
+                    const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
                         // `isContainsShortcut` tags this synthetic row so the commit
                         // telemetry can measure adoption of the contains shortcut vs
@@ -714,6 +706,27 @@ export function MenuFilterCombobox({
         })
     }, [telemetryGroupType, searchQuery])
 
+    // Only the active scope's groups are fetched, so a narrowed-to-one-category search
+    // that comes up empty can't know whether other categories have matches. Offer a jump
+    // to "All" (which fetches every group) so the user can check without re-typing. This is a
+    // deliberate divergence from the legacy `InfiniteList` empty state, which can read the
+    // aggregated count (`allSectionHasResults`) and only offers the jump when All has matches.
+    const canOfferAllSwitch =
+        showChips &&
+        !!searchQuery.trim() &&
+        activeScope !== 'all' &&
+        activeScope !== 'recent' &&
+        activeScope !== 'pinned'
+    const handleCheckOtherCategories = useCallback((): void => {
+        posthog.capture('taxonomic filter menu category changed', {
+            fromChip: activeChip,
+            toChip: 'all',
+            via: 'empty-state',
+        })
+        setActiveChip('all')
+        inputRef.current?.focus()
+    }, [activeChip])
+
     const selectionContextFor = useCallback(
         (entry: MenuFilterEntry): CommitSelectionContext => {
             const key = entryKey(entry)
@@ -913,6 +926,16 @@ export function MenuFilterCombobox({
                                                         onClick={handleIncludeStaleEvents}
                                                     >
                                                         Include stale events
+                                                    </Button>
+                                                )}
+                                                {canOfferAllSwitch && !emptyState.body && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        data-attr="menu-filter-check-other-categories"
+                                                        onClick={handleCheckOtherCategories}
+                                                    >
+                                                        Check for results in other categories
                                                     </Button>
                                                 )}
                                             </div>

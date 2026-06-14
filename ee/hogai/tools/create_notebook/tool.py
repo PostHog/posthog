@@ -8,6 +8,7 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, A
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
     ArtifactStatus,
+    NotebookEditNotAllowedError,
     create_or_update_notebook_artifact,
     notebook_exists_for_artifact,
     save_notebook_to_db,
@@ -133,14 +134,22 @@ class CreateNotebookTool(MaxTool):
 
         # Save to DB if explicitly requested or if updating an already-saved notebook
         if save_to_notebook or is_already_saved:
-            await save_notebook_to_db(
-                team=self._team,
-                user=self._user,
-                artifact=artifact,
-                blocks=blocks,
-                title=title,
-                state_messages=self._state.messages,
-            )
+            try:
+                await save_notebook_to_db(
+                    team=self._team,
+                    user=self._user,
+                    artifact=artifact,
+                    blocks=blocks,
+                    title=title,
+                    state_messages=self._state.messages,
+                    markdown_content=notebook_content,
+                )
+            except NotebookEditNotAllowedError:
+                return (
+                    f"Error: The user does not have permission to edit the saved notebook {artifact.short_id}, "
+                    "so it was not changed.",
+                    None,
+                )
 
         # Build response message
         if save_to_notebook or is_already_saved:

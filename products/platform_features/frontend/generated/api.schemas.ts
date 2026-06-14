@@ -968,6 +968,7 @@ export type ActivityLogListParams = {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -1046,6 +1047,7 @@ export const ActivityLogListScope = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',
@@ -1111,6 +1113,7 @@ export const ActivityLogListScope = {
  * * `Subscription` - Subscription
  * * `PersonalAPIKey` - PersonalAPIKey
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+ * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
  * * `AlertConfiguration` - AlertConfiguration
@@ -1177,6 +1180,7 @@ export const ActivityLogListScopesItem = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',
