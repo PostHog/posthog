@@ -308,6 +308,7 @@ class Command(BaseCommand):
                         "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
                         "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
                         "$mcp_intent": session_intent,
+                        "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
