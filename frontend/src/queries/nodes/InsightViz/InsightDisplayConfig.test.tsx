@@ -102,6 +102,26 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
+    describe('slope graph display options', () => {
+        it('hides the time-series-only options in the Display section', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            const items = getDisplaySectionItems()
+            expect(items).not.toContain('Show values on series')
+            expect(items).not.toContain('Show trend lines')
+            expect(items).not.toContain('Show alert threshold lines')
+        })
+
+        it('hides Y-axis scale, statistical analysis, and the interval/compare pickers', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            expect(screen.queryByText('Y-axis scale')).not.toBeInTheDocument()
+            expect(screen.queryByText('Statistical analysis')).not.toBeInTheDocument()
+        })
+    })
+
     describe('line graph display options', () => {
         it('shows multiple options in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
