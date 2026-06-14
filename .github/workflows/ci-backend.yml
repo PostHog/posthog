@@ -1678,6 +1678,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": false,
+                      "new-events-schema": false,
                       "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
@@ -1687,10 +1688,25 @@ jobs:
                     }]
                   ')
 
+                  core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                    [range(1; $shards + 1) | {
+                      segment: "Core",
+                      "person-on-events": false,
+                      "new-events-schema": true,
+                      "python-version": "3.13.13",
+                      "clickhouse-server-image": $image,
+                      concurrency: $shards,
+                      group: .,
+                      artifact_key: ("core-events-json-" + (.|tostring)),
+                      compat: false
+                    }]
+                  ')
+
                   core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": true,
+                      "new-events-schema": false,
                       "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
@@ -1704,6 +1720,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Temporal",
                       "person-on-events": false,
+                      "new-events-schema": false,
                       "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
@@ -1721,6 +1738,7 @@ jobs:
                       | .value + {
                           segment: "Core",
                           "person-on-events": false,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           compat: true,
                           artifact_key: ("compat-" + ((.key + 1)|tostring))
@@ -1736,10 +1754,11 @@ jobs:
                   else
                     include=$(jq -cn \
                       --argjson core "$core" \
+                      --argjson core_new_events_schema "$core_new_events_schema" \
                       --argjson core_persons_on_events "$core_persons_on_events" \
                       --argjson temporal "$temporal" \
                       --argjson compat "$compat" \
-                      '$core + $core_persons_on_events + $temporal + $compat')
+                      '$core + $core_new_events_schema + $core_persons_on_events + $temporal + $compat')
                   fi
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
@@ -1764,7 +1783,7 @@ jobs:
         # 45 for slow Temporal shards on master; keep <= deploy gate wait (container-images-cd.yml)
         timeout-minutes: 45
 
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-latest
 
@@ -2003,6 +2022,7 @@ jobs:
                   SHARD_GROUP: ${{ matrix.group }}
                   SHARD_CONCURRENCY: ${{ matrix.concurrency }}
                   CLICKHOUSE_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   COMMIT_SHA: ${{ github.sha }}
                   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
@@ -2010,6 +2030,7 @@ jobs:
                   echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
                   echo "Python version: $(python --version)"
                   echo "ClickHouse version: $CLICKHOUSE_IMAGE"
+                  echo "Events schema: $CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
                   echo "Commit: $COMMIT_SHA"
                   echo "Branch: $BRANCH_NAME"
                   echo "Runner: $(uname -a)"
@@ -2024,6 +2045,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -2134,7 +2156,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Upload on master, or on PRs that change timing/sharding scripts (for validation)
-              if: ${{ (github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+              if: ${{ (github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -2158,8 +2180,8 @@ jobs:
                   git add -N '*.ambr' || true
                   # Generate patch if there are changes
                   if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-${{ matrix.segment }}-${{ matrix.group }}.patch
-                    echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.segment }}-${{ matrix.group }}.patch) lines"
+                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
+                    echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"
                   fi
@@ -2169,14 +2191,14 @@ jobs:
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}
+                  name: snapshot-patch-${{ matrix.artifact_key }}
                   path: /tmp/patches/
                   if-no-files-found: ignore
                   retention-days: 1
 
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && !matrix.person-on-events && !matrix.new-events-schema && !matrix.compat
               with:
                   name: email_renders-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: posthog/tasks/test/__emails__
