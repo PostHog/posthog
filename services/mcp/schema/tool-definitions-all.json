@@ -5261,36 +5261,6 @@
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
     },
-    "mcp-analytics-sessions-list": {
-        "description": "List MCP sessions for the current project, derived by grouping mcp_tool_call events by session. Each row summarises one session: tool-call count, tools used, start/end, duration, client, and the acting user. Supports `search` (case-insensitive substring over session id, distinct id, client name, and tools used) and `order_by`. Use it to find sessions worth drilling into with mcp-analytics-sessions-tool-calls.",
-        "category": "MCP analytics",
-        "feature": "mcp_analytics",
-        "summary": "List MCP sessions",
-        "title": "List MCP sessions",
-        "required_scopes": ["mcp_analytics:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "mcp-analytics"
-    },
-    "mcp-analytics-sessions-tool-calls": {
-        "description": "List every mcp_tool_call event in a session in chronological order, including tool name, stated intent, error flag, error message, and duration. Use after mcp-analytics-sessions-list to inspect exactly what an agent did within one session.",
-        "category": "MCP analytics",
-        "feature": "mcp_analytics",
-        "summary": "List tool calls in a session",
-        "title": "List tool calls in a session",
-        "required_scopes": ["mcp_analytics:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "mcp-analytics"
-    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
         "category": "Notebooks",

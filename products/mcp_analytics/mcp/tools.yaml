@@ -56,38 +56,15 @@ tools:
             summary.
         requires_ai_consent: true
         feature_flag: mcp-analytics
+    # Session listing and per-session tool calls are intentionally NOT exposed as tools — they are
+    # plain aggregations over mcp_tool_call events, fully served by execute-sql + the querying-posthog-data
+    # `models-mcp` reference. Only the three capabilities SQL can't express stay as tools (clustering + LLM intent).
     mcp-analytics-sessions-list:
         operation: mcp_analytics_sessions_list
-        enabled: true
-        scopes:
-            - mcp_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List MCP sessions
-        description: >
-            List MCP sessions for the current project, derived by grouping mcp_tool_call events by session. Each row
-            summarises one session: tool-call count, tools used, start/end, duration, client, and the acting user.
-            Supports `search` (case-insensitive substring over session id, distinct id, client name, and tools used) and
-            `order_by`. Use it to find sessions worth drilling into with mcp-analytics-sessions-tool-calls.
-        feature_flag: mcp-analytics
+        enabled: false
     mcp-analytics-sessions-tool-calls:
         operation: mcp_analytics_sessions_tool_calls
-        enabled: true
-        scopes:
-            - mcp_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List tool calls in a session
-        description: >
-            List every mcp_tool_call event in a session in chronological order, including tool name, stated intent,
-            error flag, error message, and duration. Use after mcp-analytics-sessions-list to inspect exactly what an
-            agent did within one session.
-        feature_flag: mcp-analytics
+        enabled: false
     mcp-feedback-list:
         operation: mcp_analytics_feedback_list
         enabled: false
