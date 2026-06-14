@@ -89,9 +89,7 @@ def _get_digest_variant(user: User, org_id: str, flag_key: str) -> str | None:
         return None
     if isinstance(variant, bool):
         return "test" if variant else "control"
-    if isinstance(variant, str):
-        return variant
-    return None
+    return variant
 
 
 def _build_title(digest: dict) -> str:
