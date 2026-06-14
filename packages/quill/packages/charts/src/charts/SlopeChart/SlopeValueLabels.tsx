@@ -3,6 +3,7 @@ import React, { useMemo } from 'react'
 import { useChartLayout } from '../../core/chart-context'
 import type { ResolvedSeries } from '../../core/types'
 import { defaultValueFormatter, slopeEnd, slopeLabelVisible, type SlopeSide, slopeStart } from './slope-data'
+import { SlopeLabel } from './SlopeLabel'
 
 export interface SlopeValueLabelsProps {
     valueFormatter?: (value: number) => string
@@ -93,28 +94,18 @@ export function SlopeValueLabels({
     return (
         <>
             {visible.map((c) => (
-                <div
+                <SlopeLabel
                     key={`${c.side}-${c.key}`}
-                    data-attr="hog-chart-slope-value-label"
-                    data-slope-side={c.side}
-                    style={{
-                        position: 'absolute',
-                        left: Math.round(c.x),
-                        top: Math.round(c.y),
-                        transform:
-                            c.side === 'start'
-                                ? `translate(calc(-100% - ${gap}px), -50%)`
-                                : `translate(${gap}px, -50%)`,
-                        color: c.color,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        lineHeight: 1,
-                        whiteSpace: 'nowrap',
-                        pointerEvents: 'none',
-                    }}
-                >
-                    {c.text}
-                </div>
+                    x={c.x}
+                    y={c.y}
+                    transform={
+                        c.side === 'start' ? `translate(calc(-100% - ${gap}px), -50%)` : `translate(${gap}px, -50%)`
+                    }
+                    color={c.color}
+                    text={c.text}
+                    dataAttr="hog-chart-slope-value-label"
+                    side={c.side}
+                />
             ))}
         </>
     )

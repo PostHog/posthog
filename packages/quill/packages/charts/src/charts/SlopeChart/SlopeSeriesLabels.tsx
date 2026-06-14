@@ -3,11 +3,10 @@ import React, { useMemo } from 'react'
 import { useChartLayout } from '../../core/chart-context'
 import { type LabelBox, nonCollidingKeys } from '../../core/label-collision'
 import type { ResolvedSeries } from '../../core/types'
-import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { slopeDelta, slopeEnd } from './slope-data'
+import { SLOPE_LABEL_FONT, SLOPE_LABEL_FONT_SIZE, SlopeLabel } from './SlopeLabel'
 
-const LABEL_FONT_SIZE = 12
-const LABEL_FONT = `600 ${LABEL_FONT_SIZE}px ${FONT_FAMILY}`
 const LABEL_PADDING_X = 4
 const LABEL_PADDING_Y = 3
 
@@ -47,7 +46,7 @@ export function SlopeSeriesLabels({ show = true, offsetX = 8 }: SlopeSeriesLabel
             if (!isFinite(y)) {
                 continue
             }
-            const width = measureLabelWidth(s.label, LABEL_FONT)
+            const width = measureLabelWidth(s.label, SLOPE_LABEL_FONT)
             out.push({
                 color: s.color,
                 label: s.label,
@@ -56,7 +55,7 @@ export function SlopeSeriesLabels({ show = true, offsetX = 8 }: SlopeSeriesLabel
                     x: x1 + offsetX + width / 2,
                     y,
                     halfWidth: width / 2 + LABEL_PADDING_X,
-                    halfHeight: LABEL_FONT_SIZE / 2 + LABEL_PADDING_Y,
+                    halfHeight: SLOPE_LABEL_FONT_SIZE / 2 + LABEL_PADDING_Y,
                     value: Math.abs(slopeDelta(s)),
                     lines: [s.label],
                 },
@@ -76,24 +75,15 @@ export function SlopeSeriesLabels({ show = true, offsetX = 8 }: SlopeSeriesLabel
             {entries
                 .filter((e) => visibleKeys.has(e.box.key))
                 .map((e) => (
-                    <div
+                    <SlopeLabel
                         key={e.box.key}
-                        data-attr="hog-chart-slope-series-label"
-                        style={{
-                            position: 'absolute',
-                            left: Math.round(e.box.x),
-                            top: Math.round(e.box.y),
-                            transform: 'translate(-50%, -50%)',
-                            color: e.color,
-                            fontSize: LABEL_FONT_SIZE,
-                            fontWeight: 600,
-                            lineHeight: 1,
-                            whiteSpace: 'nowrap',
-                            pointerEvents: 'none',
-                        }}
-                    >
-                        {e.label}
-                    </div>
+                        x={e.box.x}
+                        y={e.box.y}
+                        transform="translate(-50%, -50%)"
+                        color={e.color}
+                        text={e.label}
+                        dataAttr="hog-chart-slope-series-label"
+                    />
                 ))}
         </>
     )
