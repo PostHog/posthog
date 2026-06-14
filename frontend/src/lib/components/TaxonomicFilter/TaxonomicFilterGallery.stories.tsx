@@ -259,6 +259,26 @@ function variantKey(usage: Usage): string {
     return usage.entry
 }
 
+const STORY_TITLE: Record<string, string> = {
+    'rebuild-menu': 'rebuild menu on (only the wrapper entry points change)',
+    'legacy-pill': 'legacy · category dropdown = pill',
+    'legacy-control': 'legacy · category dropdown = control',
+}
+
+/**
+ * The surface a given variant actually renders on a given story. The rebuild
+ * flag only swaps the two wrapper entry points, so a raw `TaxonomicFilter`
+ * stays on the legacy UI even on the rebuild story — this label makes that
+ * explicit per cell instead of letting the story title imply otherwise.
+ */
+function surfaceFor(key: string, story: string): string {
+    const isWrapper = key !== 'filter'
+    if (isWrapper && story === 'rebuild-menu') {
+        return 'rebuild menu'
+    }
+    return story === 'legacy-pill' ? 'legacy · pill' : 'legacy · control'
+}
+
 function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): JSX.Element {
     // Raw TaxonomicFilter has no resting state — it IS the open panel, and it
     // autofocuses its search input on mount. Mounting ~8 of those at once made
@@ -302,14 +322,15 @@ function Gallery({ variant }: { variant: string }): JSX.Element {
 
     return (
         <div className="p-4">
-            <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery — {variant}</h1>
+            <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery — {STORY_TITLE[variant] ?? variant}</h1>
             <p className="text-sm text-secondary mb-4 max-w-3xl">
                 The taxonomic-filter family collapses to a handful of unique presentations; most call sites just pass a
                 different <code>taxonomicGroupTypes</code> to the same one. Each cell renders one variant and lists the
                 call sites that use it (with the props that differ), so the duplication — and where it could be
-                simplified — is visible. Raw <code>TaxonomicFilter</code> has no resting state, so it reveals on "Show
-                picker"; the rebuild menu only replaces the two wrapper entry points, so raw{' '}
-                <code>TaxonomicFilter</code> stays on the legacy UI here.
+                simplified — is visible. The badge on each cell is the surface it actually renders: the rebuild flag
+                only swaps the two wrapper entry points, so raw <code>TaxonomicFilter</code> stays on the legacy UI even
+                on the rebuild story. Raw <code>TaxonomicFilter</code> has no resting state, so it reveals on "Show
+                picker".
             </p>
             <div className="grid grid-cols-1 xl:grid-cols-2 border-l border-t">
                 {VARIANTS.map((v) => {
@@ -321,7 +342,12 @@ function Gallery({ variant }: { variant: string }): JSX.Element {
                     return (
                         <div key={v.key} className="border-r border-b p-4 flex flex-col gap-3 min-w-0">
                             <div>
-                                <h1 className="text-base font-bold">{v.label}</h1>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="text-base font-bold">{v.label}</h1>
+                                    <span className="text-2xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-secondary text-secondary whitespace-nowrap">
+                                        {surfaceFor(v.key, variant)}
+                                    </span>
+                                </div>
                                 <p className="text-xs text-secondary">{v.blurb}</p>
                             </div>
                             <div className="min-w-0">
