@@ -8,7 +8,10 @@ import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
 
+// KPI tiles compare this week against the prior week.
 const LOOKBACK_DAYS = 7
+// Breakdowns and trends (activity, tools, harnesses, notable sessions) use a longer 30-day window.
+const BREAKDOWN_DAYS = 30
 
 const KPI_QUERY = hogql`
 SELECT
@@ -40,7 +43,7 @@ SELECT
     max(timestamp) AS last_seen
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY
+    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_session_id IS NOT NULL
     AND properties.$mcp_session_id != ''
     AND properties.$mcp_tool_name IS NOT NULL
@@ -62,7 +65,7 @@ SELECT
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY
+    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
 GROUP BY tool
@@ -78,13 +81,46 @@ SELECT
     countDistinctIf(toString(properties.$mcp_session_id), toString(properties.$mcp_session_id) != '') AS sessions
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL ${hogql.raw(String(LOOKBACK_DAYS))} DAY
+    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
     AND properties.$mcp_client_name IS NOT NULL
     AND properties.$mcp_client_name != ''
 GROUP BY client
+ORDER BY total_calls DESC
+LIMIT 200
 `
 
-interface BucketRow {
+// Daily success/error split powering the activity time-series bar chart.
+const ACTIVITY_QUERY = hogql`
+SELECT
+    toDate(timestamp) AS day,
+    countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
+    countIf(toBool(properties.$mcp_is_error)) AS errors
+FROM events
+WHERE event = 'mcp_tool_call'
+    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+GROUP BY day
+ORDER BY day
+`
+
+// Daily call counts per tool, powering the tool-usage stacked bar (one segment per tool).
+const TOOL_DAILY_QUERY = hogql`
+SELECT
+    toDate(timestamp) AS day,
+    toString(properties.$mcp_tool_name) AS tool,
+    count() AS calls
+FROM events
+WHERE event = 'mcp_tool_call'
+    AND timestamp >= now() - INTERVAL ${hogql.raw(String(BREAKDOWN_DAYS))} DAY
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+GROUP BY day, tool
+ORDER BY day
+LIMIT 10000
+`
+
+export interface BucketRow {
     bucket: string
     sessions: number
     tool_calls: number
@@ -123,6 +159,29 @@ export interface HarnessRawRow {
     sessions: number
 }
 
+export interface ActivityRow {
+    day: string
+    successes: number
+    errors: number
+}
+
+export interface DailyActivity {
+    labels: string[]
+    successes: number[]
+    errors: number[]
+}
+
+export interface ToolDailyRow {
+    day: string
+    tool: string
+    calls: number
+}
+
+export interface ToolDailySeries {
+    labels: string[]
+    tools: { tool: string; data: number[] }[]
+}
+
 export interface HarnessRow {
     category: string
     total_calls: number
@@ -142,7 +201,10 @@ export interface SessionRow {
     last_seen: string
 }
 
-export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar'
+export type NotableRule = 'worst_error_rate' | 'all_fail' | 'most_exploratory' | 'exemplar' | 'high_activity'
+
+// Fill the table out to this many rows: the rule-based picks first, then the busiest remaining sessions.
+const NOTABLE_SESSION_TARGET = 8
 
 export interface NotableSession {
     rule: NotableRule
@@ -203,7 +265,7 @@ export function categorizeHarness(raw: string): string {
     return 'Other'
 }
 
-function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
+export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
     const byCategory = new Map<string, HarnessRow>()
     for (const row of raw) {
         const category = categorizeHarness(row.client)
@@ -232,7 +294,36 @@ function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
     return result
 }
 
-function deltaPct(current: number, previous: number): number | null {
+// Keep the stacked bar legible: only the busiest tools get their own segment; the long tail is
+// folded into a single "Other" series so the chart can't sprout dozens of repeating-colour bands.
+const TOOL_SERIES_LIMIT = 8
+
+// Pivot flat (day, tool, calls) rows into a label array + one data series per tool, tools ordered
+// by total volume (biggest first) so the stack and legend read consistently.
+export function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
+    const days = [...new Set(rows.map((r) => r.day))].sort()
+    const totalByTool = new Map<string, number>()
+    const byToolDay = new Map<string, Map<string, number>>()
+    for (const row of rows) {
+        totalByTool.set(row.tool, (totalByTool.get(row.tool) ?? 0) + row.calls)
+        let dayMap = byToolDay.get(row.tool)
+        if (!dayMap) {
+            dayMap = new Map<string, number>()
+            byToolDay.set(row.tool, dayMap)
+        }
+        dayMap.set(row.day, (dayMap.get(row.day) ?? 0) + row.calls)
+    }
+    const seriesFor = (tool: string): number[] => days.map((day) => byToolDay.get(tool)!.get(day) ?? 0)
+    const ranked = [...totalByTool.entries()].sort((a, b) => b[1] - a[1]).map(([tool]) => tool)
+    const tools = ranked.slice(0, TOOL_SERIES_LIMIT).map((tool) => ({ tool, data: seriesFor(tool) }))
+    const rest = ranked.slice(TOOL_SERIES_LIMIT)
+    if (rest.length > 0) {
+        tools.push({ tool: 'Other', data: days.map((_, i) => rest.reduce((sum, t) => sum + seriesFor(t)[i], 0)) })
+    }
+    return { labels: days, tools }
+}
+
+export function deltaPct(current: number, previous: number): number | null {
     if (previous === 0) {
         return current === 0 ? 0 : null
     }
@@ -250,7 +341,7 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
     }))
 }
 
-function buildKPIs(rows: BucketRow[]): KPIData {
+export function buildKPIs(rows: BucketRow[]): KPIData {
     const current = rows.filter((r) => r.in_current).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => !r.in_current)
 
@@ -364,11 +455,49 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
+        activityRows: [
+            [] as ActivityRow[],
+            {
+                loadActivityRows: async (): Promise<ActivityRow[]> => {
+                    const response = await hogqlQuery(ACTIVITY_QUERY)
+                    const raw = (response?.results as unknown[][]) ?? []
+                    return raw.map((r) => ({
+                        day: String(r[0] ?? ''),
+                        successes: Number(r[1] ?? 0),
+                        errors: Number(r[2] ?? 0),
+                    }))
+                },
+            },
+        ],
+        toolDailyRows: [
+            [] as ToolDailyRow[],
+            {
+                loadToolDailyRows: async (): Promise<ToolDailyRow[]> => {
+                    const response = await hogqlQuery(TOOL_DAILY_QUERY)
+                    const raw = (response?.results as unknown[][]) ?? []
+                    return raw.map((r) => ({
+                        day: String(r[0] ?? ''),
+                        tool: String(r[1] ?? ''),
+                        calls: Number(r[2] ?? 0),
+                    }))
+                },
+            },
+        ],
     }),
     selectors({
-        topToolRows: [(s) => [s.toolRows], (toolRows: ToolRow[]): ToolRow[] => toolRows.slice(0, 5)],
-        toolRowsTotal: [(s) => [s.toolRows], (toolRows: ToolRow[]): number => toolRows.length],
         harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
+        dailyActivity: [
+            (s) => [s.activityRows],
+            (rows: ActivityRow[]): DailyActivity => ({
+                labels: rows.map((r) => r.day),
+                successes: rows.map((r) => r.successes),
+                errors: rows.map((r) => r.errors),
+            }),
+        ],
+        toolDailySeries: [
+            (s) => [s.toolDailyRows],
+            (rows: ToolDailyRow[]): ToolDailySeries => buildToolDailySeries(rows),
+        ],
         notableSessions: [
             (s) => [s.sessionRows],
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
@@ -389,6 +518,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         actions.loadToolRows()
         actions.loadSessionRows()
         actions.loadHarnessRows()
+        actions.loadActivityRows()
+        actions.loadToolDailyRows()
     }),
 ])
 
@@ -403,7 +534,7 @@ function median(values: number[]): number {
 
 // Pick at most one session per rule. Thresholds relax automatically when the
 // data is small so something demo-worthy always shows.
-function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
+export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     if (rows.length === 0) {
         return []
     }
@@ -450,6 +581,16 @@ function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
             r.error_rate_pct === 0 && r.tool_calls >= Math.max(medianCalls, 3) && r.duration_seconds <= medianDuration
     )
     take('exemplar', 'Exemplar — concise success', [...exemplars].sort((a, b) => b.tool_calls - a.tool_calls)[0])
+
+    // Top up to the target with the busiest sessions not already chosen, so the table reads as a
+    // fuller list rather than a sparse handful.
+    const byVolume = [...rows].sort((a, b) => b.tool_calls - a.tool_calls)
+    for (const candidate of byVolume) {
+        if (picked.length >= NOTABLE_SESSION_TARGET) {
+            break
+        }
+        take('high_activity', 'High activity', candidate)
+    }
 
     return picked
 }

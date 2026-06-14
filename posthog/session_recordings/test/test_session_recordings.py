@@ -329,6 +329,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
+                "access_method": ANY,
+                "user_agent": ANY,
                 "mcp_user_agent": ANY,
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
@@ -448,7 +450,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_session_recordings_list_metadata_includes_has_summary(self):
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
@@ -858,7 +860,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata_has_summary_true(self):
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
@@ -891,7 +893,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata_has_summary_false_for_contextual_summary(self):
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             pytest.skip("EE summary models are not available in this build")
 
@@ -2159,7 +2161,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_batch_check_exists_with_outcomes_returns_persisted_outcomes(self):
         """include_outcomes attaches the persisted session_outcome alongside existence results."""
-        from ee.models.session_summaries import SingleSessionSummary
+        from products.replay.backend.models.session_summaries import SingleSessionSummary
 
         outcome_session = "outcome_session_1"
         no_outcome_session = "outcome_session_2"
@@ -2206,7 +2208,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_batch_check_exists_with_outcomes_doesnt_leak_teams(self):
         """Outcomes from other teams must not be returned even when include_outcomes is set."""
-        from ee.models.session_summaries import SingleSessionSummary
+        from products.replay.backend.models.session_summaries import SingleSessionSummary
 
         other_team = Team.objects.create(organization=self.organization)
         shared_session_id = "leak_check_session"

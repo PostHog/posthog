@@ -9,7 +9,6 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
-from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
@@ -25,6 +24,8 @@ from posthog.tasks.calculate_cohort import (
     reset_stuck_cohorts,
     update_cohort_metrics,
 )
+
+from products.cohorts.backend.models.cohort import Cohort
 
 MISSING_COHORT_ID = 12345
 
@@ -1105,7 +1106,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         with (
-            patch("posthog.models.cohort.dependencies._on_cohort_changed") as mock_dep_cache,
+            patch("products.cohorts.backend.models.dependencies._on_cohort_changed") as mock_dep_cache,
             patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_cache,
             patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions") as mock_hog_refresh,
         ):
@@ -1127,8 +1128,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         with (
-            patch("posthog.models.cohort.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
-            patch("posthog.models.cohort.util.insert_cohort_people_into_pg") as mock_insert_pg,
+            patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("products.cohorts.backend.models.util.insert_cohort_people_into_pg") as mock_insert_pg,
         ):
             mock_insert_ch.side_effect = Exception("Simulated query processing error")
             mock_insert_pg.side_effect = Exception("Simulated pg insert error")
@@ -1162,8 +1163,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         with (
-            patch("posthog.models.cohort.util.insert_cohort_filter_actors_into_ch") as mock_insert_ch,
-            patch("posthog.models.cohort.util.insert_cohort_people_into_pg") as mock_insert_pg,
+            patch("products.cohorts.backend.models.util.insert_cohort_filter_actors_into_ch") as mock_insert_ch,
+            patch("products.cohorts.backend.models.util.insert_cohort_people_into_pg") as mock_insert_pg,
         ):
             mock_insert_ch.side_effect = Exception("Simulated filter processing error")
             mock_insert_pg.side_effect = Exception("Simulated pg insert error")

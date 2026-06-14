@@ -893,7 +893,10 @@ export function DataTable({
                     {showResultsTable && (
                         <div className="relative">
                             {usedWebAnalyticsLazyPrecompute ? (
-                                <PreAggregatedBadge variant="precomputed" />
+                                <PreAggregatedBadge
+                                    variant="precomputed"
+                                    onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
                             ) : null}

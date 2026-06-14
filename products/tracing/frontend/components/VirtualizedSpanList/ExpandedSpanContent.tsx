@@ -1,4 +1,4 @@
-import { formatDuration } from '../../TraceFlameChart'
+import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'

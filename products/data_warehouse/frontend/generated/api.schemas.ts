@@ -9,9 +9,9 @@
  */
 /**
  * * `Cancelled` - Cancelled
- * `Completed` - Completed
- * `Failed` - Failed
- * `Running` - Running
+ * * `Completed` - Completed
+ * * `Failed` - Failed
+ * * `Running` - Running
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -79,11 +79,11 @@ export interface ResetPasswordResponseApi {
 
 /**
  * * `pending` - pending
- * `provisioning` - provisioning
- * `ready` - ready
- * `failed` - failed
- * `deleting` - deleting
- * `deleted` - deleted
+ * * `provisioning` - provisioning
+ * * `ready` - ready
+ * * `failed` - failed
+ * * `deleting` - deleting
+ * * `deleted` - deleted
  */
 export type WarehouseStatusResponseStateEnumApi =
     (typeof WarehouseStatusResponseStateEnumApi)[keyof typeof WarehouseStatusResponseStateEnumApi]
@@ -109,10 +109,10 @@ export interface WarehouseStatusResponseApi {
 
 /**
  * * `full_refresh` - full_refresh
- * `incremental` - incremental
- * `append` - append
- * `webhook` - webhook
- * `cdc` - cdc
+ * * `incremental` - incremental
+ * * `append` - append
+ * * `webhook` - webhook
+ * * `cdc` - cdc
  */
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
@@ -126,11 +126,11 @@ export const SyncTypeEnumApi = {
 
 /**
  * * `integer` - integer
- * `numeric` - numeric
- * `datetime` - datetime
- * `date` - date
- * `timestamp` - timestamp
- * `objectid` - objectid
+ * * `numeric` - numeric
+ * * `datetime` - datetime
+ * * `date` - date
+ * * `timestamp` - timestamp
+ * * `objectid` - objectid
  */
 export type IncrementalFieldTypeEnumApi = (typeof IncrementalFieldTypeEnumApi)[keyof typeof IncrementalFieldTypeEnumApi]
 
@@ -145,16 +145,16 @@ export const IncrementalFieldTypeEnumApi = {
 
 /**
  * * `never` - never
- * `1min` - 1min
- * `5min` - 5min
- * `15min` - 15min
- * `30min` - 30min
- * `1hour` - 1hour
- * `6hour` - 6hour
- * `12hour` - 12hour
- * `24hour` - 24hour
- * `7day` - 7day
- * `30day` - 30day
+ * * `1min` - 1min
+ * * `5min` - 5min
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
  */
 export type SyncFrequencyEnumApi = (typeof SyncFrequencyEnumApi)[keyof typeof SyncFrequencyEnumApi]
 
@@ -174,8 +174,8 @@ export const SyncFrequencyEnumApi = {
 
 /**
  * * `consolidated` - consolidated
- * `cdc_only` - cdc_only
- * `both` - both
+ * * `cdc_only` - cdc_only
+ * * `both` - both
  */
 export type CdcTableModeEnumApi = (typeof CdcTableModeEnumApi)[keyof typeof CdcTableModeEnumApi]
 
@@ -227,12 +227,12 @@ export interface ExternalDataSchemaApi {
     /** @nullable */
     readonly status: string | null
     /** Sync strategy: incremental, full_refresh, append, or cdc.
-
-  * `full_refresh` - full_refresh
-  * `incremental` - incremental
-  * `append` - append
-  * `webhook` - webhook
-  * `cdc` - cdc */
+     *
+     * * `full_refresh` - full_refresh
+     * * `incremental` - incremental
+     * * `append` - append
+     * * `webhook` - webhook
+     * * `cdc` - cdc */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -240,27 +240,27 @@ export interface ExternalDataSchemaApi {
      */
     incremental_field?: string | null
     /** Data type of the incremental field.
-
-  * `integer` - integer
-  * `numeric` - numeric
-  * `datetime` - datetime
-  * `date` - date
-  * `timestamp` - timestamp
-  * `objectid` - objectid */
+     *
+     * * `integer` - integer
+     * * `numeric` - numeric
+     * * `datetime` - datetime
+     * * `date` - date
+     * * `timestamp` - timestamp
+     * * `objectid` - objectid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
-
-  * `never` - never
-  * `1min` - 1min
-  * `5min` - 5min
-  * `15min` - 15min
-  * `30min` - 30min
-  * `1hour` - 1hour
-  * `6hour` - 6hour
-  * `12hour` - 12hour
-  * `24hour` - 24hour
-  * `7day` - 7day
-  * `30day` - 30day */
+     *
+     * * `never` - never
+     * * `1min` - 1min
+     * * `5min` - 5min
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
     sync_frequency?: SyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
@@ -275,10 +275,10 @@ export interface ExternalDataSchemaApi {
      */
     primary_key_columns?: string[] | null
     /** For CDC syncs: consolidated, cdc_only, or both.
-
-  * `consolidated` - consolidated
-  * `cdc_only` - cdc_only
-  * `both` - both */
+     *
+     * * `consolidated` - consolidated
+     * * `cdc_only` - cdc_only
+     * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
@@ -345,12 +345,12 @@ export interface PatchedExternalDataSchemaApi {
     /** @nullable */
     readonly status?: string | null
     /** Sync strategy: incremental, full_refresh, append, or cdc.
-
-  * `full_refresh` - full_refresh
-  * `incremental` - incremental
-  * `append` - append
-  * `webhook` - webhook
-  * `cdc` - cdc */
+     *
+     * * `full_refresh` - full_refresh
+     * * `incremental` - incremental
+     * * `append` - append
+     * * `webhook` - webhook
+     * * `cdc` - cdc */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -358,27 +358,27 @@ export interface PatchedExternalDataSchemaApi {
      */
     incremental_field?: string | null
     /** Data type of the incremental field.
-
-  * `integer` - integer
-  * `numeric` - numeric
-  * `datetime` - datetime
-  * `date` - date
-  * `timestamp` - timestamp
-  * `objectid` - objectid */
+     *
+     * * `integer` - integer
+     * * `numeric` - numeric
+     * * `datetime` - datetime
+     * * `date` - date
+     * * `timestamp` - timestamp
+     * * `objectid` - objectid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
-
-  * `never` - never
-  * `1min` - 1min
-  * `5min` - 5min
-  * `15min` - 15min
-  * `30min` - 30min
-  * `1hour` - 1hour
-  * `6hour` - 6hour
-  * `12hour` - 12hour
-  * `24hour` - 24hour
-  * `7day` - 7day
-  * `30day` - 30day */
+     *
+     * * `never` - never
+     * * `1min` - 1min
+     * * `5min` - 5min
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
     sync_frequency?: SyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
@@ -393,10 +393,10 @@ export interface PatchedExternalDataSchemaApi {
      */
     primary_key_columns?: string[] | null
     /** For CDC syncs: consolidated, cdc_only, or both.
-
-  * `consolidated` - consolidated
-  * `cdc_only` - cdc_only
-  * `both` - both */
+     *
+     * * `consolidated` - consolidated
+     * * `cdc_only` - cdc_only
+     * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
@@ -414,8 +414,8 @@ export interface PatchedExternalDataSchemaApi {
 
 /**
  * * `web` - web
- * `api` - api
- * `mcp` - mcp
+ * * `api` - api
+ * * `mcp` - mcp
  */
 export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
 
@@ -427,153 +427,232 @@ export const CreatedViaEnumApi = {
 
 /**
  * * `Ashby` - Ashby
- * `Supabase` - Supabase
- * `CustomerIO` - CustomerIO
- * `Github` - Github
- * `Stripe` - Stripe
- * `Hubspot` - Hubspot
- * `Postgres` - Postgres
- * `Zendesk` - Zendesk
- * `Snowflake` - Snowflake
- * `Salesforce` - Salesforce
- * `MySQL` - MySQL
- * `MongoDB` - MongoDB
- * `MSSQL` - MSSQL
- * `Vitally` - Vitally
- * `BigQuery` - BigQuery
- * `Chargebee` - Chargebee
- * `Clerk` - Clerk
- * `GoogleAds` - GoogleAds
- * `GoogleSearchConsole` - GoogleSearchConsole
- * `TemporalIO` - TemporalIO
- * `DoIt` - DoIt
- * `GoogleSheets` - GoogleSheets
- * `MetaAds` - MetaAds
- * `Klaviyo` - Klaviyo
- * `Mailchimp` - Mailchimp
- * `Braze` - Braze
- * `Mailjet` - Mailjet
- * `Redshift` - Redshift
- * `Polar` - Polar
- * `RevenueCat` - RevenueCat
- * `LinkedinAds` - LinkedinAds
- * `RedditAds` - RedditAds
- * `TikTokAds` - TikTokAds
- * `BingAds` - BingAds
- * `Shopify` - Shopify
- * `Attio` - Attio
- * `SnapchatAds` - SnapchatAds
- * `Linear` - Linear
- * `Intercom` - Intercom
- * `Amplitude` - Amplitude
- * `Mixpanel` - Mixpanel
- * `Jira` - Jira
- * `ActiveCampaign` - ActiveCampaign
- * `Marketo` - Marketo
- * `Adjust` - Adjust
- * `AppsFlyer` - AppsFlyer
- * `Freshdesk` - Freshdesk
- * `GoogleAnalytics` - GoogleAnalytics
- * `Pipedrive` - Pipedrive
- * `SendGrid` - SendGrid
- * `Slack` - Slack
- * `PagerDuty` - PagerDuty
- * `Asana` - Asana
- * `Notion` - Notion
- * `Airtable` - Airtable
- * `Greenhouse` - Greenhouse
- * `BambooHR` - BambooHR
- * `Lever` - Lever
- * `GitLab` - GitLab
- * `Datadog` - Datadog
- * `Sentry` - Sentry
- * `Pendo` - Pendo
- * `FullStory` - FullStory
- * `AmazonAds` - AmazonAds
- * `PinterestAds` - PinterestAds
- * `AppleSearchAds` - AppleSearchAds
- * `QuickBooks` - QuickBooks
- * `Xero` - Xero
- * `NetSuite` - NetSuite
- * `WooCommerce` - WooCommerce
- * `BigCommerce` - BigCommerce
- * `PayPal` - PayPal
- * `Square` - Square
- * `Zoom` - Zoom
- * `Trello` - Trello
- * `Monday` - Monday
- * `ClickUp` - ClickUp
- * `Confluence` - Confluence
- * `Recurly` - Recurly
- * `SalesLoft` - SalesLoft
- * `Outreach` - Outreach
- * `Gong` - Gong
- * `Calendly` - Calendly
- * `Typeform` - Typeform
- * `Iterable` - Iterable
- * `ZohoCRM` - ZohoCRM
- * `Close` - Close
- * `Oracle` - Oracle
- * `DynamoDB` - DynamoDB
- * `Elasticsearch` - Elasticsearch
- * `Kafka` - Kafka
- * `LaunchDarkly` - LaunchDarkly
- * `Braintree` - Braintree
- * `Recharge` - Recharge
- * `HelpScout` - HelpScout
- * `Gorgias` - Gorgias
- * `Instagram` - Instagram
- * `YouTubeAnalytics` - YouTubeAnalytics
- * `FacebookPages` - FacebookPages
- * `TwitterAds` - TwitterAds
- * `Workday` - Workday
- * `ServiceNow` - ServiceNow
- * `Pardot` - Pardot
- * `Copper` - Copper
- * `Front` - Front
- * `ChartMogul` - ChartMogul
- * `Zuora` - Zuora
- * `Paddle` - Paddle
- * `CircleCI` - CircleCI
- * `CockroachDB` - CockroachDB
- * `Firebase` - Firebase
- * `AzureBlob` - AzureBlob
- * `GoogleDrive` - GoogleDrive
- * `OneDrive` - OneDrive
- * `SharePoint` - SharePoint
- * `Box` - Box
- * `SFTP` - SFTP
- * `MicrosoftTeams` - MicrosoftTeams
- * `Aircall` - Aircall
- * `Webflow` - Webflow
- * `Okta` - Okta
- * `Auth0` - Auth0
- * `Productboard` - Productboard
- * `Smartsheet` - Smartsheet
- * `Wrike` - Wrike
- * `Plaid` - Plaid
- * `SurveyMonkey` - SurveyMonkey
- * `Eventbrite` - Eventbrite
- * `RingCentral` - RingCentral
- * `Twilio` - Twilio
- * `Freshsales` - Freshsales
- * `Shortcut` - Shortcut
- * `ConvertKit` - ConvertKit
- * `Drip` - Drip
- * `CampaignMonitor` - CampaignMonitor
- * `MailerLite` - MailerLite
- * `Omnisend` - Omnisend
- * `Brevo` - Brevo
- * `Postmark` - Postmark
- * `Granola` - Granola
- * `BuildBetter` - BuildBetter
- * `Convex` - Convex
- * `ClickHouse` - ClickHouse
- * `Plain` - Plain
- * `Resend` - Resend
- * `PgAnalyze` - PgAnalyze
- * `WorkOS` - WorkOS
- * `Custom` - Custom
+ * * `Supabase` - Supabase
+ * * `CustomerIO` - CustomerIO
+ * * `Github` - Github
+ * * `Stripe` - Stripe
+ * * `Hubspot` - Hubspot
+ * * `Postgres` - Postgres
+ * * `Zendesk` - Zendesk
+ * * `Snowflake` - Snowflake
+ * * `Salesforce` - Salesforce
+ * * `MySQL` - MySQL
+ * * `MongoDB` - MongoDB
+ * * `MSSQL` - MSSQL
+ * * `Vitally` - Vitally
+ * * `BigQuery` - BigQuery
+ * * `Chargebee` - Chargebee
+ * * `Clerk` - Clerk
+ * * `GoogleAds` - GoogleAds
+ * * `GoogleSearchConsole` - GoogleSearchConsole
+ * * `TemporalIO` - TemporalIO
+ * * `DoIt` - DoIt
+ * * `GoogleSheets` - GoogleSheets
+ * * `MetaAds` - MetaAds
+ * * `Klaviyo` - Klaviyo
+ * * `Mailchimp` - Mailchimp
+ * * `Braze` - Braze
+ * * `Mailjet` - Mailjet
+ * * `Redshift` - Redshift
+ * * `Polar` - Polar
+ * * `RevenueCat` - RevenueCat
+ * * `LinkedinAds` - LinkedinAds
+ * * `RedditAds` - RedditAds
+ * * `TikTokAds` - TikTokAds
+ * * `BingAds` - BingAds
+ * * `Shopify` - Shopify
+ * * `Attio` - Attio
+ * * `SnapchatAds` - SnapchatAds
+ * * `Linear` - Linear
+ * * `Intercom` - Intercom
+ * * `Amplitude` - Amplitude
+ * * `Mixpanel` - Mixpanel
+ * * `Jira` - Jira
+ * * `ActiveCampaign` - ActiveCampaign
+ * * `Marketo` - Marketo
+ * * `Adjust` - Adjust
+ * * `AppsFlyer` - AppsFlyer
+ * * `Freshdesk` - Freshdesk
+ * * `GoogleAnalytics` - GoogleAnalytics
+ * * `Pipedrive` - Pipedrive
+ * * `SendGrid` - SendGrid
+ * * `Slack` - Slack
+ * * `PagerDuty` - PagerDuty
+ * * `Asana` - Asana
+ * * `Notion` - Notion
+ * * `Airtable` - Airtable
+ * * `Greenhouse` - Greenhouse
+ * * `BambooHR` - BambooHR
+ * * `Lever` - Lever
+ * * `GitLab` - GitLab
+ * * `Datadog` - Datadog
+ * * `Sentry` - Sentry
+ * * `Pendo` - Pendo
+ * * `FullStory` - FullStory
+ * * `AmazonAds` - AmazonAds
+ * * `PinterestAds` - PinterestAds
+ * * `AppleSearchAds` - AppleSearchAds
+ * * `QuickBooks` - QuickBooks
+ * * `Xero` - Xero
+ * * `NetSuite` - NetSuite
+ * * `WooCommerce` - WooCommerce
+ * * `BigCommerce` - BigCommerce
+ * * `PayPal` - PayPal
+ * * `Square` - Square
+ * * `Zoom` - Zoom
+ * * `Trello` - Trello
+ * * `Monday` - Monday
+ * * `ClickUp` - ClickUp
+ * * `Confluence` - Confluence
+ * * `Recurly` - Recurly
+ * * `SalesLoft` - SalesLoft
+ * * `Outreach` - Outreach
+ * * `Gong` - Gong
+ * * `Calendly` - Calendly
+ * * `Typeform` - Typeform
+ * * `Iterable` - Iterable
+ * * `ZohoCRM` - ZohoCRM
+ * * `Close` - Close
+ * * `Oracle` - Oracle
+ * * `DynamoDB` - DynamoDB
+ * * `Elasticsearch` - Elasticsearch
+ * * `Kafka` - Kafka
+ * * `LaunchDarkly` - LaunchDarkly
+ * * `Braintree` - Braintree
+ * * `Recharge` - Recharge
+ * * `HelpScout` - HelpScout
+ * * `Gorgias` - Gorgias
+ * * `Instagram` - Instagram
+ * * `YouTubeAnalytics` - YouTubeAnalytics
+ * * `FacebookPages` - FacebookPages
+ * * `TwitterAds` - TwitterAds
+ * * `Workday` - Workday
+ * * `ServiceNow` - ServiceNow
+ * * `Pardot` - Pardot
+ * * `Copper` - Copper
+ * * `Front` - Front
+ * * `ChartMogul` - ChartMogul
+ * * `Zuora` - Zuora
+ * * `Paddle` - Paddle
+ * * `CircleCI` - CircleCI
+ * * `CockroachDB` - CockroachDB
+ * * `Firebase` - Firebase
+ * * `AzureBlob` - AzureBlob
+ * * `GoogleDrive` - GoogleDrive
+ * * `OneDrive` - OneDrive
+ * * `SharePoint` - SharePoint
+ * * `Box` - Box
+ * * `SFTP` - SFTP
+ * * `MicrosoftTeams` - MicrosoftTeams
+ * * `Aircall` - Aircall
+ * * `Webflow` - Webflow
+ * * `Okta` - Okta
+ * * `Auth0` - Auth0
+ * * `Productboard` - Productboard
+ * * `Smartsheet` - Smartsheet
+ * * `Wrike` - Wrike
+ * * `Plaid` - Plaid
+ * * `SurveyMonkey` - SurveyMonkey
+ * * `Eventbrite` - Eventbrite
+ * * `RingCentral` - RingCentral
+ * * `Twilio` - Twilio
+ * * `Freshsales` - Freshsales
+ * * `Shortcut` - Shortcut
+ * * `ConvertKit` - ConvertKit
+ * * `Drip` - Drip
+ * * `CampaignMonitor` - CampaignMonitor
+ * * `MailerLite` - MailerLite
+ * * `Omnisend` - Omnisend
+ * * `Brevo` - Brevo
+ * * `Postmark` - Postmark
+ * * `Granola` - Granola
+ * * `BuildBetter` - BuildBetter
+ * * `Convex` - Convex
+ * * `ClickHouse` - ClickHouse
+ * * `Plain` - Plain
+ * * `Resend` - Resend
+ * * `PgAnalyze` - PgAnalyze
+ * * `WorkOS` - WorkOS
+ * * `AmazonS3` - AmazonS3
+ * * `GoogleCloudStorage` - GoogleCloudStorage
+ * * `Databricks` - Databricks
+ * * `Dynamics365` - Dynamics365
+ * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+ * * `Db2` - Db2
+ * * `Heap` - Heap
+ * * `AdobeAnalytics` - AdobeAnalytics
+ * * `Matomo` - Matomo
+ * * `Optimizely` - Optimizely
+ * * `Adyen` - Adyen
+ * * `GoCardless` - GoCardless
+ * * `Mollie` - Mollie
+ * * `CheckoutCom` - CheckoutCom
+ * * `Branch` - Branch
+ * * `Criteo` - Criteo
+ * * `Outbrain` - Outbrain
+ * * `Taboola` - Taboola
+ * * `AdRoll` - AdRoll
+ * * `DisplayVideo360` - DisplayVideo360
+ * * `GoogleAdManager` - GoogleAdManager
+ * * `CampaignManager360` - CampaignManager360
+ * * `SearchAds360` - SearchAds360
+ * * `AdobeCommerce` - AdobeCommerce
+ * * `AmazonSellingPartner` - AmazonSellingPartner
+ * * `Ebay` - Ebay
+ * * `Commercetools` - Commercetools
+ * * `LightspeedRetail` - LightspeedRetail
+ * * `ShipStation` - ShipStation
+ * * `ConstantContact` - ConstantContact
+ * * `Mailgun` - Mailgun
+ * * `Eloqua` - Eloqua
+ * * `Sailthru` - Sailthru
+ * * `Ortto` - Ortto
+ * * `Attentive` - Attentive
+ * * `Kustomer` - Kustomer
+ * * `Dixa` - Dixa
+ * * `Gladly` - Gladly
+ * * `Qualtrics` - Qualtrics
+ * * `Delighted` - Delighted
+ * * `AzureDevOps` - AzureDevOps
+ * * `Rollbar` - Rollbar
+ * * `Opsgenie` - Opsgenie
+ * * `IncidentIo` - IncidentIo
+ * * `Pingdom` - Pingdom
+ * * `Cloudflare` - Cloudflare
+ * * `CosmosDB` - CosmosDB
+ * * `PlanetScale` - PlanetScale
+ * * `SapHana` - SapHana
+ * * `Rippling` - Rippling
+ * * `HiBob` - HiBob
+ * * `Personio` - Personio
+ * * `Deel` - Deel
+ * * `AdpWorkforceNow` - AdpWorkforceNow
+ * * `Paylocity` - Paylocity
+ * * `Gusto` - Gusto
+ * * `CultureAmp` - CultureAmp
+ * * `Lattice` - Lattice
+ * * `SageIntacct` - SageIntacct
+ * * `FreshBooks` - FreshBooks
+ * * `Expensify` - Expensify
+ * * `Ramp` - Ramp
+ * * `Brex` - Brex
+ * * `Coupa` - Coupa
+ * * `SapConcur` - SapConcur
+ * * `Apollo` - Apollo
+ * * `Crunchbase` - Crunchbase
+ * * `ZoomInfo` - ZoomInfo
+ * * `Clari` - Clari
+ * * `Chorus` - Chorus
+ * * `Coda` - Coda
+ * * `Guru` - Guru
+ * * `Dropbox` - Dropbox
+ * * `Docusign` - Docusign
+ * * `PandaDoc` - PandaDoc
+ * * `SapErp` - SapErp
+ * * `SapSuccessFactors` - SapSuccessFactors
+ * * `OracleEbs` - OracleEbs
+ * * `OracleFusion` - OracleFusion
+ * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -726,12 +805,91 @@ export const ExternalDataSourceTypeEnumApi = {
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
     WorkOS: 'WorkOS',
+    AmazonS3: 'AmazonS3',
+    GoogleCloudStorage: 'GoogleCloudStorage',
+    Databricks: 'Databricks',
+    Dynamics365: 'Dynamics365',
+    SalesforceMarketingCloud: 'SalesforceMarketingCloud',
+    Db2: 'Db2',
+    Heap: 'Heap',
+    AdobeAnalytics: 'AdobeAnalytics',
+    Matomo: 'Matomo',
+    Optimizely: 'Optimizely',
+    Adyen: 'Adyen',
+    GoCardless: 'GoCardless',
+    Mollie: 'Mollie',
+    CheckoutCom: 'CheckoutCom',
+    Branch: 'Branch',
+    Criteo: 'Criteo',
+    Outbrain: 'Outbrain',
+    Taboola: 'Taboola',
+    AdRoll: 'AdRoll',
+    DisplayVideo360: 'DisplayVideo360',
+    GoogleAdManager: 'GoogleAdManager',
+    CampaignManager360: 'CampaignManager360',
+    SearchAds360: 'SearchAds360',
+    AdobeCommerce: 'AdobeCommerce',
+    AmazonSellingPartner: 'AmazonSellingPartner',
+    Ebay: 'Ebay',
+    Commercetools: 'Commercetools',
+    LightspeedRetail: 'LightspeedRetail',
+    ShipStation: 'ShipStation',
+    ConstantContact: 'ConstantContact',
+    Mailgun: 'Mailgun',
+    Eloqua: 'Eloqua',
+    Sailthru: 'Sailthru',
+    Ortto: 'Ortto',
+    Attentive: 'Attentive',
+    Kustomer: 'Kustomer',
+    Dixa: 'Dixa',
+    Gladly: 'Gladly',
+    Qualtrics: 'Qualtrics',
+    Delighted: 'Delighted',
+    AzureDevOps: 'AzureDevOps',
+    Rollbar: 'Rollbar',
+    Opsgenie: 'Opsgenie',
+    IncidentIo: 'IncidentIo',
+    Pingdom: 'Pingdom',
+    Cloudflare: 'Cloudflare',
+    CosmosDB: 'CosmosDB',
+    PlanetScale: 'PlanetScale',
+    SapHana: 'SapHana',
+    Rippling: 'Rippling',
+    HiBob: 'HiBob',
+    Personio: 'Personio',
+    Deel: 'Deel',
+    AdpWorkforceNow: 'AdpWorkforceNow',
+    Paylocity: 'Paylocity',
+    Gusto: 'Gusto',
+    CultureAmp: 'CultureAmp',
+    Lattice: 'Lattice',
+    SageIntacct: 'SageIntacct',
+    FreshBooks: 'FreshBooks',
+    Expensify: 'Expensify',
+    Ramp: 'Ramp',
+    Brex: 'Brex',
+    Coupa: 'Coupa',
+    SapConcur: 'SapConcur',
+    Apollo: 'Apollo',
+    Crunchbase: 'Crunchbase',
+    ZoomInfo: 'ZoomInfo',
+    Clari: 'Clari',
+    Chorus: 'Chorus',
+    Coda: 'Coda',
+    Guru: 'Guru',
+    Dropbox: 'Dropbox',
+    Docusign: 'Docusign',
+    PandaDoc: 'PandaDoc',
+    SapErp: 'SapErp',
+    SapSuccessFactors: 'SapSuccessFactors',
+    OracleEbs: 'OracleEbs',
+    OracleFusion: 'OracleFusion',
     Custom: 'Custom',
 } as const
 
 /**
  * * `warehouse` - warehouse
- * `direct` - direct
+ * * `direct` - direct
  */
 export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
 
@@ -742,7 +900,7 @@ export const AccessMethodEnumApi = {
 
 /**
  * * `duckdb` - duckdb
- * `postgres` - postgres
+ * * `postgres` - postgres
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -767,10 +925,10 @@ export interface ExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: string | null
     /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
-
-  * `web` - web
-  * `api` - api
-  * `mcp` - mcp */
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi | null
     readonly status: string
     client_secret: string
@@ -790,9 +948,9 @@ export interface ExternalDataSourceSerializersApi {
     description?: string | null
     readonly access_method: AccessMethodEnumApi
     /** Backend engine detected for the direct connection.
-
-  * `duckdb` - duckdb
-  * `postgres` - postgres */
+     *
+     * * `duckdb` - duckdb
+     * * `postgres` - postgres */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -825,155 +983,234 @@ export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
 
 export interface ExternalDataSourceCreateApi {
     /** The source type (e.g. 'Postgres', 'Stripe').
-
-  * `Ashby` - Ashby
-  * `Supabase` - Supabase
-  * `CustomerIO` - CustomerIO
-  * `Github` - Github
-  * `Stripe` - Stripe
-  * `Hubspot` - Hubspot
-  * `Postgres` - Postgres
-  * `Zendesk` - Zendesk
-  * `Snowflake` - Snowflake
-  * `Salesforce` - Salesforce
-  * `MySQL` - MySQL
-  * `MongoDB` - MongoDB
-  * `MSSQL` - MSSQL
-  * `Vitally` - Vitally
-  * `BigQuery` - BigQuery
-  * `Chargebee` - Chargebee
-  * `Clerk` - Clerk
-  * `GoogleAds` - GoogleAds
-  * `GoogleSearchConsole` - GoogleSearchConsole
-  * `TemporalIO` - TemporalIO
-  * `DoIt` - DoIt
-  * `GoogleSheets` - GoogleSheets
-  * `MetaAds` - MetaAds
-  * `Klaviyo` - Klaviyo
-  * `Mailchimp` - Mailchimp
-  * `Braze` - Braze
-  * `Mailjet` - Mailjet
-  * `Redshift` - Redshift
-  * `Polar` - Polar
-  * `RevenueCat` - RevenueCat
-  * `LinkedinAds` - LinkedinAds
-  * `RedditAds` - RedditAds
-  * `TikTokAds` - TikTokAds
-  * `BingAds` - BingAds
-  * `Shopify` - Shopify
-  * `Attio` - Attio
-  * `SnapchatAds` - SnapchatAds
-  * `Linear` - Linear
-  * `Intercom` - Intercom
-  * `Amplitude` - Amplitude
-  * `Mixpanel` - Mixpanel
-  * `Jira` - Jira
-  * `ActiveCampaign` - ActiveCampaign
-  * `Marketo` - Marketo
-  * `Adjust` - Adjust
-  * `AppsFlyer` - AppsFlyer
-  * `Freshdesk` - Freshdesk
-  * `GoogleAnalytics` - GoogleAnalytics
-  * `Pipedrive` - Pipedrive
-  * `SendGrid` - SendGrid
-  * `Slack` - Slack
-  * `PagerDuty` - PagerDuty
-  * `Asana` - Asana
-  * `Notion` - Notion
-  * `Airtable` - Airtable
-  * `Greenhouse` - Greenhouse
-  * `BambooHR` - BambooHR
-  * `Lever` - Lever
-  * `GitLab` - GitLab
-  * `Datadog` - Datadog
-  * `Sentry` - Sentry
-  * `Pendo` - Pendo
-  * `FullStory` - FullStory
-  * `AmazonAds` - AmazonAds
-  * `PinterestAds` - PinterestAds
-  * `AppleSearchAds` - AppleSearchAds
-  * `QuickBooks` - QuickBooks
-  * `Xero` - Xero
-  * `NetSuite` - NetSuite
-  * `WooCommerce` - WooCommerce
-  * `BigCommerce` - BigCommerce
-  * `PayPal` - PayPal
-  * `Square` - Square
-  * `Zoom` - Zoom
-  * `Trello` - Trello
-  * `Monday` - Monday
-  * `ClickUp` - ClickUp
-  * `Confluence` - Confluence
-  * `Recurly` - Recurly
-  * `SalesLoft` - SalesLoft
-  * `Outreach` - Outreach
-  * `Gong` - Gong
-  * `Calendly` - Calendly
-  * `Typeform` - Typeform
-  * `Iterable` - Iterable
-  * `ZohoCRM` - ZohoCRM
-  * `Close` - Close
-  * `Oracle` - Oracle
-  * `DynamoDB` - DynamoDB
-  * `Elasticsearch` - Elasticsearch
-  * `Kafka` - Kafka
-  * `LaunchDarkly` - LaunchDarkly
-  * `Braintree` - Braintree
-  * `Recharge` - Recharge
-  * `HelpScout` - HelpScout
-  * `Gorgias` - Gorgias
-  * `Instagram` - Instagram
-  * `YouTubeAnalytics` - YouTubeAnalytics
-  * `FacebookPages` - FacebookPages
-  * `TwitterAds` - TwitterAds
-  * `Workday` - Workday
-  * `ServiceNow` - ServiceNow
-  * `Pardot` - Pardot
-  * `Copper` - Copper
-  * `Front` - Front
-  * `ChartMogul` - ChartMogul
-  * `Zuora` - Zuora
-  * `Paddle` - Paddle
-  * `CircleCI` - CircleCI
-  * `CockroachDB` - CockroachDB
-  * `Firebase` - Firebase
-  * `AzureBlob` - AzureBlob
-  * `GoogleDrive` - GoogleDrive
-  * `OneDrive` - OneDrive
-  * `SharePoint` - SharePoint
-  * `Box` - Box
-  * `SFTP` - SFTP
-  * `MicrosoftTeams` - MicrosoftTeams
-  * `Aircall` - Aircall
-  * `Webflow` - Webflow
-  * `Okta` - Okta
-  * `Auth0` - Auth0
-  * `Productboard` - Productboard
-  * `Smartsheet` - Smartsheet
-  * `Wrike` - Wrike
-  * `Plaid` - Plaid
-  * `SurveyMonkey` - SurveyMonkey
-  * `Eventbrite` - Eventbrite
-  * `RingCentral` - RingCentral
-  * `Twilio` - Twilio
-  * `Freshsales` - Freshsales
-  * `Shortcut` - Shortcut
-  * `ConvertKit` - ConvertKit
-  * `Drip` - Drip
-  * `CampaignMonitor` - CampaignMonitor
-  * `MailerLite` - MailerLite
-  * `Omnisend` - Omnisend
-  * `Brevo` - Brevo
-  * `Postmark` - Postmark
-  * `Granola` - Granola
-  * `BuildBetter` - BuildBetter
-  * `Convex` - Convex
-  * `ClickHouse` - ClickHouse
-  * `Plain` - Plain
-  * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze
-  * `WorkOS` - WorkOS
-  * `Custom` - Custom */
+     *
+     * * `Ashby` - Ashby
+     * * `Supabase` - Supabase
+     * * `CustomerIO` - CustomerIO
+     * * `Github` - Github
+     * * `Stripe` - Stripe
+     * * `Hubspot` - Hubspot
+     * * `Postgres` - Postgres
+     * * `Zendesk` - Zendesk
+     * * `Snowflake` - Snowflake
+     * * `Salesforce` - Salesforce
+     * * `MySQL` - MySQL
+     * * `MongoDB` - MongoDB
+     * * `MSSQL` - MSSQL
+     * * `Vitally` - Vitally
+     * * `BigQuery` - BigQuery
+     * * `Chargebee` - Chargebee
+     * * `Clerk` - Clerk
+     * * `GoogleAds` - GoogleAds
+     * * `GoogleSearchConsole` - GoogleSearchConsole
+     * * `TemporalIO` - TemporalIO
+     * * `DoIt` - DoIt
+     * * `GoogleSheets` - GoogleSheets
+     * * `MetaAds` - MetaAds
+     * * `Klaviyo` - Klaviyo
+     * * `Mailchimp` - Mailchimp
+     * * `Braze` - Braze
+     * * `Mailjet` - Mailjet
+     * * `Redshift` - Redshift
+     * * `Polar` - Polar
+     * * `RevenueCat` - RevenueCat
+     * * `LinkedinAds` - LinkedinAds
+     * * `RedditAds` - RedditAds
+     * * `TikTokAds` - TikTokAds
+     * * `BingAds` - BingAds
+     * * `Shopify` - Shopify
+     * * `Attio` - Attio
+     * * `SnapchatAds` - SnapchatAds
+     * * `Linear` - Linear
+     * * `Intercom` - Intercom
+     * * `Amplitude` - Amplitude
+     * * `Mixpanel` - Mixpanel
+     * * `Jira` - Jira
+     * * `ActiveCampaign` - ActiveCampaign
+     * * `Marketo` - Marketo
+     * * `Adjust` - Adjust
+     * * `AppsFlyer` - AppsFlyer
+     * * `Freshdesk` - Freshdesk
+     * * `GoogleAnalytics` - GoogleAnalytics
+     * * `Pipedrive` - Pipedrive
+     * * `SendGrid` - SendGrid
+     * * `Slack` - Slack
+     * * `PagerDuty` - PagerDuty
+     * * `Asana` - Asana
+     * * `Notion` - Notion
+     * * `Airtable` - Airtable
+     * * `Greenhouse` - Greenhouse
+     * * `BambooHR` - BambooHR
+     * * `Lever` - Lever
+     * * `GitLab` - GitLab
+     * * `Datadog` - Datadog
+     * * `Sentry` - Sentry
+     * * `Pendo` - Pendo
+     * * `FullStory` - FullStory
+     * * `AmazonAds` - AmazonAds
+     * * `PinterestAds` - PinterestAds
+     * * `AppleSearchAds` - AppleSearchAds
+     * * `QuickBooks` - QuickBooks
+     * * `Xero` - Xero
+     * * `NetSuite` - NetSuite
+     * * `WooCommerce` - WooCommerce
+     * * `BigCommerce` - BigCommerce
+     * * `PayPal` - PayPal
+     * * `Square` - Square
+     * * `Zoom` - Zoom
+     * * `Trello` - Trello
+     * * `Monday` - Monday
+     * * `ClickUp` - ClickUp
+     * * `Confluence` - Confluence
+     * * `Recurly` - Recurly
+     * * `SalesLoft` - SalesLoft
+     * * `Outreach` - Outreach
+     * * `Gong` - Gong
+     * * `Calendly` - Calendly
+     * * `Typeform` - Typeform
+     * * `Iterable` - Iterable
+     * * `ZohoCRM` - ZohoCRM
+     * * `Close` - Close
+     * * `Oracle` - Oracle
+     * * `DynamoDB` - DynamoDB
+     * * `Elasticsearch` - Elasticsearch
+     * * `Kafka` - Kafka
+     * * `LaunchDarkly` - LaunchDarkly
+     * * `Braintree` - Braintree
+     * * `Recharge` - Recharge
+     * * `HelpScout` - HelpScout
+     * * `Gorgias` - Gorgias
+     * * `Instagram` - Instagram
+     * * `YouTubeAnalytics` - YouTubeAnalytics
+     * * `FacebookPages` - FacebookPages
+     * * `TwitterAds` - TwitterAds
+     * * `Workday` - Workday
+     * * `ServiceNow` - ServiceNow
+     * * `Pardot` - Pardot
+     * * `Copper` - Copper
+     * * `Front` - Front
+     * * `ChartMogul` - ChartMogul
+     * * `Zuora` - Zuora
+     * * `Paddle` - Paddle
+     * * `CircleCI` - CircleCI
+     * * `CockroachDB` - CockroachDB
+     * * `Firebase` - Firebase
+     * * `AzureBlob` - AzureBlob
+     * * `GoogleDrive` - GoogleDrive
+     * * `OneDrive` - OneDrive
+     * * `SharePoint` - SharePoint
+     * * `Box` - Box
+     * * `SFTP` - SFTP
+     * * `MicrosoftTeams` - MicrosoftTeams
+     * * `Aircall` - Aircall
+     * * `Webflow` - Webflow
+     * * `Okta` - Okta
+     * * `Auth0` - Auth0
+     * * `Productboard` - Productboard
+     * * `Smartsheet` - Smartsheet
+     * * `Wrike` - Wrike
+     * * `Plaid` - Plaid
+     * * `SurveyMonkey` - SurveyMonkey
+     * * `Eventbrite` - Eventbrite
+     * * `RingCentral` - RingCentral
+     * * `Twilio` - Twilio
+     * * `Freshsales` - Freshsales
+     * * `Shortcut` - Shortcut
+     * * `ConvertKit` - ConvertKit
+     * * `Drip` - Drip
+     * * `CampaignMonitor` - CampaignMonitor
+     * * `MailerLite` - MailerLite
+     * * `Omnisend` - Omnisend
+     * * `Brevo` - Brevo
+     * * `Postmark` - Postmark
+     * * `Granola` - Granola
+     * * `BuildBetter` - BuildBetter
+     * * `Convex` - Convex
+     * * `ClickHouse` - ClickHouse
+     * * `Plain` - Plain
+     * * `Resend` - Resend
+     * * `PgAnalyze` - PgAnalyze
+     * * `WorkOS` - WorkOS
+     * * `AmazonS3` - AmazonS3
+     * * `GoogleCloudStorage` - GoogleCloudStorage
+     * * `Databricks` - Databricks
+     * * `Dynamics365` - Dynamics365
+     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+     * * `Db2` - Db2
+     * * `Heap` - Heap
+     * * `AdobeAnalytics` - AdobeAnalytics
+     * * `Matomo` - Matomo
+     * * `Optimizely` - Optimizely
+     * * `Adyen` - Adyen
+     * * `GoCardless` - GoCardless
+     * * `Mollie` - Mollie
+     * * `CheckoutCom` - CheckoutCom
+     * * `Branch` - Branch
+     * * `Criteo` - Criteo
+     * * `Outbrain` - Outbrain
+     * * `Taboola` - Taboola
+     * * `AdRoll` - AdRoll
+     * * `DisplayVideo360` - DisplayVideo360
+     * * `GoogleAdManager` - GoogleAdManager
+     * * `CampaignManager360` - CampaignManager360
+     * * `SearchAds360` - SearchAds360
+     * * `AdobeCommerce` - AdobeCommerce
+     * * `AmazonSellingPartner` - AmazonSellingPartner
+     * * `Ebay` - Ebay
+     * * `Commercetools` - Commercetools
+     * * `LightspeedRetail` - LightspeedRetail
+     * * `ShipStation` - ShipStation
+     * * `ConstantContact` - ConstantContact
+     * * `Mailgun` - Mailgun
+     * * `Eloqua` - Eloqua
+     * * `Sailthru` - Sailthru
+     * * `Ortto` - Ortto
+     * * `Attentive` - Attentive
+     * * `Kustomer` - Kustomer
+     * * `Dixa` - Dixa
+     * * `Gladly` - Gladly
+     * * `Qualtrics` - Qualtrics
+     * * `Delighted` - Delighted
+     * * `AzureDevOps` - AzureDevOps
+     * * `Rollbar` - Rollbar
+     * * `Opsgenie` - Opsgenie
+     * * `IncidentIo` - IncidentIo
+     * * `Pingdom` - Pingdom
+     * * `Cloudflare` - Cloudflare
+     * * `CosmosDB` - CosmosDB
+     * * `PlanetScale` - PlanetScale
+     * * `SapHana` - SapHana
+     * * `Rippling` - Rippling
+     * * `HiBob` - HiBob
+     * * `Personio` - Personio
+     * * `Deel` - Deel
+     * * `AdpWorkforceNow` - AdpWorkforceNow
+     * * `Paylocity` - Paylocity
+     * * `Gusto` - Gusto
+     * * `CultureAmp` - CultureAmp
+     * * `Lattice` - Lattice
+     * * `SageIntacct` - SageIntacct
+     * * `FreshBooks` - FreshBooks
+     * * `Expensify` - Expensify
+     * * `Ramp` - Ramp
+     * * `Brex` - Brex
+     * * `Coupa` - Coupa
+     * * `SapConcur` - SapConcur
+     * * `Apollo` - Apollo
+     * * `Crunchbase` - Crunchbase
+     * * `ZoomInfo` - ZoomInfo
+     * * `Clari` - Clari
+     * * `Chorus` - Chorus
+     * * `Coda` - Coda
+     * * `Guru` - Guru
+     * * `Dropbox` - Dropbox
+     * * `Docusign` - Docusign
+     * * `PandaDoc` - PandaDoc
+     * * `SapErp` - SapErp
+     * * `SapSuccessFactors` - SapSuccessFactors
+     * * `OracleEbs` - OracleEbs
+     * * `OracleFusion` - OracleFusion
+     * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -990,15 +1227,15 @@ export interface ExternalDataSourceCreateApi {
      */
     description?: string | null
     /** Connection mode: 'warehouse' (import) or 'direct' (live query).
-
-  * `warehouse` - warehouse
-  * `direct` - direct */
+     *
+     * * `warehouse` - warehouse
+     * * `direct` - direct */
     access_method?: AccessMethodEnumApi
     /** Where the request came from
-
-  * `web` - web
-  * `api` - api
-  * `mcp` - mcp */
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi
 }
 
@@ -1013,10 +1250,10 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by?: string | null
     /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
-
-  * `web` - web
-  * `api` - api
-  * `mcp` - mcp */
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
@@ -1036,9 +1273,9 @@ export interface PatchedExternalDataSourceSerializersApi {
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
     /** Backend engine detected for the direct connection.
-
-  * `duckdb` - duckdb
-  * `postgres` - postgres */
+     *
+     * * `duckdb` - duckdb
+     * * `postgres` - postgres */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -1061,12 +1298,12 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     /** Whether the schema should be queryable/synced. */
     should_sync?: boolean
     /** Requested sync mode for the schema.
-
-  * `full_refresh` - full_refresh
-  * `incremental` - incremental
-  * `append` - append
-  * `webhook` - webhook
-  * `cdc` - cdc */
+     *
+     * * `full_refresh` - full_refresh
+     * * `incremental` - incremental
+     * * `append` - append
+     * * `webhook` - webhook
+     * * `cdc` - cdc */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
@@ -1089,10 +1326,10 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      */
     sync_time_of_day?: string | null
     /** How CDC-backed tables should be exposed.
-
-  * `consolidated` - consolidated
-  * `cdc_only` - cdc_only
-  * `both` - both */
+     *
+     * * `consolidated` - consolidated
+     * * `cdc_only` - cdc_only
+     * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
     /**
      * Columns to sync. Null means sync all columns.
@@ -1111,9 +1348,9 @@ export interface ExternalDataSourceConnectionOptionApi {
     /** @nullable */
     readonly prefix: string | null
     /** Backend engine detected for the direct connection.
-
-  * `duckdb` - duckdb
-  * `postgres` - postgres */
+     *
+     * * `duckdb` - duckdb
+     * * `postgres` - postgres */
     readonly engine: EngineEnumApi | null
 }
 
@@ -1128,171 +1365,250 @@ export interface PaginatedExternalDataSourceConnectionOptionListApi {
 
 /**
  * Validate credentials and preview available tables from a remote database.
-
-The request body contains source_type plus flat source-specific credential fields
-(e.g. host, port, database, user, password, schema for Postgres). The credential
-fields vary per source_type and are validated dynamically by the source registry.
+ *
+ * The request body contains source_type plus flat source-specific credential fields
+ * (e.g. host, port, database, user, password, schema for Postgres). The credential
+ * fields vary per source_type and are validated dynamically by the source registry.
  */
 export interface DatabaseSchemaRequestApi {
     /** The source type to validate against.
-
-  * `Ashby` - Ashby
-  * `Supabase` - Supabase
-  * `CustomerIO` - CustomerIO
-  * `Github` - Github
-  * `Stripe` - Stripe
-  * `Hubspot` - Hubspot
-  * `Postgres` - Postgres
-  * `Zendesk` - Zendesk
-  * `Snowflake` - Snowflake
-  * `Salesforce` - Salesforce
-  * `MySQL` - MySQL
-  * `MongoDB` - MongoDB
-  * `MSSQL` - MSSQL
-  * `Vitally` - Vitally
-  * `BigQuery` - BigQuery
-  * `Chargebee` - Chargebee
-  * `Clerk` - Clerk
-  * `GoogleAds` - GoogleAds
-  * `GoogleSearchConsole` - GoogleSearchConsole
-  * `TemporalIO` - TemporalIO
-  * `DoIt` - DoIt
-  * `GoogleSheets` - GoogleSheets
-  * `MetaAds` - MetaAds
-  * `Klaviyo` - Klaviyo
-  * `Mailchimp` - Mailchimp
-  * `Braze` - Braze
-  * `Mailjet` - Mailjet
-  * `Redshift` - Redshift
-  * `Polar` - Polar
-  * `RevenueCat` - RevenueCat
-  * `LinkedinAds` - LinkedinAds
-  * `RedditAds` - RedditAds
-  * `TikTokAds` - TikTokAds
-  * `BingAds` - BingAds
-  * `Shopify` - Shopify
-  * `Attio` - Attio
-  * `SnapchatAds` - SnapchatAds
-  * `Linear` - Linear
-  * `Intercom` - Intercom
-  * `Amplitude` - Amplitude
-  * `Mixpanel` - Mixpanel
-  * `Jira` - Jira
-  * `ActiveCampaign` - ActiveCampaign
-  * `Marketo` - Marketo
-  * `Adjust` - Adjust
-  * `AppsFlyer` - AppsFlyer
-  * `Freshdesk` - Freshdesk
-  * `GoogleAnalytics` - GoogleAnalytics
-  * `Pipedrive` - Pipedrive
-  * `SendGrid` - SendGrid
-  * `Slack` - Slack
-  * `PagerDuty` - PagerDuty
-  * `Asana` - Asana
-  * `Notion` - Notion
-  * `Airtable` - Airtable
-  * `Greenhouse` - Greenhouse
-  * `BambooHR` - BambooHR
-  * `Lever` - Lever
-  * `GitLab` - GitLab
-  * `Datadog` - Datadog
-  * `Sentry` - Sentry
-  * `Pendo` - Pendo
-  * `FullStory` - FullStory
-  * `AmazonAds` - AmazonAds
-  * `PinterestAds` - PinterestAds
-  * `AppleSearchAds` - AppleSearchAds
-  * `QuickBooks` - QuickBooks
-  * `Xero` - Xero
-  * `NetSuite` - NetSuite
-  * `WooCommerce` - WooCommerce
-  * `BigCommerce` - BigCommerce
-  * `PayPal` - PayPal
-  * `Square` - Square
-  * `Zoom` - Zoom
-  * `Trello` - Trello
-  * `Monday` - Monday
-  * `ClickUp` - ClickUp
-  * `Confluence` - Confluence
-  * `Recurly` - Recurly
-  * `SalesLoft` - SalesLoft
-  * `Outreach` - Outreach
-  * `Gong` - Gong
-  * `Calendly` - Calendly
-  * `Typeform` - Typeform
-  * `Iterable` - Iterable
-  * `ZohoCRM` - ZohoCRM
-  * `Close` - Close
-  * `Oracle` - Oracle
-  * `DynamoDB` - DynamoDB
-  * `Elasticsearch` - Elasticsearch
-  * `Kafka` - Kafka
-  * `LaunchDarkly` - LaunchDarkly
-  * `Braintree` - Braintree
-  * `Recharge` - Recharge
-  * `HelpScout` - HelpScout
-  * `Gorgias` - Gorgias
-  * `Instagram` - Instagram
-  * `YouTubeAnalytics` - YouTubeAnalytics
-  * `FacebookPages` - FacebookPages
-  * `TwitterAds` - TwitterAds
-  * `Workday` - Workday
-  * `ServiceNow` - ServiceNow
-  * `Pardot` - Pardot
-  * `Copper` - Copper
-  * `Front` - Front
-  * `ChartMogul` - ChartMogul
-  * `Zuora` - Zuora
-  * `Paddle` - Paddle
-  * `CircleCI` - CircleCI
-  * `CockroachDB` - CockroachDB
-  * `Firebase` - Firebase
-  * `AzureBlob` - AzureBlob
-  * `GoogleDrive` - GoogleDrive
-  * `OneDrive` - OneDrive
-  * `SharePoint` - SharePoint
-  * `Box` - Box
-  * `SFTP` - SFTP
-  * `MicrosoftTeams` - MicrosoftTeams
-  * `Aircall` - Aircall
-  * `Webflow` - Webflow
-  * `Okta` - Okta
-  * `Auth0` - Auth0
-  * `Productboard` - Productboard
-  * `Smartsheet` - Smartsheet
-  * `Wrike` - Wrike
-  * `Plaid` - Plaid
-  * `SurveyMonkey` - SurveyMonkey
-  * `Eventbrite` - Eventbrite
-  * `RingCentral` - RingCentral
-  * `Twilio` - Twilio
-  * `Freshsales` - Freshsales
-  * `Shortcut` - Shortcut
-  * `ConvertKit` - ConvertKit
-  * `Drip` - Drip
-  * `CampaignMonitor` - CampaignMonitor
-  * `MailerLite` - MailerLite
-  * `Omnisend` - Omnisend
-  * `Brevo` - Brevo
-  * `Postmark` - Postmark
-  * `Granola` - Granola
-  * `BuildBetter` - BuildBetter
-  * `Convex` - Convex
-  * `ClickHouse` - ClickHouse
-  * `Plain` - Plain
-  * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze
-  * `WorkOS` - WorkOS
-  * `Custom` - Custom */
+     *
+     * * `Ashby` - Ashby
+     * * `Supabase` - Supabase
+     * * `CustomerIO` - CustomerIO
+     * * `Github` - Github
+     * * `Stripe` - Stripe
+     * * `Hubspot` - Hubspot
+     * * `Postgres` - Postgres
+     * * `Zendesk` - Zendesk
+     * * `Snowflake` - Snowflake
+     * * `Salesforce` - Salesforce
+     * * `MySQL` - MySQL
+     * * `MongoDB` - MongoDB
+     * * `MSSQL` - MSSQL
+     * * `Vitally` - Vitally
+     * * `BigQuery` - BigQuery
+     * * `Chargebee` - Chargebee
+     * * `Clerk` - Clerk
+     * * `GoogleAds` - GoogleAds
+     * * `GoogleSearchConsole` - GoogleSearchConsole
+     * * `TemporalIO` - TemporalIO
+     * * `DoIt` - DoIt
+     * * `GoogleSheets` - GoogleSheets
+     * * `MetaAds` - MetaAds
+     * * `Klaviyo` - Klaviyo
+     * * `Mailchimp` - Mailchimp
+     * * `Braze` - Braze
+     * * `Mailjet` - Mailjet
+     * * `Redshift` - Redshift
+     * * `Polar` - Polar
+     * * `RevenueCat` - RevenueCat
+     * * `LinkedinAds` - LinkedinAds
+     * * `RedditAds` - RedditAds
+     * * `TikTokAds` - TikTokAds
+     * * `BingAds` - BingAds
+     * * `Shopify` - Shopify
+     * * `Attio` - Attio
+     * * `SnapchatAds` - SnapchatAds
+     * * `Linear` - Linear
+     * * `Intercom` - Intercom
+     * * `Amplitude` - Amplitude
+     * * `Mixpanel` - Mixpanel
+     * * `Jira` - Jira
+     * * `ActiveCampaign` - ActiveCampaign
+     * * `Marketo` - Marketo
+     * * `Adjust` - Adjust
+     * * `AppsFlyer` - AppsFlyer
+     * * `Freshdesk` - Freshdesk
+     * * `GoogleAnalytics` - GoogleAnalytics
+     * * `Pipedrive` - Pipedrive
+     * * `SendGrid` - SendGrid
+     * * `Slack` - Slack
+     * * `PagerDuty` - PagerDuty
+     * * `Asana` - Asana
+     * * `Notion` - Notion
+     * * `Airtable` - Airtable
+     * * `Greenhouse` - Greenhouse
+     * * `BambooHR` - BambooHR
+     * * `Lever` - Lever
+     * * `GitLab` - GitLab
+     * * `Datadog` - Datadog
+     * * `Sentry` - Sentry
+     * * `Pendo` - Pendo
+     * * `FullStory` - FullStory
+     * * `AmazonAds` - AmazonAds
+     * * `PinterestAds` - PinterestAds
+     * * `AppleSearchAds` - AppleSearchAds
+     * * `QuickBooks` - QuickBooks
+     * * `Xero` - Xero
+     * * `NetSuite` - NetSuite
+     * * `WooCommerce` - WooCommerce
+     * * `BigCommerce` - BigCommerce
+     * * `PayPal` - PayPal
+     * * `Square` - Square
+     * * `Zoom` - Zoom
+     * * `Trello` - Trello
+     * * `Monday` - Monday
+     * * `ClickUp` - ClickUp
+     * * `Confluence` - Confluence
+     * * `Recurly` - Recurly
+     * * `SalesLoft` - SalesLoft
+     * * `Outreach` - Outreach
+     * * `Gong` - Gong
+     * * `Calendly` - Calendly
+     * * `Typeform` - Typeform
+     * * `Iterable` - Iterable
+     * * `ZohoCRM` - ZohoCRM
+     * * `Close` - Close
+     * * `Oracle` - Oracle
+     * * `DynamoDB` - DynamoDB
+     * * `Elasticsearch` - Elasticsearch
+     * * `Kafka` - Kafka
+     * * `LaunchDarkly` - LaunchDarkly
+     * * `Braintree` - Braintree
+     * * `Recharge` - Recharge
+     * * `HelpScout` - HelpScout
+     * * `Gorgias` - Gorgias
+     * * `Instagram` - Instagram
+     * * `YouTubeAnalytics` - YouTubeAnalytics
+     * * `FacebookPages` - FacebookPages
+     * * `TwitterAds` - TwitterAds
+     * * `Workday` - Workday
+     * * `ServiceNow` - ServiceNow
+     * * `Pardot` - Pardot
+     * * `Copper` - Copper
+     * * `Front` - Front
+     * * `ChartMogul` - ChartMogul
+     * * `Zuora` - Zuora
+     * * `Paddle` - Paddle
+     * * `CircleCI` - CircleCI
+     * * `CockroachDB` - CockroachDB
+     * * `Firebase` - Firebase
+     * * `AzureBlob` - AzureBlob
+     * * `GoogleDrive` - GoogleDrive
+     * * `OneDrive` - OneDrive
+     * * `SharePoint` - SharePoint
+     * * `Box` - Box
+     * * `SFTP` - SFTP
+     * * `MicrosoftTeams` - MicrosoftTeams
+     * * `Aircall` - Aircall
+     * * `Webflow` - Webflow
+     * * `Okta` - Okta
+     * * `Auth0` - Auth0
+     * * `Productboard` - Productboard
+     * * `Smartsheet` - Smartsheet
+     * * `Wrike` - Wrike
+     * * `Plaid` - Plaid
+     * * `SurveyMonkey` - SurveyMonkey
+     * * `Eventbrite` - Eventbrite
+     * * `RingCentral` - RingCentral
+     * * `Twilio` - Twilio
+     * * `Freshsales` - Freshsales
+     * * `Shortcut` - Shortcut
+     * * `ConvertKit` - ConvertKit
+     * * `Drip` - Drip
+     * * `CampaignMonitor` - CampaignMonitor
+     * * `MailerLite` - MailerLite
+     * * `Omnisend` - Omnisend
+     * * `Brevo` - Brevo
+     * * `Postmark` - Postmark
+     * * `Granola` - Granola
+     * * `BuildBetter` - BuildBetter
+     * * `Convex` - Convex
+     * * `ClickHouse` - ClickHouse
+     * * `Plain` - Plain
+     * * `Resend` - Resend
+     * * `PgAnalyze` - PgAnalyze
+     * * `WorkOS` - WorkOS
+     * * `AmazonS3` - AmazonS3
+     * * `GoogleCloudStorage` - GoogleCloudStorage
+     * * `Databricks` - Databricks
+     * * `Dynamics365` - Dynamics365
+     * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+     * * `Db2` - Db2
+     * * `Heap` - Heap
+     * * `AdobeAnalytics` - AdobeAnalytics
+     * * `Matomo` - Matomo
+     * * `Optimizely` - Optimizely
+     * * `Adyen` - Adyen
+     * * `GoCardless` - GoCardless
+     * * `Mollie` - Mollie
+     * * `CheckoutCom` - CheckoutCom
+     * * `Branch` - Branch
+     * * `Criteo` - Criteo
+     * * `Outbrain` - Outbrain
+     * * `Taboola` - Taboola
+     * * `AdRoll` - AdRoll
+     * * `DisplayVideo360` - DisplayVideo360
+     * * `GoogleAdManager` - GoogleAdManager
+     * * `CampaignManager360` - CampaignManager360
+     * * `SearchAds360` - SearchAds360
+     * * `AdobeCommerce` - AdobeCommerce
+     * * `AmazonSellingPartner` - AmazonSellingPartner
+     * * `Ebay` - Ebay
+     * * `Commercetools` - Commercetools
+     * * `LightspeedRetail` - LightspeedRetail
+     * * `ShipStation` - ShipStation
+     * * `ConstantContact` - ConstantContact
+     * * `Mailgun` - Mailgun
+     * * `Eloqua` - Eloqua
+     * * `Sailthru` - Sailthru
+     * * `Ortto` - Ortto
+     * * `Attentive` - Attentive
+     * * `Kustomer` - Kustomer
+     * * `Dixa` - Dixa
+     * * `Gladly` - Gladly
+     * * `Qualtrics` - Qualtrics
+     * * `Delighted` - Delighted
+     * * `AzureDevOps` - AzureDevOps
+     * * `Rollbar` - Rollbar
+     * * `Opsgenie` - Opsgenie
+     * * `IncidentIo` - IncidentIo
+     * * `Pingdom` - Pingdom
+     * * `Cloudflare` - Cloudflare
+     * * `CosmosDB` - CosmosDB
+     * * `PlanetScale` - PlanetScale
+     * * `SapHana` - SapHana
+     * * `Rippling` - Rippling
+     * * `HiBob` - HiBob
+     * * `Personio` - Personio
+     * * `Deel` - Deel
+     * * `AdpWorkforceNow` - AdpWorkforceNow
+     * * `Paylocity` - Paylocity
+     * * `Gusto` - Gusto
+     * * `CultureAmp` - CultureAmp
+     * * `Lattice` - Lattice
+     * * `SageIntacct` - SageIntacct
+     * * `FreshBooks` - FreshBooks
+     * * `Expensify` - Expensify
+     * * `Ramp` - Ramp
+     * * `Brex` - Brex
+     * * `Coupa` - Coupa
+     * * `SapConcur` - SapConcur
+     * * `Apollo` - Apollo
+     * * `Crunchbase` - Crunchbase
+     * * `ZoomInfo` - ZoomInfo
+     * * `Clari` - Clari
+     * * `Chorus` - Chorus
+     * * `Coda` - Coda
+     * * `Guru` - Guru
+     * * `Dropbox` - Dropbox
+     * * `Docusign` - Docusign
+     * * `PandaDoc` - PandaDoc
+     * * `SapErp` - SapErp
+     * * `SapSuccessFactors` - SapSuccessFactors
+     * * `OracleEbs` - OracleEbs
+     * * `OracleFusion` - OracleFusion
+     * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
 /**
  * * `String` - String
- * `Number` - Number
- * `Boolean` - Boolean
- * `List` - List
- * `Date` - Date
+ * * `Number` - Number
+ * * `Boolean` - Boolean
+ * * `List` - List
+ * * `Date` - Date
  */
 export type InsightVariableTypeEnumApi = (typeof InsightVariableTypeEnumApi)[keyof typeof InsightVariableTypeEnumApi]
 
@@ -1313,12 +1629,12 @@ export interface InsightVariableApi {
      */
     name: string
     /** Variable type. Controls how the value is rendered and substituted in HogQL.
-
-  * `String` - String
-  * `Number` - Number
-  * `Boolean` - Boolean
-  * `List` - List
-  * `Date` - Date */
+     *
+     * * `String` - String
+     * * `Number` - Number
+     * * `Boolean` - Boolean
+     * * `List` - List
+     * * `Date` - Date */
     type: InsightVariableTypeEnumApi
     /** Default value used when a query references this variable. */
     default_value?: unknown
@@ -1356,12 +1672,12 @@ export interface PatchedInsightVariableApi {
      */
     name?: string
     /** Variable type. Controls how the value is rendered and substituted in HogQL.
-
-  * `String` - String
-  * `Number` - Number
-  * `Boolean` - Boolean
-  * `List` - List
-  * `Date` - Date */
+     *
+     * * `String` - String
+     * * `Number` - Number
+     * * `Boolean` - Boolean
+     * * `List` - List
+     * * `Date` - Date */
     type?: InsightVariableTypeEnumApi
     /** Default value used when a query references this variable. */
     default_value?: unknown
@@ -1384,11 +1700,11 @@ export interface PatchedInsightVariableApi {
 export interface QueryTabStateApi {
     readonly id: string
     /**
-              Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-              and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-              ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-              for a user.
-               */
+     *             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+     *             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+     *             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+     *             for a user.
+     *              */
     state?: unknown
 }
 
@@ -1404,23 +1720,23 @@ export interface PaginatedQueryTabStateListApi {
 export interface PatchedQueryTabStateApi {
     readonly id?: string
     /**
-              Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-              and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-              ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-              for a user.
-               */
+     *             Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+     *             and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+     *             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+     *             for a user.
+     *              */
     state?: unknown
 }
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -1492,10 +1808,10 @@ export interface PaginatedDataWarehouseModelPathListApi {
 
 /**
  * * `Cancelled` - Cancelled
- * `Modified` - Modified
- * `Completed` - Completed
- * `Failed` - Failed
- * `Running` - Running
+ * * `Modified` - Modified
+ * * `Completed` - Completed
+ * * `Failed` - Failed
+ * * `Running` - Running
  */
 export type SavedQueryStatusEnumApi = (typeof SavedQueryStatusEnumApi)[keyof typeof SavedQueryStatusEnumApi]
 
@@ -1509,8 +1825,8 @@ export const SavedQueryStatusEnumApi = {
 
 /**
  * * `data_warehouse` - Data Warehouse
- * `endpoint` - Endpoint
- * `managed_viewset` - Managed Viewset
+ * * `endpoint` - Endpoint
+ * * `managed_viewset` - Managed Viewset
  */
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 
@@ -1536,12 +1852,12 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly sync_frequency: string | null
     readonly columns: readonly DataWarehouseSavedQueryMinimalApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
-
-  * `Cancelled` - Cancelled
-  * `Modified` - Modified
-  * `Completed` - Completed
-  * `Failed` - Failed
-  * `Running` - Running */
+     *
+     * * `Cancelled` - Cancelled
+     * * `Modified` - Modified
+     * * `Completed` - Completed
+     * * `Failed` - Failed
+     * * `Running` - Running */
     readonly status: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1556,10 +1872,10 @@ export interface DataWarehouseSavedQueryMinimalApi {
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
-
-  * `data_warehouse` - Data Warehouse
-  * `endpoint` - Endpoint
-  * `managed_viewset` - Managed Viewset */
+     *
+     * * `data_warehouse` - Data Warehouse
+     * * `endpoint` - Endpoint
+     * * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
@@ -1603,8 +1919,8 @@ export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
-
-This mixin is intended to be used with serializers.ModelSerializer subclasses.
+ *
+ * This mixin is intended to be used with serializers.ModelSerializer subclasses.
  */
 export interface DataWarehouseSavedQueryApi {
     readonly id: string
@@ -1623,12 +1939,12 @@ export interface DataWarehouseSavedQueryApi {
     readonly sync_frequency: string | null
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
-
-  * `Cancelled` - Cancelled
-  * `Modified` - Modified
-  * `Completed` - Completed
-  * `Failed` - Failed
-  * `Running` - Running */
+     *
+     * * `Cancelled` - Cancelled
+     * * `Modified` - Modified
+     * * `Completed` - Completed
+     * * `Failed` - Failed
+     * * `Running` - Running */
     readonly status: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -1666,10 +1982,10 @@ export interface DataWarehouseSavedQueryApi {
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
-
-  * `data_warehouse` - Data Warehouse
-  * `endpoint` - Endpoint
-  * `managed_viewset` - Managed Viewset */
+     *
+     * * `data_warehouse` - Data Warehouse
+     * * `endpoint` - Endpoint
+     * * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
@@ -1704,8 +2020,8 @@ export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unkn
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
-
-This mixin is intended to be used with serializers.ModelSerializer subclasses.
+ *
+ * This mixin is intended to be used with serializers.ModelSerializer subclasses.
  */
 export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
@@ -1724,12 +2040,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly sync_frequency?: string | null
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
-
-  * `Cancelled` - Cancelled
-  * `Modified` - Modified
-  * `Completed` - Completed
-  * `Failed` - Failed
-  * `Running` - Running */
+     *
+     * * `Cancelled` - Cancelled
+     * * `Modified` - Modified
+     * * `Completed` - Completed
+     * * `Failed` - Failed
+     * * `Running` - Running */
     readonly status?: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -1767,10 +2083,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
-
-  * `data_warehouse` - Data Warehouse
-  * `endpoint` - Endpoint
-  * `managed_viewset` - Managed Viewset */
+     *
+     * * `data_warehouse` - Data Warehouse
+     * * `endpoint` - Endpoint
+     * * `managed_viewset` - Managed Viewset */
     readonly origin?: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
@@ -1875,11 +2191,11 @@ export interface PatchedDataWarehouseSavedQueryFolderApi {
 
 /**
  * * `CSV` - CSV
- * `CSVWithNames` - CSVWithNames
- * `Parquet` - Parquet
- * `JSONEachRow` - JSON
- * `Delta` - Delta
- * `DeltaS3Wrapper` - DeltaS3Wrapper
+ * * `CSVWithNames` - CSVWithNames
+ * * `Parquet` - Parquet
+ * * `JSONEachRow` - JSON
+ * * `Delta` - Delta
+ * * `DeltaS3Wrapper` - DeltaS3Wrapper
  */
 export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
 

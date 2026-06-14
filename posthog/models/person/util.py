@@ -450,20 +450,68 @@ def get_persons_mapped_by_distinct_id(
     )
 
 
-def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
+def get_distinct_ids_for_persons(
+    team_id: int,
+    person_ids: list[int],
+    *,
+    limit_per_person: int | None = None,
+) -> dict[int, list[str]]:
+    """Map each person_id to its distinct_ids via personhog, falling back to ORM.
+
+    With ``limit_per_person`` set, at most that many distinct_ids are returned per
+    person — bounding the fetch for merge-heavy persons whose full set can be huge.
+    """
+    if not person_ids:
+        return {}
+
+    def orm_fn() -> dict[int, list[str]]:
+        result: dict[int, list[str]] = {}
+        for person_id, distinct_id in (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, person_id__in=person_ids)
+            .values_list("person_id", "distinct_id")
+        ):
+            ids = result.setdefault(person_id, [])
+            if limit_per_person is None or len(ids) < limit_per_person:
+                ids.append(distinct_id)
+        return result
+
+    return _personhog_routed(
+        "get_distinct_ids_for_persons",
+        lambda: _batched_get_distinct_ids_for_persons(team_id, person_ids, limit_per_person=limit_per_person),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _fetch_persons_by_uuids_via_personhog(
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+) -> list[Person]:
     valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
+    # Callers needing only id/uuid (e.g. cohort membership) pass distinct_id_limit=0 to skip
+    # the per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of
+    # rows for merge-heavy persons.
+    if distinct_id_limit == 0:
+        return [proto_person_to_model(p, distinct_ids=[]) for p in valid_persons]
+
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+        team_id, person_ids, limit_per_person=distinct_id_limit
+    )
 
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+def get_persons_by_uuids(
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(
+        team_id, uuids, distinct_id_limit=distinct_id_limit
+    )
     orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
         team_id=team_id, uuid__in=uuids
     )

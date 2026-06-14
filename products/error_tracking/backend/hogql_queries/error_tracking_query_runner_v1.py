@@ -15,7 +15,6 @@ from posthog.hogql.property import property_to_expr
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
 
-from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     build_event_where_exprs,
     build_select_expressions,
@@ -23,6 +22,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     extract_event,
     order_direction,
 )
+from products.error_tracking.backend.issue_serializers import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 

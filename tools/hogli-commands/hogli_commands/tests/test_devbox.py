@@ -855,6 +855,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         region: str = coder.DEFAULT_REGION,
         template: str = coder.DEFAULT_TEMPLATE,
         preset: str = coder.DEFAULT_PRESET,
+        start_app: bool | None = None,
         verbose: bool = False,
     ) -> None:
         captured.update(
@@ -867,6 +868,7 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
                 "region": region,
                 "template": template,
                 "preset": preset,
+                "start_app": str(start_app),
             }
         )
 
@@ -990,6 +992,26 @@ class TestWorkspaceCreation:
         params = _parse_parameter_flags(args)
         assert "claude_oauth_token" not in params
         assert params == expected_params
+
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_create_workspace_forwards_start_app_parameter(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
+
+        coder.create_workspace("devbox-test-user", 100, start_app=start_app)
+
+        params = _parse_parameter_flags(captured["args"])
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in params
+        else:
+            assert params[coder.AUTO_START_APP_PARAMETER] == expected
 
     @pytest.mark.parametrize(
         "outputs, dropped, raises",
@@ -1503,6 +1525,7 @@ class TestDevboxCommands:
             "region": coder.DEFAULT_REGION,
             "template": coder.DEFAULT_TEMPLATE,
             "preset": coder.DEFAULT_PRESET,
+            "start_app": "None",
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1585,6 +1608,28 @@ class TestDevboxCommands:
         assert result.exit_code == 0, result.output
         assert captured["region"] == "eu-central-1"
         assert "region=eu-central-1" in result.output
+
+    @pytest.mark.parametrize(
+        "flag, expected",
+        [("--start-app", "True"), ("--no-start-app", "False")],
+        ids=["enable", "disable"],
+    )
+    def test_devbox_start_forwards_start_app_flag(
+        self, monkeypatch: pytest.MonkeyPatch, flag: str, expected: str
+    ) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", flag])
+
+        assert result.exit_code == 0, result.output
+        assert captured["start_app"] == expected
 
     def test_devbox_start_rejects_unknown_region(self) -> None:
         # click.Choice rejects the value during option parsing, before the
@@ -2195,6 +2240,57 @@ class TestStartExistingWorkspace:
         devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
 
         assert calls == ["start"]
+
+    @pytest.mark.parametrize(
+        "start_app, expected",
+        [(True, "true"), (False, "false"), (None, None)],
+        ids=["enable", "disable", "omit"],
+    )
+    def test_pushes_start_app_param_before_starting(
+        self, monkeypatch: pytest.MonkeyPatch, start_app: bool | None, expected: str | None
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: captured.update(params),
+        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user",
+            {"latest_build": {"status": "stopped"}},
+            start_app=start_app,
+            verbose=False,
+        )
+
+        if expected is None:
+            assert coder.AUTO_START_APP_PARAMETER not in captured
+        else:
+            assert captured == {coder.AUTO_START_APP_PARAMETER: expected}
+
+    @pytest.mark.parametrize("status", ["running", "starting", "stopping"])
+    def test_start_app_flag_never_pushed_unless_stopped(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], status: str
+    ) -> None:
+        """`coder update` stops a running workspace, so the flag must only note, never push."""
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: status)
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: pytest.fail("update_workspace_parameters must not run unless stopped"),
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace(
+            "devbox-test-user", {"latest_build": {"status": status}}, start_app=True, verbose=False
+        )
+
+        assert "was not applied" in capsys.readouterr().out
 
     def test_sync_never_forwards_immutable_workspace_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The pre-start sync must omit `workspace_region`.

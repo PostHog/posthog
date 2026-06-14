@@ -49,6 +49,7 @@ class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
+    VM_BASE = "vm_base"
 
 
 class ExecutionResult(BaseModel):
@@ -77,6 +78,8 @@ class SandboxConfig(BaseModel):
     cpu_cores: float = 4
     disk_size_gb: float = 64
     vm_runtime: bool = False
+    # gVisor only — Modal rejects this under vm_runtime.
+    outbound_domain_allowlist: list[str] | None = None
 
 
 WORKING_DIR = "/tmp/workspace"

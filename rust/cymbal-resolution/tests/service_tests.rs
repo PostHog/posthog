@@ -314,7 +314,7 @@ async fn admitted_items_emit_accepted_before_terminal_outcome() {
 async fn raw_frames_are_resolved_into_done_payload() {
     let raw_frame = sample_raw_frame();
     let mut resolver_frame = sample_resolved_frame(&raw_frame);
-    resolver_frame.frame_id = raw_frame.frame_id(123, 99);
+    resolver_frame.frame_id = raw_frame.frame_id(123, 99, &[]);
     let service = make_service(FakeResolver {
         fail_unhandled: false,
         resolved_frames: vec![resolver_frame],
@@ -525,7 +525,7 @@ fn sample_raw_frame() -> RawFrame {
 
 fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
     Frame {
-        frame_id: raw_frame.frame_id(7, 0),
+        frame_id: raw_frame.frame_id(7, 0, &[]),
         mangled_name: "f".to_string(),
         line: Some(42),
         column: Some(7),

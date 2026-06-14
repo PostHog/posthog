@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.types import SignalData, _render_extra_to_text
+# Deferred: importing temporal.types here runs the signals temporal package __init__, which
+# eager-imports agentic -> report -> back into this module, forming a circular import.
+# SignalData is annotation-only (this module uses `from __future__ import annotations`); the one
+# runtime helper is imported locally in _render_signal_for_research.
+if TYPE_CHECKING:
+    from products.signals.backend.temporal.types import SignalData
 
 
 class ActionabilityChoice(str, Enum):
@@ -100,6 +105,15 @@ class PriorityAssessment(BaseModel):
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
+    dollar_value: float | None = Field(
+        default=None,
+        description=(
+            "Peak estimate (USD) of the real dollar value of merging the fix/change this report leads to. "
+            "Reason internally about a plausible value range first; set this to the most likely point "
+            "within that range (the peak of your belief distribution). Should align with the assigned "
+            "priority. Nullable for backward compatibility only — prefer a best-effort peak over null."
+        ),
+    )
 
     @field_validator("explanation")
     @classmethod
@@ -254,12 +268,20 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
+    from products.signals.backend.temporal.types import _render_extra_to_text  # noqa: PLC0415
+
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     lines.append(f"- **Description:** {signal.content}")
+    if signal.remediation:
+        lines.append("- **Remediation (authoritative guidance — follow it, then verify):**")
+        if agent := signal.remediation.get("agent"):
+            lines.append(f"    - **Guidance:** {agent}")
+        if priority := signal.remediation.get("priority"):
+            lines.append(f"    - **Suggested priority:** {priority}")
     if signal.extra:
         lines.append("#### Extras")
         lines.extend(_render_extra_to_text(signal.extra))
@@ -281,7 +303,9 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
-When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
+
+When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it). Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP, and verify the fix (e.g. query whether the expected events now arrive)."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 
@@ -442,6 +466,18 @@ def build_priority_prompt(
 {previous_priority_context}
 
 Base your priority on **evidence from your research** — quantified user impact, error frequency, or scope of affected code paths — not just the signal descriptions.
+
+## Dollar value estimation
+
+`dollar_value` is internal — do not elaborate on it in `explanation` (users see that field).
+
+Put a **real dollar value** (in USD) on merging the fix or change this report leads to. Treat this as the concrete monetary realization of the priority you just assigned: priority captures both how important and how urgent the change is, and dollar value is downstream of both. A higher-priority report should generally carry a higher dollar value — if your estimate contradicts the priority (e.g. a high estimate on a P4, or a near-zero estimate on a P0), revisit your reasoning before settling on it.
+
+Before setting `dollar_value`, **reason internally about a plausible USD range** where the real value is likely to land given your uncertainty. Then set `dollar_value` to the **peak of that belief distribution** — the single most likely outcome within the range, not the midpoint or a conservative floor.
+
+- **Trace the causal path** from merging the change to business outcomes. Be explicit with yourself about each link: merge → behavior change → user/revenue/cost outcome. Only count value you can actually justify from the evidence; if a link is speculative, discount it heavily.
+- **Quantify from the data you gathered** — affected user counts, conversion or retention deltas, error frequency, request volume, revenue per user, or engineering time saved. Convert these into dollars using the most defensible figures available; state assumptions in your internal reasoning, not in `explanation`.
+- **Factor in value over time.** Some fixes deliver a one-off gain; others compound or recur (e.g. an ongoing error suppressed every day, a conversion lift that persists). Reason about an appropriate horizon and apply **decay** where the value erodes (the issue would likely be fixed another way, traffic shifts, the feature is deprecated). Prefer a present-value-style estimate over a naive perpetual sum.
 
 Respond with a JSON object matching this schema:
 

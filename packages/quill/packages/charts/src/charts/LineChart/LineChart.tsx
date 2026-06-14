@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
+import { drawArea, drawAxes, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -68,7 +68,13 @@ function LineChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
-    const { yScaleType = 'linear', percentStackView = false, showGrid = false, valueDomain } = config ?? {}
+    const {
+        yScaleType = 'linear',
+        percentStackView = false,
+        showGrid = false,
+        showAxisLines = false,
+        valueDomain,
+    } = config ?? {}
 
     const hasMultipleFilledSeries = useMemo(() => {
         const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
@@ -169,6 +175,8 @@ function LineChartInner<Meta = unknown>({
 
             if (showGrid) {
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
+            } else if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
             // Clip data drawing to the plot area so an overlay series with values outside
@@ -207,7 +215,7 @@ function LineChartInner<Meta = unknown>({
 
             ctx.restore()
         },
-        [showGrid, stackedData]
+        [showGrid, showAxisLines, stackedData]
     )
 
     const drawHover = useCallback(

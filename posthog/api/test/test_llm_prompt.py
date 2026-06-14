@@ -783,7 +783,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
     @override_settings(TEST=False)
-    @patch("posthog.api.llm_prompt.capture_internal")
+    @patch("posthog.api.llm_prompt.capture_internal_routed")
     def test_fetch_prompt_by_name_emits_version_metadata(self, mock_capture_internal, mock_feature_enabled):
         self.create_prompt_version(name="test-prompt", version=1, is_latest=False, prompt="v1")
         latest = self.create_prompt_version(name="test-prompt", version=2, is_latest=True, prompt="v2")

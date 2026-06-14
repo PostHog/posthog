@@ -17,13 +17,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment

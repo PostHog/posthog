@@ -197,9 +197,14 @@ def generate_survey_translation(
             f"Questions: {questions}"
         ),
         response_schema=SurveyTranslationResponse,
-        posthog_properties={"ai_product": "survey_translation", "target_language": target_language},
+        posthog_properties={
+            "ai_product": "surveys",
+            "ai_feature": "survey_translation",
+            "target_language": target_language,
+        },
         team_id=team_id,
         distinct_id=distinct_id,
+        billable=True,
     )
 
     translations, question_patches, generated_paths = _filter_existing_fields(

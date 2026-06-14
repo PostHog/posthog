@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import sys
+import shlex
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
+from unittest import mock
 
 import yaml
 from hogli_commands.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
@@ -120,6 +125,60 @@ def create_test_registry() -> MockRegistry:
             "flag_evaluation": ["feature-flags"],
         }
     )
+
+
+class TestSandboxWrapper:
+    @staticmethod
+    def _wrap(proc: dict[str, Any]) -> dict[str, Any]:
+        return MprocsGenerator(MockRegistry({}))._add_sandbox_wrapper(proc)
+
+    def test_flag_off_leaves_command_unwrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "./bin/start-backend"
+        assert "sandbox" not in result  # registry-only selector must never leak to phrocs
+
+    def test_opted_in_proc_without_flag_not_wrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "cargo run --bin x"})
+        assert result["shell"] == "cargo run --bin x"
+        assert "sandbox" not in result
+
+    def test_wraps_when_opted_in(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "./bin/start-frontend", "sandbox": True})
+        assert result["shell"] == "bin/dev-sandbox ./bin/start-frontend"
+        assert "sandbox" not in result
+
+    def test_excluded_proc_left_unwrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "temporal-worker, other-proc")
+        generator = MprocsGenerator(MockRegistry({}))
+        excluded = generator._add_sandbox_wrapper({"shell": "./run-worker", "sandbox": True}, "temporal-worker")
+        assert excluded["shell"] == "./run-worker"
+        assert "sandbox" not in excluded
+        wrapped = generator._add_sandbox_wrapper({"shell": "./bin/start-backend", "sandbox": True}, "backend")
+        assert wrapped["shell"] == "bin/dev-sandbox ./bin/start-backend"
+
+    def test_docker_gate_runs_outside_sandbox(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "bin/wait-for-docker && ./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox ./bin/start-backend"
+
+    def test_gate_hoisted_from_middle_of_chain(self, monkeypatch: Any) -> None:
+        # echo/uv-sync preambles are prepended before the gate, so it is never the
+        # leading segment; it must still be peeled out to run unsandboxed.
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "echo hi && bin/wait-for-docker && ./server", "sandbox": True})
+        assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox " + shlex.quote("echo hi && ./server")
+
+    def test_gates_only_command_not_wrapped(self, monkeypatch: Any) -> None:
+        # Nothing untrusted to sandbox -> must not emit `bin/dev-sandbox ''` (the
+        # wrapper's ${1:?} would reject the empty argument and the service would die).
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "bin/wait-for-docker && bin/wait-for-postgres-tables x", "sandbox": True})
+        assert "bin/dev-sandbox" not in result["shell"]
+        assert result["shell"] == "bin/wait-for-docker && bin/wait-for-postgres-tables x"
 
 
 class TestIntentResolver:
@@ -532,6 +591,33 @@ class TestInfoProcess:
         shell = procs["info"]["shell"]
         for product in expected_products:
             assert product in shell
+
+    @parameterized.expand(
+        [
+            ("disabled", {}, "linux", False, "POSTHOG_DEV_SANDBOX=1"),
+            ("enabled_macos", {"POSTHOG_DEV_SANDBOX": "1"}, "darwin", True, r"\033[32mon"),
+            ("enabled_unsupported", {"POSTHOG_DEV_SANDBOX": "1"}, "linux", False, "unsupported"),
+        ]
+    )
+    def test_info_process_shows_sandbox_status(
+        self,
+        _name: str,
+        env: dict[str, str],
+        platform: str,
+        has_sandbox_exec: bool,
+        expected_substring: str,
+    ) -> None:
+        which_result = "/usr/bin/sandbox-exec" if has_sandbox_exec else None
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(sys, "platform", platform),
+            mock.patch.object(shutil, "which", return_value=which_result),
+        ):
+            if "POSTHOG_DEV_SANDBOX" not in env:
+                os.environ.pop("POSTHOG_DEV_SANDBOX", None)
+            shell = self._generate_with_intents(["feature_flags"])["info"]["shell"]
+        assert "Sandbox:" in shell
+        assert expected_substring in shell
 
     def test_info_process_includes_process_count(self) -> None:
         """Info process shell includes the active process count."""

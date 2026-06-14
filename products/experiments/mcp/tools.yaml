@@ -107,6 +107,23 @@ tools:
                     "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
                     `variant_a`, etc.).
         ui_app: experiment
+        response:
+            include:
+                - id
+                - name
+                - description
+                - type
+                - feature_flag_key
+                - status
+                - archived
+                - start_date
+                - end_date
+                - created_at
+                - parameters
+                - metrics
+                - metrics_secondary
+                - conclusion
+                - conclusion_comment
     experiment-delete:
         operation: experiments_destroy
         enabled: true
@@ -264,6 +281,23 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+        response:
+            include:
+                - id
+                - name
+                - description
+                - type
+                - feature_flag_key
+                - status
+                - archived
+                - start_date
+                - end_date
+                - created_at
+                - parameters
+                - metrics
+                - metrics_secondary
+                - conclusion
+                - conclusion_comment
     experiment-list:
         operation: experiments_list
         enabled: true
@@ -713,6 +747,23 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+        response:
+            include:
+                - id
+                - name
+                - description
+                - type
+                - feature_flag_key
+                - status
+                - archived
+                - start_date
+                - end_date
+                - created_at
+                - parameters
+                - metrics
+                - metrics_secondary
+                - conclusion
+                - conclusion_comment
     experiments-copy-to-project-create:
         operation: experiments_copy_to_project_create
         enabled: false

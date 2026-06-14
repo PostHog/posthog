@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from unittest import mock
-from unittest.mock import AsyncMock
 
 from django.conf import settings
 from django.test import override_settings
@@ -96,8 +95,7 @@ def run_data_import_workflow(mock_stripe_client):
             mock.patch("posthoganalytics.capture_exception", return_value=None),
             mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
             mock.patch(
-                "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                new_callable=AsyncMock,
+                "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                 return_value=False,
             ),
             mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),

@@ -4,6 +4,11 @@ on:
     push:
         branches: [master]
     pull_request:
+    # Required so `MCP Tests Pass` (a required status check) reports on merge
+    # queue entries — without it the queue would wait for the check until timeout.
+    # The jobs themselves skip on merge_group (the suite already runs in full on
+    # every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -22,6 +27,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
+        if: github.event_name != 'merge_group'
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
@@ -262,7 +268,7 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
-            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets'
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge'
             # Required for the feature_flags test_evaluation endpoint, which authenticates
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.

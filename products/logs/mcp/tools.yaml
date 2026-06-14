@@ -18,6 +18,9 @@ tools:
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
         enabled: false
+    endpoints-logs-retrieve:
+        operation: endpoints_logs_retrieve
+        enabled: false
     file-download-batch-exports-logs-retrieve:
         operation: file_download_batch_exports_logs_retrieve
         enabled: false

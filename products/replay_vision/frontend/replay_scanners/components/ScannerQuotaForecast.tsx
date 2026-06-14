@@ -126,28 +126,46 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             </div>
 
             {hasCap && projected !== null && (
-                <Tooltip title={renderBreakdown()}>
-                    <div
-                        className="flex h-3 rounded overflow-hidden bg-fill-tertiary"
-                        role="meter"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={percentLabel}
-                        aria-label={`Projected ${percentLabel}% of monthly observation quota by ${
-                            resetsOn ?? 'period end'
-                        }`}
-                    >
-                        <div className="bg-muted" style={{ width: `${usedPct}%` }} />
+                <>
+                    <Tooltip title={renderBreakdown()}>
                         <div
-                            className={styles.bar}
-                            style={{
-                                width: `${additionalUsagePct}%`,
-                                backgroundImage:
-                                    'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 4px, transparent 4px, transparent 8px)',
-                            }}
-                        />
+                            className="flex h-3 rounded overflow-hidden bg-fill-tertiary"
+                            role="meter"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={percentLabel}
+                            aria-label={`Projected ${percentLabel}% of monthly observation quota by ${
+                                resetsOn ?? 'period end'
+                            }`}
+                        >
+                            <div className="bg-muted" style={{ width: `${usedPct}%` }} />
+                            <div
+                                className={styles.bar}
+                                style={{
+                                    width: `${additionalUsagePct}%`,
+                                    backgroundImage:
+                                        'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 4px, transparent 4px, transparent 8px)',
+                                }}
+                            />
+                        </div>
+                    </Tooltip>
+                    <div className="flex items-center gap-3 text-xs text-muted">
+                        <div className="flex items-center gap-1">
+                            <span className="inline-block w-2.5 h-2.5 rounded-sm bg-muted" />
+                            Used
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span
+                                className={`inline-block w-2.5 h-2.5 rounded-sm ${styles.bar}`}
+                                style={{
+                                    backgroundImage:
+                                        'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 2px, transparent 2px, transparent 4px)',
+                                }}
+                            />
+                            Projected from this scanner
+                        </div>
                     </div>
-                </Tooltip>
+                </>
             )}
 
             {samplingRatio === 0 ? (

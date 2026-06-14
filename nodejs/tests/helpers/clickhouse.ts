@@ -22,6 +22,18 @@ import { fetch } from '~/utils/request'
 import { logger } from '../../src/utils/logger'
 import { delay, escapeClickHouseString } from '../../src/utils/utils'
 
+// Extracts the topic(s) a ClickHouse Kafka engine table consumes from its `engine_full` string.
+// Handles both the keyword form (`kafka_topic_list = 'a,b'`) and the positional form
+// (`Kafka('broker', 'topic', 'group', 'format')`, where the topic is the second quoted argument).
+function extractKafkaTopicList(engineFull: string): string[] {
+    const keyword = engineFull.match(/kafka_topic_list\s*=\s*'([^']+)'/)
+    const raw = keyword ? keyword[1] : ([...engineFull.matchAll(/'([^']*)'/g)].map((m) => m[1])[1] ?? '')
+    return raw
+        .split(',')
+        .map((topic) => topic.trim())
+        .filter(Boolean)
+}
+
 export class Clickhouse {
     private client: ClickHouseClient
 
@@ -87,6 +99,17 @@ export class Clickhouse {
         ])
 
         await Promise.allSettled([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
+    }
+
+    // Topics that this database's Kafka engine tables consume from. Tests pre-create every
+    // subscribed topic so no consumer is left retrying "Can't get assignment" against a missing
+    // topic — those retries saturate ClickHouse's background scheduler and intermittently starve
+    // the consumers the tests depend on (e.g. the ingestion_warnings warmup probe).
+    async getKafkaEngineTopics(): Promise<string[]> {
+        const rows = await this.query<{ engine_full: string }>(
+            `SELECT engine_full FROM system.tables WHERE database = currentDatabase() AND engine = 'Kafka'`
+        )
+        return [...new Set(rows.flatMap((row) => extractKafkaTopicList(row.engine_full)))]
     }
 
     async waitForHealthy(delayMs = 100, maxDelayCount = 300): Promise<void> {

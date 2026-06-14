@@ -1018,6 +1018,25 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.q).toEqual('SELECT 1')
             expect(router.values.hashParams.output_tab).toEqual(OutputTab.Both)
         })
+
+        it('coerces a numeric query hash param to a string instead of crashing splitQueryRanges', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // kea-router decodes `q=42` back to the number 42, which used to reach queryInput unchanged
+            router.actions.push(urls.sqlEditor(), undefined, { q: 42 })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.queryInput).toEqual('42')
+            // Reading splitQueryRanges threw "e.trim is not a function" when queryInput was the number 42
+            expect(() => logic.values.splitQueryRanges).not.toThrow()
+            expect(logic.values.splitQueryRanges).toHaveLength(1)
+        })
     })
 
     describe('source URL parameter', () => {

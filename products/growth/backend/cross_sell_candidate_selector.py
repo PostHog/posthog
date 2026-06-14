@@ -1,8 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from posthog.schema import ProductItemCategory, ProductKey
 
 from posthog.products import Products
@@ -209,6 +207,10 @@ class CrossSellCandidateSelector:
         sampling from the candidate set. Returns an empty list when there
         are no eligible candidates.
         """
+        # this module loads at django.setup() via the file-system product list — numpy at
+        # module scope would put it on every process's startup path
+        import numpy as np  # noqa: PLC0415
+
         weighted = self._get_weighted_candidates()
         if not weighted:
             return []

@@ -54,7 +54,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Store id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="my-store-id",
+                        placeholder="my-store",
+                        caption=(
+                            "Your store subdomain — the `my-store` in `my-store.myshopify.com`. "
+                            "Pasting the full store URL works too."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(

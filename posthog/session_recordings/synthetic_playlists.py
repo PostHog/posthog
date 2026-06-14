@@ -27,7 +27,7 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from products.exports.backend.models.exported_asset import ExportedAsset
 
 try:
-    from ee.models.session_summaries import SingleSessionSummary
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
 
     HAS_EE = True
 except ImportError:

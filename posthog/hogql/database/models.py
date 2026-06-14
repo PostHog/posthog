@@ -1,5 +1,4 @@
 import datetime
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -17,7 +16,7 @@ from posthog.hogql.errors import NotImplementedError, ResolutionError
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
-    from posthog.hogql.ast import LazyJoinType, SelectQuery
+    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
 
@@ -377,7 +376,12 @@ class TableNode(BaseModel):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
+    # A lazy join is described entirely as plain, serializable data: a `resolver` tag naming a
+    # join recipe in the registry, plus JSON-able `resolver_params` for anything the recipe
+    # needs at resolution time. Keeping the LazyJoin free of closures is what makes the whole
+    # Database serializable and cacheable.
+    resolver: str
+    resolver_params: dict[str, Any] = PydanticField(default_factory=dict)
     join_table: Table | str
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
@@ -390,6 +394,13 @@ class LazyJoin(FieldOrTable):
             raise ResolutionError("Database is not set")
 
         return context.database.get_table(self.join_table)
+
+    def resolve_join_to_add(
+        self, join_to_add: "LazyJoinToAdd", context: "HogQLContext", node: "SelectQuery"
+    ) -> "JoinExpr":
+        from posthog.hogql.database.lazy_join_registry import get_lazy_join_resolver  # noqa: PLC0415 — circular import
+
+        return get_lazy_join_resolver(self.resolver)(join_to_add, context, node)
 
 
 class LazyTable(Table):

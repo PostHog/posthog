@@ -12,7 +12,6 @@ import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneTab } from 'scenes/sceneTypes'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -164,8 +163,6 @@ export const maxLogic = kea<maxLogicType>([
                 'conversationHistory',
                 'conversationHistoryLoading',
             ],
-            maxSettingsLogic,
-            ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],

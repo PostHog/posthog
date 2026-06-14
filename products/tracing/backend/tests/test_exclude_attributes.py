@@ -60,7 +60,7 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
     def _run(self, *, exclude: bool) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            orderBy="latest",
+            orderBy="timestamp",
             limit=100,
             excludeAttributes=exclude,
         )

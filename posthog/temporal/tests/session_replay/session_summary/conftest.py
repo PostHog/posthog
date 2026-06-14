@@ -12,11 +12,16 @@ from posthog.temporal.session_replay.session_summary.types.inputs import SingleS
 from posthog.temporal.session_replay.session_summary_group.types import SessionGroupSummaryOfSummariesInputs
 from posthog.temporal.session_replay.session_summary_group.workflow import SessionGroupSummaryInputs
 
+from products.replay.backend.models.session_summaries import (
+    ExtraSummaryContext,
+    SessionSummaryRunMeta,
+    SingleSessionSummary,
+)
+
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tests.conftest import *  # noqa: F401, F403  # legacy: pytest fixtures inherited from session-summaries conftest
-from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
 
 
 @pytest.fixture
@@ -197,7 +202,7 @@ class AsyncRedisTestContext(RedisTestContextBase):
 
 
 @pytest_asyncio.fixture
-async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext, None]:
+async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext]:
     """Async context manager for Redis test setup and cleanup."""
     context = AsyncRedisTestContext()
     try:

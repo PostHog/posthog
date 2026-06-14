@@ -159,6 +159,11 @@ describe('PropertyFilters recent selections', () => {
         expect(screen.getByTestId(`prop-filter-suggested_filters-${index}`)).toHaveTextContent(pattern)
     }
 
+    function expectBareKeyBeforeFullRecent(valuePattern: RegExp, fullPattern: RegExp): void {
+        expect(screen.getByTestId('prop-filter-suggested_filters-0')).not.toHaveTextContent(valuePattern)
+        expectRecentInSuggestedFilters(1, fullPattern)
+    }
+
     function expectRecentCount(count: number): void {
         expect(recentTaxonomicFiltersLogic.values.recentFilters).toHaveLength(count)
     }
@@ -177,6 +182,7 @@ describe('PropertyFilters recent selections', () => {
             searchQuery: 'example',
             itemTestId: 'prop-filter-pageview_urls-0',
             expectedRecentPattern: /Current URL.*∋.*example\.com\/pricing/i,
+            expectedValuePattern: /example\.com\/pricing/i,
         },
         {
             description: 'screen name',
@@ -188,6 +194,7 @@ describe('PropertyFilters recent selections', () => {
             searchQuery: 'Home',
             itemTestId: 'prop-filter-screens-0',
             expectedRecentPattern: /Screen Name.*=.*HomeScreen/i,
+            expectedValuePattern: /HomeScreen/i,
         },
         {
             description: 'email address',
@@ -199,10 +206,19 @@ describe('PropertyFilters recent selections', () => {
             searchQuery: 'alice',
             itemTestId: 'prop-filter-email_addresses-0',
             expectedRecentPattern: /email.*=.*alice@example\.com/i,
+            expectedValuePattern: /alice@example\.com/i,
         },
     ])(
         'shortcut group: selecting a $description records and displays it in recents',
-        async ({ taxonomicGroupTypes, mockOverrides, tabTestId, searchQuery, itemTestId, expectedRecentPattern }) => {
+        async ({
+            taxonomicGroupTypes,
+            mockOverrides,
+            tabTestId,
+            searchQuery,
+            itemTestId,
+            expectedRecentPattern,
+            expectedValuePattern,
+        }) => {
             useSetupMocks(mockOverrides)
             const { onChange } = renderFilters({ taxonomicGroupTypes })
 
@@ -216,7 +232,7 @@ describe('PropertyFilters recent selections', () => {
             await openNewFilter()
 
             await waitFor(() => {
-                expectRecentInSuggestedFilters(0, expectedRecentPattern)
+                expectBareKeyBeforeFullRecent(expectedValuePattern, expectedRecentPattern)
             })
         }
     )
@@ -243,7 +259,7 @@ describe('PropertyFilters recent selections', () => {
         await openNewFilter()
 
         await waitFor(() => {
-            expectRecentInSuggestedFilters(0, /Browser.*=.*Chrome/i)
+            expectBareKeyBeforeFullRecent(/Chrome/i, /Browser.*=.*Chrome/i)
         })
     })
 
@@ -272,7 +288,7 @@ describe('PropertyFilters recent selections', () => {
         await openNewFilter()
 
         await waitFor(() => {
-            expectRecentInSuggestedFilters(0, /Current URL.*∋.*example\.com\/first/i)
+            expectBareKeyBeforeFullRecent(/example\.com\/first/i, /Current URL.*∋.*example\.com\/first/i)
         })
     })
 

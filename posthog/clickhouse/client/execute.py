@@ -1,3 +1,4 @@
+import sys
 import time
 import types
 import logging
@@ -38,7 +39,6 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -363,8 +363,13 @@ def sync_execute(
         elif tags.feature == Feature.CACHE_WARMUP:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
-    # update tags if inside temporal (should not)
-    update_query_tags_with_temporal_info()
+    # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
+    # and being in one implies temporalio is imported — so the gate keeps the helper's module
+    # (aiohttp + pyarrow at module scope) off every other process's startup path.
+    if "temporalio" in sys.modules:
+        from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info  # noqa: PLC0415
+
+        update_query_tags_with_temporal_info()
 
     add_fallback_query_tags(tags)
 

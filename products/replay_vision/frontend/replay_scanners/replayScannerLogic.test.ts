@@ -84,6 +84,27 @@ describe('replayScannerLogic', () => {
                 }),
             })
         })
+
+        it('clears the showScannerErrors flag so stale validation does not bleed into the new type', async () => {
+            logic.actions.submitScanner()
+            await expectLogic(logic).toMatchValues({ showScannerErrors: true })
+            logic.actions.setScannerType('summarizer')
+            await expectLogic(logic).toMatchValues({ showScannerErrors: false })
+        })
+    })
+
+    describe('submit intent', () => {
+        it('advance intent routes to /triggers without calling the API', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            logic.actions.setScannerValues({
+                name: 'Test scanner',
+                scanner_config: { prompt: 'Q?' },
+            })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(logic.values.submitIntent).toBe('save')
+        })
     })
 
     describe('validation errors', () => {

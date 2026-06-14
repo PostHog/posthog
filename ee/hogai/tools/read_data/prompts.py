@@ -29,6 +29,35 @@ Some activity logs are organization-level — they are not tied to a specific pr
 These logs are always captured, but they are only included in query results when the project has the "Include organization-level activity" setting enabled. If the user asks about such changes and no results are found, let them know this setting may need to be turned on in Project settings > Activity log.
 """.strip()
 
+READ_DATA_BK_PROMPT = """
+# Business knowledge document
+
+Read a wider context window from a business knowledge document.
+
+## Use this when:
+- You found a relevant result via business knowledge search and need more surrounding context.
+- You want to see the full section or adjacent chunks around a specific ordinal.
+
+## Parameters:
+- document_id: The document ID from the search result handle `[bk-doc=<id> #<ordinal>]`.
+- around_ordinal: The chunk ordinal to center the read window on.
+- radius: How many chunks before/after to include (0-15, default 5).
+""".strip()
+
+READ_DATA_ACCOUNT_PROMPT = """
+# Account
+
+Retrieves a customer account by its UUID or external id, including its assigned roles (CSM, account executive, account owner), tags, external-system ids, and saved notes.
+
+## Use this when:
+- You need an account's details, role assignments, or saved notes.
+- You need to look up an account before updating it, adding a note, or analyzing its data — reading it returns the context needed to scope an analysis to that account.
+
+## Parameters:
+- account_id: The UUID of the account (optional if external_id is provided).
+- external_id: The account's external id (optional if account_id is provided).
+""".strip()
+
 READ_DATA_PROMPT = """
 Use this tool to read user data created in PostHog. This tool returns data that the user manually creates in PostHog.
 
@@ -101,9 +130,13 @@ Retrieves an experiment by its numeric ID or by its feature flag's key.
 - id: The numeric ID of the experiment (optional if feature_flag_key is provided)
 - feature_flag_key: The key of the experiment's feature flag (optional if id is provided)
 
+{{{account_prompt}}}
+
 {{{activity_log_prompt}}}
 
 {{{billing_prompt}}}
+
+{{{business_knowledge_prompt}}}
 """.strip()
 
 BILLING_INSUFFICIENT_ACCESS_PROMPT = """

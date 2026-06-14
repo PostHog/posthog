@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -221,10 +221,10 @@ export interface NotebookCollabSaveApi {
 
 export type NotebooksListParams = {
     /**
- * Filter for notebooks that match a provided filter.
-                Each match pair is separated by a colon,
-                multiple match pairs can be sent separated by a space or a comma
- */
+     * Filter for notebooks that match a provided filter.
+     *                 Each match pair is separated by a colon,
+     *                 multiple match pairs can be sent separated by a space or a comma
+     */
     contains?: string
     /**
      * The UUID of the Notebook's creator

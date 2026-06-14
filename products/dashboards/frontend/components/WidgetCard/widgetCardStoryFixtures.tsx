@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
-import { WidgetCardContent } from './WidgetCardBody'
+import { WidgetCardContent, WidgetContentFooter } from './WidgetCardBody'
 
 export const TILE_WIDTH = 560
 export const TILE_HEIGHT = 480
@@ -61,28 +61,29 @@ export const mockWidgetMoreMenuItems: LemonMenuItems = [
 export const mockMoreOverlay = <LemonMenuOverlay items={mockWidgetMoreMenuItems} />
 
 export const sampleListBody = (
-    <WidgetCardContent
-        footer={
+    <>
+        <WidgetCardContent>
+            <ul className="m-0 flex list-none flex-col gap-3 p-0 text-sm">
+                <li className="rounded border border-primary p-3">
+                    <div className="font-semibold">Homepage visits</div>
+                    <div className="text-muted">12,480 events · 3,210 users</div>
+                </li>
+                <li className="rounded border border-primary p-3">
+                    <div className="font-semibold">Signup conversion</div>
+                    <div className="text-muted">842 events · 612 users</div>
+                </li>
+                <li className="rounded border border-primary p-3">
+                    <div className="font-semibold">Weekly active users</div>
+                    <div className="text-muted">4,102 users · +8% vs last week</div>
+                </li>
+            </ul>
+        </WidgetCardContent>
+        <WidgetContentFooter>
             <LemonButton type="secondary" size="small">
                 View all
             </LemonButton>
-        }
-    >
-        <ul className="m-0 flex list-none flex-col gap-3 p-0 text-sm">
-            <li className="rounded border border-primary p-3">
-                <div className="font-semibold">Homepage visits</div>
-                <div className="text-muted">12,480 events · 3,210 users</div>
-            </li>
-            <li className="rounded border border-primary p-3">
-                <div className="font-semibold">Signup conversion</div>
-                <div className="text-muted">842 events · 612 users</div>
-            </li>
-            <li className="rounded border border-primary p-3">
-                <div className="font-semibold">Weekly active users</div>
-                <div className="text-muted">4,102 users · +8% vs last week</div>
-            </li>
-        </ul>
-    </WidgetCardContent>
+        </WidgetContentFooter>
+    </>
 )
 
 export const dashboardTileTopHeading = <CardTopHeadingRow typeLabel="Analytics" showTypeLabel dateText="Last 7 days" />

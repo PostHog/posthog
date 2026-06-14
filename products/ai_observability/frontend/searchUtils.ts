@@ -256,7 +256,7 @@ export function findSidebarOccurrences(
 export function findMessageOccurrences(
     events: Array<{ id: string; event?: string; properties: Record<string, any> }>,
     query: string,
-    normalizeMessages: (input: any, defaultRole: string, tools?: any) => any[]
+    normalizeMessages: (input: any, defaultRole: string, tools?: any) => { messages: any[] }
 ): SearchOccurrence[] {
     if (!query.trim()) {
         return []
@@ -279,7 +279,11 @@ export function findMessageOccurrences(
 
         // Input messages
         if (event.event === '$ai_generation') {
-            const normalizedInput = normalizeMessages(event.properties.$ai_input, 'user', event.properties.$ai_tools)
+            const normalizedInput = normalizeMessages(
+                event.properties.$ai_input,
+                'user',
+                event.properties.$ai_tools
+            ).messages
             normalizedInput.forEach((msg, msgIndex) => {
                 // Content
                 const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
@@ -327,7 +331,7 @@ export function findMessageOccurrences(
         // Output messages
         if (event.event === '$ai_generation') {
             const outputToNormalize = event.properties.$ai_output_choices ?? event.properties.$ai_output
-            const normalizedOutput = normalizeMessages(outputToNormalize, 'assistant')
+            const normalizedOutput = normalizeMessages(outputToNormalize, 'assistant').messages
 
             normalizedOutput.forEach((msg, msgIndex) => {
                 // Content

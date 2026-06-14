@@ -9,30 +9,107 @@ const FERNET_VERSION = 0x80
 const FERNET_HEADER_SIZE = 1 + 8 + 16 // version + timestamp + IV
 const HMAC_SIZE = 32
 
+type FernetKey = {
+    signingKey: Buffer
+    encryptionKey: Buffer
+}
+
+type RawSecretKey = string | Uint8Array
+
+function decodeHex(secret: string): Buffer {
+    const normalized = secret.replace(/\s/g, '')
+    if (normalized.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(normalized)) {
+        throw new Error('EncryptionCodec: invalid hex secret key')
+    }
+    return Buffer.from(normalized, 'hex')
+}
+
+function decodeBase64(secret: string): Buffer {
+    if (secret.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(secret)) {
+        throw new Error('EncryptionCodec: invalid base64 secret key')
+    }
+    return Buffer.from(secret, 'base64')
+}
+
+function decodeBase64Urlsafe(secret: string): Buffer {
+    if (secret.length % 4 !== 0 || !/^[A-Za-z0-9_-]*={0,2}$/.test(secret)) {
+        throw new Error('EncryptionCodec: invalid base64-urlsafe secret key')
+    }
+    return Buffer.from(secret, 'base64url')
+}
+
 /**
  * Fernet-compatible encryption codec that matches PostHog's Python EncryptionCodec.
  *
- * The Python side (posthog/temporal/common/codec.py) derives a Fernet key from
- * Django's SECRET_KEY: zero-pad to 32 bytes, base64url-encode. The first 16 bytes
- * of the decoded key are the HMAC-SHA256 signing key, the last 16 bytes are the
- * AES-128-CBC encryption key.
+ * The Python side (posthog/temporal/common/codec.py) derives each Fernet key by
+ * zero-padding to 32 bytes, then base64url-encoding. The first 16 decoded bytes
+ * are the HMAC-SHA256 signing key, and the last 16 are the AES-128-CBC key.
  */
 export class EncryptionCodec implements PayloadCodec {
-    private signingKey: Buffer
-    private encryptionKey: Buffer
+    private primaryKey: FernetKey
+    private fallbackKeys: FernetKey[]
 
-    constructor(secretKey: string) {
+    constructor(secretKey: RawSecretKey, fallbackKeys: RawSecretKey[] = []) {
+        this.primaryKey = this.prepareKey(secretKey)
+        this.fallbackKeys = fallbackKeys.map((fallbackKey) => this.prepareKey(fallbackKey))
+    }
+
+    private loadAsBytes(raw: RawSecretKey): Buffer {
+        if (raw instanceof Uint8Array) {
+            return Buffer.from(raw)
+        }
+
+        const separatorIndex = raw.indexOf(':')
+        if (separatorIndex === -1) {
+            return Buffer.from(raw, 'utf-8')
+        }
+
+        const prefix = raw.slice(0, separatorIndex)
+        const secret = raw.slice(separatorIndex + 1)
+
+        switch (prefix) {
+            case 'hex':
+                return decodeHex(secret)
+            case 'base64-urlsafe':
+                return decodeBase64Urlsafe(secret)
+            case 'base64':
+                return decodeBase64(secret)
+            default:
+                // Legacy format, kept for compatibility with Python's _load_as_bytes.
+                return Buffer.from(raw, 'utf-8')
+        }
+    }
+
+    private prepareKey(secretKey: RawSecretKey): FernetKey {
+        const keyBytes = this.loadAsBytes(secretKey)
+
+        if (keyBytes.length === 0) {
+            throw new Error('EncryptionCodec: empty secret key is not allowed')
+        }
+
+        if (keyBytes.length < 32 && process.env.NODE_ENV === 'production') {
+            throw new Error(
+                `EncryptionCodec: secret key must be at least 32 bytes in production (got ${keyBytes.length})`
+            )
+        }
+        if (keyBytes.length < 32) {
+            console.warn(
+                `EncryptionCodec: secret key is only ${keyBytes.length} bytes; use a 32-byte key in production`
+            )
+        }
+
         // Match Python: pad with null bytes on the left, truncate to 32 bytes
         const padded = Buffer.alloc(32)
-        const keyBytes = Buffer.from(secretKey, 'utf-8')
         if (keyBytes.length > 32) {
             console.warn(`EncryptionCodec: secret key is ${keyBytes.length} bytes, truncating to 32`)
         }
         const padLen = Math.max(32 - keyBytes.length, 0)
         keyBytes.copy(padded, padLen, 0, Math.min(keyBytes.length, 32))
 
-        this.signingKey = padded.subarray(0, 16)
-        this.encryptionKey = padded.subarray(16, 32)
+        return {
+            signingKey: padded.subarray(0, 16),
+            encryptionKey: padded.subarray(16, 32),
+        }
     }
 
     // eslint-disable-next-line @typescript-eslint/require-await
@@ -59,7 +136,7 @@ export class EncryptionCodec implements PayloadCodec {
         const iv = crypto.randomBytes(16)
         const timestamp = BigInt(Math.floor(Date.now() / 1000))
 
-        const cipher = crypto.createCipheriv('aes-128-cbc', this.encryptionKey, iv)
+        const cipher = crypto.createCipheriv('aes-128-cbc', this.primaryKey.encryptionKey, iv)
         const ciphertext = Buffer.concat([cipher.update(data), cipher.final()])
 
         // Fernet token: version || timestamp (big-endian 64-bit) || IV || ciphertext
@@ -69,7 +146,7 @@ export class EncryptionCodec implements PayloadCodec {
         iv.copy(body, 9)
         ciphertext.copy(body, FERNET_HEADER_SIZE)
 
-        const hmac = crypto.createHmac('sha256', this.signingKey).update(body).digest()
+        const hmac = crypto.createHmac('sha256', this.primaryKey.signingKey).update(body).digest()
         const raw = Buffer.concat([body, hmac])
 
         // Python's Fernet expects base64url with padding — use standard base64
@@ -89,16 +166,26 @@ export class EncryptionCodec implements PayloadCodec {
 
         const body = buf.subarray(0, buf.length - HMAC_SIZE)
         const providedHmac = buf.subarray(buf.length - HMAC_SIZE)
-        const computedHmac = crypto.createHmac('sha256', this.signingKey).update(body).digest()
+        let decryptError: Error | undefined
 
-        if (!crypto.timingSafeEqual(providedHmac, computedHmac)) {
-            throw new Error('Fernet HMAC verification failed')
+        for (const key of [this.primaryKey, ...this.fallbackKeys]) {
+            const computedHmac = crypto.createHmac('sha256', key.signingKey).update(body).digest()
+
+            if (!crypto.timingSafeEqual(providedHmac, computedHmac)) {
+                continue
+            }
+
+            const iv = buf.subarray(9, 25)
+            const ciphertext = buf.subarray(FERNET_HEADER_SIZE, buf.length - HMAC_SIZE)
+
+            try {
+                const decipher = crypto.createDecipheriv('aes-128-cbc', key.encryptionKey, iv)
+                return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+            } catch (error) {
+                decryptError = error instanceof Error ? error : new Error(String(error))
+            }
         }
 
-        const iv = buf.subarray(9, 25)
-        const ciphertext = buf.subarray(FERNET_HEADER_SIZE, buf.length - HMAC_SIZE)
-
-        const decipher = crypto.createDecipheriv('aes-128-cbc', this.encryptionKey, iv)
-        return Buffer.concat([decipher.update(ciphertext), decipher.final()])
+        throw decryptError ?? new Error('Fernet HMAC verification failed')
     }
 }

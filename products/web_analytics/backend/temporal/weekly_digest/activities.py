@@ -91,7 +91,7 @@ def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
         page_org_ids, next_cursor = paginate_keyset(qs, input.cursor, input.page_size)
         source = "keyset"
 
-    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size)]
+    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size, strict=False)]
     logger.info(
         "wa digest org batch page",
         source=source,

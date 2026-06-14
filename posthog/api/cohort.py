@@ -45,7 +45,7 @@ from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, Person, User
+from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -55,15 +55,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
-from posthog.models.cohort.util import (
-    cohort_filters_have_values,
-    get_all_cohort_dependencies,
-    get_friendly_error_message,
-)
-from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
@@ -77,6 +68,20 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import (
+    DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    REALTIME_COHORT_MAX_PERSON_COUNT,
+    Cohort,
+    CohortOrEmpty,
+    CohortType,
+)
+from products.cohorts.backend.models.util import (
+    cohort_filters_have_values,
+    get_all_cohort_dependencies,
+    get_friendly_error_message,
+)
+from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,

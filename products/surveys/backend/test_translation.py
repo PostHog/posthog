@@ -72,6 +72,10 @@ def test_generate_survey_translation_preserves_manual_translations(mock_generate
     ]
     assert trace_id == "trace-1"
     assert "description_or_goal" in mock_generate_structured_output.call_args.kwargs["user_prompt"]
+    assert mock_generate_structured_output.call_args.kwargs["billable"] is True
+    assert mock_generate_structured_output.call_args.kwargs["team_id"] == 1
+    assert mock_generate_structured_output.call_args.kwargs["posthog_properties"]["ai_product"] == "surveys"
+    assert mock_generate_structured_output.call_args.kwargs["posthog_properties"]["ai_feature"] == "survey_translation"
 
 
 @patch("products.surveys.backend.translation.generate_structured_output")

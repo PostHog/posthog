@@ -61,14 +61,13 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
-import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
+import { EventContentConversation } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
@@ -418,17 +417,17 @@ export const scene: SceneExport = {
     logic: aiObservabilityTraceLogic,
 }
 
-export function AIObservabilityTraceScene({ tabId }: { tabId?: string }): JSX.Element {
-    const traceLogic = aiObservabilityTraceLogic({ tabId })
+export function AIObservabilityTraceScene(): JSX.Element {
+    const traceLogic = aiObservabilityTraceLogic()
     const { traceId, query, searchQuery } = useValues(traceLogic)
-    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
+    const logicProps = { traceId, query, cachedResults: null, searchQuery }
     const traceDataLogic = aiObservabilityTraceDataLogic(logicProps)
 
     useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={aiObservabilityTraceLogic} props={{ tabId }}>
+            <BindLogic logic={aiObservabilityTraceLogic} props={{}}>
                 <BindLogic logic={aiObservabilityTraceDataLogic} props={logicProps}>
                     <TraceSceneWrapper />
                 </BindLogic>
@@ -507,7 +506,6 @@ function TraceSceneWrapper(): JSX.Element {
                             actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}
@@ -1392,8 +1390,8 @@ function EventContentDisplay({
         return <></>
     }
 
-    const inputMessages = normalizeMessages(input, 'user')
-    const outputMessages = normalizeMessages(output, 'assistant')
+    const inputMessages = normalizeMessages(input, 'user').messages
+    const outputMessages = normalizeMessages(output, 'assistant').messages
 
     if (inputMessages.length > 0 || outputMessages.length > 0) {
         return (
@@ -1700,8 +1698,9 @@ const EventContent = React.memo(
                                                 <>
                                                     {isLLMEvent(event) ? (
                                                         event.event === '$ai_generation' ? (
-                                                            <EventContentGeneration
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                generationEventId={event.id}
                                                                 traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
@@ -1717,20 +1716,25 @@ const EventContent = React.memo(
                                                                 highlightMessageIndex={highlightMessageIndex}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
-                                                            <EventContentDisplayAsync
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput="Embedding vector generated"
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         ) : (
-                                                            <EventContentDisplayAsync
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input_state}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_state ??
-                                                                    event.properties.$ai_error
-                                                                }
+                                                                rawOutput={event.properties.$ai_output_state}
+                                                                errorData={event.properties.$ai_error}
+                                                                httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         )
                                                     ) : (

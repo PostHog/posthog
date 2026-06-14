@@ -35,9 +35,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
-from posthog.models import Cohort, Property, PropertyDefinition, Team
+from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential

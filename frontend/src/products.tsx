@@ -72,8 +72,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTag'),
     AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
     AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
-    AIObservabilitySkills: () => import('../../products/ai_observability/frontend/skills/LLMSkillsScene'),
-    AIObservabilitySkill: () => import('../../products/ai_observability/frontend/skills/LLMSkillScene'),
     AIObservabilityClusters: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClustersScene'),
     AIObservabilityCluster: () =>
@@ -129,11 +127,13 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
-    ReplayVisionTemplates: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerTemplatesScene'),
+    ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
+    Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
@@ -189,8 +189,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
-    '/prompt-management/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
-    '/prompt-management/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -252,11 +250,15 @@ export const productRoutes: Record<string, [string, string]> = {
     '/metrics': ['Metrics', 'metrics'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/templates': ['ReplayVisionTemplates', 'replayVisionTemplates'],
+    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
+    '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/skills': ['Skills', 'skills'],
+    '/skills/:name': ['Skill', 'skill'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
@@ -385,10 +387,6 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
     '/llm-analytics/prompts/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPrompt(params.name), searchParams, hashParams).url,
-    '/llm-analytics/skills': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
-    '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilitySkill(params.name), searchParams, hashParams).url,
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -422,6 +420,17 @@ export const productRedirects: Record<
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    '/mcp-analytics': (_params, searchParams, hashParams) =>
+        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+    '/replay-vision/templates': '/replay-vision/new/template',
+    '/prompt-management/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.skills(), searchParams, hashParams).url,
+    '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/llm-analytics/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.skills(), searchParams, hashParams).url,
+    '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.skill(params.name), searchParams, hashParams).url,
     '/user_interviews': '/user_research',
 }
 
@@ -507,14 +516,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     AIObservabilityPrompt: { projectBased: true, name: 'Prompt', layout: 'app-container', iconType: 'llm_prompts' },
-    AIObservabilitySkills: {
-        projectBased: true,
-        name: 'Skills',
-        description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
-        layout: 'app-container',
-        iconType: 'llm_prompts',
-    },
-    AIObservabilitySkill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     AIObservabilityClusters: {
         projectBased: true,
         name: 'Clusters',
@@ -701,8 +702,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
-    ReplayVisionTemplates: {
-        name: 'Replay vision templates',
+    ReplayVisionScannerEditor: {
+        name: 'Replay vision scanner editor',
         projectBased: true,
         iconType: 'replay_vision',
         layout: 'app-container',
@@ -732,6 +733,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'View detailed session group summary.',
         iconType: 'notebook',
     },
+    Skills: {
+        projectBased: true,
+        name: 'Skills',
+        description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
+    Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -845,14 +854,6 @@ export const productUrls = {
     aiObservabilityEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
     aiObservabilityPrompts: (): string => '/prompt-management/prompts',
     aiObservabilityPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
-    aiObservabilitySkills: (): string => '/prompt-management/skills',
-    aiObservabilitySkill: (
-        name: string,
-        params?: {
-            file?: string
-            version?: number
-        }
-    ): string => combineUrl(`/prompt-management/skills/${name}`, params).url,
     aiObservabilityClusters: (runId?: string): string =>
         runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
     aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
@@ -1156,11 +1157,22 @@ export const productUrls = {
     replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
-    replayVisionTemplates: (): string => '/replay-vision/templates',
+    replayVisionTemplates: (): string => '/replay-vision/new/template',
+    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
+    replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
+    skills: (): string => '/skills',
+    skill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/skills/${name}`, params).url,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -1531,8 +1543,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1606,8 +1616,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1677,8 +1685,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1746,8 +1752,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1857,8 +1861,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1912,8 +1914,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1931,6 +1931,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.REPLAY_VISION,
+        pinnedByDefault: true,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
@@ -1970,34 +1971,14 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Skills',
         intents: [ProductKey.LLM_PROMPTS],
-        category: ProductItemCategory.AI_ENGINEERING,
+        category: ProductItemCategory.TOOLS,
         type: 'llm_skills',
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
-        href: urls.aiObservabilitySkills(),
+        href: urls.skills(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
-        tags: ['beta'],
-        sceneKey: 'AIObservabilitySkills',
-        sceneKeys: [
-            'AIObservability',
-            'AIObservabilityTrace',
-            'AIObservabilitySession',
-            'AIObservabilityUsers',
-            'AIObservabilityPlayground',
-            'AIObservabilityDatasets',
-            'AIObservabilityDataset',
-            'AIObservabilityEvaluations',
-            'AIObservabilityEvaluation',
-            'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
-            'AIObservabilityPrompts',
-            'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
-            'AIObservabilityClusters',
-            'AIObservabilityCluster',
-        ],
+        sceneKey: 'Skills',
+        sceneKeys: ['Skills', 'Skill'],
     },
     {
         path: 'Support',
@@ -2048,8 +2029,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],

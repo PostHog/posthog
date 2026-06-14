@@ -35,7 +35,11 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CreateFeatureFlagSchema = FeatureFlagsCreateBody
+const CreateFeatureFlagSchema = FeatureFlagsCreateBody.extend({
+    is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
+        'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
+    ),
+})
 
 const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
     name: 'create-feature-flag',
@@ -60,6 +64,9 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
         }
         if (params.evaluation_contexts !== undefined) {
             body['evaluation_contexts'] = params.evaluation_contexts
+        }
+        if (params.is_remote_configuration !== undefined) {
+            body['is_remote_configuration'] = params.is_remote_configuration
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
@@ -588,7 +595,12 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
 
 const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true })
     .extend(FeatureFlagsPartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
+        is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
+            'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
+        ),
+    })
 
 const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
     name: 'update-feature-flag',
@@ -613,6 +625,9 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
         }
         if (params.evaluation_contexts !== undefined) {
             body['evaluation_contexts'] = params.evaluation_contexts
+        }
+        if (params.is_remote_configuration !== undefined) {
+            body['is_remote_configuration'] = params.is_remote_configuration
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',
