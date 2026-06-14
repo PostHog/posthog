@@ -4,7 +4,7 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.cloudflare.settings import CLOUDFLARE_ENDPOINTS
@@ -14,12 +14,39 @@ CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"
 # Cloudflare list pages cap at 50 by default; most endpoints allow more.
 PAGE_SIZE = 50
 REQUEST_TIMEOUT_SECONDS = 60
-# 1200 req/5min global API rate limit; 429s carry Retry-After but backoff suffices.
+# 1200 req/5min global API rate limit; a 429 stays rate-limited until the window
+# resets, so we honor the Retry-After header it carries instead of guessing.
 MAX_RETRY_ATTEMPTS = 5
+# Cap how long a single Retry-After can stall us, so a misbehaving header can't
+# pin the activity open for the full 5-minute window times every attempt.
+MAX_RETRY_AFTER_SECONDS = 120
 
 
 class CloudflareRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        # Seconds Cloudflare asked us to wait (from a 429 Retry-After), if any.
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(response: requests.Response) -> float | None:
+    """Cloudflare sends Retry-After as delta-seconds on 429s; ignore other forms."""
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, seconds)
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    """Honor a 429's Retry-After when present, else fall back to jittered backoff."""
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, CloudflareRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return wait_exponential_jitter(initial=1, max=60)(retry_state)
 
 
 def _get_session(api_token: str) -> requests.Session:
@@ -49,7 +76,7 @@ def get_rows(
     @retry(
         retry=retry_if_exception_type((CloudflareRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
+        wait=_wait_strategy,
         reraise=True,
     )
     def fetch(path: str, page: int) -> dict[str, Any]:
@@ -58,7 +85,8 @@ def get_rows(
 
         if response.status_code == 429 or response.status_code >= 500:
             raise CloudflareRetryableError(
-                f"Cloudflare API error (retryable): status={response.status_code}, url={url}"
+                f"Cloudflare API error (retryable): status={response.status_code}, url={url}",
+                retry_after=_parse_retry_after(response) if response.status_code == 429 else None,
             )
 
         if not response.ok:
