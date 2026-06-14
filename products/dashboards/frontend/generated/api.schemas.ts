@@ -7188,6 +7188,8 @@ export interface AccountsQueryApi {
     /** Match accounts whose account owner is any of these user ids (OR semantics). */
     accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
+    /** Match accounts where the requesting user is the CSM or the account executive. The user id is resolved server-side from the authenticated request, never the client. */
+    assignedToCurrentUser?: boolean | null
     /** Match accounts whose CSM is any of these user ids (OR semantics). */
     csm?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
