@@ -46,9 +46,10 @@ MAX_RUNS_PER_TICK = 50
 
 # Per-team slice of the tick budget. Bounds what one team can consume per tick (and thus
 # per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
-# not everyone else's. Sized above the canonical fleet (~16 scouts) so a fully-enrolled
-# team is unaffected.
-MAX_RUNS_PER_TEAM_PER_TICK = 20
+# not everyone else's. Sized well above the canonical fleet (~16 scouts) so a fully-enrolled
+# team is never trimmed; round-robin allocation still keeps any one team from starving the
+# others even when this is close to the global cap.
+MAX_RUNS_PER_TEAM_PER_TICK = 50
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
@@ -220,10 +221,13 @@ def _allocate_tick_budget(due: list[_DueRun]) -> list[_DueRun]:
             )
             del runs[MAX_RUNS_PER_TEAM_PER_TICK:]
 
-    if len(due) > MAX_RUNS_PER_TICK:
+    # Count after per-team trimming — that's the real candidate pool the global cap defers
+    # against, so the warning doesn't fire on runs already dropped by the per-team caps.
+    total_after_team_caps = sum(len(runs) for runs in by_team.values())
+    if total_after_team_caps > MAX_RUNS_PER_TICK:
         logger.warning(
             "signals_scout coordinator: more due than cap, deferring overflow",
-            due=len(due),
+            due=total_after_team_caps,
             cap=MAX_RUNS_PER_TICK,
         )
 

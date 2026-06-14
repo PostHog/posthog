@@ -749,11 +749,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        if not config.enabled and serializer.validated_data.get("enabled"):
+        enabling = not config.enabled and serializer.validated_data.get("enabled")
+        if enabling:
             _reject_if_enabled_cap_reached(team_id, config.skill_name)
         # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
         save_kwargs = {}
-        if not config.enabled and serializer.validated_data.get("enabled"):
+        if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
         descriptions = _skill_descriptions_for(team_id, [instance.skill_name])
