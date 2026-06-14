@@ -11,6 +11,16 @@
 //     product of the level sizes (cheap) and stop expanding once it exceeds
 //     `maxCombinations`. Adapted from upstream antonmedv/finder#84, the fix for
 //     antonmedv/finder#85.
+//   - Append candidates with an iterative `for...of` push instead of
+//     `paths.push(...combinations(stack))`. Spreading a generator's output as
+//     function arguments is itself bounded by the engine's argument-count limit
+//     (~65k), so the spread form would reintroduce a crash if `maxCombinations`
+//     were ever raised past that ceiling — the same failure class the guard
+//     above exists to prevent. The iterative push has no such ceiling and emits
+//     identical candidates in identical order.
+//   - Added an optional `onCombinationsCapped` callback so callers can observe
+//     when the guard trips (and the result degrades to a positional fallback)
+//     without coupling this vendored file to any PostHog logging.
 //
 // MIT License
 //
@@ -95,6 +105,13 @@ export type Options = {
      * above what normal elements ever need, so it only trips on pathological DOMs.
      */
     maxCombinations: number
+    /**
+     * PostHog addition: invoked when `maxCombinations` is exceeded and the search
+     * is cut short — the returned selector then degrades to a positional fallback.
+     * Optional and side-effect-only; lets callers emit a signal without this
+     * vendored file depending on any logging.
+     */
+    onCombinationsCapped?: () => void
 }
 
 /** Finds unique CSS selectors for the given element. */
@@ -181,10 +198,13 @@ function* search(input: Element, config: Options, rootDocument: Element | Docume
         // O(product) materialization below allocates an unbounded array.
         const numCombinations = stack.reduce((product, levelKnots) => product * levelKnots.length, 1)
         if (numCombinations > config.maxCombinations) {
+            config.onCombinationsCapped?.()
             break
         }
 
-        paths.push(...combinations(stack))
+        for (const candidate of combinations(stack)) {
+            paths.push(candidate)
+        }
 
         if (i >= config.seedMinLength) {
             paths.sort(byPenalty)

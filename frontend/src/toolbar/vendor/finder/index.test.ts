@@ -69,4 +69,23 @@ describe('vendored finder', () => {
         expect(document.querySelectorAll(selector)).toHaveLength(1)
         expect(document.querySelector(selector)).toBe(target)
     }, 5_000)
+
+    it('reports via onCombinationsCapped only when the guard trips', () => {
+        document.body.innerHTML = `
+            <section class="alpha bravo charlie">
+                <article class="delta echo foxtrot">
+                    <span class="golf hotel india">target</span>
+                </article>
+            </section>
+        `
+        const target = document.querySelector('.golf')!
+
+        const cappedSpy = jest.fn()
+        finder(target, { onCombinationsCapped: cappedSpy })
+        expect(cappedSpy).not.toHaveBeenCalled()
+
+        const trippedSpy = jest.fn()
+        finder(target, { maxCombinations: 1, onCombinationsCapped: trippedSpy })
+        expect(trippedSpy).toHaveBeenCalled()
+    })
 })
