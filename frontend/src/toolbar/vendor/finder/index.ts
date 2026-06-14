@@ -19,8 +19,10 @@
 //     above exists to prevent. The iterative push has no such ceiling and emits
 //     identical candidates in identical order.
 //   - Added an optional `onCombinationsCapped` callback so callers can observe
-//     when the guard trips (and the result degrades to a positional fallback)
-//     without coupling this vendored file to any PostHog logging.
+//     when the guard trips (cutting the candidate search short, which may force
+//     a positional fallback) without coupling this vendored file to any PostHog
+//     logging. It receives the level count reached so callers can record how
+//     deep the offending element was.
 //
 // MIT License
 //
@@ -106,12 +108,14 @@ export type Options = {
      */
     maxCombinations: number
     /**
-     * PostHog addition: invoked when `maxCombinations` is exceeded and the search
-     * is cut short — the returned selector then degrades to a positional fallback.
-     * Optional and side-effect-only; lets callers emit a signal without this
-     * vendored file depending on any logging.
+     * PostHog addition: invoked when `maxCombinations` is exceeded and the
+     * candidate search is cut short — which may force a positional fallback, but
+     * a stable selector found before the cap can still win. Receives the number
+     * of levels (ancestor depth) reached when the guard tripped. Optional and
+     * side-effect-only; lets callers emit a signal without this vendored file
+     * depending on any logging.
      */
-    onCombinationsCapped?: () => void
+    onCombinationsCapped?: (info: { levels: number }) => void
 }
 
 /** Finds unique CSS selectors for the given element. */
@@ -198,7 +202,7 @@ function* search(input: Element, config: Options, rootDocument: Element | Docume
         // O(product) materialization below allocates an unbounded array.
         const numCombinations = stack.reduce((product, levelKnots) => product * levelKnots.length, 1)
         if (numCombinations > config.maxCombinations) {
-            config.onCombinationsCapped?.()
+            config.onCombinationsCapped?.({ levels: stack.length })
             break
         }
 

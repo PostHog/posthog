@@ -1,5 +1,15 @@
 import { finder } from './index'
 
+// A small class-heavy tree whose first level alone carries enough word-like
+// classes that `maxCombinations: 1` trips the guard immediately.
+const CAPPABLE_HTML = `
+    <section class="alpha bravo charlie">
+        <article class="delta echo foxtrot">
+            <span class="golf hotel india">target</span>
+        </article>
+    </section>
+`
+
 describe('vendored finder', () => {
     afterEach(() => {
         document.body.innerHTML = ''
@@ -31,13 +41,7 @@ describe('vendored finder', () => {
             name: 'honours an explicit maxCombinations cap and still returns a working selector',
             // A cap of 1 forces the guard to trip on the first level, so finder must
             // fall back rather than enumerate selectors — but still produce a match.
-            html: `
-                <section class="alpha bravo charlie">
-                    <article class="delta echo foxtrot">
-                        <span class="golf hotel india">target</span>
-                    </article>
-                </section>
-            `,
+            html: CAPPABLE_HTML,
             targetSelector: '.golf',
             config: { maxCombinations: 1 },
         },
@@ -70,22 +74,30 @@ describe('vendored finder', () => {
         expect(document.querySelector(selector)).toBe(target)
     }, 5_000)
 
-    it('reports via onCombinationsCapped only when the guard trips', () => {
-        document.body.innerHTML = `
-            <section class="alpha bravo charlie">
-                <article class="delta echo foxtrot">
-                    <span class="golf hotel india">target</span>
-                </article>
-            </section>
-        `
+    it.each([
+        { name: 'does not fire onCombinationsCapped under the default cap', config: {}, expectedCalls: 0 },
+        {
+            name: 'fires onCombinationsCapped exactly once when the cap trips',
+            config: { maxCombinations: 1 },
+            expectedCalls: 1,
+        },
+    ])('$name', ({ config, expectedCalls }) => {
+        document.body.innerHTML = CAPPABLE_HTML
         const target = document.querySelector('.golf')!
 
         const cappedSpy = jest.fn()
-        finder(target, { onCombinationsCapped: cappedSpy })
-        expect(cappedSpy).not.toHaveBeenCalled()
+        finder(target, { ...config, onCombinationsCapped: cappedSpy })
 
-        const trippedSpy = jest.fn()
-        finder(target, { maxCombinations: 1, onCombinationsCapped: trippedSpy })
-        expect(trippedSpy).toHaveBeenCalled()
+        expect(cappedSpy).toHaveBeenCalledTimes(expectedCalls)
+    })
+
+    it('passes the level count to onCombinationsCapped when the cap trips', () => {
+        document.body.innerHTML = CAPPABLE_HTML
+        const target = document.querySelector('.golf')!
+
+        const cappedSpy = jest.fn()
+        finder(target, { maxCombinations: 1, onCombinationsCapped: cappedSpy })
+
+        expect(cappedSpy).toHaveBeenCalledWith({ levels: expect.any(Number) })
     })
 })

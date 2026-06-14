@@ -166,14 +166,14 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
                 // that aren't in the PostHog preferred list - they were returned early above
                 return name.startsWith('data-')
             },
-            // the combination guard tripped, so the selector below is a brittle
-            // positional fallback rather than a stable class/attr path - surface it
-            // so we can see how often pathological DOMs hit this
-            onCombinationsCapped: () =>
-                toolbarLogger.warn(
-                    'element_selector',
-                    'finder hit maxCombinations cap, selector degraded to positional fallback'
-                ),
+            // the combination guard tripped and cut the candidate search short -
+            // the selector may degrade to a brittle positional path - record host
+            // and depth so we can see how often and where pathological DOMs hit this
+            onCombinationsCapped: ({ levels }) =>
+                toolbarLogger.warn('element_selector', 'finder hit maxCombinations cap, candidate search truncated', {
+                    host: window.location.host,
+                    levels,
+                }),
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
