@@ -14,6 +14,7 @@ import json
 import shlex
 import shutil
 import socket
+import functools
 import itertools
 import threading
 import subprocess
@@ -956,8 +957,14 @@ def get_default_git_identity() -> tuple[str | None, str | None]:
     return git_name, git_email
 
 
+@functools.cache
 def get_username() -> str:
-    """Get current Coder username."""
+    """Get current Coder username (cached -- it cannot change within one invocation).
+
+    Every helper that builds or parses workspace names calls this, and each
+    uncached call is a `coder` subprocess. Failures raise instead of caching,
+    so an auth retry within the same process still re-probes.
+    """
     user_info = get_coder_user_info()
     username = _first_non_empty_string(user_info.get("username"))
     if username:
@@ -1041,6 +1048,20 @@ def extract_workspace_label(workspace_name: str) -> str | None:
             rest = rest[: -len(reserved) - 1]
             break
     return rest or None
+
+
+def region_from_workspace_name(workspace_name: str) -> str:
+    """Return the region a workspace name encodes via its suffix.
+
+    The name is authoritative -- non-default regions carry a `-{suffix}` and
+    the suffix-free form is the default region (see ``REGION_NAME_SUFFIXES``).
+    Unlike ``get_workspace_region`` this needs no live ``coder`` metadata, so it
+    is correct even for boxes created before the region metadata item existed.
+    """
+    for region, suffix in REGION_NAME_SUFFIXES.items():
+        if suffix and workspace_name.endswith(f"-{suffix}"):
+            return region
+    return DEFAULT_REGION
 
 
 def list_user_workspaces() -> list[dict[str, Any]]:

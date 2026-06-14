@@ -1,8 +1,10 @@
 import { useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
-import { LemonButton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -11,10 +13,15 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
+import { getQueryText } from '../../spanSummary'
 import { absoluteTraceUrl } from '../../traceLinks'
-import { formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
+import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { SpanLogsTab } from './SpanLogsTab'
+import { SpanSummaryHeader } from './SpanSummaryHeader'
+
+type InspectorTab = 'attributes' | 'query' | 'logs' | 'raw'
 
 // Below this the inspector's content (the attribute KVP tables) stops being readable; clamp so a
 // drag can't crush it. The max is a flex `max-w` so a too-wide drag can't starve the waterfall.
@@ -33,9 +40,9 @@ export interface TraceDrawerProps {
 }
 
 // Master-detail split: waterfall on the left drives the span inspector on the right — the same
-// list→detail relationship the span list has with this drawer, one level down. Tabs were
-// deliberately rejected: they'd hide the waterfall while reading a span's attributes, breaking
-// the click-through-spans-and-compare loop.
+// list→detail relationship the span list has with this drawer, one level down. Tabs live *inside*
+// the inspector (Attributes / Logs), not at the drawer level — so the waterfall stays visible while
+// you read a span's attributes or its correlated logs.
 export function TraceDrawer({
     isOpen,
     traceId,
@@ -57,6 +64,7 @@ export function TraceDrawer({
         persistent: true,
     }
     const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
+    const [inspectorTab, setInspectorTab] = useState<InspectorTab>('attributes')
 
     // Resolve the inspected span outside render churn: a resize drag re-renders this component on
     // every mousemove, and these scans are O(spans) — memoize so they only run when data/selection change.
@@ -65,6 +73,11 @@ export function TraceDrawer({
         () => (selectedSpanId ? (spans.find((span) => span.span_id === selectedSpanId) ?? null) : null),
         [spans, selectedSpanId]
     )
+    // Shared with the waterfall so a service is the same color in the bars and the summary header.
+    const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
+
+    // The inspector always shows something: the selected span, falling back to the root.
+    const inspectedSpan = selectedSpan ?? rootSpan
 
     // Gate mounting so a closed drawer holds no react-modal portal (and its listener surface).
     const shouldRender = useKeepMountedWhileOpen(isOpen)
@@ -72,8 +85,12 @@ export function TraceDrawer({
         return null
     }
 
-    // The inspector always shows something: the selected span, falling back to the root.
-    const inspectedSpan = selectedSpan ?? rootSpan
+    // Only DB spans carry a query; the Query tab appears only when one is present.
+    const queryText = inspectedSpan ? getQueryText(inspectedSpan) : null
+    // The Query tab is conditional, so if it's the active tab and the user selects a span without a
+    // query, fall back to Attributes — otherwise activeKey would point at a tab LemonTabs has dropped
+    // and the inspector body would render blank. (Preference is preserved: a DB span re-shows Query.)
+    const activeInspectorTab: InspectorTab = inspectorTab === 'query' && !queryText ? 'attributes' : inspectorTab
 
     return (
         <LemonDrawer
@@ -128,7 +145,54 @@ export function TraceDrawer({
                 >
                     <Resizer {...inspectorResizerProps} />
                     {inspectedSpan ? (
-                        <ExpandedSpanContent span={inspectedSpan} />
+                        <>
+                            <SpanSummaryHeader span={inspectedSpan} serviceColorMap={serviceColorMap} />
+                            <LemonTabs
+                                activeKey={activeInspectorTab}
+                                onChange={setInspectorTab}
+                                data-attr="tracing-inspector-tabs"
+                                tabs={[
+                                    {
+                                        key: 'attributes',
+                                        label: 'Attributes',
+                                        // The summary header carries the headline facts, so the tab
+                                        // shows only the user attributes (no duplicate details table).
+                                        content: <ExpandedSpanContent span={inspectedSpan} showDetails={false} />,
+                                    },
+                                    // Conditional (LemonTabs ignores falsy entries): only DB spans have a query.
+                                    queryText
+                                        ? {
+                                              key: 'query',
+                                              label: 'Query',
+                                              content: (
+                                                  <CodeSnippet
+                                                      language={Language.SQL}
+                                                      wrap
+                                                      maxLinesWithoutExpansion={40}
+                                                  >
+                                                      {queryText}
+                                                  </CodeSnippet>
+                                              ),
+                                          }
+                                        : null,
+                                    {
+                                        key: 'logs',
+                                        label: 'Logs',
+                                        // Not keyed by span: the embedded viewer (keyed by trace_id) and the memoized
+                                        // pinned filter re-query in place when the selected span changes, so a remount
+                                        // would only churn its logics and lose scroll.
+                                        content: <SpanLogsTab span={inspectedSpan} />,
+                                    },
+                                    {
+                                        key: 'raw',
+                                        label: 'Raw',
+                                        // Interactive tree, matching the logs viewer's raw view (LogDetailsModal)
+                                        // for cross-pane consistency. The span as the frontend holds it.
+                                        content: <JSONViewer src={inspectedSpan} collapsed={2} sortKeys />,
+                                    },
+                                ]}
+                            />
+                        </>
                     ) : (
                         <div className="text-muted p-4">No spans in this trace</div>
                     )}

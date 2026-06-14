@@ -5,9 +5,13 @@ import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import quote
 
+from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Prefetch, Q
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -40,7 +44,7 @@ from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
@@ -68,6 +72,7 @@ from products.data_warehouse.backend.data_load.service import (
     is_cdc_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
+    sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
@@ -97,6 +102,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 
@@ -986,6 +992,126 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
     )
 
 
+class SourceSetupSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').",
+    )
+    payload = serializers.DictField(
+        required=False,
+        help_text=(
+            "Connection details as flat keys for the source_type (discover required fields with the wizard "
+            "tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection "
+            "details the user stored via the connect-link page (discover ids with the stored_credentials "
+            "endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth "
+            "integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). "
+            "A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible "
+            "sync defaults."
+        ),
+    )
+    prefix = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.",
+    )
+    description = serializers.CharField(
+        max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+
+
+class SourceSetupWebhookSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text=(
+            "Whether the webhook was registered with the external service. When true, webhook-capable tables "
+            "(including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the "
+            "polling sync defaults and webhook-only tables stay disabled."
+        )
+    )
+    webhook_url = serializers.CharField(
+        allow_null=True, help_text="The PostHog endpoint the external service delivers events to."
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="Why webhook registration failed (e.g. the credentials lack webhook permissions)."
+    )
+    pending_inputs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Webhook input names the user still needs to provide (e.g. a signing secret the external API did not "
+            "return on create). Submit them via the update_webhook_inputs endpoint."
+        ),
+    )
+
+
+class SourceSetupResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the created external data source.")
+    webhook = SourceSetupWebhookSerializer(
+        required=False,
+        help_text=(
+            "Outcome of automatic webhook registration. Only present for sources that support webhooks "
+            "(e.g. Stripe) and have webhook-capable tables."
+        ),
+    )
+
+
+class SourceConnectLinkSerializer(serializers.Serializer):
+    source_type = serializers.CharField(help_text="The source type the link is for.")
+    auth_method = serializers.ChoiceField(
+        choices=["oauth", "credentials"],
+        help_text=(
+            "What the user will do on the connect page: 'oauth' = authorize an account in their browser; "
+            "'credentials' = enter connection details (or pick OAuth where the source offers both). Either "
+            "way secrets never pass through the agent, and the result is always a stored credential id."
+        ),
+    )
+    connect_url = serializers.CharField(
+        help_text=(
+            "Full URL to share with the user. It opens the source's connection form in PostHog — "
+            "credentials never pass through the agent or the chat."
+        )
+    )
+    instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
+
+
+class SourceCredentialCreateSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type these credentials are for (e.g. 'Stripe', 'Postgres').",
+    )
+    payload = serializers.DictField(
+        help_text=(
+            "Connection details as flat keys for the source_type — the same fields the create flow accepts "
+            "(host, port, password, API key, …). Checked against a live connection before being stored."
+        ),
+    )
+
+
+class SourceCredentialSerializer(serializers.Serializer):
+    credential_id = serializers.UUIDField(
+        help_text="Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source."
+    )
+    source_type = serializers.CharField(help_text="The source type the stored credentials are for.")
+    created_at = serializers.DateTimeField(help_text="When the credentials were stored.")
+    expires_at = serializers.DateTimeField(
+        help_text="When the stored credentials expire. Unconsumed credentials are unusable past this time."
+    )
+
+
+def _find_top_level_oauth_field(config: dict) -> dict | None:
+    """Find a top-level OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump.
+
+    Only a top-level OAuth field makes a source OAuth-only (e.g. Hubspot). An OAuth option
+    nested inside a select (e.g. Stripe's auth_method) coexists with credential options, so
+    those sources route to the credentials connect page — its form still offers the OAuth
+    choice alongside API keys.
+    """
+    for field in config.get("fields") or []:
+        if isinstance(field, dict) and field.get("type") == "oauth" and field.get("kind"):
+            return field
+    return None
+
+
 class DatabaseSchemaRequestSerializer(serializers.Serializer):
     """Validate credentials and preview available tables from a remote database.
 
@@ -1028,6 +1154,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "reload",
         "refresh_schemas",
         "database_schema",
+        "setup",
+        "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
         "create_webhook",
@@ -1039,7 +1167,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "disable_cdc",
         "update_cdc_settings",
     ]
-    scope_object_read_actions = ["list", "retrieve", "jobs", "wizard", "webhook_info", "connections", "cdc_status"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "jobs",
+        "wizard",
+        "connect_link",
+        "stored_credentials",
+        "webhook_info",
+        "connections",
+        "cdc_status",
+    ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
@@ -1097,12 +1235,32 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        prefix = serializer.validated_data.get("prefix")
-        description = serializer.validated_data.get("description")
-        source_type = serializer.validated_data["source_type"]
-        access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        created_via = serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API)
+        return self._create_external_data_source(
+            request,
+            source_type=serializer.validated_data["source_type"],
+            payload=serializer.validated_data["payload"],
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
+            created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+        )
 
+    def _create_external_data_source(
+        self,
+        request: Request,
+        *,
+        source_type: str,
+        payload: dict,
+        prefix: str | None,
+        description: str | None,
+        access_method: str,
+        created_via: str,
+        skip_credential_validation: bool = False,
+    ) -> Response:
+        # `skip_credential_validation` is set only by the `setup` action, which has already run the
+        # full config + credential gate (including the SSRF host check) before discovering schemas.
+        # It avoids a second live credential round-trip — and the confusing failure mode where the
+        # first check passes but a transient blip fails the second, leaving nothing created.
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -1143,7 +1301,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         # Strip leading and trailing whitespace
-        payload = serializer.validated_data["payload"]
         if payload is not None:
             for key, value in payload.items():
                 if isinstance(value, str):
@@ -1158,25 +1315,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
             )
         source = SourceRegistry.get_source(source_type_model)
-        is_valid, errors = source.validate_config(payload)
-        if not is_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Invalid source config: {', '.join(errors)}"},
-            )
-        source_config: Config = source.parse_config(payload)
-
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
+        if skip_credential_validation:
+            source_config: Config = source.parse_config(payload)
         else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
-        if not credentials_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
+            error_response, validated_config = self._validate_source_config_and_credentials(
+                source, source_type_model, payload, access_method=access_method
             )
+            if error_response is not None or validated_config is None:
+                return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
+            source_config = validated_config
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -1917,6 +2064,299 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         ]
         return Response(status=status.HTTP_200_OK, data=data)
 
+    @extend_schema(request=SourceSetupSerializer, responses={201: SourceSetupResponseSerializer})
+    @action(methods=["POST"], detail=False)
+    def setup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """One-shot data warehouse source setup.
+
+        Validate credentials, discover available tables, enable them all with sensible sync defaults
+        (incremental where supported, else append, else full refresh), and create the source in a single
+        call — the caller never has to assemble a `schemas` array. For sources that support webhooks
+        (e.g. Stripe), a webhook is auto-registered after creation: on success webhook-capable tables
+        switch to real-time webhook sync (unlocking webhook-only tables); on failure the polling
+        defaults stay in place. For fine-grained table/sync control, use the lower-level
+        `database_schema` + `create` flow instead.
+        """
+        # No database context needed here (unlike the read serializer), and skipping it avoids building
+        # the HogQL Database on this hot path.
+        serializer = SourceSetupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_type = serializer.validated_data["source_type"]
+        payload = dict(serializer.validated_data.get("payload") or {})
+
+        credential: PendingSourceCredential | None = None
+        credential_id = payload.pop("credential_id", None)
+        if credential_id is not None:
+            try:
+                credential = PendingSourceCredential.objects.for_team(self.team_id).get(
+                    id=credential_id, expires_at__gt=timezone.now()
+                )
+            except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
+                )
+            if credential.source_type != source_type:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Stored credential '{credential_id}' is for "
+                        f"'{credential.source_type}', not '{source_type}'"
+                    },
+                )
+            # Stored credentials win over inline keys so an agent can't override what the user entered.
+            payload = {**payload, **credential.payload}
+
+        source_type_model = ExternalDataSourceType(source_type)
+        source = SourceRegistry.get_source(source_type_model)
+
+        error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
+        if error_response is not None or source_config is None:
+            return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            source_schemas = source.get_schemas(source_config, self.team_id)
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        if not source_schemas:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No tables found for this source. Check the credentials and permissions."},
+            )
+
+        # Build the schemas array server-side so the caller never has to. We've already validated
+        # config + credentials above, so `_create_external_data_source` skips that second gate
+        # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
+        payload["schemas"] = build_default_schemas(source_schemas)
+
+        response = self._create_external_data_source(
+            request,
+            source_type=source_type,
+            payload=payload,
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            created_via=ExternalDataSource.CreatedVia.MCP,
+            skip_credential_validation=True,
+        )
+        # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
+        if credential is not None and response.status_code == status.HTTP_201_CREATED:
+            credential.delete()
+
+        if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
+            webhook_result = self._auto_register_webhook(
+                source, source_config, str(response.data["id"]), source_schemas
+            )
+            if webhook_result is not None:
+                response.data["webhook"] = webhook_result
+        return response
+
+    def _auto_register_webhook(
+        self,
+        source: WebhookSource,
+        source_config: Config,
+        source_id: str,
+        source_schemas: list[SourceSchema],
+    ) -> dict | None:
+        """Best-effort webhook auto-registration for one-shot setup.
+
+        The source was just created with polling sync defaults (webhook-only tables disabled). If the
+        source supports webhook auto-creation and the credentials allow it, register the webhook and
+        switch every webhook-capable table to the webhook sync method — unlocking webhook-only tables.
+        Failure never breaks setup: the polling defaults stay in place and webhook-only tables remain
+        disabled, exactly as if the source didn't support webhooks.
+        """
+        webhook_capable = {s.name for s in source_schemas if s.supports_webhooks}
+        if not webhook_capable or source.webhook_template is None:
+            return None
+
+        instance = ExternalDataSource.objects.get(pk=source_id, team_id=self.team_id)
+        eligible_schemas = list(
+            ExternalDataSchema.objects.filter(source=instance, team_id=self.team_id, name__in=webhook_capable).exclude(
+                deleted=True
+            )
+        )
+        if not eligible_schemas:
+            return None
+
+        def failure(error: str | None) -> dict:
+            return {"success": False, "webhook_url": None, "error": error, "pending_inputs": []}
+
+        try:
+            hog_fn_result = get_or_create_webhook_hog_function(
+                team=self.team,
+                source=source,
+                source_id=str(instance.pk),
+                eligible_schemas=eligible_schemas,
+            )
+            if hog_fn_result.error or hog_fn_result.hog_function is None:
+                return failure(hog_fn_result.error)
+
+            registration = create_and_register_webhook(source, source_config, hog_fn_result, self.team_id)
+        except Exception as e:
+            capture_exception(e, {"source_id": source_id, "team_id": self.team_id})
+            return failure(str(e))
+
+        if not registration.success:
+            # The external registration failed (e.g. credentials can't create webhooks), so the
+            # handler would never receive events — remove it and keep the polling defaults.
+            hog_function = hog_fn_result.hog_function
+            hog_function.deleted = True
+            hog_function.enabled = False
+            hog_function.save(update_fields=["deleted", "enabled"])
+            return failure(registration.error)
+
+        for schema in eligible_schemas:
+            newly_enabled = not schema.should_sync
+            schema.sync_type = ExternalDataSchema.SyncType.WEBHOOK
+            schema.should_sync = True
+            schema.save(update_fields=["sync_type", "should_sync"])
+            if newly_enabled:
+                # Webhook-only tables were created disabled, so no sync schedule exists yet. The
+                # schedule still matters for webhook schemas: it ingests the buffered webhook events.
+                try:
+                    sync_external_data_job_workflow(schema, create=True)
+                except Exception as e:
+                    logger.exception(
+                        "Could not create sync schedule for webhook schema", exc_info=e, schema_id=str(schema.id)
+                    )
+
+        return {
+            "success": True,
+            "webhook_url": registration.webhook_url,
+            "error": None,
+            "pending_inputs": list(registration.pending_inputs),
+        }
+
+    def _validate_source_config_and_credentials(
+        self,
+        source: AnySource,
+        source_type_model: ExternalDataSourceType,
+        payload: dict,
+        access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
+    ) -> tuple[Response | None, Config | None]:
+        """Run the config + live credential gate (including the SSRF host check) for a source payload."""
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return (
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid source config: {', '.join(errors)}"},
+                ),
+                None,
+            )
+        source_config: Config = source.parse_config(payload)
+
+        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                cast(Any, source_config), self.team_id, access_method
+            )
+        else:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        if not credentials_valid:
+            return (
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": credentials_error or "Invalid credentials"},
+                ),
+                None,
+            )
+        return None, source_config
+
+    @extend_schema(request=SourceCredentialCreateSerializer, responses={201: SourceCredentialSerializer})
+    @action(methods=["POST"], detail=False)
+    def store_credentials(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Validate and store credentials for a data warehouse source without creating the source.
+
+        Backs the source connect page: the user enters credentials directly in PostHog, they are
+        checked against a live connection, then stashed encrypted in a temporary store. The returned
+        credential id can be passed to `setup` as {'credential_id': <id>} to create the source — so
+        secrets never travel through an agent conversation. The stash is single-use: it is deleted
+        as soon as `setup` consumes it, and expires after 24 hours if never consumed.
+        """
+        serializer = SourceCredentialCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_type = serializer.validated_data["source_type"]
+        payload = dict(serializer.validated_data["payload"])
+
+        for key, value in payload.items():
+            if isinstance(value, str):
+                payload[key] = value.strip()
+
+        source_type_model = ExternalDataSourceType(source_type)
+        source = SourceRegistry.get_source(source_type_model)
+
+        error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
+        if error_response is not None:
+            return error_response
+
+        # Opportunistically purge expired stashes — there is no separate cleanup job.
+        PendingSourceCredential.objects.for_team(self.team_id).filter(expires_at__lte=timezone.now()).delete()
+
+        credential = PendingSourceCredential.objects.create(
+            team_id=self.team_id,
+            source_type=source_type,
+            payload=payload,
+            created_by=cast(User, request.user),
+        )
+
+        return Response(
+            status=status.HTTP_201_CREATED,
+            data=SourceCredentialSerializer(
+                {
+                    "credential_id": credential.id,
+                    "source_type": source_type,
+                    "created_at": credential.created_at,
+                    "expires_at": credential.expires_at,
+                }
+            ).data,
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').",
+            )
+        ],
+        responses=SourceCredentialSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def stored_credentials(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List credentials stored via the source connect page that haven't been consumed yet.
+
+        Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
+        credentials are temporary: they disappear once consumed by `setup` or when they expire.
+        Newest first, so after a user confirms they've finished the connect page, the first entry
+        for the source type is the one to pass to `setup`.
+        """
+        queryset = (
+            PendingSourceCredential.objects.for_team(self.team_id)
+            .filter(expires_at__gt=timezone.now())
+            .order_by("-created_at")
+        )
+        source_type = request.query_params.get("source_type")
+        if source_type:
+            queryset = queryset.filter(source_type=source_type)
+
+        data = [
+            {
+                "credential_id": credential.id,
+                "source_type": credential.source_type,
+                "created_at": credential.created_at,
+                "expires_at": credential.expires_at,
+            }
+            for credential in queryset
+        ]
+        return Response(status=status.HTTP_200_OK, data=SourceCredentialSerializer(data, many=True).data)
+
     @extend_schema(
         request=None,
         responses={
@@ -2452,6 +2892,64 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             results[str(source_type)] = config
 
         return Response(status=status.HTTP_200_OK, data=results)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').",
+            )
+        ],
+        responses=SourceConnectLinkSerializer,
+    )
+    @action(methods=["GET"], detail=False)
+    def connect_link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return a secure browser link for connecting a data warehouse source.
+
+        The link opens a minimal connect page rendering the source's full connection form — OAuth options
+        included — with no table selection and no source creation. The user authenticates in their browser,
+        secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
+        credential id to data-warehouse-source-setup.
+        """
+        source_type = request.query_params.get("source_type")
+        if not source_type:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Missing required parameter: source_type"},
+            )
+        try:
+            source_type_model = ExternalDataSourceType(source_type)
+        except ValueError:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unknown source_type '{source_type}'"},
+            )
+
+        source = SourceRegistry.get_source(source_type_model)
+        oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())
+        action_phrase = (
+            f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"
+        )
+
+        data = {
+            "source_type": source_type,
+            "auth_method": "oauth" if oauth_field else "credentials",
+            "connect_url": (
+                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
+            ),
+            "instructions": (
+                f"Share this link with the user. They {action_phrase} directly in PostHog — never ask them to "
+                "paste credentials or tokens into the chat. The page only stores the connection details; it does "
+                "not create the source. Once the user confirms they're done, find the stored credential id via "
+                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
+                'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
+                "single-use and expire after 24 hours."
+            ),
+        }
+        return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
     @action(methods=["GET"], detail=False)

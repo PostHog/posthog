@@ -14,6 +14,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
+    AccessMethod,
     Feature,
     HogQLFeatures,
     Product,
@@ -25,6 +26,7 @@ from posthog.clickhouse.query_tagging import (
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
     reset_query_tags,
     tag_contains_user_hogql,
     tag_queries,
@@ -693,3 +695,22 @@ class TestAddFallbackQueryTags(BaseTest):
         )
         add_fallback_query_tags(tags)
         assert tags.product == Product.MCP
+
+
+@pytest.mark.parametrize(
+    "access_method,expected",
+    [
+        # Programmatic key auth routes ClickHouse queries to the offline cluster as the API user
+        # (see sync_execute); user-facing auth stays online.
+        (AccessMethod.PERSONAL_API_KEY, True),
+        (AccessMethod.PROJECT_SECRET_API_KEY, True),
+        (AccessMethod.TEAM_SECRET_TOKEN, True),
+        (AccessMethod.OAUTH, False),
+        (AccessMethod.SHARING_TOKEN, False),
+        (AccessMethod.ID_JAG, False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_is_api_key_access_method(access_method, expected):
+    assert is_api_key_access_method(access_method) is expected

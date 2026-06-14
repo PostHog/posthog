@@ -7,6 +7,7 @@ import {
     IconNotification,
     IconPieChart,
     IconPlug,
+    IconTrending,
     IconWarning,
 } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -24,6 +25,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
     issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
     experiment_concluded: <IconFlask className="size-5 text-primary shrink-0" />,
     project_created: <IconFolder className="size-5 text-primary shrink-0" />,
+    usage_spike: <IconTrending className="size-5 text-warning shrink-0" />,
     web_analytics_digest: <IconPieChart className="size-5 text-primary shrink-0" />,
 }
 

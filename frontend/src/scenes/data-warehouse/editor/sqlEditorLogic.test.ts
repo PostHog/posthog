@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1478,6 +1479,99 @@ describe('sqlEditorLogic', () => {
             act()
 
             expect(model.pushEditOperations).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('attaching the dashboard when saving from a dashboard flow', () => {
+        const DASHBOARD_ID = 99
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            { name: 'passes dashboards to insightsApi.create when a dashboardId is set', dashboardId: DASHBOARD_ID },
+            { name: 'does not pass dashboards to insightsApi.create when no dashboardId is set', dashboardId: null },
+        ])('$name', async ({ dashboardId }) => {
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT count() FROM events')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            if (dashboardId !== null) {
+                logic.actions.setDashboardId(dashboardId)
+            }
+
+            logic.actions.saveAsInsightSubmit('My SQL insight')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            const createPayload = createSpy.mock.calls[0][0]
+            expect(createPayload).toMatchObject({ name: 'My SQL insight', saved: true })
+            if (dashboardId !== null) {
+                expect(createPayload.dashboards).toEqual([dashboardId])
+            } else {
+                expect(createPayload).not.toHaveProperty('dashboards')
+            }
+        })
+
+        // The update path unions the target dashboard with the insight's existing links, read
+        // from both dashboard_tiles (preferred) and the legacy dashboards field, deduped.
+        it.each([
+            {
+                name: 'merges the dashboard with existing legacy dashboards links',
+                dashboards: [7],
+                dashboardTiles: [],
+                expected: [7, DASHBOARD_ID],
+            },
+            {
+                name: 'merges the dashboard with existing dashboard_tiles links',
+                dashboards: [],
+                dashboardTiles: [{ id: 1, dashboard_id: 7, deleted: null }],
+                expected: [7, DASHBOARD_ID],
+            },
+            {
+                name: 'does not duplicate a dashboard the insight is already linked to',
+                dashboards: [],
+                dashboardTiles: [{ id: 1, dashboard_id: DASHBOARD_ID, deleted: null }],
+                expected: [DASHBOARD_ID],
+            },
+        ])('$name', async ({ dashboards, dashboardTiles, expected }) => {
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const insightOnDashboards = {
+                ...MOCK_INSIGHT,
+                dashboards,
+                dashboard_tiles: dashboardTiles,
+            } as QueryBasedInsightModel
+            logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'updateTab'])
+                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+
+            logic.actions.setDashboardId(DASHBOARD_ID)
+            logic.actions.updateInsight()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const [, updatePayload] = updateSpy.mock.calls[0]
+            // Order-independent: only the set of linked dashboards matters.
+            expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
         })
     })
 })
