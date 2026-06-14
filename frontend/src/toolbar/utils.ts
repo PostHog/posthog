@@ -170,9 +170,9 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             // positional fallback rather than a stable class/attr path - surface it
             // so we can see how often pathological DOMs hit this
             onCombinationsCapped: () =>
-                captureToolbarException(
-                    new Error('finder hit maxCombinations cap, selector degraded to positional fallback'),
-                    'element_selector_combinations_capped'
+                toolbarLogger.warn(
+                    'element_selector',
+                    'finder hit maxCombinations cap, selector degraded to positional fallback'
                 ),
         })
         return slashDotDataAttrUnescape(foundSelector)
