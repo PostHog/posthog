@@ -182,6 +182,20 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         assert counts.sent == 1
         assert self.mock_create_notification.call_count == 2
 
+    def test_deactivated_users_are_excluded_from_fan_out(self):
+        deactivated_user = User.objects.create_user(
+            email="deactivated@example.com", password="x", first_name="Gone", is_active=False
+        )
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=deactivated_user, level=OrganizationMembership.Level.MEMBER
+        )
+
+        counts = _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
+
+        assert counts.sent == 1
+        self.mock_create_notification.assert_called_once()
+        self.mock_get_flag.assert_called_once()
+
     def test_capture_failure_does_not_change_sent_outcome(self):
         self.mock_ph_scoped_capture.side_effect = RuntimeError("capture pipeline down")
 

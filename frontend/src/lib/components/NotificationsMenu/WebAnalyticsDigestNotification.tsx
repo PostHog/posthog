@@ -1,7 +1,7 @@
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { WebAnalyticsDigestMetadata, WebAnalyticsDigestMetricChange } from '~/types'
+import { WebAnalyticsDigestMetadata, WebAnalyticsDigestMetric, WebAnalyticsDigestMetricChange } from '~/types'
 
 function TrendPill({ change }: { change: WebAnalyticsDigestMetricChange | null }): JSX.Element | null {
     if (!change) {
@@ -25,7 +25,10 @@ export function WebAnalyticsDigestNotification({
     onOpen: (e: React.MouseEvent) => void
     onAskMax: (e: React.MouseEvent) => void
 }): JSX.Element {
-    const [hero, pageviews, sessions] = metadata.metrics
+    const byKey = (key: string): WebAnalyticsDigestMetric | undefined => metadata.metrics.find((m) => m.key === key)
+    const hero = byKey('visitors')
+    const pageviews = byKey('pageviews')
+    const sessions = byKey('sessions')
     const subline = [pageviews, sessions]
         .filter(Boolean)
         .map((metric) => `${metric.value} ${metric.label.toLowerCase()}`)

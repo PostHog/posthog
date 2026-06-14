@@ -307,7 +307,9 @@ def _build_and_send_for_org(org_id: str, flag_key: str, dry_run: bool = False) -
         return counts
 
     send_start = time.monotonic()
-    for membership in OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id):
+    for membership in OrganizationMembership.objects.prefetch_related("user").filter(
+        organization_id=org.id, user__is_active=True
+    ):
         try:
             outcome = _expose_and_notify_user(
                 user=membership.user,
@@ -404,7 +406,7 @@ def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
         page_org_ids, next_cursor = paginate_keyset(Organization.objects.all(), input.cursor, input.page_size)
         source = "keyset"
 
-    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size)]
+    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size, strict=False)]
     logger.info(
         "wa digest notification org batch page",
         source=source,
