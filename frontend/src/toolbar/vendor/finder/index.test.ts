@@ -66,6 +66,7 @@ describe('vendored finder', () => {
 
         const selector = finder(target)
 
+        expect(document.querySelectorAll(selector)).toHaveLength(1)
         expect(document.querySelector(selector)).toBe(target)
-    })
+    }, 5_000)
 })
