@@ -13,18 +13,39 @@ describe('vendored finder', () => {
         return element
     }
 
-    it('generates a unique selector that matches the element', () => {
-        document.body.innerHTML = `
-            <div class="container">
-                <ul class="menu">
-                    <li class="item">first</li>
-                    <li class="target">second</li>
-                </ul>
-            </div>
-        `
-        const target = document.querySelector('.target')!
+    it.each([
+        {
+            name: 'generates a unique selector that matches the element',
+            html: `
+                <div class="container">
+                    <ul class="menu">
+                        <li class="item">first</li>
+                        <li class="target">second</li>
+                    </ul>
+                </div>
+            `,
+            targetSelector: '.target',
+            config: undefined,
+        },
+        {
+            name: 'honours an explicit maxCombinations cap and still returns a working selector',
+            // A cap of 1 forces the guard to trip on the first level, so finder must
+            // fall back rather than enumerate selectors — but still produce a match.
+            html: `
+                <section class="alpha bravo charlie">
+                    <article class="delta echo foxtrot">
+                        <span class="golf hotel india">target</span>
+                    </article>
+                </section>
+            `,
+            targetSelector: '.golf',
+            config: { maxCombinations: 1 },
+        },
+    ])('$name', ({ html, targetSelector, config }) => {
+        document.body.innerHTML = html
+        const target = document.querySelector(targetSelector)!
 
-        const selector = finder(target)
+        const selector = config ? finder(target, config) : finder(target)
 
         expect(document.querySelectorAll(selector)).toHaveLength(1)
         expect(document.querySelector(selector)).toBe(target)
@@ -44,23 +65,6 @@ describe('vendored finder', () => {
         const target = deepestChild()
 
         const selector = finder(target)
-
-        expect(document.querySelector(selector)).toBe(target)
-    })
-
-    it('honours an explicit maxCombinations cap and still returns a working selector', () => {
-        document.body.innerHTML = `
-            <section class="alpha bravo charlie">
-                <article class="delta echo foxtrot">
-                    <span class="golf hotel india">target</span>
-                </article>
-            </section>
-        `
-        const target = document.querySelector('.golf')!
-
-        // A cap of 1 forces the guard to trip on the first level, so finder must
-        // fall back rather than enumerate selectors — but still produce a match.
-        const selector = finder(target, { maxCombinations: 1 })
 
         expect(document.querySelector(selector)).toBe(target)
     })
