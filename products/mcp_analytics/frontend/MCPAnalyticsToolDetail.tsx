@@ -6,7 +6,6 @@ import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemo
 import {
     type ChartTheme,
     MetricCard,
-    type MetricChange,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
@@ -58,25 +57,22 @@ export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     }),
 }
 
-function percentDelta(current: number, previous: number): number | null {
-    if (!previous) {
-        return null
-    }
-    return ((current - previous) / previous) * 100
-}
-
 function StatTile({
     label,
     value,
     formatValue,
-    change,
+    data,
+    theme,
+    color,
     goodDirection,
     loading,
 }: {
     label: string
     value: number
     formatValue: (n: number) => string
-    change?: MetricChange | null
+    data?: number[]
+    theme: ChartTheme
+    color?: string
     goodDirection?: 'up' | 'down'
     loading: boolean
 }): JSX.Element {
@@ -93,9 +89,13 @@ function StatTile({
                         className="text-primary"
                         title={label}
                         value={value}
+                        data={data}
+                        theme={theme}
+                        color={color}
                         formatValue={formatValue}
-                        change={change}
                         goodDirection={goodDirection}
+                        sparklineHeight={40}
+                        sparklineClassName="mt-2 -mx-3 -mb-3"
                     />
                 </CardContent>
             )}
@@ -233,13 +233,26 @@ function formatDurationMs(ms: number | null): string {
     return humanFriendlyDuration(ms / 1000, { secondsFixed: 2 })
 }
 
-function StatTiles({ summary, loading }: { summary: ToolSummary | null; loading: boolean }): JSX.Element {
+// Last 7 days of a daily series, coalescing latency gaps (NaN) to 0 for the sparkline.
+function spark(values: number[]): number[] {
+    return values.slice(-7).map((v) => (Number.isFinite(v) ? v : 0))
+}
+
+function StatTiles({
+    summary,
+    loading,
+    daily,
+    theme,
+}: {
+    summary: ToolSummary | null
+    loading: boolean
+    daily: DailyChartData
+    theme: ChartTheme
+}): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
-    const errorRatePrev = summary && summary.calls_prev ? (summary.errors_prev / summary.calls_prev) * 100 : 0
-    const callsDelta = summary ? percentDelta(calls, summary.calls_prev) : null
-    const errorRateDelta = summary ? percentDelta(errorRate, errorRatePrev) : null
+    const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
 
     return (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" data-quill>
@@ -248,7 +261,9 @@ function StatTiles({ summary, loading }: { summary: ToolSummary | null; loading:
                 loading={loading}
                 value={calls}
                 formatValue={humanFriendlyNumber}
-                change={callsDelta != null ? { value: callsDelta } : null}
+                data={spark(daily.calls)}
+                theme={theme}
+                color={theme.colors[0]}
                 goodDirection="up"
             />
             <StatTile
@@ -256,7 +271,9 @@ function StatTiles({ summary, loading }: { summary: ToolSummary | null; loading:
                 loading={loading}
                 value={errorRate}
                 formatValue={(n) => `${n.toFixed(1)}%`}
-                change={errorRateDelta != null ? { value: errorRateDelta } : null}
+                data={spark(errorRateDaily)}
+                theme={theme}
+                color={theme.colors[4]}
                 goodDirection="down"
             />
             <StatTile
@@ -264,19 +281,40 @@ function StatTiles({ summary, loading }: { summary: ToolSummary | null; loading:
                 loading={loading}
                 value={summary?.p50_ms ?? 0}
                 formatValue={formatDurationMs}
+                data={spark(daily.p50)}
+                theme={theme}
+                color={theme.colors[0]}
+                goodDirection="down"
             />
             <StatTile
                 label="p95 latency"
                 loading={loading}
                 value={summary?.p95_ms ?? 0}
                 formatValue={formatDurationMs}
+                data={spark(daily.p95)}
+                theme={theme}
+                color={theme.colors[0]}
+                goodDirection="down"
             />
-            <StatTile label="Users" loading={loading} value={summary?.users ?? 0} formatValue={humanFriendlyNumber} />
+            <StatTile
+                label="Users"
+                loading={loading}
+                value={summary?.users ?? 0}
+                formatValue={humanFriendlyNumber}
+                data={spark(daily.users)}
+                theme={theme}
+                color={theme.colors[0]}
+                goodDirection="up"
+            />
             <StatTile
                 label="Sessions"
                 loading={loading}
                 value={summary?.conversations ?? 0}
                 formatValue={humanFriendlyNumber}
+                data={spark(daily.sessions)}
+                theme={theme}
+                color={theme.colors[6]}
+                goodDirection="up"
             />
         </div>
     )
@@ -484,13 +522,13 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />
-                <StatTiles summary={summary} loading={summaryLoading} />
+                <StatTiles summary={summary} loading={summaryLoading} daily={dailyChartData} theme={theme} />
             </div>
 
             <LemonDivider />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
-                <SectionHeader title="Reliability" subtitle="Last 7 days" />
+                <SectionHeader title="Reliability" subtitle="Last 30 days" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <TrendChart
                         title="Calls and errors"

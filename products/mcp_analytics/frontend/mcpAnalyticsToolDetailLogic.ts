@@ -15,8 +15,6 @@ export interface ToolSummary {
     p95_ms: number | null
     users: number
     conversations: number
-    calls_prev: number
-    errors_prev: number
 }
 
 export interface DescriptionRevision {
@@ -35,6 +33,8 @@ export interface DailyToolStat {
     errors: number
     p50: number
     p95: number
+    users: number
+    sessions: number
 }
 
 export interface DailyChartData {
@@ -43,9 +43,19 @@ export interface DailyChartData {
     errors: number[]
     p50: number[]
     p95: number[]
+    users: number[]
+    sessions: number[]
 }
 
-const EMPTY_CHART_DATA: DailyChartData = { labels: [], calls: [], errors: [], p50: [], p95: [] }
+const EMPTY_CHART_DATA: DailyChartData = {
+    labels: [],
+    calls: [],
+    errors: [],
+    p50: [],
+    p95: [],
+    users: [],
+    sessions: [],
+}
 
 // Raw HogQL result rows (positional columns), rendered by the tool detail tables.
 export type ResultRows = unknown[][]
@@ -69,6 +79,8 @@ function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
         errors: at.map((r) => r?.errors ?? 0),
         p50: at.map((r) => (r ? r.p50 : NaN)),
         p95: at.map((r) => (r ? r.p95 : NaN)),
+        users: at.map((r) => r?.users ?? 0),
+        sessions: at.map((r) => r?.sessions ?? 0),
     }
 }
 
@@ -105,17 +117,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         kind: NodeKind.HogQLQuery,
                         query: `
 SELECT
-    countIf(timestamp >= now() - INTERVAL 7 DAY) AS calls,
-    countIf(timestamp >= now() - INTERVAL 7 DAY AND toBool(properties.$mcp_is_error)) AS errors,
-    round(quantileIf(0.5)(toFloat(properties.$mcp_duration_ms), timestamp >= now() - INTERVAL 7 DAY)) AS p50_ms,
-    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp >= now() - INTERVAL 7 DAY)) AS p95_ms,
-    uniqIf(distinct_id, timestamp >= now() - INTERVAL 7 DAY) AS users,
-    uniqIf(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)), timestamp >= now() - INTERVAL 7 DAY) AS conversations,
-    countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY) AS calls_prev,
-    countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY AND toBool(properties.$mcp_is_error)) AS errors_prev
+    count() AS calls,
+    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50_ms,
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_ms,
+    uniq(distinct_id) AS users,
+    uniq(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))) AS conversations
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 14 DAY
+    AND timestamp >= now() - INTERVAL 7 DAY
     AND ${toolFilter}
 `,
                     })) as HogQLQueryResponse
@@ -130,8 +140,6 @@ WHERE event = 'mcp_tool_call'
                         p95_ms: row[3] == null ? null : Number(row[3]),
                         users: Number(row[4]) || 0,
                         conversations: Number(row[5]) || 0,
-                        calls_prev: Number(row[6]) || 0,
-                        errors_prev: Number(row[7]) || 0,
                     }
                 },
             },
@@ -202,10 +210,12 @@ SELECT
     count() AS calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    uniq(distinct_id) AS users,
+    uniq(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))) AS sessions
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
+    AND timestamp >= now() - INTERVAL 30 DAY
     AND ${toolFilter}
 GROUP BY day
 ORDER BY day
@@ -217,6 +227,8 @@ ORDER BY day
                         errors: Number(r[2] ?? 0),
                         p50: Number(r[3] ?? 0),
                         p95: Number(r[4] ?? 0),
+                        users: Number(r[5] ?? 0),
+                        sessions: Number(r[6] ?? 0),
                     }))
                 },
             },
