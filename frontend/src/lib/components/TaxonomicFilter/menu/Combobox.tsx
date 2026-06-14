@@ -999,34 +999,31 @@ interface RowProps {
 }
 
 /**
- * Resolve a row's three normalized cells:
+ * Resolve a row's two normalized cells:
  *   - name:     human-friendly label (e.g. "Pageview", "/checkout")
- *   - value:    raw underlying value when distinct from the name
- *               (e.g. "$pageview", "localhost:8010")
  *   - category: group name shown as an uppercase tag at the bottom
  *
- * URLs split into path (name) + host (value); friendly definitions
- * surface the friendly label as the name and the raw `$key` as the
- * value; everything else uses the entry name as the name and omits
- * the value cell.
+ * URLs surface their path tail as the name; friendly definitions surface
+ * the friendly label; everything else uses the entry name. The raw
+ * underlying value ("Sent as") now lives in the preview pane, not the row.
  */
-function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+function resolveRowCells(entry: MenuFilterEntry): { name: string; category: string } {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
     const url = parseUrl(entry.name)
     if (url) {
-        return { name: url.pathTail, value: url.host, category: entry.group.name }
+        return { name: url.pathTail, category: entry.group.name }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
-        return { name: friendly, value: entry.name, category: entry.group.name }
+        return { name: friendly, category: entry.group.name }
     }
     return { name: entry.name, category: entry.group.name }
 }
 
 function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSelect }: RowProps): JSX.Element {
-    const { name, value, category } = resolveRowCells(entry)
+    const { name, category } = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
     return (
@@ -1060,10 +1057,6 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
-
-                <span className="font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
-                    {value || <span className="opacity-50">N/A</span>}
-                </span>
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
             {recency && (
