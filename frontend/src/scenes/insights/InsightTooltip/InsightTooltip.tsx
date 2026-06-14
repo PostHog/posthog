@@ -249,11 +249,8 @@ export function InsightTooltip({
             columns.push(closeColumn(onClose))
         }
 
-        const hasComparison = seriesData.some((s) => s.compare_label !== undefined)
-        const shouldShowTotal = showTotal === true && !hasComparison
-
         const displaySource = dataSource.slice(0, rowCutoff)
-        if (shouldShowTotal) {
+        if (showTotal) {
             const columnTotals: Record<number, number> = {}
             displaySource.forEach((row) => {
                 row.seriesData.forEach((s) => {

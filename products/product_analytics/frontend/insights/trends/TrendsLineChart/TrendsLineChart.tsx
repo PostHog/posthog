@@ -23,6 +23,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { canShowTrendsTotal } from '../shared/canShowTrendsTotal'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
@@ -163,17 +164,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     formula={formula}
                     showPercentView={isStickiness}
                     isPercentStackView={isPercentStackView}
-                    showTotal={
-                        !isPercentStackView &&
-                        !isStickiness &&
-                        !formula &&
-                        ctx.seriesData.every(
-                            (s) =>
-                                !s.series.meta?.action?.math ||
-                                s.series.meta.action.math === 'total' ||
-                                s.series.meta.action.math === 'sum'
-                        )
-                    }
+                    showTotal={canShowTrendsTotal(ctx.seriesData, {
+                        isStickiness,
+                        isPercentStackView,
+                        formula,
+                    })}
                     baseCurrency={baseCurrency}
                     groupTypeLabel={resolvedGroupTypeLabel}
                     formatCompareLabel={context?.formatCompareLabel}

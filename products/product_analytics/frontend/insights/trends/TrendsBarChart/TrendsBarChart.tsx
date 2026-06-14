@@ -32,6 +32,7 @@ import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { canShowTrendsTotal } from '../shared/canShowTrendsTotal'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
@@ -358,17 +359,11 @@ export function TrendsBarChart({
                     formula={formula}
                     showPercentView={isStickiness}
                     isPercentStackView={isPercentStackView}
-                    showTotal={
-                        !isPercentStackView &&
-                        !isStickiness &&
-                        !formula &&
-                        tooltipCtx.seriesData.every(
-                            (s) =>
-                                !s.series.meta?.action?.math ||
-                                s.series.meta.action.math === 'total' ||
-                                s.series.meta.action.math === 'sum'
-                        )
-                    }
+                    showTotal={canShowTrendsTotal(tooltipCtx.seriesData, {
+                        isStickiness,
+                        isPercentStackView,
+                        formula,
+                    })}
                     baseCurrency={baseCurrency}
                     groupTypeLabel={resolvedGroupTypeLabel}
                     formatCompareLabel={context?.formatCompareLabel}
