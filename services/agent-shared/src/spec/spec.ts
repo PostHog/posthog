@@ -339,8 +339,7 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
      * Dispatch path: when the model calls the tool, the runner emits a
      * `client_tool_call` session event carrying the args + a call_id;
      * the client executes locally and POSTs the result to
-     * `/sessions/<id>/client_tool_result`. See
-     * docs/agent-platform/plans/agent-console-website.md §8.
+     * `/sessions/<id>/client_tool_result`.
      */
     z.object({
         kind: z.literal('client'),
@@ -407,7 +406,7 @@ export const McpToolEntrySchema = z.union([
  * Runtime MCP servers an agent connects to at session start. The runner opens
  * one client per entry, exposes each remote tool as a regular `AgentTool` to
  * pi-ai (name-prefixed `<id>__<toolName>`), and routes dispatch back through
- * the open client. See `docs/agent-platform/plans/runtime-mcps.md`.
+ * the open client.
  *
  * Single shape today: a third-party MCP server reachable over HTTP.
  * `auth.integration` plugs into PostHog's integrations registry (OAuth-style);
@@ -558,8 +557,6 @@ export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high',
 
 /**
  * Author-facing knobs for the framework-injected system-prompt preamble.
- * See docs/agent-platform/plans/framework-system-prompt.md for the
- * section catalogue and rationale.
  */
 export const FrameworkPromptSectionSchema = z.enum([
     /** Plan §3.1 — meta-tool decision rules. */
@@ -592,10 +589,9 @@ export const FrameworkPromptConfigSchema = z.object({
 })
 
 /**
- * Per-agent resumability config — the v0 slice of
- * `docs/agent-platform/plans/long-running-sessions.md`. v0 covers only the
+ * Per-agent resumability config. v0 covers only the
  * per-agent TTL on `completed` sessions; compaction + `suspended` state
- * are deferred per the plan refresh.
+ * are deferred.
  *
  * `enabled: false` (the default) preserves today's behaviour: the janitor
  * closes idle `completed` sessions at the platform-wide
@@ -893,8 +889,7 @@ export interface AgentSession {
      */
     trigger_metadata: Record<string, unknown> | null
     /**
-     * Session state. See docs/agent-platform/plans/_TODO.md (system-prompt
-     * fleshing out) and the session-restart redesign for the contract:
+     * Session state. See the session-restart redesign for the contract:
      *
      *   queued    — awaiting a worker claim.
      *   running   — claimed; worker actively driving the turn.

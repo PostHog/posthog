@@ -1,8 +1,7 @@
 /**
  * Approval-gated tool helpers for the driver.
  *
- * Two halves of the loop documented in
- * docs/agent-platform/plans/approval-gated-tools.md:
+ * Two halves of the loop:
  *
  *   - `queueApprovalResult` is what a gated tool's `execute` runs instead of
  *     the real tool: it upserts an `agent_tool_approval_request` row and

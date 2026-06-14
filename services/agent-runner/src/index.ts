@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     // in that team's LLM Analytics with zero per-agent config; `phc_`-less teams
     // fall back to the global key. Every event carries
     // `$ai_origin: 'agent_platform_runner'` for the future signed-origin billing
-    // filter. See docs/agent-platform/plans/platform-llm-analytics.md.
+    // filter.
     let analytics: AnalyticsSink = new NoopAnalyticsSink()
     if (config.posthogAnalyticsHost || config.posthogAnalyticsApiKey) {
         analytics = new RoutingAnalyticsSink({

@@ -4,8 +4,6 @@
  * Extends `PlatformConfigSchema` with the worker-loop knobs (concurrency,
  * model selection, per-provider API keys). Read once at boot in `index.ts`;
  * everything else inside the service receives the typed `Config`.
- *
- * Plan + rationale: `docs/agent-platform/plans/typed-config-loader.md`.
  */
 
 import { z } from 'zod'

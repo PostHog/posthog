@@ -1,6 +1,5 @@
 /**
- * Credential broker — Pattern B (per
- * `docs/agent-platform/plans/agent-concierge.md` design): the
+ * Credential broker — Pattern B: the
  * `SessionPrincipal` carries identity only; **tokens never land on the
  * session row or principal.** The verifier at /run + /send produces a
  * credential map alongside the principal; that map gets written here,

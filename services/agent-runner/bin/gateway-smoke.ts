@@ -30,8 +30,6 @@
  *   pnpm tsx bin/gateway-smoke.ts probe
  *   POSTHOG_AI_GATEWAY_URL=http://localhost:8765/v1 pnpm tsx bin/gateway-smoke.ts probe
  *   ECHO_STATUS=402 pnpm tsx bin/gateway-smoke.ts echo
- *
- * See docs/agent-platform/plans/ai-gateway-integration.md.
  */
 
 import { randomUUID } from 'node:crypto'

@@ -1,8 +1,7 @@
 /**
  * Approval-gated tools: real e2e contract for v0.
  *
- * Pins the wire-level behaviour described in
- * docs/agent-platform/plans/approval-gated-tools.md. The seven cases below
+ * Pins the wire-level behaviour for approval-gated tools. The seven cases below
  * collectively cover the loop:
  *
  *   model proposes a gated call

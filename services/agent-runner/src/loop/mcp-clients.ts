@@ -8,7 +8,7 @@
  *     `buildAgentTools` owns the translation into `AgentToolResult`.
  *   - `close()` — best-effort transport shutdown.
  *
- * Auth resolution — see `docs/agent-platform/plans/runtime-mcps.md`:
+ * Auth resolution:
  *   - `auth.integration` → `integrations[ref].access_token` →
  *     `Authorization: Bearer <token>`.
  *   - `secrets[]` → resolve each name via `secrets[NAME]`; substitute
@@ -148,9 +148,6 @@ export type McpTransportFactory = (target: { url: string; headers: Record<string
  * validator, every `auth.integration`-bearing ref is **refused at open
  * time** so a malicious spec author can't redirect a team's OAuth token
  * to an arbitrary URL.
- *
- * See `docs/agent-platform/plans/runtime-mcps.md` "Auth resolution" and
- * the PR-6 security thread for the threat model.
  */
 export type IntegrationHostValidator = (integrationRef: string, url: URL) => boolean
 

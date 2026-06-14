@@ -39,8 +39,7 @@ cron trigger, native tools, both prose (`memory-*`) and tabular
 
 - **Reach private SaaS data.** Public GitHub / Zendesk / etc. is
   fine via `web-fetch`; private dashboards need an external MCP
-  or a custom API tool. See [`runtime-mcps.md`](../../../../../docs/agent-platform/plans/runtime-mcps.md)
-  for the path.
+  or a custom API tool.
 - **Drive a UI.** This is a fire-and-write agent; it produces a
   markdown file + Slack post. The user reads from those, not from
   an agent-console session.
@@ -102,8 +101,7 @@ pnpm --filter @posthog/agent-tests test cases/example-wake-me-up
 - **Skill templates for the briefing shape.** The two output
   skills (`briefing-template`, `slack-post-format`) are good
   candidates for the shared template registry — they're not
-  agent-specific. Tracked in
-  [`skill-templates.md`](../../../../../docs/agent-platform/plans/skill-templates.md).
+  agent-specific.
 - **Custom relevance rules.** The user's dotfile version reads a
   `relevance.yml` file with natural-language rules. This bundle
   uses defaults; wiring user-maintained rules in memory is

@@ -137,8 +137,7 @@ export interface AgentToolDeps {
      * `<prefix>__<remoteToolName>`. Lifetime is owned by the worker
      * (`acquire` at session start → `release` in the worker's `finally`).
      * Absent or empty → no MCP tools are added; the model sees only the
-     * native/custom/client surface. See
-     * `docs/agent-platform/plans/runtime-mcps.md` for the wider design.
+     * native/custom/client surface.
      */
     mcpClients?: OpenedMcp[]
     /**

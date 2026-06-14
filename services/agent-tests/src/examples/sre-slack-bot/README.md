@@ -232,26 +232,22 @@ pnpm --filter @posthog/agent-tests test cases/example-sre-bot
 
 ## Gaps that constrain this version
 
-These come from
-[`docs/agent-platform/plans/_APP_IDEAS.md`](../../../../../docs/agent-platform/plans/_APP_IDEAS.md).
 Each one is a follow-up that would make the bot meaningfully more
 useful:
 
 - **incident.io as a typed runtime MCP** rather than raw HTTP calls.
   incident.io ships an MCP server; we'd swap `@posthog/http-request`
   for a `kind: 'external'` McpRef once
-  [`runtime-mcps-auth-discovery.md`](../../../../../docs/agent-platform/plans/runtime-mcps-auth-discovery.md)
+  runtime MCP auth discovery
   lands and the per-tool approval gating it adds lets us mark
   "open new incident" as `requires_approval: true` directly on the
   tool ref. v0 here keeps the playbook narrow enough that raw HTTP
   is fine.
 - **Private-network MCP support (Grafana / k8s).** Public MCPs work
-  today via the `kind: 'external'` McpRef
-  ([`runtime-mcps.md`](../../../../../docs/agent-platform/plans/runtime-mcps.md));
+  today via the `kind: 'external'` McpRef;
   Grafana and Kubernetes typically aren't publicly reachable.
   Cloudflare Tunnel is the planned v1 path; `kind: 'tailscale'`
-  is parked
-  ([`tailscale-mcps.md`](../../../../../docs/agent-platform/plans/tailscale-mcps.md)).
+  is parked.
 - **Runbook corpus retrieval** — `@posthog/web-fetch` works for a
   single URL but the bot needs an index over the whole runbook
   tree. Could mirror periodically into the `memory-*` store via a

@@ -123,7 +123,7 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
 
     // Tool / skill bundle-presence checks used to live here (orphan
     // detection, missing source / schema). With the typed authoring API
-    // (`docs/agent-platform/plans/typed-bundle-authoring-api.md`) those
+    // those
     // failures are structurally impossible: `spec.tools[]` /
     // `spec.skills[]` are server-derived at freeze from the actual typed
     // resources in the bundle, so a missing-file failure means the freeze

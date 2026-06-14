@@ -886,7 +886,7 @@ describe('janitor HTTP', () => {
      *     repeated calls were the dominant cost.
      *
      * Both invariants previously broke and burned 30s+ on a 15-file bundle,
-     * timing out the Django proxy mid-freeze. See BUILD_NOTES.md I1, I4.
+     * timing out the Django proxy mid-freeze.
      */
     describe('perf regressions', () => {
         /**

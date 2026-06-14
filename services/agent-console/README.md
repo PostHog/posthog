@@ -7,9 +7,6 @@ shipped by [`@posthog/agent-chat/fixtures`](../../packages/agent-chat/src/fixtur
 No OAuth, no real API calls, no SSE. Design review happens in Storybook
 before any backend wiring lands.
 
-See [docs/agent-platform/plans/agent-console-website.md](../../docs/agent-platform/plans/agent-console-website.md)
-for the full design + phased rollout.
-
 ## Run it
 
 ```bash

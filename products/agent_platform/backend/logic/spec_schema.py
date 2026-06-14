@@ -330,8 +330,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "default": [],
             "type": "array",
             # Single flat shape — third-party MCP server reachable over HTTP.
-            # The `kind: 'agent'` agent-to-agent variant was removed; see
-            # `docs/agent-platform/plans/agent-as-mcp-server.md` for re-add.
+            # The `kind: 'agent'` agent-to-agent variant was removed.
             "items": {
                 "type": "object",
                 "properties": {

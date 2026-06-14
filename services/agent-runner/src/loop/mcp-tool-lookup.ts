@@ -10,9 +10,8 @@
  * driver stays a thin orchestrator and the lookup is independently
  * testable.
  *
- * See `docs/agent-platform/plans/runtime-mcps.md` "Resolved design" for
- * the `tools[]` shape (bare string = inclusion only, object = inclusion +
- * approval policy) and decision A1 (gating is `external` only).
+ * The `tools[]` shape: bare string = inclusion only, object = inclusion +
+ * approval policy; gating is `external` only.
  */
 
 import { AgentSpec, ApprovalPolicy, McpRef } from '@posthog/agent-shared'

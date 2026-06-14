@@ -8,9 +8,7 @@ all acting under the user's PostHog OAuth principal.
 ## Status
 
 **Reference bundle.** Loadable + faux-testable today. Production
-deployment is gated on platform pieces tracked in
-[`docs/agent-platform/plans/agent-concierge.md`](../../../../../docs/agent-platform/plans/agent-concierge.md)
-§8 — client-fulfilled tools, runtime MCPs, OAuth principal
+deployment is gated on platform pieces — client-fulfilled tools, runtime MCPs, OAuth principal
 threading, the validate / test-run / secrets-punch-out MCP verbs.
 
 The bundle itself doesn't need any of those to load and parse;
@@ -54,7 +52,7 @@ secret. Without a channel the audit skips the post silently — the
 memory report is the source of truth regardless.
 
 For each mode, the concierge calls the same `agent-applications-*`
-MCP tools that the authoring AI uses (`docs/agent-platform/plans/agent-authoring-flow.md`),
+MCP tools that the authoring AI uses,
 acting under the connected user's principal so every write shows
 up in the activity log as **the user**, not as the concierge.
 
@@ -112,17 +110,14 @@ The concierge holds no fallback credential.
 
 These are platform-side, not bundle-side:
 
-1. **`kind: "client"` tool support in the spec** —
-   `docs/agent-platform/plans/agent-console-website.md` §8. Today
+1. **`kind: "client"` tool support in the spec** — Today
    the spec parser doesn't accept `kind: "client"`; the bundle's
    `focus_*` and `toast` entries will fail
    validation at load.
-2. **Runtime MCP support** — `docs/agent-platform/plans/runtime-mcps.md`.
+2. **Runtime MCP support** —
    Today the runner reads `spec.mcps[]` but doesn't open clients.
    The concierge would silently lose every `posthog__*` tool call.
 3. **OAuth principal threading** —
-   `docs/agent-platform/plans/per-session-access-elevation.md` +
-   `docs/agent-platform/plans/agent-console-website.md` §7.1.
    Without it, the concierge couldn't act as the user.
 4. **The MCP verbs the concierge calls** —
    `agent-applications-*` are scaffolded in

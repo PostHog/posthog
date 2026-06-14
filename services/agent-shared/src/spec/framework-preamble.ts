@@ -5,10 +5,6 @@
  * contract (state machine, meta tools, tool failure handling, approval
  * flow, reasoning hints).
  *
- * See [docs/agent-platform/plans/framework-system-prompt.md](../../../../docs/agent-platform/plans/framework-system-prompt.md)
- * for the full spec — sections, decision rules, rollout, override
- * semantics.
- *
  * Versioning: bump `FRAMEWORK_PROMPT_VERSION` whenever the preamble
  * changes meaningfully (decision rules shifting, sections renamed,
  * behavioural defaults flipped). Stable wording tweaks don't need a

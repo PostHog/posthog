@@ -1254,8 +1254,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"results": LogEntrySerializer(rows, many=True).data})
 
     # ──────────────────────────── approval-gated tools ────────────────────────
-    # See docs/agent-platform/plans/approval-gated-tools.md.
-    #
     # AGENT_DB is node-owned (per CLAUDE.md rule #2 in products/agent_platform).
     # Django never queries `agent_tool_approval_request` directly — these
     # actions auth-check on the Django side, then proxy through
@@ -1763,7 +1761,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # /tools/<id>/ share a single @action with mapping chains below.
 
     # ── typed bundle authoring API ──────────────────────────────────────
-    # See docs/agent-platform/plans/typed-bundle-authoring-api.md. Django
+    # Django
     # is a thin proxy: every byte of the payload flows through to the
     # janitor unchanged. The legacy file-grain endpoints (file/, bundle/
     # with mode) were removed.

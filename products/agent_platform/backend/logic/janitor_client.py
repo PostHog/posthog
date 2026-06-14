@@ -92,7 +92,6 @@ class JanitorClient:
         return self._call("GET", f"/revisions/{revision_id}/slack-manifest", params=params)
 
     # ── typed bundle authoring API ─────────────────────────────────────────
-    # See docs/agent-platform/plans/typed-bundle-authoring-api.md.
     # The legacy file-grain methods (get_file / put_file / delete_file /
     # put_bundle with mode) were removed; authors now write typed resources
     # (agent_md, skills/<id>, tools/<id>) and the janitor translates to
@@ -154,8 +153,7 @@ class JanitorClient:
 
         The runner builds this same prompt at session start — framework
         preamble + agent.md + skills index. Authoring tools surface it so
-        the author can inspect what the model will actually see. See
-        docs/agent-platform/plans/framework-system-prompt.md §4.
+        the author can inspect what the model will actually see.
         """
         return self._call("GET", f"/revisions/{revision_id}/system-prompt")
 
@@ -225,7 +223,6 @@ class JanitorClient:
         )
 
     # ── approvals ──────────────────────────────────────────────────────────
-    # See docs/agent-platform/plans/approval-gated-tools.md.
 
     def list_approvals(
         self,

@@ -149,8 +149,6 @@ pnpm --filter @posthog/agent-tests test cases/example-kudos-bot
 
 ## Gaps that constrain this version
 
-These come from
-[`docs/agent-platform/plans/_APP_IDEAS.md`](../../../../../docs/agent-platform/plans/_APP_IDEAS.md).
 None block the bundle — each is an enhancement.
 
 - **Reaction-as-trigger.** The most natural kudos UX is reacting to a

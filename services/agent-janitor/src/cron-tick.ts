@@ -20,8 +20,6 @@
  * persisted clock. The plan §6 calls this out as deliberate: the unique
  * index on `(application_id, idempotency_key)` is the load-bearing
  * "did we fire this minute" source of truth, not any in-memory state.
- *
- * Design from `docs/agent-platform/plans/cron-trigger-scheduler.md`.
  */
 
 import cronParser from 'cron-parser'

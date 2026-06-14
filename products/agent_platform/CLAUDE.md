@@ -68,8 +68,6 @@ pattern.
   [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
 - **Prod env vars per service** —
   [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md).
-- **What we're building next** —
-  [docs/agent-platform/plans/\_ROADMAP.md](../../docs/agent-platform/plans/_ROADMAP.md).
 - **Janitor HTTP surface** —
   [services/agent-janitor/src/server.ts](../../services/agent-janitor/src/server.ts).
 - **Spec shape (source of truth)** —

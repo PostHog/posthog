@@ -3,8 +3,6 @@
  * partial unique index `agent_tool_approval_request_queued_unique`
  * declared in the corresponding migration (UNIQUE on
  * (session_id, tool_name, args_hash) WHERE state='queued').
- *
- * See docs/agent-platform/plans/approval-gated-tools.md.
  */
 
 import type { Pool } from 'pg'

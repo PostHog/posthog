@@ -139,8 +139,7 @@ export interface WorkerDeps {
      */
     useGatewayCost?: boolean
     /**
-     * Approval-gated tools store (see
-     * docs/agent-platform/plans/approval-gated-tools.md). MANDATORY and
+     * Approval-gated tools store. MANDATORY and
      * fail-closed: `requires_approval` in spec.tools is a security control, so
      * the store must always be wired — an unwired store silently disables every
      * gate (the bug this used to be). The `Worker` constructor throws when it's

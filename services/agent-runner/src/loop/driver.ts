@@ -30,8 +30,7 @@
  *
  * Approval-gated tools queue via their wrapped `AgentTool.execute` (see the
  * gate override below) and resume when a decided marker lands in
- * `pending_inputs` — handled in `getSteeringMessages`. See
- * docs/agent-platform/plans/approval-gated-tools.md.
+ * `pending_inputs` — handled in `getSteeringMessages`.
  */
 
 import type { AgentContext, AgentEvent, AgentEventSink, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'

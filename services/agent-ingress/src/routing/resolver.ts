@@ -56,8 +56,7 @@ export class AmbiguousRevisionError extends Error {
  * Thrown when a non-live revision is invoked without a valid preview JWT.
  * Django mints the token on each proxy call (short-lived, bound to the
  * (application, revision) it's invoking). Captured tokens expire in seconds
- * and can't be replayed against a different draft. See
- * `docs/agent-platform/plans/draft-preview-auth.md`.
+ * and can't be replayed against a different draft.
  */
 export class MissingPreviewSecretError extends Error {
     constructor(readonly reason: string = 'missing_or_invalid_preview_token') {

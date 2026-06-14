@@ -5,8 +5,7 @@
  *   GET /v1/wallet/balance     — team prepaid balance + pending hold
  *
  * Both endpoints take the same `phc_` bearer the data plane does (resolved
- * per-team via `TeamApiKeyResolver`). See
- * docs/agent-platform/plans/ai-gateway-integration.md §3 (W5 / W6).
+ * per-team via `TeamApiKeyResolver`).
  */
 
 import type { HttpFetcher } from './http-client'

@@ -106,8 +106,7 @@ describe('validateRevisionBundle', () => {
     })
 
     // Tool / skill bundle-presence checks were deleted alongside the typed
-    // bundle authoring API rollout — see
-    // `docs/agent-platform/plans/typed-bundle-authoring-api.md`. Authors no
+    // bundle authoring API rollout. Authors no
     // longer write paths; `spec.tools[]` and `spec.skills[]` are server-
     // derived at freeze from the typed resources in the bundle, so a
     // dangling reference is structurally impossible. The legacy tests

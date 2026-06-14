@@ -3,8 +3,7 @@
  *
  *   1. Framework preamble — platform-owned guidance about the state
  *      machine, meta tools, and (slice 2+) tool failure / approval
- *      handling / reasoning hints. See `framework-preamble.ts` and
- *      `docs/agent-platform/plans/framework-system-prompt.md`.
+ *      handling / reasoning hints. See `framework-preamble.ts`.
  *   2. agent.md (or spec.entrypoint) — author-owned instructions. Wins
  *      over the preamble through normal natural-language precedence
  *      (the model reads it after).

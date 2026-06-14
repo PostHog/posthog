@@ -511,7 +511,7 @@ export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool
 })
 
 // ── typed bundle authoring API ──────────────────────────────────────────
-// See docs/agent-platform/plans/typed-bundle-authoring-api.md. Authors no
+// Authors no
 // longer write file paths — they write typed resources (agent_md, spec,
 // skills, tools). The single-file file-update / file-retrieve tools were
 // removed; the replacements are below.

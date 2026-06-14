@@ -13,8 +13,6 @@
  * which prefixes `${status} ` — see `openai/core/error.js:21-38`. So a regex
  * over the prefix is the cheapest reliable signal we have without patching
  * pi-ai to surface the underlying `error.status`.
- *
- * See docs/agent-platform/plans/ai-gateway-integration.md §3 (W4).
  */
 
 export interface GatewayErrorClassification {

@@ -20,13 +20,7 @@
  *     `principalsMatch` comparison the trigger edge uses for /send. Stable
  *     across resume — a second user posting to a resumed session can't
  *     bypass the gate by being whoever-spoke-last. Per-asker fast-path
- *     only; queued-approval routing to the session principal widens later
- *     (see approval-gated-tools.md §6).
- *
- * See docs/agent-platform/plans/per-session-access-elevation.md for the
- * principal model, docs/agent-platform/plans/approval-gated-tools.md for
- * the queue path, and docs/agent-platform/plans/runtime-mcps.md "Resolved
- * design" decision B1 for the session_principal source choice.
+ *     only; queued-approval routing to the session principal widens later.
  */
 
 import type { Pool } from 'pg'

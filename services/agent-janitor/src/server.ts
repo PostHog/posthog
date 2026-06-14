@@ -464,8 +464,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     )
 
     // Recompute `usage_total` from `conversation` for sessions created before
-    // the column existed (or where a backwards-compat write zeroed it). Plan:
-    // docs/agent-platform/plans/per-turn-cost-capture.md §4.
+    // the column existed (or where a backwards-compat write zeroed it).
     app.post(
         '/sessions/backfill_usage',
         asyncHandler(async (req, res) => {
@@ -495,7 +494,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
 
     /* ───────────────────────────── approvals ───────────────────────────── */
     //
-    // Approval-gated tools — see docs/agent-platform/plans/approval-gated-tools.md.
+    // Approval-gated tools.
     //
     // Django proxies through here for the list / show / decide surface so
     // the runtime DB (`agent_tool_approval_request`) stays node-owned, the
@@ -795,8 +794,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     )
 
     // Typed bundle authoring API. The legacy file-grain endpoints
-    // (`/file?path=X`, `/bundle` with `mode`) were removed — see
-    // `docs/agent-platform/plans/typed-bundle-authoring-api.md`. The new
+    // (`/file?path=X`, `/bundle` with `mode`) were removed. The new
     // surface lives entirely under the typed router below.
     if (opts.revisions && opts.bundles) {
         app.use('/revisions/:id', buildTypedBundleRouter({ revisions: opts.revisions, bundles: opts.bundles }))

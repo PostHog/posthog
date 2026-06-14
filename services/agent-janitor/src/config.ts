@@ -6,8 +6,6 @@
  * Every other `process.env.*` access in this package is blocked by the
  * `agent-janitor-no-process-env` semgrep rule — env reads go through
  * `loadAgentJanitorConfig()` only.
- *
- * Plan + rationale: `docs/agent-platform/plans/typed-config-loader.md`.
  */
 
 import { z } from 'zod'

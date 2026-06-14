@@ -10,8 +10,7 @@
  *      Confirms exactly one `export default <ObjectLiteral>` with an
  *      `actions` property whose `default` entry is a function-shaped node.
  *      No `vm.runInContext`, no Modal sandbox — nothing runs, nothing to
- *      sandbox. See `docs/agent-platform/plans/typed-bundle-authoring-api.md`
- *      §5 for the rationale.
+ *      sandbox.
  *
  *   2. **esbuild transform** — TS → CJS, the same output the runner has
  *      loaded since day one. Runs only if the AST check passed.

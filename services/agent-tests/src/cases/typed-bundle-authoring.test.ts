@@ -1,8 +1,7 @@
 /**
  * Typed bundle authoring API — full janitor e2e suite.
  *
- * Pins the contract documented in
- * `docs/agent-platform/plans/typed-bundle-authoring-api.md` §9. Every test
+ * Pins the typed bundle authoring API contract. Every test
  * here drives the real janitor HTTP surface against a real Postgres + real
  * S3 (SeaweedFS) via the harness — same impls prod runs.
  *

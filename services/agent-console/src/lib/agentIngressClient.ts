@@ -21,7 +21,7 @@
  * carries it as `?preview_token=` in the URL because the API can't
  * set custom headers. Ingress accepts either source. The runner
  * itself doesn't know "live" vs "preview" — same trigger handlers,
- * same path. See `docs/agent-platform/plans/draft-preview-auth.md`.
+ * same path.
  */
 
 const LIVE_PREFIX = '/api/agents/v1/agents'

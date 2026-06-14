@@ -4,8 +4,6 @@
  * Extends `PlatformConfigSchema` with the trigger / routing knobs. Read once
  * at boot in `index.ts`; everything else inside the service receives the
  * typed `Config` via constructor / function arg.
- *
- * Plan + rationale: `docs/agent-platform/plans/typed-config-loader.md`.
  */
 
 import { z } from 'zod'
@@ -32,7 +30,7 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe(
-            "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies x-agent-preview-token on non-live invokes (aud = agent-ingress.preview). Unset → preview gate bypassed (dev / harness only). See docs/agent-platform/plans/draft-preview-auth.md."
+            "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies x-agent-preview-token on non-live invokes (aud = agent-ingress.preview). Unset → preview gate bypassed (dev / harness only)."
         ),
     publicUrl: z
         .string()

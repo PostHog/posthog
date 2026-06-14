@@ -1,8 +1,6 @@
 /**
  * Approval-gated tool requests — interface + in-memory test impl.
  *
- * See docs/agent-platform/plans/approval-gated-tools.md for the design.
- *
  * The dispatcher writes a row when an approval-gated tool call is intercepted.
  * Sessions do NOT park — the model receives a synthetic queued tool_result
  * containing an approval link. The approval API later marks the row

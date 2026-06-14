@@ -90,8 +90,7 @@ export interface BuildAppOpts {
     /**
      * Shared HMAC signing key with Django for the preview-proxy gate on
      * non-live revision invokes (aud = `agent-ingress.preview`). When
-     * unset, the gate is bypassed (dev / harness). See
-     * docs/agent-platform/plans/draft-preview-auth.md.
+     * unset, the gate is bypassed (dev / harness).
      */
     internalSigningKey?: string
     /**

@@ -13,8 +13,6 @@
  *   - Otherwise the incoming principal is denied; the caller records a
  *     PendingElevationRequest and renders the trigger-appropriate elevation
  *     surface (HTTP 403 + payload, or a Slack thread reply in v1).
- *
- * See docs/agent-platform/plans/per-session-access-elevation.md.
  */
 
 import { randomUUID } from 'crypto'

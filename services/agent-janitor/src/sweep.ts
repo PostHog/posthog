@@ -64,8 +64,7 @@ export interface SweepDeps {
      */
     getResumeConfig?: (session: AgentSession) => Promise<ResumeConfig | undefined>
     /**
-     * Approval-gated tools store (see plan
-     * docs/agent-platform/plans/approval-gated-tools.md). When wired, the
+     * Approval-gated tools store. When wired, the
      * sweep also expires queued approval rows past `expires_at`, injects
      * the synthetic `expired` tool_result into the session's
      * pending_inputs, and wakes the session.

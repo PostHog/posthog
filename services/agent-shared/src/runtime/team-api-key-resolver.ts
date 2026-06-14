@@ -4,8 +4,6 @@
  * the gateway authenticates `phc_` against a hypercache mirror of Django's
  * team metadata and bills the team's prepaid wallet.
  *
- * See [docs/agent-platform/plans/ai-gateway-integration.md] §3 (W1).
- *
  * The resolver hides the read off the hot path with a per-process cache.
  * Tokens rarely rotate, and a tiny staleness window (default 5 minutes) is
  * acceptable — a freshly-rotated key will start failing at the gateway

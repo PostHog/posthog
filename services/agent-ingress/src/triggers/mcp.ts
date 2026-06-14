@@ -36,8 +36,6 @@
  *     Without it, `resources/list` returns nothing on public agents — a
  *     client that doesn't track its MCP session id has no way to enumerate
  *     others' sessions, only read sessions whose IDs it already knows.
- *
- * Plan: docs/agent-platform/plans/agent-as-mcp-server.md.
  */
 
 import { randomUUID } from 'crypto'

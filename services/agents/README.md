@@ -20,9 +20,6 @@ entrypoint per replica / Job, so bumping a SHA rolls all four in
 lockstep. The Next.js console ships separately as
 `posthog-agent-console` — different build, different Node version.
 
-See [docs/agent-platform/plans/container-builds.md](../../docs/agent-platform/plans/container-builds.md)
-for the full rationale and CI wiring.
-
 ## Local
 
 ```bash

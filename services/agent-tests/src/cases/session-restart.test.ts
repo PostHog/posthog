@@ -20,8 +20,7 @@
  *
  * These tests are written *before* the implementation lands — they fail
  * today against the old state machine and turn green once the redesign
- * ships. See `docs/agent-platform/plans/_TODO.md` for the system-prompt
- * follow-up.
+ * ships.
  */
 
 import request from 'supertest'

@@ -5,8 +5,7 @@
  * (`<mcp_id>__<remote_name>`), and the runner routes dispatch back through
  * the open client.
  *
- * Covers the v1 surface described in
- * `docs/agent-platform/plans/runtime-mcps.md`:
+ * Covers the v1 surface:
  *   - Round-trip dispatch through an `external` MCP.
  *   - `tools[]` filtering of remote tools (bare-string passthrough form,
  *     and object form for per-tool approval gating — PR 7).

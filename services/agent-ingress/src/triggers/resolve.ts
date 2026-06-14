@@ -29,7 +29,6 @@ export async function resolveAgent(
     // for browser `EventSource` callers — the EventSource API can't set
     // custom headers, so the JWT has to ride in the URL. Either source
     // is acceptable; header wins if both are present.
-    // See docs/agent-platform/plans/draft-preview-auth.md.
     const previewHeader = req.headers['x-agent-preview-token']
     const headerToken = typeof previewHeader === 'string' ? previewHeader : undefined
     const queryToken =

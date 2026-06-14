@@ -10,8 +10,6 @@
  * runner + janitor speak to those buckets) and live on each service's
  * own config schema.
  *
- * See `docs/agent-platform/plans/typed-config-loader.md` for context.
- *
  * Service-specific schemas:
  *
  * ```ts

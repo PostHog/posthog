@@ -23,13 +23,11 @@ walks through the deploy steps. But the source of truth for
 "Infant" = buildable today against shipped primitives, but
 some value loop is duct-taped because the platform doesn't have
 the proper primitive yet. The bundle's README spells out which
-gaps from [`docs/agent-platform/plans/_APP_IDEAS.md`](../../../../docs/agent-platform/plans/_APP_IDEAS.md)
-constrain it.
+gaps constrain it.
 
 ## Adding a new example
 
-1. Pick an app from
-   [`_APP_IDEAS.md`](../../../../docs/agent-platform/plans/_APP_IDEAS.md)
+1. Pick an app
    whose prerequisites are mostly ✅.
 2. Scaffold a subdirectory here with `spec.json` (the
    [`AgentSpec`](../../../agent-shared/src/spec/spec.ts) JSONB shape),
