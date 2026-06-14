@@ -712,16 +712,20 @@ export const maxLogic = kea<maxLogicType>([
             startNewConversation: () => {
                 return [urls.ai(), {}, router.values.location.hash]
             },
-            openConversation: ({ conversationId }) => {
-                return [urls.ai(conversationId), {}, router.values.location.hash]
-            },
+            // openConversation routes through setConversationId (see its listener), so this is the
+            // single owner of the /ai?chat= URL. Mapping openConversation here too would write the
+            // same URL twice for one user action and, together with the urlToAction round-trip below,
+            // trip urlChangeTracker's rapid-change detector.
             setConversationId: ({ conversationId }) => {
-                // Only set the URL parameter if this is a new conversation (using frontendConversationId)
-                if (conversationId && conversationId === values.frontendConversationId) {
-                    return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
+                // Skip the write when the URL already points at this conversation — e.g. when
+                // openConversation was dispatched from urlToAction reacting to the URL itself.
+                if (!conversationId || router.values.searchParams.chat === conversationId) {
+                    return undefined
                 }
-                // Return undefined to not update URL for existing conversations
-                return undefined
+                // Minting a brand-new conversation replaces the bare /ai entry; navigating to an
+                // existing conversation pushes so the browser back button still works.
+                const replace = conversationId === values.frontendConversationId
+                return [urls.ai(conversationId), {}, router.values.location.hash, { replace }]
             },
         }
     }),

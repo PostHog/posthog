@@ -3,6 +3,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getUrlChangeTracker, resetAllTrackers } from 'lib/logic/scenes/urlChangeTracker'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -250,6 +251,46 @@ describe('maxLogic', () => {
         await expectLogic(logic, () => act()).toFinishAllListeners()
 
         expect(router.values.location.pathname).toContain(urls.ai())
+    })
+
+    // Opening a conversation used to write the /ai?chat= URL twice (openConversation +
+    // setConversationId both mapped to it) and bounce through urlToAction, which tripped
+    // urlChangeTracker's rapid-change detector. setConversationId is now the single URL owner.
+    it('opening a conversation records a single URL change without tripping the rapid-change tracker', async () => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push(urls.ai())
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        resetAllTrackers()
+
+        await expectLogic(logic, () => {
+            logic.actions.openConversation(MOCK_CONVERSATION_ID)
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams.chat).toBe(MOCK_CONVERSATION_ID)
+        expect(logic.values.conversationId).toBe(MOCK_CONVERSATION_ID)
+
+        const tracker = getUrlChangeTracker(logic.pathString)
+        expect(tracker.getRecentChanges()).toHaveLength(1)
+        expect(tracker.isRapidlyChanging()).toBe(false)
+    })
+
+    it('re-opening the already-loaded conversation records no URL change', async () => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        // URL already points at the conversation, mirroring the urlToAction → openConversation round-trip.
+        router.actions.push(urls.ai(MOCK_CONVERSATION_ID))
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        resetAllTrackers()
+
+        await expectLogic(logic, () => {
+            logic.actions.openConversation(MOCK_CONVERSATION_ID)
+        }).toFinishAllListeners()
+
+        expect(getUrlChangeTracker(logic.pathString).getRecentChanges()).toHaveLength(0)
     })
 
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
