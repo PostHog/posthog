@@ -211,18 +211,52 @@ function formatValue(value: unknown): string {
     return String(value)
 }
 
-const ENTRY_COMPONENT_NAME: Record<Usage['entry'], string> = {
-    filter: 'TaxonomicFilter',
-    popover: 'TaxonomicPopover',
-    properties: 'PropertyFilters',
-}
-
-function formatProps(usage: Usage): string {
-    const lines = [`entry: <${ENTRY_COMPONENT_NAME[usage.entry]}>`, `site: ${usage.site}`]
+/** Props minus the ones that don't distinguish one call site from another. */
+function formatUsageProps(usage: Usage): string {
+    const lines: string[] = []
     for (const [key, value] of Object.entries(usage.props)) {
+        if (key === 'onChange') {
+            continue
+        }
         lines.push(`${key}: ${formatValue(value)}`)
     }
-    return lines.join('\n')
+    return lines.join('\n') || '(no distinguishing props)'
+}
+
+/**
+ * The unique presentations the family collapses to. Many call sites share one —
+ * what varies between them is mostly `taxonomicGroupTypes`, listed per site
+ * below each variant so the duplication (and the simplification opportunity) is
+ * visible at a glance.
+ */
+const VARIANTS: { key: string; label: string; blurb: string }[] = [
+    {
+        key: 'filter',
+        label: 'TaxonomicFilter — inline picker',
+        blurb: 'Raw picker, hosted inside an already-open dropdown. No resting trigger.',
+    },
+    {
+        key: 'popover',
+        label: 'TaxonomicPopover — button trigger',
+        blurb: 'Generic popover wrapper; resting state is a button.',
+    },
+    {
+        key: 'properties:button',
+        label: 'PropertyFilters — button trigger',
+        blurb: 'Property-filter rows; the add control is a button.',
+    },
+    {
+        key: 'properties:input',
+        label: 'PropertyFilters — input trigger',
+        blurb: 'Replay-style input add control (triggerVariant: input).',
+    },
+]
+
+function variantKey(usage: Usage): string {
+    if (usage.entry === 'properties') {
+        return `properties:${usage.props.triggerVariant ?? 'button'}`
+    }
+    return usage.entry
 }
 
 function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): JSX.Element {
@@ -270,24 +304,46 @@ function Gallery({ variant }: { variant: string }): JSX.Element {
         <div className="p-4">
             <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery — {variant}</h1>
             <p className="text-sm text-secondary mb-4 max-w-3xl">
-                Every distinct taxonomic-filter usage in one place, so we can compare them and start to simplify. Each
-                cell lists the entry component and the props that scene passes, then renders it.{' '}
-                <code>TaxonomicPopover</code> and <code>PropertyFilters</code> cells show their resting trigger (button
-                vs replay-style input); raw <code>TaxonomicFilter</code> has no resting state, so those reveal the panel
-                on "Show picker". The rebuild menu only replaces the two wrapper entry points, so raw{' '}
-                <code>TaxonomicFilter</code> cells stay on the legacy UI here.
+                The taxonomic-filter family collapses to a handful of unique presentations; most call sites just pass a
+                different <code>taxonomicGroupTypes</code> to the same one. Each cell renders one variant and lists the
+                call sites that use it (with the props that differ), so the duplication — and where it could be
+                simplified — is visible. Raw <code>TaxonomicFilter</code> has no resting state, so it reveals on "Show
+                picker"; the rebuild menu only replaces the two wrapper entry points, so raw{' '}
+                <code>TaxonomicFilter</code> stays on the legacy UI here.
             </p>
             <div className="grid grid-cols-1 xl:grid-cols-2 border-l border-t">
-                {USAGES.map((usage, index) => {
-                    const key = `gallery-${variant}-${index}`
+                {VARIANTS.map((v) => {
+                    const usages = USAGES.filter((usage) => variantKey(usage) === v.key)
+                    if (usages.length === 0) {
+                        return null
+                    }
+                    const storyKey = `gallery-${variant}-${v.key}`
                     return (
-                        <div key={key} className="border-r border-b p-4 flex flex-col gap-2 min-w-0">
-                            <h1 className="text-base font-bold">{usage.name}</h1>
-                            <pre className="text-xs bg-surface-secondary p-2 rounded whitespace-pre-wrap break-words">
-                                {formatProps(usage)}
-                            </pre>
-                            <div className="mt-2 min-w-0">
-                                <UsagePreview usage={usage} storyKey={key} />
+                        <div key={v.key} className="border-r border-b p-4 flex flex-col gap-3 min-w-0">
+                            <div>
+                                <h1 className="text-base font-bold">{v.label}</h1>
+                                <p className="text-xs text-secondary">{v.blurb}</p>
+                            </div>
+                            <div className="min-w-0">
+                                <UsagePreview usage={usages[0]} storyKey={storyKey} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold text-secondary mb-1">
+                                    Used in {usages.length} place{usages.length === 1 ? '' : 's'}:
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    {usages.map((usage) => (
+                                        <div key={usage.site} className="text-xs">
+                                            <div className="font-semibold">
+                                                {usage.name}{' '}
+                                                <span className="font-normal text-secondary">— {usage.site}</span>
+                                            </div>
+                                            <pre className="bg-surface-secondary p-2 rounded whitespace-pre-wrap break-words">
+                                                {formatUsageProps(usage)}
+                                            </pre>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )
