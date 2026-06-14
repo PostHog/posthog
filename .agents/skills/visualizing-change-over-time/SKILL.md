@@ -77,9 +77,12 @@ charts AGENTS.md for theme wiring and sizing.
 ## Scope note
 
 `SlopeChart` is a charts-library component — use it for dashboards, reports, the
-`mcp_analytics` frontend, and custom visualizations. It is **not** yet a native
-insight `ChartDisplayType`, so it does not appear in the product analytics insight
-chart picker and cannot be created through the `posthog:insight-create` MCP tool. If
+`mcp_analytics` frontend, and custom visualizations. It already backs the **Slope**
+view toggle on Max's inline trends result card
+(`services/mcp/src/ui-apps/components/TrendsVisualizer.tsx`). It is **not** yet a
+native insight `ChartDisplayType`, so it does not appear in the product analytics
+insight chart picker and cannot be created through the `posthog:insight-create` MCP
+tool. If
 a user wants the slope graph as a first-class, one-click insight display, that is a
 larger change: add `ChartDisplayType.SlopeChart` in `frontend/src/types.ts`, a
 picker entry in `ChartFilter.tsx` (gate behind a feature flag), and a rendering path
