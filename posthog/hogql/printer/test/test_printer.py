@@ -1274,6 +1274,18 @@ class TestPrinter(BaseTest):
             "quantile(0.5, 2)(event)",
             "Aggregation 'quantile' expects 1 parameter, found 2",
         )
+        self._assert_expr_error(
+            "toDateTime('2020-02-02')('2020-02-02')",
+            "Function 'toDateTime' does not accept parameters",
+        )
+        self._assert_expr_error(
+            "parseDateTimeBestEffort('2020-02-02')('2020-02-02')",
+            "Function 'parseDateTimeBestEffort' does not accept parameters",
+        )
+        self._assert_expr_error(
+            "count()(event)",
+            "Aggregation 'count' does not accept parameters",
+        )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")

@@ -22,7 +22,7 @@ from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Tabl
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
-from posthog.hogql.functions.core import validate_function_args
+from posthog.hogql.functions.core import HogQLFunctionMeta, validate_function_args
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
@@ -61,6 +61,17 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     while isinstance(expr_type, ast.FieldAliasType):
         expr_type = expr_type.type
     return expr_type
+
+
+def function_accepts_parameters(func_meta: "HogQLFunctionMeta") -> bool:
+    """Whether a function supports ClickHouse parametric `fn(params)(args)` syntax.
+
+    Non-parametric functions reject the params list entirely; passing them parameters would
+    emit invalid SQL like `parseDateTime64BestEffortOrNull(...)(...)`, which ClickHouse rejects.
+    """
+    return bool(
+        func_meta.parametric_first_arg or func_meta.min_params or func_meta.max_params is None or func_meta.max_params
+    )
 
 
 class BasePrinter(Visitor[str]):
@@ -1005,6 +1016,8 @@ class BasePrinter(Visitor[str]):
                     function_term="aggregation",
                     argument_term="parameter",
                 )
+            elif node.params is not None and not function_accepts_parameters(func_meta):
+                raise QueryError(f"Aggregation '{node.name}' does not accept parameters")
 
             # check that we're not running inside another aggregate
             for stack_node in reversed(self.stack):
@@ -1058,6 +1071,8 @@ class BasePrinter(Visitor[str]):
                     node.name,
                     argument_term="parameter",
                 )
+            elif node.params is not None and not function_accepts_parameters(func_meta):
+                raise QueryError(f"Function '{node.name}' does not accept parameters")
 
             return self._render_function_call(node, func_meta)
         elif func_meta := find_hogql_posthog_function(node.name):
@@ -1067,6 +1082,9 @@ class BasePrinter(Visitor[str]):
                 func_meta.max_args,
                 node.name,
             )
+
+            if node.params is not None and not function_accepts_parameters(func_meta):
+                raise QueryError(f"Function '{node.name}' does not accept parameters")
 
             return self._render_posthog_function_call(node, func_meta)
         else:
