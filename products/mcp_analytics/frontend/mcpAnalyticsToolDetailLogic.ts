@@ -407,7 +407,7 @@ WHERE event = 'mcp_tool_call'
     AND ${toolFilter}
 GROUP BY distinct_id
 ORDER BY calls DESC
-LIMIT 10
+LIMIT 5
 `,
                     })) as HogQLQueryResponse
                     return (response.results ?? []) as ResultRows

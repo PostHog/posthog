@@ -657,7 +657,14 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Harnesses',
-                                render: (r) => <span className="text-secondary">{String(r[4] ?? '')}</span>,
+                                render: (r) => {
+                                    const harnesses = String(r[4] ?? '')
+                                    return (
+                                        <span className="text-secondary line-clamp-1" title={harnesses}>
+                                            {harnesses}
+                                        </span>
+                                    )
+                                },
                             },
                             { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
                         ]}
