@@ -7,7 +7,7 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_JSON_TABLE_SQL,
 )
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_UPDATE_SQL
-from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_MV_UPDATE_SQL_V3
+from posthog.models.raw_sessions.sessions_v3 import RAW_SESSION_TABLE_MV_UPDATE_SQL_V3, RAW_SESSIONS_TABLE_MV_SQL_V3
 from posthog.models.sessions.sql import SESSION_TABLE_UPDATE_SQL
 
 operations = [
@@ -36,6 +36,10 @@ operations = [
     ),
     run_sql_with_exceptions(
         RAW_SESSION_TABLE_UPDATE_SQL(),
+        node_roles=[NodeRole.DATA],
+    ),
+    run_sql_with_exceptions(
+        RAW_SESSIONS_TABLE_MV_SQL_V3(),
         node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(

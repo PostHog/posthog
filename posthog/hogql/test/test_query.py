@@ -1,5 +1,6 @@
 import datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -53,8 +54,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
 
-    def _schema_snapshot(self):
-        if not getattr(self, "_use_new_events_schema_snapshots", False):
+    def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False) -> Any:
+        if not (use_new_events_schema_snapshot or getattr(self, "_use_new_events_schema_snapshots", False)):
             self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
             return self.snapshot
 
@@ -1319,13 +1320,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"LIMIT 100 "
                 f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             )
+            clickhouse = response.clickhouse
+            assert clickhouse is not None
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                self.assertIn("FROM events_json AS events", response.clickhouse)
+                self.assertIn("FROM events_json AS events", clickhouse)
                 self.assertIn(
                     "if(isNull(events.properties.string), NULL, toString(events.properties.string)) AS string",
-                    response.clickhouse,
+                    clickhouse,
                 )
-                self.assertNotIn("JSONExtractRaw(events.properties,", response.clickhouse)
+                self.assertNotIn("JSONExtractRaw(events.properties,", clickhouse)
                 for property_key in [
                     "array_str",
                     "obj_array",
@@ -1334,11 +1337,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array",
                     "array_obj_array_obj",
                 ]:
-                    self.assertIn(f"events.properties.{property_key}", response.clickhouse)
-                self.assertIn("JSONExtractRaw(if(isNull(events.properties.array_str)", response.clickhouse)
-                self.assertIn("JSONExtractRaw(if(isNull(events.properties.obj_array.id)", response.clickhouse)
+                    self.assertIn(f"events.properties.{property_key}", clickhouse)
+                self.assertIn("JSONExtractRaw(if(isNull(events.properties.array_str)", clickhouse)
+                self.assertIn("JSONExtractRaw(if(isNull(events.properties.obj_array.id)", clickhouse)
             else:
-                self.assertEqual(expected_legacy_clickhouse, response.clickhouse)
+                self.assertEqual(expected_legacy_clickhouse, clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
 
     def test_property_access_with_arrays_zero_index_error(self):

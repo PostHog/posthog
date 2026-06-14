@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person, flush_persons_and_events
 
@@ -23,6 +25,9 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 
 
 class EventsSchemaSnapshotMixin:
+    snapshot: Any
+    team: Any
+
     def _events_schema_snapshot(self, printed: str):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:

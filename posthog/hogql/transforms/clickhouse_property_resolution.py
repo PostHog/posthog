@@ -437,7 +437,7 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
             remaining_keys = deeper_keys[index:]
             break
 
-        head = _json_subcolumn_value_expr(
+        subcolumn_head = _json_subcolumn_value_expr(
             field_type,
             subcolumn_keys,
             source=source,
@@ -445,8 +445,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
             materialization_mode=context.modifiers.materializationMode,
         )
         if not remaining_keys:
-            return head
-        return ast.PropertyAccess(expr=head, keys=remaining_keys, type=ast.StringType(nullable=True))
+            return subcolumn_head
+        return ast.PropertyAccess(expr=subcolumn_head, keys=remaining_keys, type=ast.StringType(nullable=True))
 
     head = _materialized_head_expr(
         source,
