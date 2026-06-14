@@ -304,7 +304,7 @@ WITH tool_calls AS (
         AND ${NEW_SDK_FILTER}
         AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
 )
-SELECT prev_tool AS tool, count() AS co_occurrences
+SELECT prev_tool AS neighbor_tool, count() AS co_occurrences
 FROM (
     SELECT
         conv_id,
@@ -340,7 +340,7 @@ WITH tool_calls AS (
         AND ${NEW_SDK_FILTER}
         AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
 )
-SELECT next_tool AS tool, count() AS co_occurrences
+SELECT next_tool AS neighbor_tool, count() AS co_occurrences
 FROM (
     SELECT
         conv_id,
