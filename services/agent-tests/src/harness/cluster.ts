@@ -8,7 +8,7 @@
  *     `AGENT_MEMORY_TEST_S3_*` bucket, per-cluster random prefix. No fs/in-memory
  *     bundle store — every test exercises the real multipart write + signed-URL
  *     path that prod uses.
- *   - Redis (REDIS_URL, defaults to redis://localhost:6379) — RedisSessionEventBus
+ *   - Redis (REDIS_URL, defaults to localhost:6379) — RedisSessionEventBus
  *     with a per-cluster channel prefix so concurrent test files don't see each
  *     other's events. Same impl prod runs; in-memory bus has been removed.
  *   - Express ingress — full real route table.

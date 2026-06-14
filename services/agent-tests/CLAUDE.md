@@ -16,7 +16,7 @@ the local services `hogli start` brings up:
 - **Real Postgres** at `agent_runtime_queue_test` (override with
   `AGENT_TEST_DB_URL`). Schema is **dropped + reapplied per test** —
   no leaked state between cases.
-- **Real Redis** (`REDIS_URL`, defaults to `redis://localhost:6379`) —
+- **Real Redis** (`REDIS_URL`, defaults to `localhost:6379`) —
   `RedisSessionEventBus` with a per-cluster channel prefix so
   concurrent test files don't see each other's events.
 - **Real Kafka** (`KAFKA_HOSTS`, defaults to `localhost:9092`) —

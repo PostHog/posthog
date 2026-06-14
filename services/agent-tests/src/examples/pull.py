@@ -113,7 +113,7 @@ def pick_revision(app_id: str, latest: bool) -> str | None:
     status, payload = seed._req("GET", f"/agent_applications/{app_id}/revisions/")
     if status != 200:
         raise PullError(f"failed to list revisions: {status} {payload}")
-    revs = payload.get("results", payload if isinstance(payload, list) else [])
+    revs = payload.get("results", [])
     if not revs:
         return app.get("live_revision")
     newest = max(revs, key=lambda r: r.get("created_at", ""))
