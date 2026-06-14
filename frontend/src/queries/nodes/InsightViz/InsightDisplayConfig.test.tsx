@@ -103,17 +103,31 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('slope graph display options', () => {
-        it('hides the time-series-only options in the Display section', async () => {
+        it('hides the "group by time period" interval picker', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            expect(screen.queryByText(/grouped/i)).not.toBeInTheDocument()
+        })
+
+        it('hides the compare picker', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
+        })
+
+        it('shows only the legend toggle in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
+            expect(items).toEqual(['Show legend'])
+            // None of the time-series-only options should leak in.
             expect(items).not.toContain('Show values on series')
             expect(items).not.toContain('Show trend lines')
             expect(items).not.toContain('Show alert threshold lines')
+            expect(items).not.toContain('Show multiple Y-axes')
+            expect(items).not.toContain('Show annotations')
         })
 
-        it('hides Y-axis scale, statistical analysis, and the interval/compare pickers', async () => {
+        it('hides the Y-axis scale and statistical analysis sections', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
             await openOptionsMenu()
 
@@ -123,6 +137,11 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('line graph display options', () => {
+        it('shows the "group by time period" interval picker (control for the slope graph)', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
+        })
+
         it('shows multiple options in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
