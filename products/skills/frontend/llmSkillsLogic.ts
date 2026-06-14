@@ -2,6 +2,7 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { usersGithubLoginRetrieve } from '~/generated/core/api'
 import { ApiConfig } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -227,6 +228,20 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
+        // Resolved GitHub handle for the current user — used to prefill the publish dialog's
+        // author_handle so the common case (GitHub-SSO'd users) is correct by default. Null when
+        // no GitHub identity is linked; the dialog field then falls back to free text.
+        githubLogin: [
+            null as string | null,
+            {
+                loadGithubLogin: async () => {
+                    // `@me` resolves to the current user server-side, so this doesn't race userLogic
+                    // loading the user object first.
+                    const response = await usersGithubLoginRetrieve('@me')
+                    return response.github_login ?? null
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -394,5 +409,6 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadSkills()
+        actions.loadGithubLogin()
     }),
 ])

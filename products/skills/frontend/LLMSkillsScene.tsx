@@ -290,7 +290,7 @@ export function LLMSkillsScene(): JSX.Element {
 
 function YourSkillsContent(): JSX.Element {
     const { setFilters, deleteSkill, duplicateSkill, publishToCommunity } = useActions(llmSkillsLogic)
-    const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills } =
+    const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills, githubLogin } =
         useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
@@ -303,7 +303,9 @@ function YourSkillsContent(): JSX.Element {
             initialValues: {
                 display_name: skill.name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
                 tags: '',
-                author_handle: '',
+                // Prefill with the user's resolved GitHub handle when we have one; the field stays
+                // editable so users without a linked GitHub identity can still type one (free-text fallback).
+                author_handle: githubLogin ?? '',
             },
             content: (
                 <div className="flex flex-col gap-2">

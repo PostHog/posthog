@@ -3546,6 +3546,14 @@ export interface PatchedUserApi {
     readonly requires_credential_review?: boolean
 }
 
+export interface UserGithubLoginApi {
+    /**
+     * The user's resolved GitHub login, or null when no GitHub identity is linked.
+     * @nullable
+     */
+    github_login: string | null
+}
+
 export interface UserGitHubAccountApi {
     /**
      * GitHub account type for the installation (e.g. User or Organization).

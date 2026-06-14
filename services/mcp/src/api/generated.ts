@@ -43271,6 +43271,14 @@ export namespace Schemas {
       connect_flow: string;
     }
 
+    export interface UserGithubLogin {
+      /**
+         * The user's resolved GitHub login, or null when no GitHub identity is linked.
+         * @nullable
+         */
+      github_login: string | null;
+    }
+
     /**
      * * `transcript` - transcript
      * * `summary` - summary
