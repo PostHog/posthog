@@ -733,9 +733,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         return super().visit_call(node)
 
     def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
-        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONHas" or len(node.args) < 2:
-            return None
-        if not all(isinstance(arg, ast.Constant) for arg in node.args[1:]):
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONHas" or len(node.args) == 0:
             return None
 
         field_type = resolve_field_type(node.args[0])
@@ -751,8 +749,31 @@ class ClickHousePropertyResolver(CloningVisitor):
         if not isinstance(field, DatabaseField) or field.name not in ("properties", "person_properties"):
             return None
 
-        key = ".".join(str(cast(ast.Constant, arg).value) for arg in node.args[1:])
-        return _call("has", [_call("JSONAllPaths", [node.args[0]]), _const(key)])
+        if len(node.args) < 2:
+            raise QueryError("JSONHas on events JSON properties requires at least one property key")
+        if not all(isinstance(arg, ast.Constant) and isinstance(arg.value, str) for arg in node.args[1:]):
+            raise QueryError("JSONHas on events JSON properties only supports constant string property keys")
+
+        keys = [cast(str, cast(ast.Constant, arg).value) for arg in node.args[1:]]
+        source = resolve_json_subcolumn_source(
+            table_type.table.to_printed_clickhouse(self.context), field.name, keys[0]
+        )
+        if source is None:
+            return None
+
+        if len(keys) > 1 and not _is_dynamic_json_source(source):
+            raise QueryError("JSONHas cannot traverse a typed events JSON subcolumn")
+
+        subcolumn = _json_subcolumn_access(field_type, keys, source=source, is_nullable=source.is_nullable)
+        if source.is_nullable or _is_dynamic_json_source(source):
+            return _call("isNotNull", [subcolumn])
+        if _is_string_column(source):
+            return ast.Call(
+                name="notEquals",
+                args=[_call("length", [subcolumn]), _const(0)],
+                type=ast.BooleanType(nullable=False),
+            )
+        raise QueryError("JSONHas cannot test existence for this events JSON subcolumn type")
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the

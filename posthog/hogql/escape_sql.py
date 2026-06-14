@@ -227,6 +227,8 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 
 def escape_clickhouse_json_subcolumn_identifier(identifier: str) -> str:
+    if "%" in identifier:
+        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))

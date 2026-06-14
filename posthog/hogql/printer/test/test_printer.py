@@ -172,6 +172,10 @@ class TestPrinter(BaseTest):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
+    def test_escape_clickhouse_json_subcolumn_identifier_rejects_percent(self) -> None:
+        with pytest.raises(QueryError, match="%"):
+            escape_clickhouse_json_subcolumn_identifier("bad%key")
+
     def _pretty(self, query: str):
         printed, _ = prepare_and_print_ast(
             parse_select(query),
@@ -1169,6 +1173,31 @@ class TestPrinter(BaseTest):
                 {"hogql_val_0": "key"},
                 expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             )
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        expected_by_expr = {
+            "JSONHas(properties, 'dynamic_key')": "isNotNull(events.properties.dynamic_key)",
+            "JSONHas(properties, '$ai_trace_id')": "isNotNull(events.properties.`$ai_trace_id`)",
+            "JSONHas(properties, '$browser')": "ifNull(notEquals(length(events.properties.`$browser`), 0), 1)",
+            "JSONHas(properties, 'metadata', 'score')": "isNotNull(events.properties.metadata.score)",
+        }
+        for expression, expected in expected_by_expr.items():
+            printed = self._expr(expression, context)
+            self.assertEqual(printed, expected)
+            self.assertNotIn("JSONAllPaths", printed)
+
+        with pytest.raises(QueryError, match="constant string property keys"):
+            self._expr("JSONHas(properties, 'items', 1)", context)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_json_has_rejects_percent_property_key(self) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        with pytest.raises(QueryError, match="%"):
+            self._expr("JSONHas(properties, 'bad%key')", context)
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like

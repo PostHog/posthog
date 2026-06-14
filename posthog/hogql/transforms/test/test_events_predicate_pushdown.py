@@ -1019,8 +1019,9 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
     def _assert_json_has_source(self, subquery: str) -> None:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             assert "properties_group" not in subquery, f"new events schema should not use property groups:\n{subquery}"
-            assert "JSONAllPaths(events.properties)" in subquery, (
-                f"expected JSONAllPaths on JSON properties:\n{subquery}"
+            assert "JSONAllPaths" not in subquery, f"new events schema should not reconstruct JSON paths:\n{subquery}"
+            assert "isNotNull(events.properties.tier)" in subquery, (
+                f"expected a direct JSON subcolumn existence check:\n{subquery}"
             )
         else:
             assert "properties_group" in subquery, f"expected the property-group Map column exposed:\n{subquery}"
