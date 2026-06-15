@@ -7575,6 +7575,8 @@ export namespace Schemas {
        * * `notify` - Notify
        * * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface AlertSimulate {
@@ -12322,6 +12324,7 @@ export namespace Schemas {
       removed_identifiers?: string[];
       purpose?: string;
       metadata?: CreateRunInputMetadata;
+      is_partial?: boolean;
     }
 
     export interface CreateRunResult {
@@ -29365,6 +29368,8 @@ export namespace Schemas {
        * * `notify` - Notify
        * * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedAnnotation {
