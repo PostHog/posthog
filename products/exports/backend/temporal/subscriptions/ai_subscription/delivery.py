@@ -10,7 +10,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.email import EmailMessage
-from posthog.helpers.slack_subscription_explore import build_explore_button
+from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -28,7 +28,6 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     SlackDeliveryResult,
     SlackMessageData,
     deliver_slack_message_data,
-    subscription_explore_button_enabled_async,
 )
 
 logger = structlog.get_logger(__name__)
@@ -263,7 +262,6 @@ def _build_ai_slack_message(
     *,
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
-    explore_enabled: bool = False,
 ) -> SlackMessageData:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
@@ -293,11 +291,6 @@ def _build_ai_slack_message(
             "url": f"{subscription_url}?{utm_tags}",
         }
     ]
-    if explore_button := build_explore_button(
-        integration, enabled=explore_enabled, resource_name=title, utm_tags=utm_tags
-    ):
-        action_elements.append(explore_button)
-
     blocks.extend(
         [
             {"type": "divider"},
@@ -316,6 +309,8 @@ def _build_ai_slack_message(
             },
         ]
     )
+    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags):
+        blocks.append(explore_hint)
 
     thread_messages = [
         {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": section}}]} for section in sections[1:]
@@ -331,10 +326,7 @@ async def send_slack_ai_subscription_report(
     integration: Integration,
     delivery_id: uuid.UUID,
 ) -> SlackDeliveryResult:
-    explore_enabled = await subscription_explore_button_enabled_async(subscription)
-    message_data = _build_ai_slack_message(
-        subscription, markdown, delivery_id=delivery_id, integration=integration, explore_enabled=explore_enabled
-    )
+    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id, integration=integration)
     return await deliver_slack_message_data(integration, subscription, message_data)
 
 

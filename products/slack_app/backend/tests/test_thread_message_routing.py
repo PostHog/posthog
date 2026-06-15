@@ -20,7 +20,7 @@ class TestRouteThreadMessage(TestCase):
     workflow so the webhook handler stays fast."""
 
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -39,7 +39,7 @@ class TestRouteThreadMessage(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T_SLACK",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
         SlackUserProfileCache.objects.create(

@@ -213,51 +213,30 @@ def _mock_integration(scopes: frozenset[str]) -> MagicMock:
     return integration
 
 
-def _action_elements(message: SlackMessageData) -> list[dict]:
-    return [el for block in message.blocks if block.get("type") == "actions" for el in block["elements"]]
+def _hint_texts(message: SlackMessageData) -> list[str]:
+    return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
 
 
-class TestAIExploreButton:
-    def test_no_explore_button_without_integration(self) -> None:
-        # Flag on but no integration to attach to -> no button.
-        message = _build_ai_slack_message(
-            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, explore_enabled=True
-        )
-        labels = [el["text"]["text"] for el in _action_elements(message)]
-        assert labels == ["Manage subscription"]
-
-    def test_no_explore_button_when_flag_off(self) -> None:
-        # Bot-ready integration but rollout flag off -> no button.
-        message = _build_ai_slack_message(
-            _mock_subscription(),
-            "A short report.",
-            delivery_id=_DELIVERY_ID,
-            integration=_mock_integration(REQUIRED_SLACK_SCOPES),
-            explore_enabled=False,
-        )
-        labels = [el["text"]["text"] for el in _action_elements(message)]
-        assert labels == ["Manage subscription"]
-
-    @pytest.mark.parametrize(
-        "scopes,label,expected_keys,forbidden_keys",
-        [
-            (REQUIRED_SLACK_SCOPES, "Dive into the data 🔍", {"action_id", "value"}, {"url"}),
-            (frozenset({"chat:write"}), "Ask PostHog about this 🔍", {"url"}, {"action_id"}),
-        ],
+def _ai_message(*, integration: MagicMock | None = None) -> SlackMessageData:
+    return _build_ai_slack_message(
+        _mock_subscription(),
+        "A short report.",
+        delivery_id=_DELIVERY_ID,
+        integration=integration,
     )
-    def test_explore_button_variant(
-        self, scopes: frozenset[str], label: str, expected_keys: set[str], forbidden_keys: set[str]
-    ) -> None:
-        message = _build_ai_slack_message(
-            _mock_subscription(),
-            "A short report.",
-            delivery_id=_DELIVERY_ID,
-            integration=_mock_integration(scopes),
-            explore_enabled=True,
-        )
-        explore = next(el for el in _action_elements(message) if el["text"]["text"] == label)
-        assert expected_keys.issubset(explore.keys())
-        assert set(forbidden_keys).isdisjoint(explore.keys())
+
+
+class TestAIExploreHint:
+    def test_no_hint_without_integration(self) -> None:
+        assert not any("@PostHog" in t for t in _hint_texts(_ai_message()))
+
+    def test_bot_ready_hint_nudges_mention(self) -> None:
+        message = _ai_message(integration=_mock_integration(REQUIRED_SLACK_SCOPES))
+        assert any("@PostHog" in t and "docs/slack-app" not in t for t in _hint_texts(message))
+
+    def test_bot_not_ready_hint_links_docs(self) -> None:
+        message = _ai_message(integration=_mock_integration(frozenset({"chat:write"})))
+        assert any("docs/slack-app" in t for t in _hint_texts(message))
 
 
 def _feedback_url(feedback: str, source: str) -> str:

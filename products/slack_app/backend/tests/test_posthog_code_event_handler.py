@@ -104,7 +104,7 @@ class TestPostHogCodeEventHandler(TestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -119,7 +119,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         # Seed the Slack-user → email cache so routing can resolve U123 → self.user
@@ -913,7 +913,7 @@ class TestChannelApprovalGate(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -928,7 +928,7 @@ class TestChannelApprovalGate(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         # Routing now resolves the Slack user to a PostHog user before any
