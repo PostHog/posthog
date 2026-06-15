@@ -2,6 +2,7 @@ import './RichContentEditor.scss'
 
 import { EditorContent, Extensions, useEditor } from '@tiptap/react'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 import { PropsWithChildren, useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
@@ -68,6 +69,13 @@ export const useRichContentEditor = ({
         extensions,
         editable: !disabled,
         content: initialContent,
+        // Validate stored content against the configured schema rather than letting prosemirror
+        // throw synchronously during construction when it references unknown node/mark types.
+        // Invalid content is dropped and the editor falls back to an empty document.
+        enableContentCheck: true,
+        onContentError: ({ error }) => {
+            posthog.captureException(error, { feature: 'RichContentEditor', cause: 'invalid stored content' })
+        },
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
         onCreate: ({ editor }) => onCreate(editor),
