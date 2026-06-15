@@ -24,8 +24,7 @@ _SELECT = """
 
 
 def query_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
-    sql = f"WITH {curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", curated.pr_source())
-    response = curated.run(sql, query_type="engineering_analytics.ci_cards")
+    response = curated.run(curated.pr_rollup_query(_SELECT), query_type="engineering_analytics.ci_cards")
     if not response.results:
         return _EMPTY
     open_prs, repos, stuck, failing_ci = response.results[0]

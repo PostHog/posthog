@@ -79,6 +79,15 @@ class CuratedGitHubSource:
             )
         """
 
+    def pr_rollup_query(self, select: str) -> str:
+        """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
+
+        Prefixes ``select`` with the CI rollup CTE and fills its ``__PR_SOURCE__`` placeholder
+        with the curated pull-requests source — the two steps the cards and PR-list queries always
+        do together.
+        """
+        return f"WITH {self.ci_rollup_cte()} {select}".replace("__PR_SOURCE__", self.pr_source())
+
     def run(
         self,
         sql: str,

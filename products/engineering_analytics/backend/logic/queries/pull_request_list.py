@@ -44,9 +44,8 @@ _SELECT = f"""
 
 
 def query_pull_request_list(*, curated: CuratedGitHubSource, date_from: datetime) -> PullRequestList:
-    sql = f"WITH {curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", curated.pr_source())
     response = curated.run(
-        sql,
+        curated.pr_rollup_query(_SELECT),
         query_type="engineering_analytics.pull_request_list",
         placeholders={"date_from": ast.Constant(value=date_from)},
     )

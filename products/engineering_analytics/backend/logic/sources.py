@@ -51,11 +51,11 @@ def resolve_github_tables(*, team: Team, source_id: str | None = None) -> GitHub
     """Resolve the team's curated GitHub table names from its warehouse models.
 
     With ``source_id``, reads that specific connected GitHub source; otherwise picks the
-    oldest source with both endpoints synced — deterministic when a team has more than one
-    GitHub source (e.g. one per repository). Raises ``GitHubSourceNotConnectedError`` when no
-    matching usable source exists (the presentation layer maps it to a 400, so the UI prompts
-    to connect a source and an agent gets an actionable error), or ``ValueError`` when
-    ``source_id`` is not a UUID.
+    oldest source with both endpoints synced (oldest = the team's first/established connection)
+    — deterministic when a team has more than one GitHub source (e.g. one per repository).
+    Raises ``GitHubSourceNotConnectedError`` when no matching usable source exists (the
+    presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
+    an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
     """
     sources = (
         ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
@@ -70,9 +70,9 @@ def resolve_github_tables(*, team: Team, source_id: str | None = None) -> GitHub
         workflow_runs = tables.get(WORKFLOW_RUNS_SCHEMA)
         if pull_requests and workflow_runs:
             return GitHubTables(pull_requests=pull_requests, workflow_runs=workflow_runs)
-    raise GitHubSourceNotConnectedError(
-        _NO_SELECTED_SOURCE if source_id is not None else GitHubSourceNotConnectedError.DEFAULT_MESSAGE
-    )
+    if source_id is not None:
+        raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
+    raise GitHubSourceNotConnectedError()
 
 
 # Distinct from the no-source message: the caller picked a source that isn't a usable GitHub
