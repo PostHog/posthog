@@ -41,6 +41,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -1136,6 +1137,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'email',
                     'browser',
                 ],
+            },
+            {
+                id: 'conversations-ai',
+                title: 'AI',
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'suggestion', 'auto', 'reply', 'support', 'conversation'],
             },
         ],
     },
