@@ -56,6 +56,11 @@ class GoogleAdsSource(
             # has restricted third-party API access for this app (org policy / app not approved).
             # Retrying cannot recover — an admin must grant access before the user reconnects.
             "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your Google Ads account.",
+            # Integration.DoesNotExist raised by `google_ads_client` when the stored OAuth
+            # integration row has been deleted/disconnected before the sync runs. Retrying cannot
+            # recover — the user must reconnect their Google Ads account. Model-specific so we don't
+            # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
+            "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options

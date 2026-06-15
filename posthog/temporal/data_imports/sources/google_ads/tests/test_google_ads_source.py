@@ -139,6 +139,29 @@ class TestGoogleAdsNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # `str(Integration.DoesNotExist)` as raised by `google_ads_client` during a sync when
+            # the OAuth integration row has been deleted/disconnected.
+            "Integration matching query does not exist.",
+        ],
+    )
+    def test_missing_integration_is_non_retryable(self, error_msg):
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
+        assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
+
+    def test_missing_integration_has_friendly_message(self):
+        friendly = self.non_retryable["Integration matching query does not exist"]
+        assert friendly is not None
+        assert "reconnect" in friendly.lower()
+
+    def test_other_model_does_not_exist_is_not_swallowed(self):
+        # The pattern is model-specific so an unrelated model's DoesNotExist — which may be a real
+        # bug — is not silently treated as non-retryable.
+        error_msg = "ExternalDataSchema matching query does not exist."
+        assert not any(pattern in error_msg for pattern in self.non_retryable.keys())
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Transient network/infrastructure errors should still be retried.
             "DeadlineExceeded: 504 Deadline Exceeded",
             "UNAVAILABLE: The service is currently unavailable",
