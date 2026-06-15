@@ -5014,6 +5014,76 @@
         },
         "system_prompt_hint": "List persons behind a trends data point"
     },
+    "reminder-create": {
+        "description": "Create a reminder for yourself in the current project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Create reminder",
+        "title": "Create reminder",
+        "required_scopes": ["reminder:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "reminder-delete": {
+        "description": "Delete a reminder by ID. This stops it from firing.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Delete reminder",
+        "title": "Delete reminder",
+        "required_scopes": ["reminder:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "reminder-get": {
+        "description": "Get a single reminder by ID.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Get reminder",
+        "title": "Get reminder",
+        "required_scopes": ["reminder:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "reminder-update": {
+        "description": "Update a reminder's title, message, schedule, timezone, end date, or attached resource. Changing the schedule recomputes the next fire time.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "Update reminder",
+        "title": "Update reminder",
+        "required_scopes": ["reminder:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "reminders-list": {
+        "description": "List your reminders in the current project, including their schedule, status (active/completed/errored), and next fire time.",
+        "category": "Reminders",
+        "feature": "reminders",
+        "summary": "List reminders",
+        "title": "List reminders",
+        "required_scopes": ["reminder:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "role-get": {
         "description": "Get details of a specific role including its name, creation date, and creator.",
         "category": "Platform Features",

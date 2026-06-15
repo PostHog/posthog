@@ -478,6 +478,7 @@ SPECTACULAR_SETTINGS = {
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+        "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",

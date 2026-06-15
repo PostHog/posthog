@@ -1202,9 +1202,10 @@ export const ModelNameEnumApi = {
  * * `monthly` - monthly
  * * `yearly` - yearly
  */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+export type ScheduledChangeRecurrenceIntervalEnumApi =
+    (typeof ScheduledChangeRecurrenceIntervalEnumApi)[keyof typeof ScheduledChangeRecurrenceIntervalEnumApi]
 
-export const RecurrenceIntervalEnumApi = {
+export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1245,7 +1246,7 @@ export interface ScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1305,7 +1306,7 @@ export interface PatchedScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
