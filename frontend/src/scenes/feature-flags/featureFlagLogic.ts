@@ -726,10 +726,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return featureFlag
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
+                    if (!state) {
+                        return state
+                    }
                     return {
                         ...state,
                         filters: {
                             ...filters,
+                            // This action carries release-condition changes; payload edits live in form state.
                             payloads: state.filters.payloads,
                         },
                     }

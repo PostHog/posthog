@@ -445,7 +445,10 @@ describe('featureFlagLogic', () => {
     })
 
     describe('setFeatureFlagFilters', () => {
-        it('preserves boolean payloads when release conditions update from a stale filters snapshot', async () => {
+        it.each([
+            ['an empty payload snapshot', {}],
+            ['a stale payload snapshot', { true: '{"enabled":false}' }],
+        ])('preserves boolean payloads when release conditions update from %s', async (_, incomingPayloads) => {
             const payload = '{"enabled":true}'
 
             await expectLogic(logic, () => {
@@ -477,7 +480,7 @@ describe('featureFlagLogic', () => {
                         variant: null,
                     },
                 ],
-                payloads: {},
+                payloads: incomingPayloads,
             }
 
             await expectLogic(logic, () => {
