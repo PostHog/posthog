@@ -40,7 +40,7 @@ class OpenAISDKTestConfig:
         pytest.param(
             "openai",
             id="openai",
-            marks=pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set"),
+            marks=[pytest.mark.skipif(not OPENAI_API_KEY, reason="OPENAI_API_KEY not set"), xfail_provider_unavailable],
         ),
         pytest.param(
             "cloudflare",
@@ -90,7 +90,6 @@ class TestOpenAIModelsEndpoint:
         assert model.object == "model"
 
 
-@xfail_provider_unavailable
 class TestChatCompletions:
     def test_non_streaming_request(self, oai_sdk_config: OpenAISDKTestConfig):
         response = oai_sdk_config.client.chat.completions.create(
@@ -145,7 +144,6 @@ class TestChatCompletions:
         assert response.choices[0].message.content is not None
 
 
-@xfail_provider_unavailable
 class TestMultipleModels:
     def test_basic_request(self, oai_sdk_config: OpenAISDKTestConfig):
         response = oai_sdk_config.client.chat.completions.create(
@@ -191,7 +189,6 @@ class TestMultipleModels:
         assert response.choices[0].message.content is not None
 
 
-@xfail_provider_unavailable
 class TestToolCalling:
     def test_tool_definition_and_response(self, oai_sdk_config: OpenAISDKTestConfig):
         tools: list[ChatCompletionToolParam] = [
@@ -269,7 +266,6 @@ class TestToolCalling:
         assert tool_call.function.name == "calculate"
 
 
-@xfail_provider_unavailable
 class TestMultiTurnParametrized:
     def test_conversation_history(self, oai_sdk_config: OpenAISDKTestConfig):
         response = oai_sdk_config.client.chat.completions.create(
