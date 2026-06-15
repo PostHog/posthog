@@ -27,17 +27,25 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
 
     const createInput = (
         distinctId: string,
-        processPerson: boolean | undefined = undefined
+        processPerson: boolean | undefined = undefined,
+        overrides: Partial<PluginEvent> = {}
     ): { event: PluginEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch } => ({
         event: createTestPluginEvent({
             distinct_id: distinctId,
             team_id: team.id,
             properties: processPerson === undefined ? {} : { $process_person_profile: processPerson },
             uuid: `uuid-${distinctId}`,
+            ...overrides,
         }),
         team,
         personsStoreForBatch: mockPersonsStore,
     })
+
+    const createFlagCalledInput = (
+        distinctId: string,
+        properties: PluginEvent['properties'] = {}
+    ): { event: PluginEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch } =>
+        createInput(distinctId, undefined, { event: '$feature_flag_called', properties })
 
     describe('when enabled', () => {
         it('should process personless events and call batch insert', async () => {
@@ -139,6 +147,91 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
                 { teamId: team.id, distinctId: 'user-2' },
             ])
+        })
+    })
+
+    describe('$feature_flag_called batching', () => {
+        it('should batch insert flag-called candidates for enabled teams', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, String(team.id))
+            const events = [createFlagCalledInput('user-1'), createFlagCalledInput('user-2')]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
+        })
+
+        it('should not insert flag-called events when the team is not enabled', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '') // no enabled teams
+            const events = [createFlagCalledInput('user-1')]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
+        })
+
+        it('should support "*" to enable flag-called batching for all teams', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const events = [createFlagCalledInput('user-1')]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+            ])
+        })
+
+        it('should skip flag-called events that explicitly set $process_person_profile=true', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const events = [createFlagCalledInput('user-1', { $process_person_profile: true })]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
+        })
+
+        it('should skip flag-called events carrying group keys', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const events = [createFlagCalledInput('user-1', { $groups: { org: 'acme' } })]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
+        })
+
+        it('should treat a flag-called event with $process_person_profile=false as explicit-personless', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '') // flag-called batching off
+            const events = [createFlagCalledInput('user-1', { $process_person_profile: false })]
+
+            await step(events)
+
+            // Still inserted via the explicit-personless branch, independent of flag-called enablement.
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+            ])
+        })
+
+        it('should batch explicit-personless and flag-called candidates together', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+            const events = [createInput('user-1', false), createFlagCalledInput('user-2')]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-1' },
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
+        })
+
+        it('should not insert flag-called candidates when disabled', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(false, '*')
+            const events = [createFlagCalledInput('user-1')]
+
+            await step(events)
+
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
         })
     })
 })

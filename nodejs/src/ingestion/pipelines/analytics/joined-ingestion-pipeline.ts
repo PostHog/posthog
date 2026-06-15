@@ -184,6 +184,7 @@ export function createJoinedIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         personsPrefetchEnabled,
+        flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         hogTransformer,
         cdpHogWatcherSampleRate,
     }
