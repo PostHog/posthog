@@ -12,7 +12,7 @@ from django.utils import timezone
 
 import pydantic
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
@@ -2147,6 +2147,56 @@ class TestExperimentService(APIBaseTest):
         assert flag.active is False
         assert flag.archived is True
         assert experiment.feature_flag_auto_archived is True
+
+    def test_archive_experiment_denies_disabling_flag_without_editor_access(self):
+        # A user who can archive the experiment but lacks editor access to the flag must not
+        # be able to disable it via disable_feature_flag — and the experiment archive rolls back.
+        experiment = self._create_ended_experiment(name="No Flag Access", feature_flag_key="no-flag-access")
+        service = self._service()
+
+        with patch.object(service, "_user_can_edit_flag", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_flag_when_approval_required(self):
+        experiment = self._create_ended_experiment(name="Approval Gated", feature_flag_key="approval-gated-flag")
+        service = self._service()
+
+        with (
+            patch.object(service, "_user_can_edit_flag", return_value=True),
+            patch.object(service, "_flag_disable_requires_approval", return_value=True),
+        ):
+            with self.assertRaises(PermissionDenied):
+                service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_skips_flag_cleanup_without_editor_access(self):
+        # The implicit archive-only cleanup of an already-disabled flag is skipped (not an error)
+        # when the caller can't edit the flag — the experiment still archives.
+        experiment = self._create_ended_experiment(name="Skip Cleanup", feature_flag_key="skip-cleanup-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+
+        with patch.object(service, "_user_can_edit_flag", return_value=False):
+            service.archive_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is True
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
 
     def test_archive_experiment_keeps_flag_shared_with_live_experiment(self):
         experiment = self._create_ended_experiment(name="Shared Flag", feature_flag_key="shared-flag")
