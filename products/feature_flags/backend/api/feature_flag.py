@@ -40,13 +40,12 @@ from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
-from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.person.point_in_time_properties import (
@@ -54,7 +53,6 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import TeamSecretTokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -74,7 +72,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
-from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_flags_by_active_param
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import (
@@ -572,7 +570,7 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
         from loginas.utils import is_impersonated_session
 
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
         was_impersonated = is_impersonated_session(request) if request else False
@@ -3221,64 +3219,7 @@ class FeatureFlagViewSet(
 
         for key, value in filters.items():
             if key == "active":
-                if value == "STALE":
-                    # Get stale flags using the best available signal:
-                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
-                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-                    stale_threshold = thirty_days_ago()
-                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
-                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    config_based_queryset = queryset.filter(
-                        last_called_at__isnull=True,
-                        active=True,
-                        created_at__lt=stale_threshold,
-                    ).extra(
-                        where=[
-                            """
-                            (
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                                        WHERE variant->>'rollout_percentage' = '100'
-                                    )
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                        AND elem->'variant' IS NOT NULL
-                                        AND elem->>'variant' IS NOT NULL
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                                )
-                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-                            )
-                            """
-                        ]
-                    )
-                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
-                else:
-                    # Handle both string "true"/"false" and boolean True/False
-                    is_active = value == "true" or value is True
-                    queryset = queryset.filter(active=is_active)
+                queryset = filter_flags_by_active_param(queryset, value)
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=value)
             elif key == "search":
@@ -3871,57 +3812,6 @@ class FeatureFlagViewSet(
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
-
-
-@mutable_receiver(model_activity_signal, sender=FeatureFlag)
-def handle_feature_flag_change(
-    sender,
-    scope,
-    before_update,
-    after_update,
-    activity,
-    was_impersonated=False,
-    **kwargs,
-):
-    # Extract scheduled change context if present
-    scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})
-    scheduled_change_id = scheduled_change_context.get("scheduled_change_id")
-    is_scheduled_change = scheduled_change_id is not None
-
-    # Create trigger info for scheduled changes
-    trigger = None
-    if is_scheduled_change:
-        from posthog.models.activity_logging.activity_log import Trigger
-
-        trigger = Trigger(
-            job_type="scheduled_change",
-            job_id=str(scheduled_change_id),
-            payload={"scheduled_change_id": scheduled_change_id},
-        )
-
-    changes = changes_between(scope, previous=before_update, current=after_update)
-    resolved_activity = activity
-    deleted_change = next((change for change in changes if change.field == "deleted"), None)
-    if deleted_change:
-        if bool(deleted_change.after):
-            resolved_activity = "deleted"
-        elif bool(deleted_change.before):
-            resolved_activity = "restored"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=after_update.last_modified_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=resolved_activity,
-        detail=Detail(
-            changes=changes,
-            name=after_update.key,
-            trigger=trigger,
-        ),
-    )
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

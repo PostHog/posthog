@@ -206,4 +206,46 @@ describe('TaxonomicFilterHeadless integration', () => {
 
         recents.unmount()
     })
+
+    it('expands a complete recent on first render when RecentFilters is the initial group', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const recents = recentTaxonomicFiltersLogic.build()
+        recents.mount()
+        recents.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.EventProperties,
+            groupName: 'Event properties',
+            value: '$browser',
+            item: { name: '$browser' },
+            propertyFilter: {
+                type: PropertyFilterType.Event,
+                key: '$browser',
+                operator: PropertyOperator.Exact,
+                value: 'Chrome',
+            },
+        })
+
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.RecentFilters,
+                        TaxonomicFilterGroupType.EventProperties,
+                    ]}
+                    groupType={TaxonomicFilterGroupType.RecentFilters}
+                    onChange={onChangeMock}
+                >
+                    <TaxonomicFilterHeadless.Panel />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-list-recent_filters')).toBeInTheDocument()
+        })
+        expect(screen.getByTestId('taxonomic-row-recent_filters-0').textContent).toMatch(/browser/i)
+        expect(screen.getByTestId('taxonomic-row-recent_filters-0').textContent).not.toMatch(/Chrome/)
+        expect(screen.getByTestId('taxonomic-row-recent_filters-1').textContent).toMatch(/Chrome/)
+
+        recents.unmount()
+    })
 })

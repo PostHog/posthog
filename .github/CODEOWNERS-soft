@@ -133,6 +133,7 @@ products/error_tracking/mcp/** @PostHog/team-error-tracking
 products/error_tracking/skills/** @PostHog/team-error-tracking
 cli/** @PostHog/team-error-tracking
 rust/cymbal/** @PostHog/team-error-tracking
+rust/common/symbol_data/** @PostHog/team-error-tracking
 
 # Notebooks - owned by @PostHog/team-platform-features
 frontend/src/scenes/notebooks/ @PostHog/team-platform-features

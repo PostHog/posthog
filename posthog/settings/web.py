@@ -7,7 +7,7 @@ from corsheaders.defaults import default_headers
 
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -35,10 +35,12 @@ PRODUCTS_APPS = [
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
+    "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
@@ -148,6 +150,9 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # Below CorsMiddleware so redirects get CORS headers; above auth/CSRF since a
+    # redirect needs neither — clients re-send credentials to the rewritten path.
+    "posthog.middleware.EnvironmentsRedirectMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -517,6 +522,7 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
@@ -533,7 +539,7 @@ SPECTACULAR_SETTINGS = {
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
-        "NotificationDestinationTypeEnum": ["slack", "webhook"],
+        "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
         "TaskRunArtifactTypeEnum": [
             "plan",
             "context",
@@ -698,6 +704,16 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+####
+# /api/environments deprecation
+
+# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
+# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
+# posthog.middleware.EnvironmentsRedirectMiddleware.
+# ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
+# /api/environments/* responses. Empty string omits the header.
+API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
+
 # Query service SLO sampling rate. Each QueryRunner.run() call emits two events
 # (slo_operation_started + slo_operation_completed); unsampled, that's many millions of
 # events per day. The chosen rate is stamped on each event as `properties.sample_rate`
@@ -752,6 +768,12 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 # OAuth
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
+
+# Saving an RS256 OAuthApplication validates that this key is set, so a test run without one
+# (fork PRs, bare local environments) fails in every test that creates an OAuth app. Generate
+# an ephemeral key so tests never depend on an env-provided key.
+if TEST and not OIDC_RSA_PRIVATE_KEY:
+    OIDC_RSA_PRIVATE_KEY = generate_rsa_private_key_pem()
 
 OIDC_RSA_PRIVATE_KEY_INACTIVE_1 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_1", "").replace("\\n", "\n")
 OIDC_RSA_PRIVATE_KEY_INACTIVE_2 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_2", "").replace("\\n", "\n")
@@ -834,6 +856,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "uploaded_media:write",
     "survey:read",
     "survey:write",
+    "field_note:read",
+    "field_note:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

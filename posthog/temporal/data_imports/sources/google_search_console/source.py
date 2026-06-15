@@ -4,6 +4,7 @@ import requests
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -103,6 +104,11 @@ class GoogleSearchConsoleSource(
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
         except Exception as e:
+            if "matching query does not exist" in str(e):
+                return False, (
+                    "Your Google Search Console connection is no longer available — it may have been "
+                    "disconnected. Please reconnect your Google Search Console account."
+                )
             return False, f"Could not load Google Search Console credentials: {e}"
 
         try:
@@ -144,7 +150,7 @@ class GoogleSearchConsoleSource(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "
                 "(clicks, impressions, CTR, average position). Requires a Google account with read access to the property."
             ),
-            releaseStatus="alpha",
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-google-search-console",
             iconPath="/static/services/google-search-console.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-search-console",
