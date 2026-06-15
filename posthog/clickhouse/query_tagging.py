@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
-# from posthog.schema import PersonsOnEventsMode
+# from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import NodeKind, ProductKey
+from posthog.schema_enums import NodeKind, ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +231,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
+            | NodeKind.TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY
         ):
             return {"product": Product.LLM_ANALYTICS}
         case (

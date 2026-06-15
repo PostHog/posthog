@@ -421,11 +421,7 @@ export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: numb
 }
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
- *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Copy an experiment into another project in the same organization as a new draft.
  */
 export const experimentsCopyToProjectCreate = async (
     projectId: string,

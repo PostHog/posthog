@@ -9,7 +9,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
@@ -25,7 +24,6 @@ import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { groupsModel } from '~/models/groupsModel'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -425,8 +423,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['featureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
-            groupsModel,
-            ['groupsTaxonomicTypes'],
             deletedRecordingsLogic,
             ['deletedRecordingIds'],
         ],
@@ -1442,28 +1438,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         allowHogQLFilters: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
-        ],
-
-        taxonomicGroupTypes: [
-            (s) => [s.allowHogQLFilters, s.groupsTaxonomicTypes],
-            (allowHogQLFilters, groupsTaxonomicTypes) => {
-                const taxonomicGroupTypes = [
-                    TaxonomicFilterGroupType.Replay,
-                    TaxonomicFilterGroupType.Events,
-                    TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    ...groupsTaxonomicTypes,
-                ]
-
-                if (allowHogQLFilters) {
-                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-                }
-
-                return taxonomicGroupTypes
-            },
         ],
     }),
 

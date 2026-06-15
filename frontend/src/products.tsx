@@ -97,6 +97,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
+    DataWarehouseSourceConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
@@ -220,6 +222,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -596,6 +599,7 @@ export const productConfiguration: Record<string, any> = {
     },
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
+    DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -930,6 +934,8 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    dataWarehouseSourceConnect: (kind?: string): string =>
+        `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1459,6 +1465,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Insight/SQL`,
         type: 'insight',
         href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        displayLabel: 'New SQL',
         iconType: 'insight/hog',
         iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
         visualOrder: INSIGHT_VISUAL_ORDER.sql,
@@ -1598,6 +1605,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },
@@ -2237,6 +2245,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },

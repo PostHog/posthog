@@ -287,8 +287,12 @@ function WaterfallRow({
     return (
         <div>
             <div
-                className={`flex items-stretch cursor-pointer transition-colors ${
-                    isSelected ? 'bg-surface-primary-active' : 'hover:bg-surface-primary-hover'
+                // The 3px left border is always reserved (transparent when unselected) so selecting
+                // a span shows an accent bar without shifting the row content.
+                className={`flex items-stretch cursor-pointer transition-colors border-l-[3px] ${
+                    isSelected
+                        ? 'bg-surface-primary-active border-l-accent'
+                        : 'border-l-transparent hover:bg-surface-primary-hover'
                 }`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight: ROW_HEIGHT }}
@@ -317,7 +321,9 @@ function WaterfallRow({
                     )}
                     <Tooltip title={span.name}>
                         <span
-                            className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
+                            className={`text-xs truncate ${isError ? 'text-danger' : ''} ${
+                                isSelected || isError ? 'font-semibold' : 'font-medium'
+                            } ${isUnmatched ? 'opacity-40' : ''}`}
                         >
                             {span.name}
                         </span>
