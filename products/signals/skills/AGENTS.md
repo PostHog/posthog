@@ -134,6 +134,20 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   resolved status's promise against the post-deploy data stream. Emits only
   failed validations; confirmations are scratchpad memory. It never detects new
   problems — that's the rest of the fleet's territory.
+- `signals-scout-product-analytics/` — behavioral-regression watcher for the core
+  product-analytics primitives (funnels, retention, lifecycle, stickiness, paths).
+  Curates a watchlist of the team's saved funnel / retention / lifecycle insights
+  (and at most one inferred activation flow where none is saved) and re-scores each
+  flow's _derived rate_ — step-to-step conversion %, cohort return %, lifecycle
+  composition — against its own trailing, seasonality-matched baseline. Its
+  discriminator is a rate regression with a steady denominator: a conversion/retention
+  drop while entrants hold is a real product regression; a drop where entrants also
+  collapsed is a capture/volume problem and belongs elsewhere. Fills the seam neither
+  neighbor covers — `anomaly-detection` scores raw time-series insights the team views
+  (its `alert-simulate` path targets time-series, not funnels), and
+  `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
+  scout owns its behavioral health. Acquisition/attribution is the web-analytics
+  scout's territory and experiment validity is the experiments scout's.
 
 ### How the coordinator decides what runs
 
