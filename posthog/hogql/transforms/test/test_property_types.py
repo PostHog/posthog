@@ -236,6 +236,18 @@ class TestPropertyTypes(BaseTest):
         with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
 
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.FloatType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.CHEAP_CAST
+            assert plan.physical_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.literal_conversion == PropertyLiteralConversion.NONE
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
+            return
+
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.FloatType(nullable=True)
         assert plan.access.source.physical_type == ast.FloatType(nullable=True)
@@ -296,6 +308,18 @@ class TestPropertyTypes(BaseTest):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert plan.access.source.kind == PropertySourceKind.JSON
+            assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
+            assert plan.access.source.physical_type == ast.StringType(nullable=True)
+            assert plan.semantic_compatibility == ComparisonCompatibility.EXPENSIVE_CAST
+            assert plan.physical_compatibility == ComparisonCompatibility.DEFINITELY_COMPATIBLE
+            assert plan.literal_conversion == PropertyLiteralConversion.NONE
+            assert plan.can_compare_physical_source_directly is False
+            assert plan.can_use_minmax_index is False
+            assert plan.minmax_blocker == PropertyMinmaxBlocker.NO_MINMAX_INDEX
+            return
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         assert plan.access.semantic_type == ast.DateTimeType(nullable=True)
@@ -660,6 +684,16 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "accurateCastOrNull" in printed, printed
         assert "defaultValueOfTypeName" in printed, printed
         assert "JSONExtract" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_jsonextract_array_uses_json_serialized_subcolumn(self):
+        printed = self._print_select(
+            "select JSONExtract(ifNull(properties.arr_field, '[]'), 'Array(String)') from events"
+        )
+
+        assert "events_json" in printed, printed
+        assert "toJSONString(events.properties.arr_field)" in printed, printed
+        assert "toString(events.properties.arr_field)" not in printed, printed
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_jsonextract_respects_restricted_properties(self):

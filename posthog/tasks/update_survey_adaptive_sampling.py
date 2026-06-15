@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from django.utils.timezone import now
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import SurveyEventProperties, get_survey_property_string_expr
@@ -43,14 +44,15 @@ def _update_survey_adaptive_sampling(survey: Survey) -> None:
 
 def _get_survey_responses_count(survey_id: int) -> int:
     survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
-
-    # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-    data = sync_execute(
-        f"""
+    events_table = EVENTS_QUERY_TABLE()
+    query = """
                 SELECT {survey_id_expr} as survey_id, count()
-                FROM events
+                FROM {events_table}
                 WHERE event = 'survey sent' AND {survey_id_expr} = %(survey_id)s
-            """,
+            """.format(survey_id_expr=survey_id_expr, events_table=events_table)
+
+    data = sync_execute(
+        query,
         {"survey_id": survey_id},
     )
 

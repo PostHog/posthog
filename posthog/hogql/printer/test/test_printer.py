@@ -743,7 +743,7 @@ class TestPrinter(BaseTest):
 
         context = HogQLContext(team_id=self.team.pk)
         expected_client_id_sql = (
-            "nullIf(nullIf(events.properties.`Account.client_id`, ''), 'null')"
+            self._json_dynamic_property_expr("Account.client_id")
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
@@ -3703,12 +3703,15 @@ class TestPrinter(BaseTest):
             query="SELECT getSurveyResponse(0) FROM events",
         )
         assert result.clickhouse is not None
-        # Dynamic key (no question_id) uses concat for key construction
         self.assertIn("coalesce", result.clickhouse)
         self.assertIn("nullIf", result.clickhouse)
-        self.assertIn("concat", result.clickhouse)
-        # Always uses JSONExtractString for consistent String return type
-        self.assertIn("JSONExtractString", result.clickhouse)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertIn("events.properties.`$survey_response`", result.clickhouse)
+            self.assertNotIn("toJSONString(events.properties)", result.clickhouse)
+        else:
+            self.assertIn("concat", result.clickhouse)
+            # Always uses JSONExtractString for consistent String return type
+            self.assertIn("JSONExtractString", result.clickhouse)
 
         # Test with question index and specific ID - static key
         result = execute_hogql_query(
@@ -3716,10 +3719,13 @@ class TestPrinter(BaseTest):
             query="SELECT getSurveyResponse(1, 'question123') FROM events",
         )
         assert result.clickhouse is not None
-        # Static key also uses JSONExtractString for type consistency
         self.assertIn("coalesce", result.clickhouse)
         self.assertIn("nullIf", result.clickhouse)
-        self.assertIn("JSONExtractString", result.clickhouse)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertIn("events.properties.`$survey_response_question123`", result.clickhouse)
+            self.assertNotIn("toJSONString(events.properties)", result.clickhouse)
+        else:
+            self.assertIn("JSONExtractString", result.clickhouse)
 
         # Test with multiple choice question
         result = execute_hogql_query(
@@ -3727,8 +3733,11 @@ class TestPrinter(BaseTest):
             query="SELECT getSurveyResponse(2, 'abc123', true) FROM events",
         )
         assert result.clickhouse is not None
-        # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
-        self.assertIn("JSONHas", result.clickhouse)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertIn("isNotNull", result.clickhouse)
+            self.assertNotIn("toJSONString(events.properties)", result.clickhouse)
+        else:
+            self.assertIn("JSONHas", result.clickhouse)
         self.assertIn("JSONExtractArrayRaw", result.clickhouse)
         self.assertIn("if(", result.clickhouse)
 
@@ -3760,9 +3769,13 @@ class TestPrinter(BaseTest):
         # Query should execute successfully (even with no results)
         assert result.clickhouse is not None
         # Both branches of coalesce should return String type (via JSONExtractString)
-        self.assertIn("JSONExtractString", result.clickhouse)
-        # Should NOT contain Float64 casting which would cause type mismatch
-        self.assertNotIn("accurateCastOrNull", result.clickhouse)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertIn("toString(accurateCastOrNull", result.clickhouse)
+            self.assertNotIn("toJSONString(events.properties)", result.clickhouse)
+        else:
+            self.assertIn("JSONExtractString", result.clickhouse)
+            # Should NOT contain Float64 casting which would cause type mismatch
+            self.assertNotIn("accurateCastOrNull", result.clickhouse)
         self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):

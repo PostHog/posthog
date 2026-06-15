@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -170,7 +171,7 @@ def test_compile_hogql_predicate_empty_returns_empty():
     assert compile_hogql_predicate(request) == ("", {})
 
 
-def test_compile_hogql_predicate_emits_no_table_qualifier(team, snapshot):
+def test_compile_hogql_predicate_emits_no_table_qualifier(team, request):
     """Predicate is spliced into both ``SELECT … FROM events`` and ``DELETE FROM
     sharded_events WHERE …``, so the compiled SQL must use unqualified column
     references — neither ``events.`` nor ``sharded_events.``.
@@ -180,18 +181,25 @@ def test_compile_hogql_predicate_emits_no_table_qualifier(team, snapshot):
     """
     from posthog.models.data_deletion_request import compile_hogql_predicate
 
-    request = DataDeletionRequest(
+    deletion_request = DataDeletionRequest(
         **_base_kwargs(
             team_id=team.id,
             events=["$pageview"],
             hogql_predicate="properties.$browser = 'Chrome' AND event = '$pageview'",
         )
     )
-    sql, _ = compile_hogql_predicate(request)
+    sql, _ = compile_hogql_predicate(deletion_request)
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        assert "events." not in sql
+        assert "sharded_events." not in sql
+        assert sql == "and(equals(properties.`$browser`, %(hogql_val_0)s), equals(event, %(hogql_val_1)s))"
+        return
+
+    snapshot = request.getfixturevalue("snapshot")
     assert sql == snapshot
 
 
-def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, snapshot):
+def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, request):
     """When a property has a materialized column, the printer emits the ``mat_<prop>``
     column without a table prefix. ClickHouse's lightweight DELETE rewrites the
     predicate into a mutation whose expression analyzer rejects table-qualified
@@ -204,17 +212,23 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
 
     materialize("events", "$current_url")
 
-    request = DataDeletionRequest(
+    deletion_request = DataDeletionRequest(
         **_base_kwargs(
             team_id=team.id,
             events=["$pageview"],
             hogql_predicate="properties.$current_url LIKE '%message=%'",
         )
     )
-    sql, _ = compile_hogql_predicate(request)
+    sql, _ = compile_hogql_predicate(deletion_request)
     assert "events.`mat_$current_url`" not in sql
     assert "sharded_events.`mat_$current_url`" not in sql
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        assert "`mat_$current_url`" not in sql
+        assert sql == "like(properties.`$current_url`, %(hogql_val_0)s)"
+        return
+
     assert "`mat_$current_url`" in sql
+    snapshot = request.getfixturevalue("snapshot")
     assert sql == snapshot
 
 

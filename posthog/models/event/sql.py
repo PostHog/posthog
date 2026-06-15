@@ -64,7 +64,22 @@ def EVENTS_QUERY_TABLE() -> str:
 
 
 def EVENTS_PROPERTIES_COLUMN() -> str:
-    return "toJSONString(properties) AS properties" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
+    return (
+        "legacy_events.properties AS event_properties"
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        else "properties"
+    )
+
+
+def EVENTS_PROPERTIES_JOIN(events_alias: str = "events") -> str:
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return ""
+
+    legacy_events_table = f"{_escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)}.events"
+    return (
+        f"INNER JOIN {legacy_events_table} AS legacy_events "
+        f"ON legacy_events.team_id = {events_alias}.team_id AND legacy_events.uuid = {events_alias}.uuid"
+    )
 
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
@@ -961,9 +976,12 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-INSERT_EVENT_SQL = lambda: (
-    f"""
-INSERT INTO {EVENTS_INSERT_DATA_TABLE()}
+def INSERT_EVENT_SQL(table_name: str | None = None) -> str:
+    if table_name is None:
+        table_name = EVENTS_INSERT_DATA_TABLE()
+
+    return f"""
+INSERT INTO {table_name}
 (
     uuid,
     event,
@@ -1018,11 +1036,14 @@ VALUES
     0
 )
 """
-)
 
-BULK_INSERT_EVENT_SQL = lambda: (
-    f"""
-INSERT INTO {EVENTS_INSERT_DATA_TABLE()}
+
+def BULK_INSERT_EVENT_SQL(table_name: str | None = None) -> str:
+    if table_name is None:
+        table_name = EVENTS_INSERT_DATA_TABLE()
+
+    return f"""
+INSERT INTO {table_name}
 (
     uuid,
     event,
@@ -1051,7 +1072,6 @@ INSERT INTO {EVENTS_INSERT_DATA_TABLE()}
 )
 VALUES
 """
-)
 
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
@@ -1072,50 +1092,54 @@ LIMIT 10
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
 SELECT
-    uuid,
-    event,
+    events.uuid AS uuid,
+    events.event AS event,
     {properties_column},
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
+    events.timestamp AS timestamp,
+    events.team_id AS team_id,
+    events.distinct_id AS distinct_id,
+    events.elements_chain AS elements_chain,
+    events.created_at AS created_at
 FROM
     {events_table} AS events
-where team_id = %(team_id)s
+{properties_join}
+where events.team_id = %(team_id)s
 {conditions}
-ORDER BY timestamp {order} {limit}
+ORDER BY events.timestamp {order} {limit}
 """
 
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
 SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
+    events.uuid AS uuid,
+    events.event AS event,
+    {properties_column},
+    events.timestamp AS timestamp,
+    events.team_id AS team_id,
+    events.distinct_id AS distinct_id,
+    events.elements_chain AS elements_chain,
+    events.created_at AS created_at
 FROM {events_table} AS events
+{properties_join}
 WHERE
-team_id = %(team_id)s
+events.team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY timestamp {order} {limit}
+ORDER BY events.timestamp {order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
 SELECT
-    uuid,
-    event,
+    events.uuid AS uuid,
+    events.event AS event,
     {properties_column},
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM {events_table} AS events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+    events.timestamp AS timestamp,
+    events.team_id AS team_id,
+    events.distinct_id AS distinct_id,
+    events.elements_chain AS elements_chain,
+    events.created_at AS created_at
+FROM {events_table} AS events
+{properties_join}
+WHERE events.uuid = %(event_id)s AND events.team_id = %(team_id)s
 """
 
 NULL_SQL = """
@@ -1154,16 +1178,18 @@ INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON {event_table_alias}.distin
 
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT
-    uuid,
-    event,
+    events.uuid AS uuid,
+    events.event AS event,
     {properties_column},
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM {events_table} AS events WHERE
-team_id = %(team_id)s
+    events.timestamp AS timestamp,
+    events.team_id AS team_id,
+    events.distinct_id AS distinct_id,
+    events.elements_chain AS elements_chain,
+    events.created_at AS created_at
+FROM {events_table} AS events
+{properties_join}
+WHERE
+events.team_id = %(team_id)s
 {filters}
 {order_by}
 """

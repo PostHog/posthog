@@ -15,6 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 
 from posthog import redis
@@ -1085,6 +1086,9 @@ class TestFlagKeyFilterSQL(BaseTest):
             return_value=None,
         ):
             sql = _flag_key_filter_sql()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert sql == "ifNull(toString(properties.`$feature_flag`), '') = %(flag_key)s"
+            return
         assert "JSONExtractString(properties, '$feature_flag')" in sql
 
     def test_uses_escaped_materialized_column_when_available(self):
@@ -1095,6 +1099,9 @@ class TestFlagKeyFilterSQL(BaseTest):
             return_value=fake_column,
         ):
             sql = _flag_key_filter_sql()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert sql == "ifNull(toString(properties.`$feature_flag`), '') = %(flag_key)s"
+            return
         assert "`mat_$feature_flag` = %(flag_key)s" in sql
         assert "JSONExtractString" not in sql
 
@@ -1106,6 +1113,9 @@ class TestEnrichedFlagKeyExprSQL(BaseTest):
             return_value=None,
         ):
             sql = _enriched_flag_key_expr_sql()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert sql == "ifNull(toString(properties.feature_flag), '')"
+            return
         assert sql == "JSONExtractString(properties, 'feature_flag')"
 
     def test_uses_escaped_materialized_column_when_available(self):
@@ -1117,6 +1127,9 @@ class TestEnrichedFlagKeyExprSQL(BaseTest):
             return_value=fake_column,
         ):
             sql = _enriched_flag_key_expr_sql()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert sql == "ifNull(toString(properties.feature_flag), '')"
+            return
         assert sql == "`mat_feature_flag`"
 
     def test_coalesces_nullable_materialized_column(self):
@@ -1128,4 +1141,7 @@ class TestEnrichedFlagKeyExprSQL(BaseTest):
             return_value=fake_column,
         ):
             sql = _enriched_flag_key_expr_sql()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert sql == "ifNull(toString(properties.feature_flag), '')"
+            return
         assert sql == "ifNull(`mat_feature_flag`, '')"

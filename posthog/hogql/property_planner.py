@@ -307,6 +307,17 @@ def _plan_property_source(
             restricted=restricted,
         )
 
+    if (
+        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        and table_name == "events"
+        and field_name
+        in (
+            "properties",
+            "person_properties",
+        )
+    ):
+        return _json_source_plan(table_name=table_name, field_name=field_name, property_name=property_name)
+
     materialized_column = get_materialized_column_for_property(
         cast(TablesWithMaterializedColumns, table_name),
         cast(TableColumn, field_name),

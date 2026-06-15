@@ -14,6 +14,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Filter, Team
 from posthog.models.event.sql import (
     EVENTS_PROPERTIES_COLUMN,
+    EVENTS_PROPERTIES_JOIN,
     EVENTS_QUERY_TABLE,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
@@ -154,6 +155,7 @@ def query_events_list(
                     conditions=conditions,
                     events_table=EVENTS_QUERY_TABLE(),
                     properties_column=EVENTS_PROPERTIES_COLUMN(),
+                    properties_join=EVENTS_PROPERTIES_JOIN(),
                     limit=limit_sql,
                     filters=prop_filters,
                     order=order,
@@ -180,6 +182,7 @@ def query_events_list(
                     conditions=conditions,
                     events_table=EVENTS_QUERY_TABLE(),
                     properties_column=EVENTS_PROPERTIES_COLUMN(),
+                    properties_join=EVENTS_PROPERTIES_JOIN(),
                     limit=limit_sql,
                     order=order,
                 ),

@@ -267,7 +267,11 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     current_url_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
     device_id_expr, _ = get_property_string_expr("events", "$device_id", "'$device_id'", "properties")
     lib_expr, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
-    properties_expr = "toJSONString(properties)" if EVENTS_QUERY_TABLE() == "events_json" else "properties"
+    is_emulator_raw_expr = (
+        "toString(properties.`$is_emulator`)"
+        if EVENTS_QUERY_TABLE() == "events_json"
+        else "JSONExtractRaw(properties, '$is_emulator')"
+    )
 
     # Internal background job, not a customer-facing query — tag it so it's
     # attributed to growth in ClickHouse query analytics (and so it doesn't trip
@@ -302,7 +306,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                     1,
                     %(host_length_cap)s
                 ) AS host,
-                JSONExtractRaw({properties_expr}, '$is_emulator') AS is_emulator_raw,
+                {is_emulator_raw_expr} AS is_emulator_raw,
                 {device_id_expr} AS device_id,
                 {lib_expr} AS lib
             FROM {EVENTS_QUERY_TABLE()}

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.utils import timezone
 
 from dateutil.parser import isoparse
@@ -14,7 +15,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
-from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
+from posthog.models.event.sql import (
+    BULK_INSERT_EVENT_SQL,
+    EVENTS_DATA_TABLE,
+    EVENTS_INSERT_DATA_TABLE,
+    EVENTS_QUERY_TABLE,
+    INSERT_EVENT_SQL,
+)
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
@@ -106,6 +113,8 @@ def create_event(
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
+    if TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_DATA_TABLE()), data=data)
 
     return str(event_uuid)
 
@@ -302,6 +311,8 @@ def bulk_create_events(
             **{"{}_{}".format(key, index): value for key, value in event.items()},
         }
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
+    if TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        sync_execute(BULK_INSERT_EVENT_SQL(table_name=EVENTS_DATA_TABLE()) + ", ".join(inserts), params, flush=False)
 
 
 @extend_schema_serializer(component_name="EventElement")
@@ -358,7 +369,8 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        props = parse_properties(event["properties"])
+        properties_column = "event_properties" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
+        props = parse_properties(event[properties_column])
         restricted = self.context.get("restricted_event_properties")
         if restricted:
             props = {k: v for k, v in props.items() if k not in restricted}
@@ -412,12 +424,13 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
 
 def get_agg_event_count_for_teams(team_ids: list[Union[str, int]]) -> int:
+    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         SELECT count(1) as count
-        FROM events
+        FROM {events_table}
         WHERE team_id IN (%(team_id_clause)s)
-    """,
+    """.format(events_table=events_table),
         {"team_id_clause": team_ids},
     )[0][0]
     return result
@@ -426,26 +439,28 @@ def get_agg_event_count_for_teams(team_ids: list[Union[str, int]]) -> int:
 def get_agg_events_with_groups_count_for_teams_and_period(
     team_ids: list[Union[str, int]], begin: datetime, end: datetime
 ) -> int:
+    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         SELECT count(1) as count
-        FROM events
+        FROM {events_table}
         WHERE team_id IN (%(team_id_clause)s)
         AND timestamp between %(begin)s AND %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
-    """,
+    """.format(events_table=events_table),
         {"team_id_clause": team_ids, "begin": begin, "end": end},
     )[0][0]
     return result
 
 
 def get_event_count_for_team(team_id: Union[str, int]) -> int:
+    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         SELECT count(1) as count
-        FROM events
+        FROM {events_table}
         WHERE team_id = %(team_id)s
-    """,
+    """.format(events_table=events_table),
         {"team_id": str(team_id)},
     )[0][0]
     return result
@@ -455,36 +470,40 @@ def get_event_count() -> int:
     """
     ```SELECT count(1) as count FROM events``` is too slow on cloud
     """
+    events_data_table = EVENTS_INSERT_DATA_TABLE()
     result = sync_execute(
         """
-        SELECT sum(rows) FROM system.parts WHERE (active = 1) AND (table = 'sharded_events')
-    """
+        SELECT sum(rows) FROM system.parts WHERE (active = 1) AND (table = %(events_data_table)s)
+    """,
+        {"events_data_table": events_data_table},
     )[0][0]
     return result
 
 
 def get_event_count_for_last_month() -> int:
+    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         -- count of events last month
         SELECT
         COUNT(1) freq
-        FROM events
+        FROM {events_table}
         WHERE
         toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
-    """
+    """.format(events_table=events_table)
     )[0][0]
     return result
 
 
 def get_event_count_month_to_date() -> int:
+    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         -- count of events month to date
         SELECT
         COUNT(1) freq
-        FROM events
+        FROM {events_table}
         WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
-    """
+    """.format(events_table=events_table)
     )[0][0]
     return result

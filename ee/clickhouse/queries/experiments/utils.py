@@ -38,14 +38,36 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
 
     entity_query = f"AND event IN %(events_list)s"
     entity_params = {"events_list": sorted(events)}
-    properties_expr = "toJSONString(properties)" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        # nosemgrep: clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
+        events_result = sync_execute(
+            f"""
+            SELECT
+                event,
+                max(arrayExists(key -> startsWith(key, '$feature/'), JSONAllPaths(properties))) AS has_feature_flag
+            FROM {EVENTS_QUERY_TABLE()}
+            WHERE
+            team_id = %(team_id)s
+            {entity_query}
+            {date_query}
+            GROUP BY event
+            """,
+            {
+                "team_id": team.pk,
+                **date_params,
+                **entity_params,
+                **filter.hogql_context.values,
+            },
+        )
+
+        return not any(has_feature_flag for _, has_feature_flag in events_result)
 
     # nosemgrep: clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
     events_result = sync_execute(
         f"""
         SELECT
             event,
-            groupArraySample(%(limit)s)({properties_expr})
+            groupArraySample(%(limit)s)(properties)
         FROM {EVENTS_QUERY_TABLE()}
         WHERE
         team_id = %(team_id)s

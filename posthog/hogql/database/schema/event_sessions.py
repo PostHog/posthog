@@ -14,6 +14,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, GetFieldsTraverser, TraversingVisitor
 
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
+
 
 class EventsSessionSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
@@ -160,10 +162,11 @@ def join_with_events_table_session_duration(
     context: HogQLContext,
     node: ast.SelectQuery,
 ):
+    events_table = EVENTS_QUERY_TABLE()
     select_query = parse_select(
-        """
+        f"""
             select "$session_id" as id, dateDiff('second', min(timestamp), max(timestamp)) as duration
-            from events
+            from {events_table}
             group by id
         """
     )

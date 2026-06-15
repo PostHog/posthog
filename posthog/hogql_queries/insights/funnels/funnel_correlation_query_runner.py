@@ -589,7 +589,10 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 if(
                     empty(event_table.event),
                     [],
-                    arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))
+                    arrayMap(
+                        prop -> tuple(event_table.event, prop.1, prop.2),
+                        arrayFilter(prop -> prop.2 != '', JSONExtractKeysAndValues(event_table.properties, 'String'))
+                    )
                 )
             """
 

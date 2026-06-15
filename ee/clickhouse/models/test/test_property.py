@@ -13,6 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.conf import settings
 from django.test import override_settings
 
 from rest_framework.exceptions import ValidationError
@@ -799,8 +800,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             params.update(person_join_params)
 
         final_query = f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} AS events {joins} WHERE team_id = %(team_id)s {query}"
-        # Make sure we don't accidentally use json on the properties field
-        self.assertNotIn("json", final_query.lower())
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn('"mat_', final_query.lower())
+            self.assertNotIn("`mat_", final_query.lower())
+        else:
+            # Make sure we don't accidentally use json on the properties field
+            self.assertNotIn("json", final_query.lower())
         return sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -1000,6 +1005,11 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             string_expr,
             (
+                "ifNull(toString(properties.some_non_mat_prop), '')",
+                False,
+            )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else (
                 "replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')",
                 False,
             ),
@@ -1015,6 +1025,11 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             string_expr,
             (
+                "ifNull(toString(e.properties.some_non_mat_prop), '')",
+                False,
+            )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else (
                 "replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')",
                 False,
             ),
@@ -1022,12 +1037,22 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
-        self.assertEqual(string_expr, ('"mat_some_mat_prop"', True))
+        self.assertEqual(
+            string_expr,
+            ("ifNull(toString(properties.some_mat_prop), '')", False)
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else ('"mat_some_mat_prop"', True),
+        )
 
         string_expr = get_property_string_expr(
             "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
         )
-        self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
+        self.assertEqual(
+            string_expr,
+            ("ifNull(toString(e.properties.some_mat_prop), '')", False)
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else ('e."mat_some_mat_prop"', True),
+        )
 
         materialize("events", "some_mat_prop2", table_column="person_properties")
         materialize("events", "some_mat_prop3", table_column=cast(Any, "group2_properties"))
@@ -1038,7 +1063,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "properties",
             materialised_table_column="person_properties",
         )
-        self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
+        self.assertEqual(
+            string_expr,
+            ("ifNull(toString(properties.some_mat_prop2), '')", False)
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else ('"mat_pp_some_mat_prop2"', True),
+        )
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_get_property_string_expr_uses_json_subcolumn_for_new_events_schema(self):
@@ -1240,6 +1270,10 @@ TEST_BREAKDOWN_PROCESSING = [
             "replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '') AS prop",
             {"breakdown_param_1": "$browser"},
         ),
+        (
+            "ifNull(toString(properties.`$browser`), '') AS prop",
+            {"breakdown_param_1": "$browser"},
+        ),
     ),
     (
         ["$browser"],
@@ -1248,6 +1282,10 @@ TEST_BREAKDOWN_PROCESSING = [
         "properties",
         (
             "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
+            {"breakdown_param_1": "$browser"},
+        ),
+        (
+            "array(ifNull(toString(properties.`$browser`), '')) AS value",
             {"breakdown_param_1": "$browser"},
         ),
     ),
@@ -1260,12 +1298,18 @@ TEST_BREAKDOWN_PROCESSING = [
             "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
             {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
         ),
+        (
+            "array(ifNull(toString(properties.`$browser`), ''),ifNull(toString(properties.`$browser_version`), '')) AS prop",
+            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
+        ),
     ),
 ]
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
+@pytest.mark.parametrize(
+    "breakdown, table, query_alias, column, expected, expected_new_events_schema", TEST_BREAKDOWN_PROCESSING
+)
 def test_breakdown_query_expression(
     clean_up_materialised_columns,
     breakdown: Union[str, list[str]],
@@ -1273,8 +1317,12 @@ def test_breakdown_query_expression(
     query_alias: Literal["prop", "value"],
     column: str,
     expected: tuple[str, dict[str, Any]],
+    expected_new_events_schema: tuple[str, dict[str, Any]],
 ):
     actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
+
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        expected = expected_new_events_schema
 
     assert actual == expected
 
@@ -1322,6 +1370,11 @@ def test_breakdown_query_expression_materialised(
         column,
         materialised_table_column=materialise_column,
     )
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        expected_with = (
+            "array(ifNull(toString(properties.`$browser`), '')) AS value",
+            {"breakdown_param_1": "$browser"},
+        )
     assert actual == expected_with
 
     materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
@@ -1332,6 +1385,12 @@ def test_breakdown_query_expression_materialised(
         column,
         materialised_table_column=materialise_column,
     )
+
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        expected_without = (
+            "array(ifNull(toString(properties.`$browser`), '')) AS value",
+            {"breakdown_param_1": "$browser"},
+        )
 
     assert actual == expected_without
 
@@ -1849,7 +1908,10 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
         query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 
         assert column.name not in query
-        assert "JSONHas" in query
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "isNull" in query or "isNotNull" in query
+        else:
+            assert "JSONHas" in query
 
         uuids = sorted(
             [

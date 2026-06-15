@@ -364,7 +364,7 @@ class PropertySwapper(CloningVisitor):
             and table_name == "events"
             and field_type.name in ("properties", "person_properties")
         ):
-            return self._json_extract_subcolumn_expr(node, field_type, property_path)
+            return self._json_extract_subcolumn_expr(node, field_arg, field_type, property_path)
 
         if len(property_path) != 1:
             return None
@@ -416,6 +416,7 @@ class PropertySwapper(CloningVisitor):
     def _json_extract_subcolumn_expr(
         self,
         node: ast.Call,
+        field_arg: ast.Field,
         field_type: ast.FieldType,
         property_path: list[str],
     ) -> ast.Expr | None:
@@ -426,6 +427,18 @@ class PropertySwapper(CloningVisitor):
             keys=property_path,
             type=ast.StringType(nullable=True),
         )
+
+        if node.name in ("JSONExtractString", "simpleJSONExtractString"):
+            if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+                return ast.Constant(value=None)
+            if len(property_path) == 1:
+                return ast.Field(
+                    start=node.start,
+                    end=node.end,
+                    chain=[*field_arg.chain, property_path[0]],
+                    type=ast.PropertyType(chain=[property_path[0]], field_type=field_type),
+                )
+            return property_field
 
         if scalar_cast := _JSON_EXTRACT_SCALAR_CASTS.get(node.name):
             cast_type, default_value = scalar_cast

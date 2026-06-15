@@ -8,15 +8,12 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from django.test import override_settings
-
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
     GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
-    RAW_SESSION_TABLE_MV_SELECT_SQL_V3,
 )
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -35,17 +32,6 @@ def create_session_id():
     global session_id_counter
     session_id_counter += 1
     return str(uuid7(random=session_id_counter))
-
-
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-def test_raw_sessions_v3_reads_fixed_new_events_schema_properties_from_subcolumns():
-    sql = RAW_SESSION_TABLE_MV_SELECT_SQL_V3("posthog.sharded_events_json")
-
-    assert "JSONExtractString(properties" not in sql
-    assert "JSONExtract(properties, 'Tuple" not in sql
-    assert "properties.`$current_url`" in sql
-    assert "properties.utm_source" in sql
-    assert "JSONExtractKeysAndValues(toJSONString(properties), 'String')" in sql
 
 
 @snapshot_clickhouse_queries

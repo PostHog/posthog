@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.conf import settings
 from django.core.cache import cache
 
 from parameterized import parameterized
@@ -446,7 +447,12 @@ class TestQueryRunner(BaseTest):
         )
         response = runner.calculate()
         assert response.clickhouse is not None
-        assert "events.`mat_$browser" in response.clickhouse
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "events_json AS events" in response.clickhouse
+            assert "events.properties.`$browser`" in response.clickhouse
+            assert "events.`mat_$browser" not in response.clickhouse
+        else:
+            assert "events.`mat_$browser" in response.clickhouse
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),

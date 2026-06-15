@@ -9,6 +9,7 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.queries.actor_base_query import (
@@ -67,6 +68,7 @@ class RelatedActorsQuery:
         return get_serialized_people(self.team, person_ids)
 
     def _query_related_people_ids(self) -> list:
+        events_table = EVENTS_QUERY_TABLE()
         return self._take_first(
             # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
             sync_execute(
@@ -76,7 +78,7 @@ class RelatedActorsQuery:
             WHERE team_id = %(team_id)s
               AND distinct_id IN (
                   SELECT distinct_id
-                  FROM events
+                  FROM {events_table}
                   WHERE team_id = %(team_id)s
                     AND timestamp > %(after)s
                     AND timestamp < %(before)s
@@ -93,6 +95,7 @@ class RelatedActorsQuery:
         if not list(group_type_indexes):
             return []
 
+        events_table = EVENTS_QUERY_TABLE()
         array_join_tuples = ", ".join(f"(toUInt8({index}), e.$group_{index})" for index in group_type_indexes)
         query = f"""
                 SELECT DISTINCT group_type_index, group_key
@@ -101,7 +104,7 @@ class RelatedActorsQuery:
                   AND group_type_index IN {list(group_type_indexes)}
                   AND (group_type_index, group_key) IN (
                       SELECT tuples.1 AS group_type_index, tuples.2 AS group_key
-                      FROM events e
+                      FROM {events_table} e
                       ARRAY JOIN arrayFilter(x -> x.2 != '', [{array_join_tuples}]) AS tuples
                       WHERE team_id = %(team_id)s
                         AND e.timestamp > %(after)s

@@ -79,16 +79,24 @@ def _get_property_types(team_id: int) -> InferredProperties:
     """Determine property types based on ClickHouse data."""
     from posthog.clickhouse.client import sync_execute
 
-    property_types: InferredProperties = {
-        (PropertyDefinition.Type.EVENT, property_key, None): _infer_property_type(sample_json_value)
-        for property_key, sample_json_value in sync_execute(
-            _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES.format(
-                events_table=EVENTS_QUERY_TABLE(),
-                event_properties_expr=_event_properties_expr(),
-            ),
-            {"team_id": team_id},
-        )
-    }
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        property_types: InferredProperties = {
+            (PropertyDefinition.Type.EVENT, property_key, None): _infer_property_type_from_clickhouse_type(
+                clickhouse_type
+            )
+            for property_key, clickhouse_type in sync_execute(
+                _GET_EVENT_PROPERTY_SAMPLE_TYPES.format(events_table=EVENTS_QUERY_TABLE()),
+                {"team_id": team_id},
+            )
+        }
+    else:
+        property_types = {
+            (PropertyDefinition.Type.EVENT, property_key, None): _infer_property_type(sample_json_value)
+            for property_key, sample_json_value in sync_execute(
+                _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES.format(events_table=EVENTS_QUERY_TABLE()),
+                {"team_id": team_id},
+            )
+        }
 
     for property_key, sample_json_value, _ in sync_execute(
         _GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}
@@ -120,24 +128,36 @@ def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
     return None
 
 
+def _infer_property_type_from_clickhouse_type(clickhouse_type: str) -> Optional[PropertyType]:
+    if clickhouse_type.startswith("Nullable(") and clickhouse_type.endswith(")"):
+        clickhouse_type = clickhouse_type[len("Nullable(") : -1]
+
+    if clickhouse_type == "Bool":
+        return PropertyType.Boolean
+    if clickhouse_type == "String":
+        return PropertyType.String
+    if clickhouse_type.startswith(("Int", "UInt", "Float", "Decimal")):
+        return PropertyType.Numeric
+    return None
+
+
 def _get_event_property_pairs(team_id: int) -> list[tuple[str, str]]:
     """Determine which properties have been since with which events based on ClickHouse data."""
     from posthog.clickhouse.client import sync_execute
 
+    property_pairs_query = (
+        _GET_EVENT_PROPERTIES_JSON.format(events_table=EVENTS_QUERY_TABLE())
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        else _GET_EVENT_PROPERTIES.format(events_table=EVENTS_QUERY_TABLE())
+    )
+
     return [
         row[0]
         for row in sync_execute(
-            _GET_EVENT_PROPERTIES.format(
-                events_table=EVENTS_QUERY_TABLE(),
-                event_properties_expr=_event_properties_expr(),
-            ),
+            property_pairs_query,
             {"team_id": team_id},
         )
     ]
-
-
-def _event_properties_expr() -> str:
-    return "toJSONString(properties)" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
 
 
 _GET_EVENTS_LAST_SEEN_AT = """
@@ -149,11 +169,23 @@ GROUP BY event
 
 _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
 WITH property_tuples AS (
-    SELECT DISTINCT ON (property_tuple.1) arrayJoin(JSONExtractKeysAndValuesRaw({event_properties_expr})) AS property_tuple
+    SELECT DISTINCT ON (property_tuple.1) arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_tuple
     FROM {events_table}
     WHERE team_id = %(team_id)s
 )
 SELECT property_tuple.1 AS property_key, property_tuple.2 AS sample_json_value FROM property_tuples
+"""
+_GET_EVENT_PROPERTY_SAMPLE_TYPES = """
+WITH property_types AS (
+    SELECT
+        arrayJoin(mapKeys(JSONAllPathsWithTypes(properties))) AS property_key,
+        JSONAllPathsWithTypes(properties)[property_key] AS clickhouse_type
+    FROM {events_table}
+    WHERE team_id = %(team_id)s
+)
+SELECT property_key, anyLast(clickhouse_type) AS clickhouse_type
+FROM property_types
+GROUP BY property_key
 """
 _GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES = """
 WITH property_tuples AS (
@@ -175,6 +207,10 @@ _GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES = _GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.
 )
 
 _GET_EVENT_PROPERTIES = """
-SELECT DISTINCT (event, arrayJoin(JSONExtractKeys({event_properties_expr}))) FROM {events_table}
+SELECT DISTINCT (event, arrayJoin(JSONExtractKeys(properties))) FROM {events_table}
+WHERE team_id = %(team_id)s
+"""
+_GET_EVENT_PROPERTIES_JSON = """
+SELECT DISTINCT (event, arrayJoin(JSONAllPaths(properties))) FROM {events_table}
 WHERE team_id = %(team_id)s
 """

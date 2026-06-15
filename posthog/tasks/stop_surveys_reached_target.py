@@ -9,6 +9,7 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.utils import UUIDT
 
 from products.surveys.backend.models import Survey
@@ -22,9 +23,8 @@ def _get_surveys_response_counts(
     submission_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
 
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
-    # nosemgrep: clickhouse-fstring-param-audit - survey property expressions come from internal helper output
-    data = sync_execute(
-        f"""
+    events_table = EVENTS_QUERY_TABLE()
+    query = """
         SELECT
             {survey_id_expr} as survey_id,
             count(DISTINCT
@@ -32,13 +32,19 @@ def _get_surveys_response_counts(
                    {submission_id_expr},
                    toString(uuid))
             ) as unique_responses
-        FROM events
+        FROM {events_table}
         WHERE event = 'survey sent'
               AND team_id = %(team_id)s
               AND timestamp >= %(earliest_survey_creation_date)s
               AND survey_id in %(surveys_ids)s
         GROUP BY survey_id
-    """,
+    """.format(
+        survey_id_expr=survey_id_expr,
+        submission_id_expr=submission_id_expr,
+        events_table=events_table,
+    )
+    data = sync_execute(
+        query,
         {
             "surveys_ids": surveys_ids,
             "team_id": team_id,

@@ -42,7 +42,12 @@ from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person, PropertyDefinition, User
 from posthog.models.event.query_event_list import query_events_list
-from posthog.models.event.sql import EVENTS_PROPERTIES_COLUMN, EVENTS_QUERY_TABLE, SELECT_ONE_EVENT_SQL
+from posthog.models.event.sql import (
+    EVENTS_PROPERTIES_COLUMN,
+    EVENTS_PROPERTIES_JOIN,
+    EVENTS_QUERY_TABLE,
+    SELECT_ONE_EVENT_SQL,
+)
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
@@ -458,6 +463,7 @@ class EventViewSet(
             SELECT_ONE_EVENT_SQL.format(
                 events_table=EVENTS_QUERY_TABLE(),
                 properties_column=EVENTS_PROPERTIES_COLUMN(),
+                properties_join=EVENTS_PROPERTIES_JOIN(),
             ),
             {"team_id": self.team.pk, "event_id": pk.replace("-", "")},
             team_id=self.team.pk,
@@ -591,6 +597,12 @@ class EventViewSet(
         # PropertyValuesQuery with an optional property_filters field so the runner handles both paths
         # in the future.
         chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
+        field_expr = ast.Field(chain=chain)
+        presence_expr: ast.Expr = field_expr
+        string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not query_params.is_column:
+            presence_expr = ast.Call(name="isNotNull", args=[field_expr])
+            string_expr = ast.Call(name="toString", args=[field_expr])
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().astimezone(query_params.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
@@ -605,12 +617,17 @@ class EventViewSet(
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_to),
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=None),
-            ),
         ]
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not query_params.is_column:
+            conditions.append(presence_expr)
+        else:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=presence_expr,
+                    right=ast.Constant(value=None),
+                )
+            )
 
         for param_key, param_value in property_filters:
             filter_key = param_key.replace("properties_", "", 1)
@@ -636,7 +653,7 @@ class EventViewSet(
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                    left=string_expr,
                     right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
@@ -644,7 +661,7 @@ class EventViewSet(
         order_by: list[ast.OrderExpr] = (
             [
                 ast.OrderExpr(
-                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                    expr=ast.Call(name="length", args=[string_expr]),
                     order="ASC",
                 )
             ]
@@ -653,7 +670,7 @@ class EventViewSet(
         )
 
         query = ast.SelectQuery(
-            select=[ast.Field(chain=chain)],
+            select=[field_expr],
             distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
@@ -667,10 +684,12 @@ class EventViewSet(
         for row in result.results:
             if isinstance(row[0], float | int | bool | uuid.UUID):
                 values.append(row[0])
+            elif isinstance(row[0], list | tuple | dict):
+                values.append(row[0])
             else:
                 try:
                     values.append(json.loads(row[0]))
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, TypeError):
                     values.append(row[0])
 
         return self._return_with_short_cache(

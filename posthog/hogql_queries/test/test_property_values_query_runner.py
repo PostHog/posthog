@@ -362,9 +362,10 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             )
         assert {r.name for r in results} == {"TableValue"}
 
-    def test_restricted_property_key_uses_events_scan(self):
+    def test_restricted_property_key_is_not_served(self):
         self._insert_rows([(self.team.pk, "event", "browser", "TableOnly", 3, datetime.now())])
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "EventOnly"})
+        flush_persons_and_events()
 
         with (
             self._flag_on(),
@@ -374,7 +375,7 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             ),
         ):
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
-        assert {r.name for r in results} == {"EventOnly"}
+        assert results == []
 
     def test_is_column_uses_events_scan(self):
         self._insert_rows([(self.team.pk, "event", "event", "TableOnly", 3, datetime.now())])

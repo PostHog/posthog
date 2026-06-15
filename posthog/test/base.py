@@ -104,7 +104,6 @@ from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
     DROP_EVENTS_TABLE_SQL,
-    EVENTS_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE,
     EVENTS_JSON_TABLE_SQL,
     EVENTS_QUERY_TABLE,
@@ -1712,16 +1711,6 @@ def refresh_clickhouse_events_schema_dependent_objects() -> None:
 def enforce_clickhouse_events_schema_setting() -> None:
     refresh_clickhouse_events_schema_dependent_objects()
 
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return
-
-    drop_clickhouse_legacy_events_tables()
-
-
-def drop_clickhouse_legacy_events_tables() -> None:
-    for table_name in ["events", WRITABLE_EVENTS_DATA_TABLE(), EVENTS_DATA_TABLE()]:
-        sync_execute(f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}", flush=False)
-
 
 def clickhouse_events_table_drop_statements() -> list[str]:
     statements = [
@@ -1741,15 +1730,16 @@ def clickhouse_events_table_drop_statements() -> list[str]:
     return statements
 
 
-def clickhouse_events_data_table_sql() -> str:
+def clickhouse_events_data_table_sqls() -> list[str]:
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return EVENTS_JSON_TABLE_SQL()
-    return EVENTS_TABLE_SQL()
+        return [EVENTS_TABLE_SQL(), EVENTS_JSON_TABLE_SQL()]
+    return [EVENTS_TABLE_SQL()]
 
 
 def clickhouse_events_distributed_table_sqls() -> list[str]:
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return [
+            DISTRIBUTED_EVENTS_TABLE_SQL(),
             WRITABLE_EVENTS_JSON_TABLE_SQL(),
             DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
         ]
@@ -1819,7 +1809,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
-            clickhouse_events_data_table_sql(),
+            *clickhouse_events_data_table_sqls(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),

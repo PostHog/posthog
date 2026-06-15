@@ -24,6 +24,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -353,14 +354,15 @@ def ingestion_lag() -> None:
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
+    events_table = EVENTS_QUERY_TABLE()
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
-    FROM events
+    FROM {events_table}
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
         AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
     GROUP BY event
-    """
+    """.format(events_table=events_table)
 
     team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
 

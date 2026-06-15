@@ -25,6 +25,7 @@ from rest_framework import status
 
 from posthog.models import Element, Organization, Person, PropertyDefinition, User
 from posthog.models.event.query_event_list import insight_query_with_columns
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
@@ -712,7 +713,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             assert (
                 sync_execute(
-                    "select count(*) from events where team_id = %(team_id)s",
+                    f"select count(*) from {EVENTS_QUERY_TABLE()} where team_id = %(team_id)s",
                     {"team_id": self.team.pk},
                 )[0][0]
                 == 250
@@ -762,7 +763,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             assert (
                 sync_execute(
-                    "select count(*) from events where team_id = %(team_id)s",
+                    f"select count(*) from {EVENTS_QUERY_TABLE()} where team_id = %(team_id)s",
                     {"team_id": self.team.pk},
                 )[0][0]
                 == 25

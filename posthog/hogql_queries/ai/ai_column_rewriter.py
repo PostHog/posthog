@@ -203,13 +203,7 @@ def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int])
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
     if col_name in _RAW_JSON_COLUMNS and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return ast.Call(
-            name="JSONExtractRaw",
-            args=[
-                ast.Call(name="toJSONString", args=[ast.Field(chain=chain[:-1])]),
-                ast.Constant(value=prop_name),
-            ],
-        )
+        return ast.Call(name="toJSONString", args=[ast.Field(chain=chain)])
     return ast.Field(chain=chain)
 
 

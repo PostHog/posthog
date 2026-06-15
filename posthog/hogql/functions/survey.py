@@ -46,8 +46,7 @@ def _build_id_based_key(question_index: int, question_id: str | None) -> str | a
     if question_id:
         return f"$survey_response_{question_id}"
 
-    # Dynamic key: extract ID from the question at the given index in the questions array
-    # concat('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[index], 'id'))
+    # Dynamic key: extract ID from the question at the given index in the questions array.
     return ast.Call(
         name="concat",
         args=[
@@ -56,13 +55,7 @@ def _build_id_based_key(question_index: int, question_id: str | None) -> str | a
                 name="JSONExtractString",
                 args=[
                     ast.ArrayAccess(
-                        array=ast.Call(
-                            name="JSONExtractArrayRaw",
-                            args=[
-                                _properties_json_expr(),
-                                ast.Constant(value="$survey_questions"),
-                            ],
-                        ),
+                        array=_build_property_array_raw("$survey_questions"),
                         property=ast.Constant(value=question_index + 1),
                     ),
                     ast.Constant(value="id"),
@@ -82,33 +75,32 @@ def _build_index_based_key(question_index: int) -> str:
 def _build_property_access(key: str | ast.Expr) -> ast.Expr:
     """Build property access expression.
 
-    Always uses JSONExtractString to ensure consistent String return type.
-    This avoids type mismatches when PropertySwapper would wrap ast.Field
-    accesses with type conversion functions (e.g., toFloat for Numeric properties).
+    Native JSON static-key access reads the subcolumn and stringifies the value. Legacy and dynamic-key access use
+    JSONExtractString to keep a consistent String return type.
     """
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
+        return ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])
+
     return ast.Call(
         name="JSONExtractString",
-        args=[_properties_json_expr(), _key_as_expr(key)],
+        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
     )
 
 
 def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
     """Build COALESCE expression for single-choice survey response."""
-    # coalesce(nullif(properties.$id_key, ''), nullif(properties.$index_key, ''))
-    # Using ast.Field enables materialized column optimization when available
-    return ast.Call(
-        name="coalesce",
-        args=[
-            ast.Call(
-                name="nullif",
-                args=[_build_property_access(id_based_key), ast.Constant(value="")],
-            ),
-            ast.Call(
-                name="nullif",
-                args=[_build_property_access(index_based_key), ast.Constant(value="")],
-            ),
-        ],
-    )
+    response_keys: list[str | ast.Expr] = [index_based_key]
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or isinstance(id_based_key, str):
+        response_keys.insert(0, id_based_key)
+
+    coalesce_args = [
+        ast.Call(
+            name="nullif",
+            args=[_build_property_access(response_key), ast.Constant(value="")],
+        )
+        for response_key in response_keys
+    ]
+    return ast.Call(name="coalesce", args=coalesce_args)
 
 
 def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
@@ -116,10 +108,28 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
     return ast.Constant(value=key) if isinstance(key, str) else key
 
 
-def _properties_json_expr() -> ast.Expr:
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return ast.Field(chain=["properties"])
-    return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+def _build_property_array_raw(key: str | ast.Expr) -> ast.Expr:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
+        json_value = ast.Call(name="toJSONString", args=[ast.Field(chain=["properties", key])])
+        return ast.Call(
+            name="JSONExtractArrayRaw",
+            args=[ast.Call(name="ifNull", args=[json_value, ast.Constant(value="[]")])],
+        )
+
+    return ast.Call(
+        name="JSONExtractArrayRaw",
+        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+    )
+
+
+def _build_property_presence(key: str | ast.Expr) -> ast.Expr:
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and isinstance(key, str):
+        return ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", key])])
+
+    return ast.Call(
+        name="JSONHas",
+        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+    )
 
 
 def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
@@ -127,39 +137,29 @@ def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: s
 
     Note: JSONExtractArrayRaw doesn't benefit from materialization like string properties do.
     """
-    id_key_expr = _key_as_expr(id_based_key)
+    index_value = _build_property_array_raw(index_based_key)
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not isinstance(id_based_key, str):
+        return index_value
+
+    id_value = _build_property_array_raw(id_based_key)
     return ast.Call(
         name="if",
         args=[
             ast.And(
                 exprs=[
-                    ast.Call(
-                        name="JSONHas",
-                        args=[_properties_json_expr(), id_key_expr],
-                    ),
+                    _build_property_presence(id_based_key),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Gt,
                         left=ast.Call(
                             name="length",
-                            args=[
-                                ast.Call(
-                                    name="JSONExtractArrayRaw",
-                                    args=[_properties_json_expr(), id_key_expr],
-                                ),
-                            ],
+                            args=[id_value],
                         ),
                         right=ast.Constant(value=0),
                     ),
                 ]
             ),
-            ast.Call(
-                name="JSONExtractArrayRaw",
-                args=[_properties_json_expr(), id_key_expr],
-            ),
-            ast.Call(
-                name="JSONExtractArrayRaw",
-                args=[_properties_json_expr(), ast.Constant(value=index_based_key)],
-            ),
+            id_value,
+            index_value,
         ],
     )
 

@@ -705,6 +705,14 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
+        if json_string_on_events_json is not None:
+            return json_string_on_events_json
+
+        json_extract_on_events_json = self._rewrite_json_extract_on_events_json_subcolumn(node)
+        if json_extract_on_events_json is not None:
+            return json_extract_on_events_json
+
         optimized_json_has = self._optimize_json_has_on_events_json(node)
         if optimized_json_has is not None:
             return optimized_json_has
@@ -733,6 +741,88 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
 
         return super().visit_call(node)
+
+    def _rewrite_to_json_string_on_events_json_subcolumn(self, node: ast.Call) -> ast.Expr | None:
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "toJSONString" or len(node.args) != 1:
+            return None
+
+        property_access = self._lowered_property_operand(node.args[0])
+        if property_access is None or len(property_access.keys) != 1:
+            return None
+
+        field_type = _blob_field_type_of(property_access)
+        if field_type is None:
+            return None
+
+        property_name = str(property_access.keys[0])
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or source.kind != "json_subcolumn":
+            return None
+
+        _record_property_usage(self.context, source.kind)
+        return _json_subcolumn_value_expr(
+            field_type,
+            [property_name],
+            source=source,
+            as_json=True,
+            materialization_mode=self.context.modifiers.materializationMode,
+        )
+
+    def _rewrite_json_extract_on_events_json_subcolumn(self, node: ast.Call) -> ast.Expr | None:
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONExtract" or len(node.args) != 2:
+            return None
+
+        type_arg = node.args[1]
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            return None
+
+        requested_type = parse_sql_runtime_type(type_arg.value)
+        if requested_type.family not in ("array", "map", "tuple"):
+            return None
+
+        source_arg = node.args[0]
+        if not isinstance(source_arg, ast.Call) or source_arg.name != "ifNull" or len(source_arg.args) != 2:
+            return None
+
+        property_access = self._lowered_property_operand(source_arg.args[0])
+        if property_access is None or len(property_access.keys) != 1:
+            return None
+
+        field_type = _blob_field_type_of(property_access)
+        if field_type is None:
+            return None
+
+        property_name = str(property_access.keys[0])
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or source.kind != "json_subcolumn":
+            return None
+
+        json_value = _json_subcolumn_value_expr(
+            field_type,
+            [property_name],
+            source=source,
+            as_json=True,
+            materialization_mode=self.context.modifiers.materializationMode,
+        )
+        return ast.Call(
+            start=node.start,
+            end=node.end,
+            type=node.type,
+            name=node.name,
+            args=[
+                ast.Call(
+                    name="ifNull",
+                    args=[json_value, self.visit(source_arg.args[1])],
+                    type=ast.StringType(nullable=False),
+                ),
+                type_arg,
+            ],
+            params=node.params,
+            distinct=node.distinct,
+            within_group=node.within_group,
+            order_by=node.order_by,
+            filter_expr=node.filter_expr,
+        )
 
     def _optimize_json_has_on_events_json(self, node: ast.Call) -> ast.Expr | None:
         if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or node.name != "JSONHas" or len(node.args) == 0:

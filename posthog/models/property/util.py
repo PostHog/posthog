@@ -66,9 +66,27 @@ StringMatching = Literal["selector", "tag_name", "href", "text"]
 # ]}
 
 
-def _events_json_subcolumn_string_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
+def _use_events_json_schema_subcolumns(
+    table: TableWithProperties,
+    materialised_table_column: str,
+    use_json_schema_subcolumns: bool = True,
+) -> bool:
+    return (
+        use_json_schema_subcolumns
+        and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        and table == "events"
+        and materialised_table_column in ("properties", "person_properties")
+    )
+
+
+def _events_json_subcolumn_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
-    field = f"{table_string}{column}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
+    field_prefix = column if "." in column else f"{table_string}{column}"
+    return f"{field_prefix}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
+
+
+def _events_json_subcolumn_string_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
+    field = _events_json_subcolumn_expr(column, property_name, table_alias)
     return f"ifNull(toString({field}), '')"
 
 
@@ -406,25 +424,28 @@ def prop_filter_json_extract(
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
+    property_table_name = "events" if use_event_column else property_table(prop)
+    materialised_table_column = use_event_column if use_event_column else "properties"
+    uses_events_json_subcolumn = _use_events_json_schema_subcolumns(
+        property_table_name,
+        materialised_table_column,
+    )
+
     property_expr, is_denormalized = get_property_string_expr(
-        "events" if use_event_column else property_table(prop),
+        property_table_name,
         prop.key,
         f"%(k{prepend}_{idx})s",
         prop_var,
         allow_denormalized_props,
         table_name,
-        materialised_table_column=use_event_column if use_event_column else "properties",
+        materialised_table_column=materialised_table_column,
     )
 
     if is_denormalized and transform_expression:
         property_expr = transform_expression(property_expr)
 
-    json_has_expr = (
-        f"toJSONString({prop_var})"
-        if django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        and prop_var in ("properties", "person_properties")
-        and property_table(prop) == "events"
-        else prop_var
+    presence_expr = (
+        _events_json_subcolumn_expr(prop_var, str(prop.key), table_name) if uses_events_json_subcolumn else None
     )
 
     operator = prop.operator
@@ -502,6 +523,13 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
+        if presence_expr is not None:
+            return (
+                " {property_operator} isNotNull({left})".format(
+                    left=presence_expr, property_operator=property_operator
+                ),
+                params,
+            )
         if is_denormalized:
             return (
                 " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
@@ -511,7 +539,7 @@ def prop_filter_json_extract(
             " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=json_has_expr,
+                prop_var=prop_var,
                 property_operator=property_operator,
             ),
             params,
@@ -521,6 +549,11 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
+        if presence_expr is not None:
+            return (
+                " {property_operator} isNull({left})".format(left=presence_expr, property_operator=property_operator),
+                params,
+            )
         if is_denormalized:
             return (
                 " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
@@ -530,7 +563,7 @@ def prop_filter_json_extract(
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=json_has_expr,
+                prop_var=prop_var,
                 left=property_expr,
                 property_operator=property_operator,
             ),
@@ -739,6 +772,9 @@ def get_property_string_expr(
     """
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
+    if _use_events_json_schema_subcolumns(table, materialised_table_column, use_json_schema_subcolumns):
+        return _events_json_subcolumn_string_expr(column, str(property_name), table_alias), False
+
     if (
         allow_denormalized_props
         and (
@@ -755,14 +791,6 @@ def get_property_string_expr(
             f'{table_string}"{materialized_column.name}"',
             True,
         )
-
-    if (
-        use_json_schema_subcolumns
-        and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        and table == "events"
-        and materialised_table_column in ("properties", "person_properties")
-    ):
-        return _events_json_subcolumn_string_expr(column, str(property_name), table_alias), False
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 

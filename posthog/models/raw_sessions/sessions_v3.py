@@ -3,7 +3,6 @@ from typing import Optional
 from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE, EVENTS_QUERY_TABLE, json_subcolumn_expr
 
 """Raw sessions table v3
 
@@ -326,81 +325,7 @@ LEGACY_PROPERTIES = f"""
         tupleElement(p, '$host') as _host"""
 
 
-def _json_subcolumn_expr(column: str, key: str) -> str:
-    return json_subcolumn_expr(column, key)
-
-
-def _json_string_property_expr(key: str) -> str:
-    field = _json_subcolumn_expr("properties", key)
-    return f"if(isNull({field}), NULL, nullIf(toString({field}), ''))"
-
-
-def _json_int_property_expr(key: str) -> str:
-    return f"toInt64OrNull({_json_string_property_expr(key)})"
-
-
-def _json_person_string_property_expr(key: str) -> str:
-    field = _json_subcolumn_expr("person_properties", key)
-    return f"if(isNull({field}), NULL, nullIf(toString({field}), ''))"
-
-
-def _json_properties_sql() -> str:
-    lower_tier_ad_id_aliases = f",{new_line}".join(
-        [f"        {_json_string_property_expr(ad_id)} as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS]
-    )
-    lower_tier_ad_id_map = f",{new_line}".join(
-        [f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS]
-    )
-    lower_tier_ad_id_set = f",{new_line}".join(
-        [f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS]
-    )
-
-    return f"""
-        {_json_person_string_property_expr("email")} as _person_email,
-        -- Feature flag names are dynamic keys under `$feature/`; this still needs a full-object
-        -- enumeration until the cluster supports reading JSON path values without serializing.
-        mapSort(
-            mapFilter(
-                (key, _) -> key like '$feature/%%',
-                CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)')
-            )
-        ) as properties_group_feature_flags,
-        {_json_string_property_expr("$current_url")} as _current_url,
-        {_json_string_property_expr("$external_click_url")} as _external_click_url,
-        {_json_string_property_expr("$browser")} as _browser,
-        {_json_string_property_expr("$browser_version")} as _browser_version,
-        {_json_string_property_expr("$os")} as _os,
-        {_json_string_property_expr("$os_version")} as _os_version,
-        {_json_string_property_expr("$device_type")} as _device_type,
-        {_json_int_property_expr("$viewport_width")} as _viewport_width,
-        {_json_int_property_expr("$viewport_height")} as _viewport_height,
-        {_json_string_property_expr("$geoip_country_code")} as _geoip_country_code,
-        {_json_string_property_expr("$geoip_subdivision_1_code")} as _geoip_subdivision_1_code,
-        {_json_string_property_expr("$geoip_subdivision_1_name")} as _geoip_subdivision_1_name,
-        {_json_string_property_expr("$geoip_subdivision_city_name")} as _geoip_subdivision_city_name,
-        {_json_string_property_expr("$geoip_time_zone")} as _geoip_time_zone,
-        {_json_string_property_expr("$referring_domain")} as _referring_domain,
-        {_json_string_property_expr("utm_source")} as _utm_source,
-        {_json_string_property_expr("utm_campaign")} as _utm_campaign,
-        {_json_string_property_expr("utm_medium")} as _utm_medium,
-        {_json_string_property_expr("utm_term")} as _utm_term,
-        {_json_string_property_expr("utm_content")} as _utm_content,
-        {_json_string_property_expr("gclid")} as _gclid,
-        {_json_string_property_expr("gad_source")} as _gad_source,
-        {_json_string_property_expr("fbclid")} as _fbclid,
-{lower_tier_ad_id_aliases},
-        CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-{lower_tier_ad_id_map}
-        )) AS Map(String, String)) as ad_ids_map,
-        CAST(arrayFilter(x -> x IS NOT NULL, [
-{lower_tier_ad_id_set}
-        ]) AS Array(String)) as ad_ids_set,
-        {_json_string_property_expr("$host")} as _host"""
-
-
 def _properties_sql() -> str:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return _json_properties_sql()
     return LEGACY_PROPERTIES
 
 
@@ -516,8 +441,8 @@ AS
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=where,
-            # use the sharded events table, so the MV MUST be created on every data node
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.{EVENTS_INSERT_DATA_TABLE()}",
+            # use sharded_events, this means that the mv MUST be created on every data node
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
         ),
     )
 
@@ -530,7 +455,7 @@ MODIFY QUERY
 """.format(
         table_name=RAW_SESSIONS_MV_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.{EVENTS_INSERT_DATA_TABLE()}"
+            where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
         ),
     )
 
@@ -686,7 +611,7 @@ INSERT INTO {database}.{target_table}
         target_table=target_table,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
             where=combined_where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.{EVENTS_QUERY_TABLE()}",
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
             include_session_timestamp=include_session_timestamp,
         ),
     )

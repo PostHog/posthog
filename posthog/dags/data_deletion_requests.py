@@ -612,12 +612,8 @@ def process_property_removal_per_shard(
 
         update_parts: list[str] = []
         mutation_params: dict = {"inserted_at_marker": marker_str}
-        # Under the native-JSON events schema properties/person_properties are JSON columns. JSONDropKeys
-        # operates on a JSON string, so serialize first; the String result is implicitly cast back into the
-        # JSON column on assignment.
-        use_json_schema = django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        properties_expr = "toJSONString(properties)" if use_json_schema else "properties"
-        person_properties_expr = "toJSONString(person_properties)" if use_json_schema else "person_properties"
+        properties_expr = "properties"
+        person_properties_expr = "person_properties"
         if properties:
             update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_expr})")
             mutation_params["keys"] = properties

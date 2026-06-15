@@ -371,8 +371,10 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
+    from posthog.models.event.sql import EVENTS_QUERY_TABLE
 
     predicate, params = event_removal_where(request)
+    events_table = EVENTS_QUERY_TABLE()
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
@@ -382,7 +384,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     ):
         # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
         result = sync_execute(
-            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
+            f"SELECT count() FROM {events_table} WHERE {predicate} AND _row_exists = 1",
             params,
             team_id=request.team_id,
             readonly=True,

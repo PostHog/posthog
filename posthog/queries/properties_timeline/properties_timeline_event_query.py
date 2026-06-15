@@ -2,10 +2,7 @@ import datetime as dt
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
-
 from posthog.models.entity.util import get_entity_filtering_params
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.queries.event_query import EventQuery
 from posthog.queries.query_date_range import QueryDateRange
@@ -28,12 +25,6 @@ class PropertiesTimelineEventQuery(EventQuery):
             real_fields.append(f'{self.EVENT_TABLE_ALIAS}."{column_name}" AS "{column_name}"')
             sentinel_fields.append(f"'' AS \"{column_name}\"")
 
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            real_fields.append(
-                f'JSONExtractKeysAndValuesRaw(toJSONString({self.EVENT_TABLE_ALIAS}."person_properties")) AS "person_properties_key_values"'
-            )
-            sentinel_fields.append('[] AS "person_properties_key_values"')
-
         real_fields_combined = ",\n".join(real_fields)
         sentinel_fields_combined = ",\n".join(sentinel_fields)
 
@@ -46,7 +37,7 @@ class PropertiesTimelineEventQuery(EventQuery):
         query = f"""
             (
                 SELECT {real_fields_combined}
-                FROM {EVENTS_QUERY_TABLE()} {self.EVENT_TABLE_ALIAS}
+                FROM events {self.EVENT_TABLE_ALIAS}
                 WHERE
                     team_id = %(team_id)s
                     AND person_id = %(actor_id)s

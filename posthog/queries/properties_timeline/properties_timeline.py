@@ -2,9 +2,6 @@ import json
 import datetime
 from typing import Any, TypedDict, Union, cast
 
-from django.conf import settings
-
-from posthog.models.event.sql import PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
@@ -53,20 +50,6 @@ FROM (
 )
 WHERE timestamp IS NOT NULL /* Remove sentinel row */
 """
-
-
-RawJsonKeyValuePairs = list[tuple[str, str]]
-
-
-def _parse_actor_properties(raw_properties: str | RawJsonKeyValuePairs) -> dict[str, Any]:
-    if isinstance(raw_properties, str):
-        return cast(dict[str, Any], json.loads(raw_properties))
-
-    return {
-        key: json.loads(raw_value)
-        for key, raw_value in raw_properties
-        if not (key in PERSON_PROPERTIES_JSON_SUBCOLUMNS and raw_value == '""')
-    }
 
 
 class PropertiesTimeline:
@@ -122,24 +105,17 @@ class PropertiesTimeline:
             sorted(crucial_property_keys),
             query_alias=None,
             table="events",
-            column=(
-                "toJSONString(person_properties)"
-                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-                else "person_properties"
-            ),
+            column="person_properties",
             allow_denormalized_props=True,
             materialised_table_column="person_properties",
             use_json_schema_subcolumns=False,
         )
 
-        if filter.aggregation_group_type_index is None:
-            actor_properties_column = (
-                "person_properties_key_values"
-                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-                else "person_properties"
-            )
-        else:
-            actor_properties_column = f"group_{filter.aggregation_group_type_index}_properties"
+        actor_properties_column = (
+            "person_properties"
+            if filter.aggregation_group_type_index is None
+            else f"group_{filter.aggregation_group_type_index}_properties"
+        )
 
         formatted_sql = PROPERTIES_TIMELINE_SQL.format(
             event_query=event_query_sql,
@@ -163,7 +139,7 @@ class PropertiesTimeline:
             points=[
                 PropertiesTimelinePoint(
                     timestamp=timestamp,
-                    properties=_parse_actor_properties(properties),
+                    properties=json.loads(properties),
                     relevant_event_count=relevant_event_count,
                 )
                 for timestamp, properties, relevant_event_count in raw_query_result

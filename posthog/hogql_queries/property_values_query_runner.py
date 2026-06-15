@@ -4,6 +4,7 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.utils import timezone
 
 import posthoganalytics
@@ -25,6 +26,7 @@ from posthog.caching.utils import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.property_values import (
     get_event_property_values_from_aggregated_table,
     get_person_property_values_for_key,
@@ -63,6 +65,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def _calculate_event(self) -> PropertyValuesQueryResponse:
         if self._use_property_values_table:
             return self._calculate_event_from_table()
+        if self._use_legacy_events_scan:
+            return self._calculate_event_from_legacy_events()
         result = execute_hogql_query(
             self._event_query(),
             team=self.team,
@@ -76,6 +80,14 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             timings=self.timings.to_list(),
             hogql=result.hogql,
             modifiers=self.modifiers,
+        )
+
+    @cached_property
+    def _use_legacy_events_scan(self) -> bool:
+        return (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            and not self.query.is_column
+            and not self.query.property_key.startswith("$virt_")
         )
 
     @cached_property
@@ -102,6 +114,72 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
         )
         return self.query.property_key not in restricted
+
+    def _calculate_event_from_legacy_events(self) -> PropertyValuesQueryResponse:
+        restricted = get_restricted_property_names(
+            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
+        )
+        if self.query.property_key in restricted:
+            return PropertyValuesQueryResponse(
+                results=[],
+                timings=self.timings.to_list(),
+                modifiers=self.modifiers,
+            )
+
+        property_field = (
+            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(key)s), ''), 'null'), '^\"|\"$', '')"
+        )
+        date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
+        date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
+        params: dict[str, Any] = {
+            "team_id": self.team.pk,
+            "key": self.query.property_key,
+            "date_from": date_from,
+            "date_to": date_to,
+        }
+
+        event_filter = ""
+        if self.query.event_names:
+            event_conditions = []
+            for index, event_name in enumerate(self.query.event_names):
+                event_conditions.append(f"events.event = %(event_{index})s")
+                params[f"event_{index}"] = event_name
+            event_filter = f"AND ({' OR '.join(event_conditions)})"
+
+        value_filter = ""
+        order_by = ""
+        if self.query.search_value:
+            escaped = self.query.search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            value_filter = f"AND {property_field} ILIKE %(value)s"
+            params["value"] = f"%{escaped}%"
+            order_by = f"ORDER BY length({property_field}) ASC"
+
+        query = f"""
+SELECT DISTINCT {property_field} AS value
+FROM events
+WHERE and(
+    equals(events.team_id, %(team_id)s),
+    greaterOrEquals(events.timestamp, toDateTime64(%(date_from)s, 6, 'UTC')),
+    lessOrEquals(events.timestamp, toDateTime64(%(date_to)s, 6, 'UTC')),
+    isNotNull({property_field})
+)
+    {event_filter}
+    {value_filter}
+{order_by}
+LIMIT 10
+"""
+        result = insight_sync_execute(
+            query,
+            params,
+            query_type="get_property_values_with_value",
+            team_id=self.team.pk,
+        )
+        return PropertyValuesQueryResponse(
+            results=self._format_event_results(result),
+            timings=self.timings.to_list(),
+            hogql=query,
+            modifiers=self.modifiers,
+        )
 
     def _calculate_event_from_table(self) -> PropertyValuesQueryResponse:
         rows = cast(
@@ -134,6 +212,15 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         key = self.query.property_key
         is_virtual = key.startswith("$virt_")
         chain: list[str | int] = [key] if (self.query.is_column or is_virtual) else ["properties", key]
+        field_expr = ast.Field(chain=chain)
+        presence_expr: ast.Expr = field_expr
+        string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
+        use_native_property_subcolumn = (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not self.query.is_column and not is_virtual
+        )
+        if use_native_property_subcolumn:
+            presence_expr = ast.Call(name="isNotNull", args=[field_expr])
+            string_expr = ast.Call(name="toString", args=[field_expr])
 
         date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
         date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
@@ -149,12 +236,17 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_to),
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=None),
-            ),
         ]
+        if use_native_property_subcolumn:
+            conditions.append(presence_expr)
+        else:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=presence_expr,
+                    right=ast.Constant(value=None),
+                )
+            )
 
         if self.query.event_names:
             event_conditions: list[ast.Expr] = [
@@ -172,7 +264,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                    left=string_expr,
                     right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
@@ -180,7 +272,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         order_by: list[ast.OrderExpr] = (
             [
                 ast.OrderExpr(
-                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                    expr=ast.Call(name="length", args=[string_expr]),
                     order="ASC",
                 )
             ]
@@ -189,7 +281,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
         return ast.SelectQuery(
-            select=[ast.Field(chain=chain)],
+            select=[field_expr],
             distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
