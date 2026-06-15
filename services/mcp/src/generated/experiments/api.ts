@@ -134,7 +134,7 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status."
+            "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, created_by, updated_at, start_date, end_date, duration, status, and conclusion."
         ),
     prompt_name: zod
         .string()

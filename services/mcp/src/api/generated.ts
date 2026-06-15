@@ -51102,7 +51102,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, created_by, updated_at, start_date, end_date, duration, status, and conclusion.
      */
     order?: string;
     /**
