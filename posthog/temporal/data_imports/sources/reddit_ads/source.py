@@ -35,7 +35,14 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         return ExternalDataSourceType.REDDITADS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"401 Client Error": None, "404 Client Error": None}
+        return {
+            "401 Client Error": None,
+            "404 Client Error": None,
+            # Raised by OAuthMixin.get_oauth_integration when the connected Reddit Ads
+            # account has been deleted or disconnected. The integration row is gone, so
+            # retrying can never recover it — stop and ask the user to reconnect.
+            "Integration not found": "The connected Reddit Ads account is no longer available — it may have been disconnected. Please reconnect the source's account.",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
