@@ -19361,19 +19361,6 @@ export namespace Schemas {
       deleted: boolean;
     }
 
-    export interface Gateway {
-      readonly id: string;
-      /**
-         * Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a credential with the llm_gateway:read scope makes.
-         * @maxLength 64
-         */
-      slug: string;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      readonly created_by: UserBasic | null;
-    }
-
     export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
@@ -25556,15 +25543,6 @@ export namespace Schemas {
       results: FolderInstructionsVersion[];
     }
 
-    export interface PaginatedGatewayList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Gateway[];
-    }
-
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -31001,19 +30979,6 @@ export namespace Schemas {
          * @minimum 0
          */
       base_version?: number;
-    }
-
-    export interface PatchedGateway {
-      readonly id?: string;
-      /**
-         * Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a credential with the llm_gateway:read scope makes.
-         * @maxLength 64
-         */
-      slug?: string;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      readonly created_by?: UserBasic | null;
     }
 
     export interface PatchedGroupType {
@@ -51296,17 +51261,6 @@ export namespace Schemas {
      * The flag ID
      */
     key?: string;
-    };
-
-    export type GatewaysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type GroupsListParams = {
