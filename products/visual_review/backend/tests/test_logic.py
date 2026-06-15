@@ -2428,6 +2428,70 @@ class TestApprovalComment:
         assert "changed" not in body
         assert "new" not in body
         assert "removed" not in body
+        # A genuinely empty run stays silent — the suppressed-only note must not fire
+        assert "quarantined or tolerated" not in body
+
+    def test_build_approval_comment_body_excludes_quarantined_and_tolerated(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="mixed",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id, run=run, identifier="Real/Change", result=SnapshotResult.CHANGED
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.TOLERATED,
+        )
+
+        body = logic._build_approval_comment_body(run, repo, logic._Approver(label="bob", is_github_login=True))
+
+        assert "1 changed." in body
+        assert "new" not in body
+        assert "quarantined or tolerated" not in body
+
+    def test_build_approval_comment_body_notes_when_only_quarantined_and_tolerated(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="suppressed",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.TOLERATED,
+        )
+
+        body = logic._build_approval_comment_body(run, repo, logic._Approver(label="bob", is_github_login=True))
+
+        assert "All visual changes in this run were quarantined or tolerated." in body
+        assert "1 changed" not in body
 
     def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
         repo.enable_pr_comments = False
@@ -2598,6 +2662,35 @@ class TestApprovalComment:
         assert "_(none)_" in body
         # Long-lived URL so GitHub's image proxy can still fetch it later
         assert f"exp={logic._COMMENT_IMAGE_URL_EXPIRATION}" in body
+
+    def test_build_snapshot_image_tables_excludes_quarantined_and_tolerated(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run_with_artifacts,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+            baseline_artifact=self._mk_artifact(repo, "base_q"),
+            current_artifact=self._mk_artifact(repo, "curr_q"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run_with_artifacts,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.CHANGED,
+            review_state=ReviewState.TOLERATED,
+            baseline_artifact=self._mk_artifact(repo, "base_t"),
+            current_artifact=self._mk_artifact(repo, "curr_t"),
+        )
+
+        body = logic._build_snapshot_image_tables(run_with_artifacts, repo)
+
+        assert "Flaky/Quarantined" not in body
+        assert "Known/Tolerated" not in body
+        assert "curr_q" not in body
+        assert "curr_t" not in body
+        assert "Login/Form" in body
 
     def test_build_approval_comment_body_deep_links_each_snapshot(self, repo, run_with_artifacts, mocker):
         mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
