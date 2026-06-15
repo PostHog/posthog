@@ -40,7 +40,9 @@ class UsageCommand(SlashCommand):
                     messages=[AssistantMessage(content="Unable to retrieve conversation start time.", id=str(uuid4()))]
                 )
 
-            usage_period = get_ai_usage_period(self._team, config.get("configurable", {}).get("billing_context"))
+            usage_period = await sync_to_async(get_ai_usage_period, thread_sensitive=False)(
+                self._team, config.get("configurable", {}).get("billing_context")
+            )
 
             conversation_credits = await sync_to_async(get_ai_credits_for_conversation, thread_sensitive=False)(
                 team_id=self._team.id,
@@ -73,4 +75,4 @@ class UsageCommand(SlashCommand):
 
         except Exception as e:
             capture_exception(e)
-            raise Exception("PostHog AI usage information query failed. Please try again later.")
+            raise Exception("PostHog AI usage information query failed. Please try again later.") from e
