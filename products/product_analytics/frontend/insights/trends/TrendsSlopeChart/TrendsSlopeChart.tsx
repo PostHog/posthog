@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { SlopeChart } from '@posthog/quill-charts'
-import type { SlopeChartConfig } from '@posthog/quill-charts'
+import type { Series, SlopeChartConfig, SlopeSeriesMeta } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -10,13 +10,13 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
-import { buildSlopeSeries, slopeLabels } from './slopeChartTransforms'
 
 interface TrendsSlopeChartProps {
     context?: QueryContext<InsightVizNode>
@@ -39,19 +39,23 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     } = useValues(trendsDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
 
-    // The backend returns exactly two points per series (the first and last interval bucket);
-    // buildSlopeSeries maps them to quill series, honoring legend show/hide and dashing the
-    // connector when the last bucket is the current incomplete period.
-    const labels = useMemo(() => slopeLabels(currentPeriodResult?.labels ?? []), [currentPeriodResult?.labels])
-    const series = useMemo(
-        () =>
-            buildSlopeSeries(indexedResults ?? [], {
-                getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
-                incompletenessOffsetFromEnd,
-            }),
-        [indexedResults, getTrendsColor, getTrendsHidden, incompletenessOffsetFromEnd]
-    )
+    // The backend already shapes each series to its two points (first and last interval bucket) and
+    // the two bucket labels — so here we only map to quill series: resolve the theme colour, drop
+    // legend-hidden series, and flag the incomplete end (which dashes the connector). A series with
+    // fewer than two points (a single-bucket range) is dropped — there's no slope to draw.
+    const labels = currentPeriodResult?.labels ?? []
+    const series = useMemo<Series<SlopeSeriesMeta>[]>(() => {
+        const lastBucketInProgress = incompletenessOffsetFromEnd !== undefined && incompletenessOffsetFromEnd < 0
+        return (indexedResults ?? [])
+            .filter((result: IndexedTrendResult) => !getTrendsHidden(result) && (result.data?.length ?? 0) >= 2)
+            .map((result: IndexedTrendResult) => ({
+                key: String(result.id),
+                label: result.label ?? '',
+                color: getTrendsColor(result),
+                data: result.data,
+                meta: lastBucketInProgress ? { incompleteEnd: true } : undefined,
+            }))
+    }, [indexedResults, getTrendsColor, getTrendsHidden, incompletenessOffsetFromEnd])
 
     const config = useMemo<SlopeChartConfig>(
         () => ({

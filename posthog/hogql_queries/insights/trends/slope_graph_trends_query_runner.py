@@ -5,7 +5,7 @@ from posthog.schema import ChartDisplayType, HogQLPropertyFilter, TrendsFilter, 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
 
-def _collapse_to_endpoints(result: dict) -> None:
+def _keep_first_and_last_bucket(result: dict) -> None:
     """Keep only the first and last bucket of a trends series — the slope's two points."""
     for key in ("data", "labels", "days"):
         values = result.get(key)
@@ -22,7 +22,7 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
     windows, so ClickHouse only reads those two buckets instead of the whole range. The series still
     zero-fills the buckets in between; we slice them off. A range spanning a single bucket yields a
     one-point series, which the frontend drops (there's no slope to draw). The last bucket is shown
-    as-is even when it is the current, still-accumulating period; the frontend dashes that endpoint,
+    as-is even when it is the current, still-accumulating period; the frontend dashes that last segment,
     mirroring the line chart. Because it has its own display type it caches under its own key.
     """
 
@@ -51,7 +51,7 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
         ).calculate()
 
         for result in response.results or []:
-            _collapse_to_endpoints(result)
+            _keep_first_and_last_bucket(result)
         return response
 
     def _end_buckets_filter(self) -> HogQLPropertyFilter:
