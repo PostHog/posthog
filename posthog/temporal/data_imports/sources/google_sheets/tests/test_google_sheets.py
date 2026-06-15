@@ -83,6 +83,59 @@ def test_get_worksheet_retries_transient_api_errors(status_code):
         assert mock_get_worksheet_by_id.call_count == 10
 
 
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+def test_get_schemas_retries_transient_api_errors(status_code):
+    """Schema discovery (`open_by_url`/`worksheets`) hits the Sheets API just like
+    `_get_worksheet`, so a transient quota 429 or 5xx server error (e.g.
+    "[500]: Internal error encountered.") must be retried with backoff rather than
+    failing the whole sync on the first occurrence."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {
+            "error": {"code": status_code, "message": "Internal error encountered.", "status": "INTERNAL"}
+        }
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.side_effect = gspread.exceptions.APIError(mock_response)
+
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+        with pytest.raises(gspread.exceptions.APIError):
+            get_schemas(config)
+
+        assert instance.open_by_url.call_count == 10
+
+
+def test_get_schemas_does_not_retry_non_transient_api_error():
+    """A non-transient API error (e.g. 400) raised during schema discovery should be
+    raised immediately without burning through the retry budget."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {
+            "error": {"code": 400, "message": "Bad request", "status": "INVALID_ARGUMENT"}
+        }
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.side_effect = gspread.exceptions.APIError(mock_response)
+
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+        with pytest.raises(gspread.exceptions.APIError):
+            get_schemas(config)
+
+        assert instance.open_by_url.call_count == 1
+
+
 def test_get_worksheet_does_not_retry_non_transient_api_error():
     """A non-transient API error (e.g. 400) should be raised immediately without
     burning through the retry budget."""
