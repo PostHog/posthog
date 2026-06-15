@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, Timeout
 
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -20,7 +21,6 @@ from products.tasks.backend.services.modal_sandbox import (
     _image_ref_cache,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError, SandboxProvisionError
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -530,7 +530,7 @@ class TestModalSandboxAgentServer:
         image = MagicMock()
         image.object_id = "snapshot-123"
 
-        def snapshot_filesystem() -> Any:
+        def snapshot_filesystem(ttl: Any = None) -> Any:
             events.append("snapshot")
             return image
 
@@ -542,7 +542,7 @@ class TestModalSandboxAgentServer:
         assert result == "snapshot-123"
         mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
         exec_process.wait.assert_called_once_with()
-        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with()
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(ttl=None)
         assert events == ["wait", "snapshot"]
 
 

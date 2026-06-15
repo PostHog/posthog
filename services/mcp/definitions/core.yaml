@@ -16,6 +16,10 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+    render-ui:
+        type: custom
+        app_name: PostHog Render UI
+        description: Renders the visualization for a PostHog MCP tool result
 tools:
     activity-retrieve:
         operation: organizations_projects_activity_retrieve
@@ -55,6 +59,12 @@ tools:
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
+        enabled: false
+    desktop-file-system-context-generation-retrieve:
+        operation: desktop_file_system_context_generation_retrieve
+        enabled: false
+    desktop-file-system-context-generation-update:
+        operation: desktop_file_system_context_generation_update
         enabled: false
     desktop-file-system-count-by-path-create:
         operation: desktop_file_system_count_by_path_create
@@ -370,6 +380,30 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
+    organizations-projects-default-evaluation-contexts-create:
+        operation: organizations_projects_default_evaluation_contexts_create
+        enabled: false
+    organizations-projects-default-evaluation-contexts-destroy:
+        operation: organizations_projects_default_evaluation_contexts_destroy
+        enabled: false
+    organizations-projects-default-evaluation-contexts-retrieve:
+        operation: organizations_projects_default_evaluation_contexts_retrieve
+        enabled: false
+    organizations-projects-default-release-conditions-retrieve:
+        operation: organizations_projects_default_release_conditions_retrieve
+        enabled: false
+    organizations-projects-default-release-conditions-update:
+        operation: organizations_projects_default_release_conditions_update
+        enabled: false
+    organizations-projects-event-ingestion-restrictions-retrieve:
+        operation: organizations_projects_event_ingestion_restrictions_retrieve
+        enabled: false
+    organizations-projects-experiments-config-partial-update:
+        operation: organizations_projects_experiments_config_partial_update
+        enabled: false
+    organizations-projects-experiments-config-retrieve:
+        operation: organizations_projects_experiments_config_retrieve
+        enabled: false
     organizations-projects-logs-config-partial-update:
         operation: organizations_projects_logs_config_partial_update
         enabled: false
@@ -378,6 +412,9 @@ tools:
         enabled: false
     organizations-projects-promoted-product-intent-retrieve:
         operation: organizations_projects_promoted_product_intent_retrieve
+        enabled: false
+    organizations-projects-settings-as-of-retrieve:
+        operation: organizations_projects_settings_as_of_retrieve
         enabled: false
     persisted-folder-create:
         operation: persisted_folder_create

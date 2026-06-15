@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -19,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
@@ -38,8 +38,28 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading } = useValues(scannerLogic)
-    const { deleteScanner } = useActions(scannerLogic)
+    const { scanner, scannerLoading, togglingEnabled } = useValues(scannerLogic)
+    const { toggleEnabled } = useActions(scannerLogic)
+
+    const handleToggleEnabledClick = (): void => {
+        if (!scanner) {
+            return
+        }
+        LemonDialog.open({
+            title: scanner.enabled ? 'Disable scanner?' : 'Enable scanner?',
+            description: scanner.enabled
+                ? 'This will stop the scanner from analyzing new session recordings. Are you sure?'
+                : 'The scanner will begin analyzing new session recordings that match its triggers',
+            primaryButton: {
+                children: scanner.enabled ? 'Disable' : 'Enable',
+                status: scanner.enabled ? 'danger' : 'default',
+                onClick: () => toggleEnabled(),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
 
     if (scannerLoading || !scanner) {
         return (
@@ -58,67 +78,61 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 actions={
                     <>
                         <ReplayVisionFeedbackButton />
-                        <More
-                            size="small"
-                            overlay={
-                                <LemonButton
-                                    status="danger"
-                                    fullWidth
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                            description: 'This cannot be undone.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteScanner(),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                    data-attr="vision-scanner-delete"
-                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                >
-                                    Delete
-                                </LemonButton>
-                            }
-                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={urls.replayVisionScannerConfigure(scannerId)}
+                                data-attr="vision-scanner-edit"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            >
+                                Edit scanner
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             />
 
             <QuotaBanner />
 
-            <ScannerOverview scannerId={scannerId} />
-
-            <LemonCollapse
-                panels={[
-                    {
-                        key: 'configuration',
-                        header: 'Configuration',
-                        content: <ScannerConfigReadonly scanner={scanner} />,
-                        dataAttr: 'vision-scanner-config-expand',
-                    },
-                ]}
-            />
-            <div className="flex items-center justify-end">
+            <div className="w-full max-w-xs">
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton
-                        type="primary"
-                        to={urls.replayVisionScannerConfigure(scannerId)}
-                        data-attr="vision-scanner-edit"
+                    <LemonSwitch
+                        checked={scanner.enabled}
+                        onChange={handleToggleEnabledClick}
+                        loading={togglingEnabled}
+                        label="Enable scanner"
+                        bordered
+                        fullWidth
+                        data-attr="vision-scanner-toggle-enabled"
                         data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    >
-                        Edit scanner
-                    </LemonButton>
+                    />
                 </AccessControlAction>
             </div>
 
-            <SummarizerMaxChat scannerId={scannerId} />
-            <ScannerObservationsTable scannerId={scannerId} />
+            <ScannerOverview scannerId={scannerId} />
+
+            <div className="flex flex-col gap-2">
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'configuration',
+                            header: 'Configuration',
+                            content: <ScannerConfigReadonly scanner={scanner} />,
+                            dataAttr: 'vision-scanner-config-expand',
+                        },
+                    ]}
+                />
+                <SummarizerMaxChat scannerId={scannerId} />
+                <ObservationSearchMaxChat scannerId={scannerId} />
+                <ScannerObservationsTable scannerId={scannerId} />
+            </div>
         </SceneContent>
     )
 }

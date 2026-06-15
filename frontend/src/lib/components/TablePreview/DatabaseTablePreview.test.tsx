@@ -188,7 +188,7 @@ describe('DatabaseTablePreview', () => {
                 </Provider>
             )
 
-            expect(await screen.findByText('second result')).toBeInTheDocument()
+            expect(await screen.findByText('second result', {}, { timeout: 3000 })).toBeInTheDocument()
             expect(screen.queryByText('first result')).not.toBeInTheDocument()
             expect(executedQueries).toHaveLength(2)
             expect(executedQueries[1]).toContain(expectedQueryContains)

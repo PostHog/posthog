@@ -1001,7 +1001,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1024,7 +1024,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1047,7 +1047,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1070,7 +1070,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1093,7 +1093,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_person_property_with_null_value(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1876,6 +1876,26 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIn("user_2", results)
         self.assertEqual(results["user_1"]["properties"]["email"], "user1@example.com")
         self.assertEqual(results["user_2"]["properties"]["email"], "user2@example.com")
+
+    def test_batch_by_distinct_ids_caps_distinct_ids_at_ten(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"id_{i}" for i in range(12)],
+            properties={"email": "many@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["id_0"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("id_0", results)
+        self.assertLessEqual(len(results["id_0"]["distinct_ids"]), 10)
 
     def test_batch_by_distinct_ids_missing_ids(self) -> None:
         _create_person(

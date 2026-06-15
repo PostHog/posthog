@@ -34,6 +34,12 @@ configs and a detector-selection guide, read the `anomaly-alerts`, `signals-aler
   use the ensemble.)
 - **Target a time-series insight.** A single-value / BoldNumber insight returns one point and
   scores nothing — point the simulator at a trend displayed over time.
+- **`alert-simulate` only accepts `TrendsQuery` insights.** A SQL-backed saved insight
+  (`DataVisualizationNode` wrapping a `HogQLQuery` — most revenue, MRR/ARR, and LLM-cost
+  insights are this) is rejected outright with `Only TrendsQuery insights are supported`. Don't
+  burn a call discovering this: check the insight's `query.kind` first (via `insight-get`), and
+  if it's a `DataVisualizationNode`, score it with the SQL fallback below instead of the
+  simulator.
 - **Breakdown insights return a per-series block per breakdown value plus a meaningless
   rolled-up total.** `series_index` does not cleanly isolate one breakdown value — read the
   per-series sub-blocks, or prefer a non-breakdown insight for a clean read.

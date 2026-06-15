@@ -23,8 +23,6 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.schema import AIEventType
-
 from posthog import version_requirement
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -39,6 +37,7 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.schema_enums import AIEventType
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
@@ -226,6 +225,10 @@ class UsageReportCounters:
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
     node_events_count_in_period: int
+    openclaw_events_count_in_period: int
+    posthog_pi_events_count_in_period: int
+    edge_events_count_in_period: int
+    convex_events_count_in_period: int
     android_events_count_in_period: int
     flutter_events_count_in_period: int
     ios_events_count_in_period: int
@@ -653,8 +656,9 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
-    # Check if $lib is materialized
+    # Check if $lib and $ai_lib are materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+    ai_lib_expression, _ = get_property_string_expr("events", "$ai_lib", "'$ai_lib'", "properties")
 
     query_template = f"""
         SELECT
@@ -666,7 +670,11 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 event LIKE 'traceloop%%', 'traceloop_events',
                 {lib_expression} = 'web', 'web_events',
                 {lib_expression} = 'js', 'web_lite_events',
+                {lib_expression} = 'posthog-node' AND {ai_lib_expression} = 'posthog-openclaw', 'openclaw_events',
+                {lib_expression} = 'posthog-node' AND {ai_lib_expression} = '@posthog/pi', 'posthog_pi_events',
                 {lib_expression} = 'posthog-node', 'node_events',
+                {lib_expression} = 'posthog-edge', 'edge_events',
+                {lib_expression} = 'posthog-convex', 'convex_events',
                 {lib_expression} = 'posthog-android', 'android_events',
                 {lib_expression} = 'posthog-flutter', 'flutter_events',
                 {lib_expression} = 'posthog-ios', 'ios_events',
@@ -702,6 +710,10 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "web_events": {},
             "web_lite_events": {},
             "node_events": {},
+            "openclaw_events": {},
+            "posthog_pi_events": {},
+            "edge_events": {},
+            "convex_events": {},
             "android_events": {},
             "flutter_events": {},
             "ios_events": {},
@@ -1125,6 +1137,8 @@ POSTHOG_AI_PRODUCTS = [
     "slack_app",
     "subscriptions",
     "alert_investigation_agent",
+    "product_analytics",
+    "surveys",
 ]
 
 # ai_product values billed as signals credits.
@@ -2127,6 +2141,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_web_events_count_in_period": all_metrics["web_events"],
         "teams_with_web_lite_events_count_in_period": all_metrics["web_lite_events"],
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
+        "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
+        "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
+        "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
+        "teams_with_convex_events_count_in_period": all_metrics["convex_events"],
         "teams_with_android_events_count_in_period": all_metrics["android_events"],
         "teams_with_flutter_events_count_in_period": all_metrics["flutter_events"],
         "teams_with_ios_events_count_in_period": all_metrics["ios_events"],
@@ -2478,6 +2496,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
         web_lite_events_count_in_period=all_data["teams_with_web_lite_events_count_in_period"].get(team.id, 0),
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
+        openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
+        posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
+        edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),
+        convex_events_count_in_period=all_data["teams_with_convex_events_count_in_period"].get(team.id, 0),
         android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),
         flutter_events_count_in_period=all_data["teams_with_flutter_events_count_in_period"].get(team.id, 0),
         ios_events_count_in_period=all_data["teams_with_ios_events_count_in_period"].get(team.id, 0),

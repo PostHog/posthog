@@ -24,13 +24,6 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
-        ReplayVisionTemplates: {
-            name: 'Replay vision templates',
-            import: () => import('./frontend/replay_scanners/ScannerTemplatesScene'),
-            projectBased: true,
-            iconType: 'replay_vision',
-            layout: 'app-container',
-        },
         ReplayVisionScannerEditor: {
             name: 'Replay vision scanner editor',
             import: () => import('./frontend/replay_scanners/ScannerEditorScene'),
@@ -49,17 +42,20 @@ export const manifest: ProductManifest = {
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-        '/replay-vision/templates': ['ReplayVisionTemplates', 'replayVisionTemplates'],
+        '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
-    redirects: {},
+    redirects: {
+        '/replay-vision/templates': '/replay-vision/new/template',
+    },
     urls: {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
-        replayVisionTemplates: (): string => '/replay-vision/templates',
+        replayVisionTemplates: (): string => '/replay-vision/new/template',
+        replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
@@ -80,6 +76,7 @@ export const manifest: ProductManifest = {
             href: urls.replayVision(),
             tags: ['beta'],
             flag: FEATURE_FLAGS.REPLAY_VISION,
+            pinnedByDefault: true,
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

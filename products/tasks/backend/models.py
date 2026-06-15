@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -28,8 +28,8 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.file_system.constants import DESKTOP_SURFACE
-from posthog.models.file_system.file_system import delete_file
+from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -55,7 +55,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
-class Task(DeletedMetaFields, models.Model):
+class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
@@ -174,11 +174,20 @@ class Task(DeletedMetaFields, models.Model):
         if is_new:
             self._track_task_created()
 
-    def get_file_system_representation(self, folder: str = "Tasks") -> FileSystemRepresentation:
-        # Tasks are filed into the tree only on explicit request; this describes where a filed task
-        # lives. Tasks live only on the desktop surface, never the web app tree.
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
+        # Tasks live only on the desktop surface, never the web app tree.
+        if surface != DESKTOP_SURFACE:
+            return cls.objects.none()
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="task", ref_field="id", surface=surface)
+
+    def get_file_system_representation(self, folder: str | None = None) -> FileSystemRepresentation:
+        # Tasks live only on the desktop surface, never the web app tree. They land in
+        # Unfiled/Tasks/<title> on first save (via FileSystemSyncMixin) and stay there
+        # unless filed into another folder — e.g. a canvas channel.
         return FileSystemRepresentation(
-            base_folder=folder,
+            base_folder=folder or self._get_assigned_folder("Unfiled/Tasks"),
             type="task",
             ref=str(self.id),
             name=self.title or "Untitled",
@@ -1408,6 +1417,115 @@ class TaskPresence(TeamScopedRootMixin):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
 
 
+class CodeWorkflowConfig(TeamScopedRootMixin):
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    version = models.PositiveIntegerField(default=1)
+    bindings = models.JSONField(default=dict, help_text="Situation id → ordered WorkflowAction list")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_workflow_config"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="code_workflow_config_team_user_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
+
+
+class CodePrSnapshot(TeamScopedRootMixin):
+    class State(models.TextChoices):
+        OPEN = "open", "Open"
+        DRAFT = "draft", "Draft"
+        MERGED = "merged", "Merged"
+        CLOSED = "closed", "Closed"
+
+    class CiStatus(models.TextChoices):
+        PASSING = "passing", "Passing"
+        FAILING = "failing", "Failing"
+        PENDING = "pending", "Pending"
+        NONE = "none", "None"
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    github_integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    pr_url = models.CharField(max_length=500)
+    number = models.PositiveIntegerField()
+    title = models.TextField(blank=True, default="")
+    state = models.CharField(max_length=10, choices=State.choices)
+    ci_status = models.CharField(max_length=10, choices=CiStatus.choices, default=CiStatus.NONE)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision.choices, null=True, blank=True)
+    unresolved_threads = models.PositiveIntegerField(default=0)
+    mergeable = models.BooleanField(null=True, blank=True)
+    author_login = models.CharField(max_length=255, null=True, blank=True)
+    requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
+    pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
+    fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")
+    fetched_at = models.DateTimeField(default=django_timezone.now, help_text="When this snapshot was last polled")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_pr_snapshot"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "pr_url"], name="code_pr_snapshot_team_url_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodePrSnapshot({self.pr_url} {self.state})"
+
+
+class CodeWorkstream(TeamScopedRootMixin):
+    class WorkstreamState(models.TextChoices):
+        ATTENTION = "attention", "Needs attention"
+        IN_PROGRESS = "in_progress", "In progress"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    key = models.CharField(max_length=600, help_text="Grouping key: pr:<url> | branch:<repo>#<branch> | path:<path>")
+    repo_name = models.CharField(max_length=255, null=True, blank=True)
+    repo_full_path = models.CharField(max_length=512, null=True, blank=True)
+    branch = models.CharField(max_length=255, null=True, blank=True)
+    pr_url = models.CharField(max_length=500, null=True, blank=True)
+    pr_snapshot = models.ForeignKey(CodePrSnapshot, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    pr = models.JSONField(null=True, blank=True, help_text="Per-user-resolved PrSnapshot wire shape")
+    situations = models.JSONField(default=list, help_text="List of situation ids this workstream is in")
+    primary_situation = models.CharField(max_length=20, null=True, blank=True, help_text="Board column placement")
+    state = models.CharField(max_length=20, choices=WorkstreamState.choices)
+    tasks = models.JSONField(default=list, help_text="List of {id, title, status} for grouped tasks")
+    last_activity_at = models.DateTimeField()
+    generated_at = models.DateTimeField(default=django_timezone.now, help_text="When this row was last rebuilt")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_workstream"
+        ordering = ["-last_activity_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "key"], name="code_workstream_team_user_key_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "state"], name="code_workstream_state_idx"),
+        ]
+
+    def __str__(self):
+        return f"CodeWorkstream({self.key} {self.state})"
+
+
 @receiver(post_save, sender=TaskRun)
 def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs):
     try:
@@ -1424,23 +1542,3 @@ def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs
             task_run_id=str(instance.id),
             error=str(e),
         )
-
-
-# Tasks are filed into the project tree only on explicit request (see TaskViewSet.file). These
-# receivers never create an entry — they only remove a filed task's entry when the task is deleted,
-# so the tree can't surface a dead reference. delete_file is a no-op when no entry exists.
-@receiver(post_save, sender=Task)
-def _unfile_task_on_soft_delete(sender, instance: Task, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "deleted" not in update_fields:
-        return
-    if instance.deleted:
-        delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
-
-
-@receiver(post_delete, sender=Task)
-def _unfile_task_on_hard_delete(sender, instance: Task, **kwargs):
-    try:
-        delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
-    except Team.DoesNotExist:
-        pass

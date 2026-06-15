@@ -342,6 +342,7 @@ def build_exec_prefix() -> str:
 
 def build_setup_script(workspace_path: str) -> str:
     return (
+        f"rm -f {SESSION_ID_FILE} {SESSION_ID_FILE}.tmp; "
         f"nohup agentsh server --config /etc/agentsh/config.yaml > /var/log/agentsh/agentsh.log 2>&1 & "
         f"AGENTSH_OK=0; "
         f"for i in $(seq 1 30); do "
@@ -354,6 +355,10 @@ def build_setup_script(workspace_path: str) -> str:
         f"  cat /var/log/agentsh/agentsh.log >&2 2>/dev/null; "
         f"  exit 1; "
         f"fi; "
-        f"agentsh session create --workspace {workspace_path} --policy default --json "
-        f"| jq -r .id > {SESSION_ID_FILE}"
+        f"SESSION_ID=$(agentsh session create --workspace {workspace_path} --policy default --json | jq -r .id); "
+        f'if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then '
+        f"  echo 'agentsh session create failed' >&2; "
+        f"  exit 1; "
+        f"fi; "
+        f'printf %s "$SESSION_ID" > {SESSION_ID_FILE}.tmp && mv {SESSION_ID_FILE}.tmp {SESSION_ID_FILE}'
     )

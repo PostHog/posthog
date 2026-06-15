@@ -1711,3 +1711,371 @@ class TestFlagDefinitionsCacheWithoutRedis(BaseTest):
 
         result = update_flag_definitions_cache(self.team)
         assert result is True
+
+
+class TestFlagDependencyChainTransformation(BaseTest):
+    """`dependency_chain` transformation in the local evaluation payload.
+
+    Ported from the removed Django-endpoint tests; exercises `_build_all_dependency_chains`
+    via the response builder directly, now that the HTTP endpoint is served by Rust.
+    """
+
+    def setUp(self):
+        super().setUp()
+        FeatureFlag.objects.filter(team=self.team).delete()
+        clear_flag_definition_caches(self.team)
+
+    def _find_flag(self, flags: list[dict], key: str) -> dict:
+        return next(flag for flag in flags if flag["key"] == key)
+
+    def test_complex_chain(self):
+        """Dependency transformation with a chain C -> B -> A (topologically sorted)."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-c",
+            name="Flag C",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_c_data = self._find_flag(flags, "flag-c")
+        properties = flag_c_data["filters"]["groups"][0]["properties"]
+        flag_property = next(prop for prop in properties if prop["type"] == "flag")
+        # ID should be converted to key, with the full chain (topologically sorted)
+        self.assertEqual(flag_property["key"], "flag-b")
+        self.assertIn("dependency_chain", flag_property)
+        self.assertEqual(flag_property["dependency_chain"], ["flag-a", "flag-b"])
+
+        flag_b_data = self._find_flag(flags, "flag-b")
+        properties_b = flag_b_data["filters"]["groups"][0]["properties"]
+        flag_property_b = next(prop for prop in properties_b if prop["type"] == "flag")
+        self.assertEqual(flag_property_b["dependency_chain"], ["flag-a"])
+
+    def test_circular_dependency(self):
+        """A <-> B cycle yields empty dependency chains."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_a.filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ]
+        }
+        flag_a.save()
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+        self.assertEqual(len(flags), 2)
+
+        flag_a_data = self._find_flag(flags, "flag-a")
+        flag_b_data = self._find_flag(flags, "flag-b")
+
+        properties_a = flag_a_data["filters"]["groups"][0]["properties"]
+        flag_properties_a = [prop for prop in properties_a if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_a), 1)
+        self.assertEqual(flag_properties_a[0]["dependency_chain"], [])
+
+        properties_b = flag_b_data["filters"]["groups"][0]["properties"]
+        flag_properties_b = [prop for prop in properties_b if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_b), 1)
+        self.assertEqual(flag_properties_b[0]["dependency_chain"], [])
+
+    def test_multiple_and_transitive_dependencies(self):
+        """C depends on A and B; D depends on C (transitive chain A,B,C)."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag_c = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-c",
+            name="Flag C",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-d",
+            name="Flag D",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_c.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": "country", "type": "person", "value": "US", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_c_data = self._find_flag(flags, "flag-c")
+        properties = flag_c_data["filters"]["groups"][0]["properties"]
+        flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties), 2)
+        self.assertEqual({prop["key"] for prop in flag_properties}, {"flag-a", "flag-b"})
+        for prop in flag_properties:
+            self.assertIn("dependency_chain", prop)
+            if prop["key"] == "flag-a":
+                self.assertEqual(prop["dependency_chain"], ["flag-a"])
+            elif prop["key"] == "flag-b":
+                self.assertEqual(prop["dependency_chain"], ["flag-b"])
+
+        flag_d_data = self._find_flag(flags, "flag-d")
+        properties_d = flag_d_data["filters"]["groups"][0]["properties"]
+        flag_properties_d = [prop for prop in properties_d if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_d), 1)
+        self.assertEqual(flag_properties_d[0]["key"], "flag-c")
+        self.assertEqual(flag_properties_d[0]["dependency_chain"], ["flag-a", "flag-b", "flag-c"])
+
+    def test_self_dependency(self):
+        """A flag referencing itself yields an empty dependency chain."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="self-flag",
+            name="Self Flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "self-flag", "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        self_flag_data = self._find_flag(flags, "self-flag")
+        properties = self_flag_data["filters"]["groups"][0]["properties"]
+        flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties), 1)
+        self.assertEqual(flag_properties[0]["key"], "self-flag")
+        self.assertEqual(flag_properties[0]["dependency_chain"], [])
+
+    def test_self_referencing_circular_dependency(self):
+        """A -> B where B references itself: both chains empty."""
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "flag-b", "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_b_data = self._find_flag(flags, "flag-b")
+        properties_b = flag_b_data["filters"]["groups"][0]["properties"]
+        flag_properties_b = [prop for prop in properties_b if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_b), 1)
+        self.assertEqual(flag_properties_b[0]["key"], "flag-b")
+        self.assertEqual(flag_properties_b[0]["dependency_chain"], [])
+
+        flag_a_data = self._find_flag(flags, "flag-a")
+        properties_a = flag_a_data["filters"]["groups"][0]["properties"]
+        flag_properties_a = [prop for prop in properties_a if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_a), 1)
+        self.assertEqual(flag_properties_a[0]["key"], "flag-b")
+        self.assertEqual(flag_properties_a[0]["dependency_chain"], [])
+
+    def test_missing_dependency(self):
+        """A reference to a non-existent flag id keeps the id and yields an empty chain."""
+        non_existent_flag_id = "999999"
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": non_existent_flag_id,
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            },
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_a_data = self._find_flag(flags, "flag-a")
+        properties = flag_a_data["filters"]["groups"][0]["properties"]
+        flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties), 1)
+        self.assertEqual(flag_properties[0]["key"], non_existent_flag_id)
+        self.assertEqual(flag_properties[0]["dependency_chain"], [])
+
+    def test_shared_dependencies(self):
+        """Multiple flags depending on the same shared flag each get the same chain."""
+        shared_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="shared-dependency",
+            name="Shared Dependency",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        dependent_flags = []
+        for i in range(5):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                key=f"dependent-flag-{i}",
+                name=f"Dependent Flag {i}",
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": str(shared_flag.id),
+                                    "type": "flag",
+                                    "value": True,
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            )
+            dependent_flags.append(flag)
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        for i, _flag in enumerate(dependent_flags):
+            flag_data = self._find_flag(flags, f"dependent-flag-{i}")
+            properties = flag_data["filters"]["groups"][0]["properties"]
+            flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+            self.assertEqual(len(flag_properties), 1)
+            self.assertEqual(flag_properties[0]["key"], "shared-dependency")
+            self.assertEqual(flag_properties[0]["dependency_chain"], ["shared-dependency"])

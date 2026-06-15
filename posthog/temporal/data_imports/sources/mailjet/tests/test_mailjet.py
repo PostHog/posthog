@@ -142,14 +142,19 @@ class TestOffsetPagination:
         assert pages == []
         assert mock_session.return_value.get.call_count == 1
 
+    @parameterized.expand([(name,) for name in ENDPOINTS])
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")
-    def test_sort_param_sent(self, mock_session: MagicMock) -> None:
+    def test_sort_param_sent(self, endpoint: str, mock_session: MagicMock) -> None:
         mock_session.return_value.get.return_value = _mock_response(json_payload=_page(1))
 
-        list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
+        list(get_rows("key", "secret", endpoint, MagicMock(), _mock_manager()))
 
         params = mock_session.return_value.get.call_args.kwargs["params"]
-        assert params["Sort"] == MAILJET_ENDPOINTS["contact"].sort
+        assert params["Sort"] == MAILJET_ENDPOINTS[endpoint].sort
+
+    def test_campaigndraft_does_not_sort_on_created_at(self) -> None:
+        # Regression guard for the Sort fallback documented in settings.py.
+        assert MAILJET_ENDPOINTS["campaigndraft"].sort == "ID"
 
 
 class TestResume:

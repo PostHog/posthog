@@ -2,8 +2,9 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { BarChart as BarValueChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart as BarValueChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
+import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
     buildTrendsBarValueConfig,
     buildTrendsBarValueSeries,
@@ -13,7 +14,7 @@ import {
     buildTrendsSeries,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
-import { BarChart, BigNumber, Select, type Series } from './charts'
+import { BigNumber, Select } from './charts'
 import { CHART_THEME, colorAt } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
@@ -25,36 +26,7 @@ const CHART_MODE_OPTIONS = [
     { value: 'bar' as const, label: 'Bar' },
 ]
 
-function prepareChartData(results: TrendsResultItem[]): {
-    series: Series[]
-    labels: string[]
-    maxValue: number
-} {
-    if (!results || results.length === 0) {
-        return { series: [], labels: [], maxValue: 0 }
-    }
-
-    const labels = results[0]?.days || results[0]?.labels || []
-    let maxValue = 0
-
-    const series = results.map((item, seriesIndex) => {
-        const data = item.data || []
-        const points = data.map((value, i) => {
-            maxValue = Math.max(maxValue, value)
-            return {
-                x: i,
-                y: value,
-                label: labels[i] || `${i}`,
-            }
-        })
-        return {
-            label: getSeriesLabel(item, seriesIndex),
-            points,
-        }
-    })
-
-    return { series, labels, maxValue: maxValue || 1 }
-}
+const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -74,9 +46,8 @@ function calculateTotal(results: TrendsResultItem[]): number {
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
 
-    if (!results || results.length === 0 || series.length === 0) {
+    if (!results || results.length === 0) {
         return (
             <Empty>
                 <EmptyHeader>
@@ -114,26 +85,43 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         )
     }
 
-    const lineResults = results.map((item, i) => ({
+    const labels = results[0]?.days ?? results[0]?.labels ?? []
+    const trendResults = results.map((item, i) => ({
         id: i,
         label: getSeriesLabel(item, i),
         data: item.data ?? [],
         days: item.days,
     }))
+    const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
 
-    const lineSeries = buildTrendsSeries(lineResults, {
-        isArea: displayType === 'ActionsAreaGraph',
-        getColor: (_, index) => colorAt(index),
-    })
-
-    const lineConfig = buildTrendsLineTimeSeriesConfig({
-        results: lineResults,
-        trendsFilter: query?.trendsFilter,
-        yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
-        isPercentStackView: false,
-        showCrosshair: true,
-        xAxisTickFormatter: (value) => formatDate(value),
-    })
+    // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
+    const renderChart = (): ReactElement => {
+        if (chartMode === 'bar') {
+            const { series, config } = buildTrendsBarChartModel(trendResults, {
+                getColor: (_, index) => colorAt(index),
+                labels,
+                yAxisLabel,
+                isPercentStackView: false,
+                isGrouped: false,
+                xAxisTickFormatter: (value) => formatDate(value),
+                tooltip: TOOLTIP_CONFIG,
+            })
+            return <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+        }
+        const series = buildTrendsSeries(trendResults, {
+            isArea: displayType === 'ActionsAreaGraph',
+            getColor: (_, index) => colorAt(index),
+        })
+        const config = buildTrendsLineTimeSeriesConfig({
+            results: trendResults,
+            trendsFilter: query?.trendsFilter,
+            yAxisLabel,
+            isPercentStackView: false,
+            showCrosshair: true,
+            xAxisTickFormatter: (value) => formatDate(value),
+        })
+        return <TimeSeriesLineChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+    }
 
     return (
         <div>
@@ -141,18 +129,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
-            {chartMode === 'bar' ? (
-                <BarChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
-            ) : (
-                <div className="flex flex-col w-full h-[400px]">
-                    <TimeSeriesLineChart series={lineSeries} labels={labels} theme={CHART_THEME} config={lineConfig} />
-                </div>
-            )}
+            <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>
     )
 }

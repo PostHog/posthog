@@ -398,17 +398,24 @@ class VerifyOutcome:
     promoted: bool
 
 
-def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
-    """Verify a QUEUED event-removal request and promote it to COMPLETED when its events are gone.
+# Statuses from which verification may promote an event-removal request to COMPLETED. QUEUED is the
+# normal deferred path; FAILED is included so the ClickHouse Team can confirm a request whose job
+# errored after the events were actually deleted (e.g. a failure in the finalize step) without
+# re-running the whole deletion.
+VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 
-    Counts events still matching the request in ClickHouse. When zero remain and the request is
-    still QUEUED, atomically promotes QUEUED → COMPLETED via a status-guarded update. Idempotent;
-    safe to call from both the Dagster sweep job and the Django admin button.
+
+def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
+    """Verify an event-removal request and promote it to COMPLETED when its events are gone.
+
+    Counts events still matching the request in ClickHouse. When zero remain and the request is in a
+    verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED via a status-guarded
+    update. Idempotent; safe to call from both the Dagster sweep job and the Django admin button.
     """
     remaining = count_remaining_matching_events(request)
-    if remaining > 0 or request.status != RequestStatus.QUEUED:
+    if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
         return VerifyOutcome(remaining=remaining, promoted=False)
-    promoted = DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
+    promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(
         status=RequestStatus.COMPLETED, updated_at=timezone.now()
     )
     return VerifyOutcome(remaining=remaining, promoted=bool(promoted))

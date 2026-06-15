@@ -224,6 +224,13 @@ function ManagedSourceTabs({
     const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {
+        // Wait until the source has loaded before deciding a tab is unavailable.
+        // While `source` is null, showSyncsTab/showWebhookTab are false, so a tab
+        // selected via URL (e.g. "syncs") would get bounced to "schemas" and push
+        // a bogus history entry over the URL the user actually navigated to.
+        if (!source) {
+            return
+        }
         if (!showSyncsTab && currentTab === 'syncs') {
             setCurrentTab('schemas')
         }
@@ -233,7 +240,7 @@ function ManagedSourceTabs({
         if (!showMetricsTab && currentTab === 'metrics') {
             setCurrentTab('schemas')
         }
-    }, [showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
+    }, [source, showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
 
     if (sourceLoading && !source) {
         return <LemonSkeleton className="w-full h-12" />

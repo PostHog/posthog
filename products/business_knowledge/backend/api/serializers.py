@@ -3,6 +3,7 @@
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.security.url_validation import is_url_allowed
@@ -16,7 +17,14 @@ from ..constants import (
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
 )
-from ..models import REFRESH_INTERVAL_TIMEDELTAS, CrawlMode, KnowledgeSource, RefreshInterval, SourceType
+from ..models import (
+    REFRESH_INTERVAL_TIMEDELTAS,
+    CrawlMode,
+    EmbeddingStatus,
+    KnowledgeSource,
+    RefreshInterval,
+    SourceType,
+)
 
 
 class _GlobListField(serializers.ListField):
@@ -69,6 +77,16 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     has_unsafe_documents = serializers.SerializerMethodField(
         help_text="True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search.",
     )
+    embedding_status = serializers.SerializerMethodField(
+        help_text=(
+            "Semantic-index state of this source. A `ready` source serves keyword (full-text) search "
+            "immediately, but semantic search needs a background job to classify and embed its documents, "
+            "which can take up to an hour. `pending` — at least one document is still awaiting "
+            "classification or embedding. `completed` — every eligible document has been submitted to the "
+            "embedding pipeline. `disabled` — the organization has not approved AI data processing, so "
+            "embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`."
+        ),
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -90,6 +108,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "refresh_interval",
             "next_refresh_at",
             "has_unsafe_documents",
+            "embedding_status",
             "crawl_mode",
             "crawl_config",
             "original_filename",
@@ -112,6 +131,28 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     def get_has_unsafe_documents(self, obj: KnowledgeSource) -> bool:
         # Annotated by the logic layer to avoid an N+1 in list responses.
         return bool(getattr(obj, "_has_unsafe_documents", False))
+
+    @extend_schema_field(serializers.ChoiceField(choices=EmbeddingStatus.choices))
+    def get_embedding_status(self, obj: KnowledgeSource) -> str:
+        # Both inputs are annotated by the logic layer (list_for_team /
+        # get_for_team) to avoid N+1s. When a source is serialized without
+        # annotations (future code path), fall back to a live DB query for
+        # both rather than silently returning the wrong value.
+        if hasattr(obj, "_ai_processing_approved"):
+            approved = bool(obj._ai_processing_approved)
+        else:
+            approved = bool(obj.team.organization.is_ai_data_processing_approved)
+        if not approved:
+            return EmbeddingStatus.DISABLED
+        if hasattr(obj, "_has_pending_embeddings"):
+            pending = bool(obj._has_pending_embeddings)
+        else:
+            from .. import logic
+
+            pending = logic.has_pending_embeddings(obj.id)
+        if pending:
+            return EmbeddingStatus.PENDING
+        return EmbeddingStatus.COMPLETED
 
 
 class CreateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
@@ -329,6 +370,87 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
             "max_depth": attrs.pop("max_depth"),
         }
         return attrs
+
+
+class KnowledgeDocumentWindowSerializer(serializers.Serializer):
+    """
+    One chunk in a drill-down window over a single knowledge document.
+
+    Output-only — the rows come from the `get_document_window` logic helper
+    (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+    read serializer rather than a `ModelSerializer`.
+    """
+
+    chunk_id = serializers.UUIDField(
+        read_only=True,
+        help_text="Stable identifier of this chunk. Same value used in search results.",
+    )
+    ordinal = serializers.IntegerField(
+        read_only=True,
+        help_text="Zero-based position of this chunk within its document. Use it as `around_ordinal` to recenter the window.",
+    )
+    content = serializers.CharField(
+        read_only=True,
+        help_text="The chunk's text content.",
+    )
+    heading_path = serializers.CharField(
+        read_only=True,
+        help_text="Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure.",
+    )
+    source_name = serializers.CharField(
+        read_only=True,
+        help_text="Human label of the knowledge source this chunk belongs to.",
+    )
+    document_title = serializers.CharField(
+        read_only=True,
+        help_text="Title of the document this chunk belongs to.",
+    )
+
+
+class KnowledgeSearchResultSerializer(serializers.Serializer):
+    """
+    One ranked chunk from a business knowledge search.
+
+    Output-only — the rows come from the ``search_knowledge_for_team`` logic
+    helper (a ``KnowledgeSearchResult`` dataclass), not the ORM.
+    """
+
+    chunk_id = serializers.UUIDField(
+        read_only=True,
+        help_text="Stable identifier of this chunk.",
+    )
+    document_id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the parent document. Pass to the document-window endpoint with `around_ordinal` to drill down.",
+    )
+    ordinal = serializers.IntegerField(
+        read_only=True,
+        help_text="Zero-based position of this chunk within its document. Use as `around_ordinal` in the document-window endpoint.",
+    )
+    source_id = serializers.UUIDField(
+        read_only=True,
+        help_text="ID of the knowledge source this chunk belongs to.",
+    )
+    source_name = serializers.CharField(
+        read_only=True,
+        help_text="Human label of the knowledge source this chunk belongs to.",
+    )
+    source_type = serializers.CharField(
+        read_only=True,
+        help_text="Source type (text, url, or file).",
+    )
+    document_title = serializers.CharField(
+        read_only=True,
+        help_text="Title of the document this chunk belongs to.",
+    )
+    heading_path = serializers.CharField(
+        read_only=True,
+        help_text="Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure.",
+    )
+    content = serializers.CharField(
+        read_only=True,
+        help_text="The chunk's text content.",
+    )
 
 
 class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):

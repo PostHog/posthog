@@ -1,18 +1,86 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
-import { LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { IconAI } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SummarizerScannerConfig } from '../types'
+import { SummarizerScannerConfig, scannerTypeLabel } from '../types'
 
 const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
     { value: 'medium', label: 'Medium (1 paragraph)' },
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
+
+/** Prompt field with a Max entry point that drafts the prompt and fills it back into the form. */
+function ScannerPromptField({
+    scannerId,
+    placeholder,
+    label = 'Prompt',
+    caption,
+}: {
+    scannerId: string
+    placeholder: string
+    label?: string
+    caption?: string
+}): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
+    const { scanner } = useValues(logic)
+    const { setScannerValue } = useActions(logic)
+
+    const onDraftedPrompt = useCallback(
+        (toolOutput: { prompt?: string; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.prompt) {
+                setScannerValue(['scanner_config', 'prompt'], toolOutput.prompt)
+            }
+        },
+        [setScannerValue]
+    )
+
+    const { openMax } = useMaxTool({
+        identifier: 'draft_replay_vision_scanner_prompt',
+        active: !!scanner,
+        context: {
+            scanner_type: scanner?.scanner_type,
+            current_prompt: scanner?.scanner_config?.prompt || '',
+        },
+        contextDescription: scanner
+            ? { text: `${scannerTypeLabel(scanner.scanner_type)} scanner`, icon: iconForType('session_replay') }
+            : undefined,
+        initialMaxPrompt: 'Help me write the prompt for this scanner',
+        callback: onDraftedPrompt,
+    })
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium">{label}</label>
+                {openMax && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconAI />}
+                        onClick={() => openMax()}
+                        data-attr="replay-vision-write-prompt-with-ai"
+                    >
+                        Write with PostHog AI
+                    </LemonButton>
+                )}
+            </div>
+            <LemonField name="scanner_config.prompt">
+                <LemonTextArea placeholder={placeholder} minRows={6} />
+            </LemonField>
+            {caption && <div className="text-xs text-muted">{caption}</div>}
+        </div>
+    )
+}
 
 export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
@@ -24,12 +92,12 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
     if (scanner.scanner_type === 'summarizer') {
         return (
             <div className="space-y-4">
-                <LemonField name="scanner_config.prompt" label="Prompt">
-                    <LemonTextArea
-                        placeholder="Summarize what the user did, focusing on their goal and any obstacles they hit."
-                        minRows={6}
-                    />
-                </LemonField>
+                <ScannerPromptField
+                    scannerId={scannerId}
+                    label="Additional context"
+                    caption="The core summarizer prompt is built in. Use this field to add product context or steer summaries — for example, what the ideal user flow looks like."
+                    placeholder="e.g. This is a B2B analytics tool. Users usually come to build a dashboard — call out where they get stuck in that flow."
+                />
                 <LemonField name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
                 </LemonField>
@@ -40,12 +108,10 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
     if (scanner.scanner_type === 'monitor') {
         return (
             <div className="space-y-4">
-                <LemonField name="scanner_config.prompt" label="Prompt">
-                    <LemonTextArea
-                        placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
-                        minRows={6}
-                    />
-                </LemonField>
+                <ScannerPromptField
+                    scannerId={scannerId}
+                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                />
                 <LemonField name="scanner_config.allow_inconclusive">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
@@ -67,9 +133,10 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
     if (scanner.scanner_type === 'classifier') {
         return (
             <div className="space-y-4">
-                <LemonField name="scanner_config.prompt" label="Prompt">
-                    <LemonTextArea placeholder="Categorize this session by its primary user intent." minRows={6} />
-                </LemonField>
+                <ScannerPromptField
+                    scannerId={scannerId}
+                    placeholder="Categorize this session by its primary user intent."
+                />
                 <LemonField name="scanner_config.tags" label="Tag vocabulary">
                     {({ value, onChange }) => (
                         <LemonInputSelect
@@ -115,12 +182,10 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
     if (scanner.scanner_type === 'scorer') {
         return (
             <div className="space-y-4">
-                <LemonField name="scanner_config.prompt" label="Prompt">
-                    <LemonTextArea
-                        placeholder="Rate how frustrated the user appeared during this session."
-                        minRows={6}
-                    />
-                </LemonField>
+                <ScannerPromptField
+                    scannerId={scannerId}
+                    placeholder="Rate how frustrated the user appeared during this session."
+                />
                 <LemonField name="scanner_config.scale">
                     {({ value, onChange, error }) => {
                         const scale = (value as { min: number; max: number; label?: string }) ?? { min: 0, max: 10 }

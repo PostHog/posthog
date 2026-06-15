@@ -59,6 +59,7 @@ const meta: Meta = {
                     primary_properties: {},
                 },
                 '/api/projects/:project_id/object_media_previews/': [],
+                '/api/projects/:project_id/experiments/': { count: 0, next: null, previous: null, results: [] },
             },
         }),
     ],

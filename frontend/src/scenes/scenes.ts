@@ -620,6 +620,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Organization Pending Deletion',
         layout: 'plain',
     },
+    [Scene.ProjectPendingDeletion]: {
+        projectBased: true,
+        name: 'Project Pending Deletion',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -951,5 +956,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
+    [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
 }

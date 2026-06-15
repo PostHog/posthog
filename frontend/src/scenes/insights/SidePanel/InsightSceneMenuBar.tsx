@@ -27,6 +27,7 @@ import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivit
 import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -133,7 +134,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showCopyToProject = isSavedInsight && canCopyToProject
     const showFileMenu = true // file ops (project tree, terraform) always available
     const showEditMenu = true // duplicate always available
-    const showCreateEndpoint = featureFlags[FEATURE_FLAGS.ENDPOINTS] && isSavedInsight
+    const showCreateEndpoint =
+        featureFlags[FEATURE_FLAGS.ENDPOINTS] &&
+        isSavedInsight &&
+        !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
     const showAddToNotebook = isSavedInsight
     const showCreateMenu =
         showCreateEndpoint ||
