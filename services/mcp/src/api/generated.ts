@@ -48915,6 +48915,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
+    };
+
     export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
