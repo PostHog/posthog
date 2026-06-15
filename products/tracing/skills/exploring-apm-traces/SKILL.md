@@ -2,8 +2,9 @@
 name: exploring-apm-traces
 description: >
   Investigates distributed application performance using PostHog APM (OpenTelemetry span) data via MCP.
-  Use when the user asks about service traces, slow HTTP/database spans, error spans, trace IDs, or span
-  attributes — not AI observability traces or product logs. Uses posthog:query-apm-spans, posthog:apm-trace-get,
+  Use when the user asks about service traces, slow HTTP/database spans, error spans, error-rate trends or
+  spikes, latency distributions, trace IDs, or span attributes — not AI observability traces or product logs.
+  Uses posthog:query-apm-spans, posthog:apm-trace-get, posthog:apm-spans-sparkline,
   posthog:apm-services-list, posthog:apm-attributes-list, and posthog:apm-attribute-values-list.
 ---
 
@@ -15,15 +16,18 @@ PostHog captures distributed traces from OpenTelemetry. Each trace is a tree of 
 
 ## Available tools
 
-| Tool                                | Purpose                                           |
-| ----------------------------------- | ------------------------------------------------- |
-| `posthog:query-apm-spans`           | Search and filter spans (compact list view)       |
-| `posthog:apm-trace-get`             | Get the full span list for one hex `trace_id`     |
-| `posthog:apm-spans-aggregate`       | Per-operation aggregates (count, p50/p95, errors) |
-| `posthog:apm-spans-tree`            | Call-tree aggregates per `(parent, child)` edge   |
-| `posthog:apm-services-list`         | List distinct service names                       |
-| `posthog:apm-attributes-list`       | List span or resource attribute keys              |
-| `posthog:apm-attribute-values-list` | List values for a specific attribute key          |
+| Tool                                   | Purpose                                           |
+| -------------------------------------- | ------------------------------------------------- |
+| `posthog:query-apm-spans`              | Search and filter spans (compact list view)       |
+| `posthog:apm-trace-get`                | Get the full span list for one hex `trace_id`     |
+| `posthog:apm-spans-aggregate`          | Per-operation aggregates (count, p50/p95, errors) |
+| `posthog:apm-spans-tree`               | Call-tree aggregates per `(parent, child)` edge   |
+| `posthog:apm-spans-count`              | Scalar span count — cheap filter pre-flight       |
+| `posthog:apm-spans-sparkline`          | Span counts over time (zero-filled time series)   |
+| `posthog:apm-spans-duration-histogram` | Trace counts per log-scale duration bucket        |
+| `posthog:apm-services-list`            | List distinct service names                       |
+| `posthog:apm-attributes-list`          | List span or resource attribute keys              |
+| `posthog:apm-attribute-values-list`    | List values for a specific attribute key          |
 
 See [references/spans-and-fields.md](./references/spans-and-fields.md) for the response schema and the `kind`/`status_code` enums.
 
@@ -106,6 +110,19 @@ To rebuild the tree:
 
 1. Run `print_summary.py` — it prints the set of services involved in the trace.
 2. If service X is missing, the request never reached it (or instrumentation is missing — check `apm-services-list` to confirm X has emitted spans recently at all).
+
+### "When did it spike?" (trends over time)
+
+1. `apm-spans-sparkline` with your filters → total counts per time bucket (zero-filled, ~50 adaptive buckets per window).
+2. The same call with `statusCodes: [2]` → error counts per bucket.
+3. Error rate per bucket = errors / total; the bucket where the ratio jumps is when the spike started.
+4. Zoom in: re-run with a narrower `dateRange` around that bucket, then pull raw spans via `query-apm-spans`.
+
+### "What does the latency distribution look like?"
+
+1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span.
+2. A second hump or a fat tail = a distinct slow population; note its `bucket_ns` range.
+3. Fetch the actual slow traces with `query-apm-spans` using a `duration` filter (nanoseconds) and `orderBy: "duration"`.
 
 ### "Did the fan-out look right?"
 
