@@ -19,6 +19,23 @@ def _strip_context_tag(text: str) -> str:
     return re.sub(rf"</?\s*{_THREAD_CONTEXT_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
 
 
+def _decode_event_text_for_agent(slack: Any, integration: Any, text: str) -> str:
+    """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
+
+    The trigger sites all need the same shape: look up the bot's user id, drop
+    its self-ping (it's just the trigger, no info), and enrich every other
+    `<@U…>` reference with a `|displayname` label so the agent can echo the
+    token verbatim to ping the user back. Centralised here so a fourth trigger
+    handler can't drift back into the original mention-eating bug.
+    """
+    # Deferred to break the circular dep between this temporal module and slack_app api.py.
+    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text  # noqa: PLC0415
+    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id  # noqa: PLC0415
+
+    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+
+
 def _build_posthog_code_task_description(
     initiator_text: str,
     thread_messages: list[dict[str, str]],
@@ -127,16 +144,9 @@ def create_posthog_code_task_for_repo_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    from products.slack_app.backend.services.slack_messages import (
-        labeled_mentions_to_display_names,
-        resolve_user_mentions_text,
-    )
-    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
+    from products.slack_app.backend.services.slack_messages import labeled_mentions_to_display_names  # noqa: PLC0415
 
-    bot_user_id = _get_cached_bot_user_id(slack, integration)
-    user_text = resolve_user_mentions_text(
-        slack, integration, event.get("text", ""), strip_bot_user_id=bot_user_id
-    ).strip()
+    user_text = _decode_event_text_for_agent(slack, integration, event.get("text", ""))
     # Title is shown in PostHog Code's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
@@ -365,11 +375,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
-    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
-
-    bot_user_id = _get_cached_bot_user_id(slack, integration)
-    user_text = resolve_user_mentions_text(slack, integration, event_text, strip_bot_user_id=bot_user_id).strip()
+    user_text = _decode_event_text_for_agent(slack, integration, event_text)
     if not user_text:
         return True
     if followup_user_text_prefix:
@@ -444,14 +450,11 @@ def _resume_task_with_new_run(
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
-    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
-    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
     integration = slack.integration
-    bot_user_id = _get_cached_bot_user_id(slack, integration)
-    user_text = resolve_user_mentions_text(slack, integration, event_text, strip_bot_user_id=bot_user_id).strip()
+    user_text = _decode_event_text_for_agent(slack, integration, event_text)
     if not user_text:
         return True
     if user_text_prefix:

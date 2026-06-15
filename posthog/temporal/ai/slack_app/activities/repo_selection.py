@@ -206,5 +206,4 @@ def classify_posthog_code_task_needs_repo_activity(
 ) -> bool:
     from products.slack_app.backend.api import classify_task_needs_repo
 
-    return False
     return classify_task_needs_repo(event_text, thread_messages)
