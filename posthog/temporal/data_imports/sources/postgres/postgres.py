@@ -1302,9 +1302,16 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         )
 
         return chunk_size
-    except psycopg.errors.QueryCanceled:
-        raise
     except Exception as e:
+        # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
+        # DEFAULT_CHUNK_SIZE. The estimation query wraps the sample in `octet_length(t::text)`,
+        # which serializes every column to text and so evaluates generated columns and check/domain
+        # validator functions — making it strictly more expensive than the real chunked `SELECT *`
+        # extraction. A timeout here therefore says nothing about whether extraction will succeed,
+        # and the savepoint above keeps the connection usable. The streaming read loop has its own
+        # dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so re-raising the
+        # cancellation here would only bypass that path and leak a raw, retryable QueryCanceled that
+        # Temporal re-attempts forever on tables this query can never complete on.
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
