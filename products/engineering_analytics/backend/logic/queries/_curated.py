@@ -1,14 +1,15 @@
 """Shared helpers for the curated query modules.
 
 The ``pull_requests`` / ``workflow_runs`` builders return a curated ``SELECT``
-over the raw ``github_*`` warehouse tables. Query modules embed those as
-parenthesised subqueries (``FROM {pr_source()} AS pr``) and run them with
-``run_query`` — the product reads its data privately rather than registering a
-global HogQL view, keeping it off the per-query catalog hot path.
+over a team's GitHub warehouse tables, whose real names are resolved per-team by
+``logic.sources`` and passed in. Query modules embed those as parenthesised
+subqueries (``FROM {pr_source(table)} AS pr``) and run them with ``run_query`` — the
+product reads its data privately rather than registering a global HogQL view, keeping
+it off the per-query catalog hot path.
 
-Every fragment here is built from trusted constants. User-supplied values must
-always flow through ``ast.Constant`` placeholders in the calling query, never be
-string-substituted into these fragments.
+Every fragment here is built from trusted constants and validated warehouse
+identifiers. User-supplied values must always flow through ``ast.Constant``
+placeholders in the calling query, never be string-substituted into these fragments.
 """
 
 from posthog.schema import HogQLQueryResponse
@@ -22,24 +23,21 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 
-# The curated builders are the only place a warehouse table is named; reuse their
-# constants so "which tables mean a GitHub source is connected" is defined once.
-_SOURCE_TABLES = (pull_requests.SOURCE_TABLE, workflow_runs.SOURCE_TABLE)
+
+def pr_source(table_name: str) -> str:
+    """Curated pull-requests ``SELECT`` over ``table_name``, parenthesised for use as a subquery."""
+    return f"({pull_requests.build_query(table_name)})"
 
 
-def pr_source() -> str:
-    """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
-    return f"({pull_requests.build_query()})"
+def run_source(table_name: str) -> str:
+    """Curated workflow-runs ``SELECT`` over ``table_name``, parenthesised for use as a subquery."""
+    return f"({workflow_runs.build_query(table_name)})"
 
 
-def run_source() -> str:
-    """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery."""
-    return f"({workflow_runs.build_query()})"
-
-
-def ci_rollup_cte() -> str:
+def ci_rollup_cte(run_table: str) -> str:
     """CTE collapsing each head SHA's workflow runs into pass/fail/pending counts.
 
     Takes the latest run per ``(head_sha, workflow_name)`` via ``argMax`` (a PR's
@@ -61,7 +59,7 @@ def ci_rollup_cte() -> str:
                     workflow_name,
                     argMax(status, run_started_at) AS s,
                     argMax(conclusion, run_started_at) AS c
-                FROM {run_source()} AS r
+                FROM {run_source(run_table)} AS r
                 GROUP BY head_sha, workflow_name
             )
             GROUP BY head_sha
@@ -74,14 +72,17 @@ def run_query(
     *,
     team: Team,
     query_type: str,
+    tables: GitHubTables,
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> HogQLQueryResponse:
     """Parse + execute a curated HogQL query.
 
-    Raises ``GitHubSourceNotConnectedError`` when the team has no GitHub warehouse
-    source: the curated subqueries reference the ``github_*`` tables, which aren't in
-    the catalog, so the resolver raises ``Unknown table``. The presentation layer
-    turns that into a clear 4xx. Any other query error is a real bug and propagates.
+    ``tables`` are the per-team table names already resolved by ``logic.sources`` and
+    embedded in ``sql``. The no-source case is detected up front by the resolver, but a
+    ``Unknown table`` for one of those resolved names is kept as a backstop — it means the
+    source vanished between resolve and execute — and is turned into
+    ``GitHubSourceNotConnectedError`` so the presentation layer returns a clear 4xx. Any
+    other query error is a real bug and propagates unchanged.
     """
     try:
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
@@ -92,10 +93,10 @@ def run_query(
             )
     except QueryError as err:
         message = str(err)
-        # HogQL raises ``Unknown table `<name>`.`` for any table missing from the
-        # catalog. Only the absence of OUR source tables means "no GitHub source";
-        # any other unknown table is a real bug (e.g. a typo in a curated builder)
+        # HogQL raises ``Unknown table `<name>`.`` for any table missing from the catalog.
+        # Only the absence of one of THIS request's resolved source tables means "no GitHub
+        # source"; any other unknown table is a real bug (e.g. a typo in a curated builder)
         # and must surface unchanged rather than masquerade as a missing-source 4xx.
-        if any(f"Unknown table `{table}`" in message for table in _SOURCE_TABLES):
+        if any(f"Unknown table `{name}`" in message for name in (tables.pull_requests, tables.workflow_runs)):
             raise GitHubSourceNotConnectedError() from err
         raise

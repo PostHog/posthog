@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     GitHubSourceNotConnectedError,
@@ -31,12 +32,24 @@ from products.engineering_analytics.backend.logic import (
     build_workflow_health,
 )
 from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+    GitHubTables,
+    resolve_github_tables,
+)
 from products.engineering_analytics.backend.tests.test_views import (
     _PULL_REQUESTS_COLUMNS,
     _WORKFLOW_RUNS_COLUMNS,
+    GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    connect_github_source_without_data,
+    create_github_source,
+    create_warehouse_table_row,
+    link_schema,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 # All query modules run through this helper; patch it to test row mapping without a warehouse.
 _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.run_query"
@@ -87,32 +100,48 @@ def _header(
 
 
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
-    """Creates warehouse tables from in-memory rows; skips when object storage is
-    unreachable so the suite still runs without the dev stack."""
+    """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
+    so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
+    tables. Skips when object storage is unreachable so the suite still runs without the
+    dev stack."""
 
-    def _create_table(self, name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
+    def setUp(self) -> None:
+        super().setUp()
+        self._github_source: ExternalDataSource | None = None
+
+    def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
+        if self._github_source is None:
+            self._github_source = create_github_source(self.team)
         df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
-            _table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
-                table_name=name,
+                table_name=base_name,
                 table_columns=columns,
                 test_bucket=TEST_BUCKET,
                 team=self.team,
-                source_prefix="",
+                source=self._github_source,
+                source_prefix=GITHUB_SOURCE_PREFIX,
             )
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
+        link_schema(self.team, self._github_source, name=base_name.removeprefix("github_"), table=table)
 
 
 class TestPRLifecycleMapping(BaseTest):
     """HogQL parsing (parse_select runs for real) plus row mapping and event
-    assembly, without touching object storage."""
+    assembly, without touching object storage. The query helper is mocked, so a GitHub
+    source is connected (ORM only) just to satisfy the resolver."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
 
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
@@ -173,8 +202,13 @@ class TestPRLifecycleMapping(BaseTest):
 
 
 class TestEndpointMapping(BaseTest):
-    """Row mapping for the aggregate endpoints (query helper mocked, no warehouse),
-    plus the no-source error path."""
+    """Row mapping for the aggregate endpoints (query helper mocked, no warehouse).
+    A GitHub source is connected (ORM only) so the resolver succeeds before the mocked
+    query runs."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
 
     def test_ci_cards_maps_counts(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([(5, 2, 1, 1)])):
@@ -269,25 +303,112 @@ class TestEndpointMapping(BaseTest):
 
     @parameterized.expand(
         [
-            ("github_pull_requests", GitHubSourceNotConnectedError),
-            ("github_workflow_runs", GitHubSourceNotConnectedError),
+            ("myprefixgithub_pull_requests", GitHubSourceNotConnectedError),
+            ("myprefixgithub_workflow_runs", GitHubSourceNotConnectedError),
             # An unrelated missing table is a real bug, not "no GitHub source" — it must
             # surface as the original QueryError rather than masquerade as a 4xx.
             ("some_typo", QueryError),
         ]
     )
-    def test_unknown_table_only_translates_for_source_tables(self, table: str, expected: type[Exception]) -> None:
+    def test_unknown_table_only_translates_for_resolved_tables(self, table: str, expected: type[Exception]) -> None:
+        # The backstop maps "Unknown table" only for THIS request's resolved names — a
+        # source vanishing between resolve and execute — not for any other missing table.
+        tables = GitHubTables(
+            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
+        )
         with mock.patch(
             "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
             side_effect=QueryError(f"Unknown table `{table}`."),
         ):
             with self.assertRaises(expected):
-                _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test")
+                _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test", tables=tables)
 
     def test_build_propagates_source_error(self) -> None:
         with mock.patch(_RUN_QUERY, side_effect=GitHubSourceNotConnectedError()):
             with self.assertRaises(GitHubSourceNotConnectedError):
                 build_pull_request_list(team=self.team)
+
+
+class TestResolveGitHubTables(BaseTest):
+    """The per-team table resolver over the warehouse models (ORM only, no object storage).
+    No source is connected in setUp so the missing-source path can be exercised."""
+
+    def _connect(
+        self,
+        *,
+        prefix: str,
+        schemas: list[tuple[str, bool, bool]],
+        source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+    ) -> ExternalDataSource:
+        # schemas: (endpoint name, should_sync, has a backing table)
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+        )
+        for name, should_sync, has_table in schemas:
+            table = (
+                create_warehouse_table_row(self.team, name=f"{prefix}github_{name}", source=source)
+                if has_table
+                else None
+            )
+            link_schema(self.team, source, name=name, table=table, should_sync=should_sync)
+        return source
+
+    _BOTH_SYNCED = [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)]
+
+    def test_resolves_non_default_prefix_tables(self) -> None:
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
+        )
+
+    def test_raises_without_a_github_source(self) -> None:
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
+
+    @parameterized.expand(
+        [
+            # Same-named schemas on a non-GitHub source must not be mistaken for a GitHub source.
+            ("non_github_source", [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)], "stripe"),
+            ("endpoint_not_synced", [(PULL_REQUESTS_SCHEMA, False, True), (WORKFLOW_RUNS_SCHEMA, False, True)], "gh"),
+            ("missing_one_endpoint", [(PULL_REQUESTS_SCHEMA, True, True)], "gh"),
+            ("schema_without_table", [(PULL_REQUESTS_SCHEMA, True, False), (WORKFLOW_RUNS_SCHEMA, True, False)], "gh"),
+        ]
+    )
+    def test_raises_when_endpoints_unavailable(
+        self, _name: str, schemas: list[tuple[str, bool, bool]], kind: str
+    ) -> None:
+        source_type = ExternalDataSourceType.STRIPE if kind == "stripe" else ExternalDataSourceType.GITHUB
+        self._connect(prefix="myprefix", schemas=schemas, source_type=source_type)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
+
+    def test_prefers_oldest_complete_source(self) -> None:
+        # Two fully-connected GitHub sources (e.g. one per repo): the oldest wins, deterministically.
+        self._connect(prefix="older", schemas=self._BOTH_SYNCED)
+        self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables.pull_requests == "oldergithub_pull_requests"
+
+    def test_skips_incomplete_source_for_a_complete_one(self) -> None:
+        # The oldest source is missing an endpoint; resolution falls through to the complete one.
+        self._connect(prefix="incomplete", schemas=[(PULL_REQUESTS_SCHEMA, True, True)])
+        self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="completegithub_pull_requests", workflow_runs="completegithub_workflow_runs"
+        )
+
+    def test_ignores_soft_deleted_source(self) -> None:
+        source = self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
 
 
 class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):

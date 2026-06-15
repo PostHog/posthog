@@ -837,7 +837,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.warehouse_sources"]
+depends_on = ["posthog", "products.warehouse_sources", "products.data_warehouse"]
 layer = "modules"
 
 [[interfaces]]

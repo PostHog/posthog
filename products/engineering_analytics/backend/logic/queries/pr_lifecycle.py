@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.sources import GitHubTables
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
@@ -48,6 +49,7 @@ _RUNS = """
 def query_pr_lifecycle(
     *,
     team: Team,
+    tables: GitHubTables,
     pr_number: int,
     repo_owner: str | None,
     repo_name: str | None,
@@ -59,11 +61,14 @@ def query_pr_lifecycle(
         placeholders["repo_owner"] = ast.Constant(value=repo_owner)
         placeholders["repo_name"] = ast.Constant(value=repo_name)
 
-    header_sql = _HEADER.replace("__PR_SOURCE__", _curated.pr_source()).replace("__REPO_FILTER__", repo_filter)
+    header_sql = _HEADER.replace("__PR_SOURCE__", _curated.pr_source(tables.pull_requests)).replace(
+        "__REPO_FILTER__", repo_filter
+    )
     header = _curated.run_query(
         header_sql,
         team=team,
         query_type="engineering_analytics.pr_lifecycle.header",
+        tables=tables,
         placeholders=placeholders,
     )
     if not header.results:
@@ -107,9 +112,10 @@ def query_pr_lifecycle(
     events = [PRLifecycleEvent(kind=PRLifecycleEventKind.OPENED, at=created_at)]
     runs = (
         _curated.run_query(
-            _RUNS.replace("__RUNS_SOURCE__", _curated.run_source()),
+            _RUNS.replace("__RUNS_SOURCE__", _curated.run_source(tables.workflow_runs)),
             team=team,
             query_type="engineering_analytics.pr_lifecycle.runs",
+            tables=tables,
             placeholders={"head_sha": ast.Constant(value=head_sha)},
         )
         if head_sha

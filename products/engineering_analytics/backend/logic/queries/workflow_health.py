@@ -15,6 +15,7 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthDay, WorkflowHealthItem
 from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.sources import GitHubTables
 
 _LIMIT = 100
 # Generous bound: _LIMIT workflows x ~1 row per day for windows up to a quarter.
@@ -56,6 +57,7 @@ _DAILY_SELECT = f"""
 def query_workflow_health(
     *,
     team: Team,
+    tables: GitHubTables,
     date_from: datetime,
     date_to: datetime | None,
 ) -> list[WorkflowHealthItem]:
@@ -64,21 +66,24 @@ def query_workflow_health(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
-    sql = _SELECT.replace("__RUNS_SOURCE__", _curated.run_source()).replace("__DATE_TO__", date_to_clause)
+    runs_source = _curated.run_source(tables.workflow_runs)
+    sql = _SELECT.replace("__RUNS_SOURCE__", runs_source).replace("__DATE_TO__", date_to_clause)
     response = _curated.run_query(
         sql,
         team=team,
         query_type="engineering_analytics.workflow_health",
+        tables=tables,
         placeholders=placeholders,
     )
     if not response.results:
         return []
 
-    daily_sql = _DAILY_SELECT.replace("__RUNS_SOURCE__", _curated.run_source()).replace("__DATE_TO__", date_to_clause)
+    daily_sql = _DAILY_SELECT.replace("__RUNS_SOURCE__", runs_source).replace("__DATE_TO__", date_to_clause)
     daily_response = _curated.run_query(
         daily_sql,
         team=team,
         query_type="engineering_analytics.workflow_health_daily",
+        tables=tables,
         placeholders=placeholders,
     )
     days_by_workflow: dict[tuple[str, str, str], dict[date, WorkflowHealthDay]] = {}

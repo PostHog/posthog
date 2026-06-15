@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.sources import GitHubTables
 
 _LIMIT = 1000
 
@@ -45,12 +46,15 @@ _SELECT = f"""
 """
 
 
-def query_pull_request_list(*, team: Team, date_from: datetime) -> PullRequestList:
-    sql = f"WITH {_curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", _curated.pr_source())
+def query_pull_request_list(*, team: Team, tables: GitHubTables, date_from: datetime) -> PullRequestList:
+    sql = f"WITH {_curated.ci_rollup_cte(tables.workflow_runs)} {_SELECT}".replace(
+        "__PR_SOURCE__", _curated.pr_source(tables.pull_requests)
+    )
     response = _curated.run_query(
         sql,
         team=team,
         query_type="engineering_analytics.pull_request_list",
+        tables=tables,
         placeholders={"date_from": ast.Constant(value=date_from)},
     )
     rows = response.results or []
