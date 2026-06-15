@@ -1,7 +1,12 @@
 import json
 import uuid
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Optional, cast
+
+from django.utils import timezone
+
+import posthoganalytics
 
 from posthog.schema import (
     CachedPropertyValuesQueryResponse,
@@ -19,7 +24,16 @@ from posthog.caching.utils import (
     cache_target_age as _cache_target_age,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.utils import convert_property_value, flatten, relative_date_parse
+from posthog.models import PropertyDefinition
+from posthog.queries.property_values import (
+    get_event_property_values_from_aggregated_table,
+    get_person_property_values_for_key,
+)
+from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
+
+from products.access_control.backend.property_access_control import get_restricted_property_names
+
+PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 
 
 class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse]):
@@ -47,6 +61,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         return self._calculate_event()
 
     def _calculate_event(self) -> PropertyValuesQueryResponse:
+        if self._use_property_values_table:
+            return self._calculate_event_from_table()
         result = execute_hogql_query(
             self._event_query(),
             team=self.team,
@@ -62,13 +78,49 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             modifiers=self.modifiers,
         )
 
+    @cached_property
+    def _use_property_values_table(self) -> bool:
+        # Column and virtual lookups stay on the events scan: the table only
+        # holds keys from the properties blob. event_names is deliberately not
+        # a fallback: the table has no event dimension, so flagged teams get
+        # event-agnostic value suggestions for event-scoped requests.
+        if self.query.is_column or self.query.property_key.startswith("$virt_"):
+            return False
+        team_id = str(self.team.pk)
+        if not posthoganalytics.feature_enabled(
+            PROPERTY_VALUES_TABLE_FLAG,
+            team_id,
+            person_properties={"region": get_instance_region() or "DEV", "team_id": team_id},
+            send_feature_flag_events=False,
+        ):
+            return False
+        # Restricted keys stay on the events scan: the table read bypasses HogQL
+        # property resolution, which is where property access control is enforced.
+        # self.user is None on the events endpoint path, which fail-closes to the
+        # events scan for any key restricted for anyone on the team.
+        restricted = get_restricted_property_names(
+            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
+        )
+        return self.query.property_key not in restricted
+
+    def _calculate_event_from_table(self) -> PropertyValuesQueryResponse:
+        rows = cast(
+            list,
+            get_event_property_values_from_aggregated_table(
+                self.query.property_key, self.team, self.query.search_value
+            ),
+        )
+        return PropertyValuesQueryResponse(
+            results=self._format_table_results(rows),
+            timings=self.timings.to_list(),
+            modifiers=self.modifiers,
+        )
+
     def _calculate_person(self) -> PropertyValuesQueryResponse:
         # Use the raw SQL person query — the HogQL persons virtual table does full argMax dedup
         # which is correct but much slower (30s vs 4s on large teams). The raw SQL approximates
         # dedup with uniq(id) - uniqIf(id, is_deleted != 0) and caps at 100k rows, which is
         # fast enough and good enough for autocomplete.
-        from posthog.queries.property_values import get_person_property_values_for_key
-
         rows = cast(
             list, get_person_property_values_for_key(self.query.property_key, self.team, self.query.search_value)
         )
@@ -79,8 +131,6 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _event_query(self) -> ast.SelectQuery:
-        from django.utils import timezone
-
         key = self.query.property_key
         is_virtual = key.startswith("$virt_")
         chain: list[str | int] = [key] if (self.query.is_column or is_virtual) else ["properties", key]
@@ -161,6 +211,23 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                     values.append(json.loads(cleaned))
                 except (json.JSONDecodeError, TypeError):
                     values.append(cleaned)
+        return self._to_property_value_items(values)
+
+    def _format_table_results(self, rows: list) -> list[PropertyValueItem]:
+        # Values are stored as the raw strings the aggregator coerced at fan-out, so
+        # JSON-ish values (arrays, numbers, bools) parse and arrays flatten into
+        # individual entries, matching the events-scan formatting. No '\\"' unescape
+        # is needed here since the table stores clean strings.
+        values: list[Any] = []
+        for row in rows:
+            raw = row[0]
+            try:
+                values.append(json.loads(raw))
+            except (json.JSONDecodeError, TypeError):
+                values.append(raw)
+        return self._to_property_value_items(values)
+
+    def _to_property_value_items(self, values: list[Any]) -> list[PropertyValueItem]:
         return [PropertyValueItem(name=convert_property_value(v)) for v in flatten(values)]
 
     def _format_person_results(self, rows: list) -> list[PropertyValueItem]:

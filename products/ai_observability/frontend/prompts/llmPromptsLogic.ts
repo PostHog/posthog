@@ -1,13 +1,12 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
@@ -35,14 +34,11 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
     }
 }
 
-export interface LLMPromptsLogicProps {
-    tabId?: string
-}
+export type LLMPromptsLogicProps = Record<string, never>
 
 export const llmPromptsLogic = kea<llmPromptsLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptsLogic']),
     props({} as LLMPromptsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<PromptFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -176,7 +172,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
             const nextValues = cleanPagedSearchOrderParams(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
@@ -189,7 +185,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         return { setFilters: changeUrl }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityPrompts()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             const forceReload = typeof searchParams?.[LLM_PROMPTS_FORCE_RELOAD_PARAM] === 'string'

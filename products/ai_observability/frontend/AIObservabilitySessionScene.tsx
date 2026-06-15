@@ -23,7 +23,6 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { LLMTrace } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { TraceSummary, aiObservabilitySessionDataLogic } from './aiObservabilitySessionDataLogic'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
@@ -44,16 +43,16 @@ export const scene: SceneExport = {
     logic: aiObservabilitySessionLogic,
 }
 
-export function AIObservabilitySessionScene({ tabId }: { tabId?: string }): JSX.Element {
-    const sessionLogic = aiObservabilitySessionLogic({ tabId })
+export function AIObservabilitySessionScene(): JSX.Element {
+    const sessionLogic = aiObservabilitySessionLogic()
     const { sessionId, query } = useValues(sessionLogic)
-    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query, tabId })
+    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query })
 
     useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={aiObservabilitySessionLogic} props={{ tabId }}>
-            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query, tabId }}>
+        <BindLogic logic={aiObservabilitySessionLogic} props={{}}>
+            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query }}>
                 <SessionSceneWrapper />
             </BindLogic>
         </BindLogic>
@@ -142,7 +141,6 @@ function SessionSceneWrapper(): JSX.Element {
     return (
         <div className="relative flex flex-col gap-4">
             <SceneBreadcrumbBackButton />
-            <AIObservabilityRenameBanner />
             {titleLoading ? (
                 <LemonSkeleton className="h-8 w-96 max-w-full" />
             ) : (

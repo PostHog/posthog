@@ -61,6 +61,102 @@ def _project_path(project_id: str, suffix: str) -> str:
     return f"/projects/{project_id}{suffix}"
 
 
+# How many accessible project ids we list back when an entered id 404s. Most keys
+# see a single project, so this is really just a guard against a wall of text.
+MAX_SUGGESTED_PROJECTS = 5
+
+
+def _normalize_project_id(raw: str | None) -> str:
+    """Best-effort cleanup of a user-entered RevenueCat project id.
+
+    The setup form points users at their dashboard URL
+    (``app.revenuecat.com/projects/<project_id>``) to find the id, so a large
+    share of connection failures come from pasting the whole URL, a
+    ``projects/<id>`` path fragment, or a value with stray whitespace. Pull the
+    id back out and trim it so those copy-paste mistakes don't become a 404.
+    """
+    if not raw:
+        return ""
+    value = raw.strip()
+    # Pasted a full or partial dashboard URL / `.../projects/<id>/...` path. The
+    # marker has no leading slash so it matches both `/projects/x` and the
+    # bare `projects/x` form.
+    marker = "projects/"
+    if marker in value:
+        value = value.split(marker, 1)[1]
+    # Keep only the first path segment, dropping any trailing `/overview`,
+    # query string, or fragment that rode along with the paste.
+    value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    return value.strip()
+
+
+def _accessible_project_ids(payload: dict[str, Any] | None) -> list[str]:
+    """Pull the project ids out of a ``GET /v2/projects`` response page.
+
+    We deliberately keep only the ids (opaque ``proj...`` tokens), never the
+    project names — the error string built from this is captured into our
+    analytics, and names can carry a customer's app/company identity.
+    """
+    items = (payload or {}).get("items")
+    if not isinstance(items, list):
+        return []
+    return [str(item["id"]) for item in items if isinstance(item, dict) and item.get("id")]
+
+
+def _list_accessible_project_ids(session: requests.Session) -> list[str] | None:
+    """Return every project id the key can see, following cursor pages.
+
+    Returns ``None`` when a page comes back 200 but unparseable — callers can't
+    distinguish "no projects" from "couldn't read the list", and the two demand
+    opposite treatment, so we surface the difference. HTTP/network errors
+    propagate to the caller.
+    """
+    ids: list[str] = []
+    url = f"{REVENUECAT_API_BASE_URL}/projects"
+    params: dict[str, Any] | None = {"limit": DEFAULT_PAGE_SIZE}
+
+    while True:
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        try:
+            payload = response.json() or {}
+        except (ValueError, requests.exceptions.JSONDecodeError):
+            return None
+
+        ids.extend(_accessible_project_ids(payload))
+
+        next_page = payload.get("next_page")
+        if not next_page:
+            return ids
+        # next_page already carries its own query string — see iterate_list_endpoint.
+        url = next_page if next_page.startswith("http") else urljoin(REVENUECAT_API_BASE_URL, next_page)
+        params = None
+
+
+def _project_not_found_error(entered_project_id: str, accessible_ids: list[str]) -> str:
+    """Turn an opaque 404 into an actionable message naming the reachable project ids."""
+    if not accessible_ids:
+        return (
+            f"RevenueCat could not find the project '{entered_project_id}' (404), and this API key "
+            "can't see any projects. Generate a v2 secret API key in the RevenueCat project you want "
+            "to sync, then re-enter its Project ID."
+        )
+    if len(accessible_ids) == 1:
+        only = accessible_ids[0]
+        return (
+            f"RevenueCat has no project '{entered_project_id}' for this API key. The key has access to "
+            f"one project — '{only}'. Set the Project ID to '{only}' and reconnect."
+        )
+    shown = accessible_ids[:MAX_SUGGESTED_PROJECTS]
+    listed = ", ".join(f"'{pid}'" for pid in shown)
+    overflow = len(accessible_ids) - MAX_SUGGESTED_PROJECTS
+    more = f" (+{overflow} more)" if overflow > 0 else ""
+    return (
+        f"RevenueCat has no project '{entered_project_id}' for this API key. The key has access to: "
+        f"{listed}{more}. Copy the exact Project ID from your RevenueCat dashboard and reconnect."
+    )
+
+
 def _format_http_error(error: requests.HTTPError) -> str:
     response = error.response
     status_code = response.status_code if response is not None else None
@@ -82,34 +178,37 @@ def _format_http_error(error: requests.HTTPError) -> str:
 
 
 def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, str | None]:
-    """Probe the cheapest endpoint that confirms the key + project.
+    """Confirm the key works and (when set) that it can reach ``project_id``.
 
-    GET /v2/projects lists every project the key can see — that's enough to
-    confirm the key is genuine. If a ``project_id`` is set, we additionally
-    fetch that project to catch typos and revoked-project access.
+    ``GET /v2/projects`` both validates the key and tells us every project the
+    key can see, so the project check is a membership test against that list.
+    There is no ``GET /v2/projects/{id}`` endpoint in the RevenueCat v2 API —
+    probing it 404s even for a perfectly valid id, so never "verify" a project
+    that way. The entered id is normalized first so a pasted dashboard URL or
+    stray whitespace doesn't masquerade as a missing project; on a miss, the
+    error names the project ids the key *can* reach instead of a dead-end
+    "double-check the project id".
     """
     session = _session(api_key)
     try:
-        response = session.get(f"{REVENUECAT_API_BASE_URL}/projects", timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
+        accessible_ids = _list_accessible_project_ids(session)
     except requests.HTTPError as e:
         return False, _format_http_error(e)
     except requests.RequestException as e:
         return False, f"Could not reach RevenueCat: {e}"
 
-    if project_id:
-        try:
-            response = session.get(
-                f"{REVENUECAT_API_BASE_URL}/projects/{project_id}",
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-        except requests.HTTPError as e:
-            return False, _format_http_error(e)
-        except requests.RequestException as e:
-            return False, f"Could not reach RevenueCat: {e}"
+    normalized_project_id = _normalize_project_id(project_id)
+    if not normalized_project_id:
+        return True, None
 
-    return True, None
+    # The list came back 200 but unreadable — the key itself is good, and we
+    # have no way to check the project, so fail open rather than block setup.
+    if accessible_ids is None:
+        return True, None
+
+    if normalized_project_id in accessible_ids:
+        return True, None
+    return False, _project_not_found_error(normalized_project_id, accessible_ids)
 
 
 def _ms_to_seconds(value: Any) -> Any:
@@ -153,6 +252,7 @@ def iterate_list_endpoint(
     save state *after* yielding so a crash re-yields the last page rather than
     skipping it — merge dedupes on primary key.
     """
+    project_id = _normalize_project_id(project_id)
     session = _session(api_key)
     params: dict[str, Any] = {"limit": DEFAULT_PAGE_SIZE}
     if starting_after:
@@ -215,6 +315,7 @@ def create_webhook(
     is created without an auth header and the user finishes setup by adding one
     via the webhook fields (handled by the surrounding warehouse-source flow).
     """
+    project_id = _normalize_project_id(project_id)
     logger = LOGGER.bind(project_id=project_id)
 
     body: dict[str, Any] = {
@@ -307,6 +408,7 @@ def _find_webhook_integration(api_key: str, project_id: str, webhook_url: str) -
 
 
 def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDeletionResult:
+    project_id = _normalize_project_id(project_id)
     logger = LOGGER.bind(project_id=project_id)
 
     try:
@@ -347,6 +449,7 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
 
 
 def get_external_webhook_info(api_key: str, project_id: str, webhook_url: str) -> ExternalWebhookInfo:
+    project_id = _normalize_project_id(project_id)
     try:
         integrations = _list_webhook_integrations(api_key, project_id)
     except requests.HTTPError as e:

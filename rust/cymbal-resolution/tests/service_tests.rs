@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef};
 use cymbal::types::operator::TeamId;
@@ -37,7 +37,7 @@ impl SymbolResolver for FakeResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         if self.fail_unhandled {
             return Err(UnhandledError::Other("forced resolver failure".to_string()));
@@ -78,7 +78,7 @@ impl SymbolResolver for SlowResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         let call_index = self.started.fetch_add(1, Ordering::AcqRel);
         let active = self.active.fetch_add(1, Ordering::AcqRel) + 1;
@@ -314,7 +314,7 @@ async fn admitted_items_emit_accepted_before_terminal_outcome() {
 async fn raw_frames_are_resolved_into_done_payload() {
     let raw_frame = sample_raw_frame();
     let mut resolver_frame = sample_resolved_frame(&raw_frame);
-    resolver_frame.frame_id = raw_frame.frame_id(123, 99);
+    resolver_frame.frame_id = raw_frame.frame_id(123, 99, &[]);
     let service = make_service(FakeResolver {
         fail_unhandled: false,
         resolved_frames: vec![resolver_frame],
@@ -402,11 +402,12 @@ async fn invalid_payload_and_metadata_formats_are_invalid_payload_errors() {
                 &exc,
                 br#"{"apple_debug_images_json":"not-a-list"}"#.to_vec(),
             ),
+            make_item_with_metadata(4, &exc, br#"{"debug_images_json":"not-a-list"}"#.to_vec()),
         ],
     )
     .await;
 
-    assert_eq!(outcomes.len(), 3);
+    assert_eq!(outcomes.len(), 4);
     for outcome in outcomes {
         assert_eq!(error_kind(&outcome), ErrorKind::InvalidPayload);
     }
@@ -525,7 +526,7 @@ fn sample_raw_frame() -> RawFrame {
 
 fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
     Frame {
-        frame_id: raw_frame.frame_id(7, 0),
+        frame_id: raw_frame.frame_id(7, 0, &[]),
         mangled_name: "f".to_string(),
         line: Some(42),
         column: Some(7),

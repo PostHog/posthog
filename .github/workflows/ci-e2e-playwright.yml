@@ -16,6 +16,11 @@ on:
     push:
         branches:
             - master
+    # Required so `Playwright tests pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already runs
+    # in full on every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 permissions:
     contents: read
@@ -72,10 +77,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         # Run on master push, manual dispatch, and on internal-repo PRs.
+        # Skipped on merge_group (explicitly, though the allowlist below would
+        # also skip it implicitly) — see the trigger comment above.
         if: |
+            github.event_name != 'merge_group' && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            github.event.pull_request.head.repo.full_name == github.repository
+            github.event.pull_request.head.repo.full_name == github.repository)
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
@@ -116,6 +124,7 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
+                        - 'products/*/frontend/e2e/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -184,7 +193,7 @@ jobs:
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
-        timeout-minutes: 75
+        timeout-minutes: 45
         permissions:
             contents: read
             pull-requests: write
@@ -248,7 +257,8 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -284,6 +294,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-e2e-playwright.yml
+                  token: ${{ github.token }}
 
             # Workaround for SIGABRT (exit 134) raised after all tests pass.
             # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
@@ -813,6 +824,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

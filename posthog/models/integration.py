@@ -15,6 +15,7 @@ from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 if TYPE_CHECKING:
     import aiohttp
     from anthropic import Anthropic
+    from slack_sdk.web.async_client import AsyncWebClient
     from stripe import StripeClient
 
 from django.conf import settings
@@ -35,7 +36,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncWebClient
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -43,10 +43,12 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -163,6 +165,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
         INTERCOM = "intercom"
@@ -269,24 +272,23 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
-POSTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:read",
-        "groups:read",
-        "chat:write",
-        "chat:write.customize",
-        "app_mentions:read",
-        "channels:history",
-        "groups:history",
-        "links:read",
-        "links:write",
-        "reactions:read",
-        "reactions:write",
-        "team:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+# Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
+# StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
+# frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
+#
+# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
+# we also request the in-review scopes — the Slack app manifest in those setups can list them.
+# US/EU/self-hosted would fail with `invalid_scope` until Slack approves the public Cloud app.
+# Evaluated at module import; tests that need a different value should
+# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
+def _build_posthog_slack_scope() -> str:
+    scopes = [scope.value for scope in SlackIntegrationScope]
+    if settings.DEBUG or get_instance_region() == "DEV":
+        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
+    return ",".join(scopes)
+
+
+POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
 class OauthIntegration:
@@ -295,6 +297,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-search-console",
         "google-sheets",
         "snapchat",
         "linkedin-ads",
@@ -400,6 +403,22 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-search-console":
+            if not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID or not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Search Console app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -1127,7 +1146,11 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
+    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
+        # slack_sdk's async client imports aiohttp at module scope; this is a models module,
+        # so a top-level import would put aiohttp on the django.setup() path
+        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
     def granted_scopes(self) -> frozenset[str]:
@@ -1973,7 +1996,7 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> Integration:
-        email_address: str = config["email"]
+        email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
@@ -1994,7 +2017,13 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+            org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+            ses.create_email_domain(
+                domain,
+                mail_from_subdomain=mail_from_subdomain,
+                team_id=team_id,
+                org_team_ids=org_team_ids,
+            )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -3291,7 +3320,7 @@ class StripeIntegration:
 
     # These are the scopes we'll give Stripe when creating a local OAuth App
     # and sending them access
-    SCOPES = " ".join(
+    SCOPES: str = " ".join(
         [
             "customer_journey:read",
             "query:read",

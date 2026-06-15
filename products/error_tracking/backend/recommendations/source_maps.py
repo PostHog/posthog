@@ -4,8 +4,6 @@ from typing import Any
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from posthog.models.team.team import Team
-
 from products.error_tracking.backend.models import ErrorTrackingStackFrame
 
 from .base import Recommendation
@@ -24,7 +22,7 @@ class SourceMapsRecommendation(Recommendation):
     type = "source_maps"
     refresh_interval = timedelta(hours=6)
 
-    def compute(self, team: Team) -> dict[str, Any]:
+    def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
         # `lang` is set on the resolved frame contents by cymbal — both browser JS
         # and Node frames are tagged "javascript". TypeScript frames also surface
         # as "javascript" pre-resolution; the source map is what would map them
@@ -32,17 +30,25 @@ class SourceMapsRecommendation(Recommendation):
         # care about here.
         since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
 
-        counts = ErrorTrackingStackFrame.objects.filter(
-            team=team,
-            created_at__gte=since,
-            contents__lang="javascript",
-        ).aggregate(
-            total=Count("id"),
-            unresolved=Count("id", filter=Q(resolved=False)),
-        )
+        counts_by_team = {
+            row["team_id"]: row
+            for row in ErrorTrackingStackFrame.objects.filter(
+                team_id__in=team_ids,
+                created_at__gte=since,
+                contents__lang="javascript",
+            )
+            .values("team_id")
+            .annotate(
+                total=Count("id"),
+                unresolved=Count("id", filter=Q(resolved=False)),
+            )
+        }
+        return {team_id: self._build_meta(counts_by_team.get(team_id)) for team_id in team_ids}
 
-        total = counts["total"] or 0
-        unresolved = counts["unresolved"] or 0
+    @staticmethod
+    def _build_meta(counts: dict[str, Any] | None) -> dict[str, Any]:
+        total = (counts or {}).get("total") or 0
+        unresolved = (counts or {}).get("unresolved") or 0
         unresolved_pct = (unresolved / total) if total > 0 else 0.0
 
         return {

@@ -42,7 +42,9 @@ export interface MCPSessionSorting {
 
 const DEFAULT_SORTING: MCPSessionSorting = { column: 'session_start', order: -1 }
 
-function orderByParam(sorting: MCPSessionSorting | null): string | undefined {
+export type MCPSessionOrderBy = `${'' | '-'}${MCPSessionSortColumn}`
+
+export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrderBy | undefined {
     return sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
 }
 

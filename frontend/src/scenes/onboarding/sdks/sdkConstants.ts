@@ -1,4 +1,4 @@
-import type { SdkType } from './sdkDoctorLogic'
+import type { SdkType } from './sdkHealthLogic'
 
 export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     web: 'Web',

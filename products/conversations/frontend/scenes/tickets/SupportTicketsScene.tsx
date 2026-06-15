@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
@@ -11,6 +11,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
+    LemonSegmentedButton,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
@@ -50,6 +51,7 @@ import {
     type Ticket,
     type TicketSlaState,
     type TicketStatus,
+    type TicketTagsMatch,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
@@ -266,23 +268,30 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const {
         selectedKeys,
         clearSelection,
-        toggleRow,
+        isSomeOnPageSelected,
+        isAllOnPageSelected,
         toggleAllOnPage,
         selectedKeysSet,
-        isAllOnPageSelected,
-        isSomeOnPageSelected,
+        toggleRow,
     } = bulk
 
     useEffect(() => {
         setSelectedTicketIds(selectedKeys)
     }, [selectedKeys, setSelectedTicketIds])
 
-    // Clear hook selection when kea resets (e.g. after bulk update or page reload)
+    // Clear hook selection only when kea's selection is reset *externally* (e.g. after a bulk
+    // update or page reload). We detect that as a non-empty -> empty transition. Reacting to
+    // `selectedTicketIds.length === 0` alone would also fire during the brief window right after
+    // the first selection, before the effect above has pushed `selectedKeys` into kea — which
+    // would immediately wipe the selection the user just made.
+    const prevSelectedTicketIdCount = useRef(selectedTicketIds.length)
     useEffect(() => {
-        if (selectedTicketIds.length === 0 && selectedKeys.length > 0) {
+        const wasSelected = prevSelectedTicketIdCount.current > 0
+        prevSelectedTicketIdCount.current = selectedTicketIds.length
+        if (wasSelected && selectedTicketIds.length === 0 && selectedKeys.length > 0) {
             clearSelection()
         }
-    }, [selectedTicketIds, selectedKeys.length, clearSelection])
+    }, [selectedTicketIds, selectedKeys, clearSelection])
 
     const columns = useMemo<LemonTableColumns<Ticket>>(() => {
         const checkboxCol: LemonTableColumns<Ticket>[number] = {
@@ -372,6 +381,8 @@ export function SupportTicketsTableFilters(): JSX.Element {
         slaFilter,
         assigneeFilter,
         tagsFilter,
+        tagsMatch,
+        tagsExcludeFilter,
         dateFrom,
         dateTo,
         ticketsLoading,
@@ -384,10 +395,13 @@ export function SupportTicketsTableFilters(): JSX.Element {
         setSlaFilter,
         setAssigneeFilter,
         setTagsFilter,
+        setTagsMatch,
+        setTagsExcludeFilter,
         setDateRange,
         loadTickets,
     } = useActions(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 
     return (
         <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -528,33 +542,68 @@ export function SupportTicketsTableFilters(): JSX.Element {
                 <LemonDropdown
                     closeOnClickInside={false}
                     overlay={
-                        <div className="p-2 min-w-64">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                value={tagsFilter}
-                                options={tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []}
-                                onChange={setTagsFilter}
-                                placeholder="Select or type tags..."
-                                data-attr="tags-filter-input"
-                            />
+                        <div className="p-2 min-w-64 flex flex-col gap-2">
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-muted text-xs">Include tags</span>
+                                    <LemonSegmentedButton
+                                        size="small"
+                                        value={tagsMatch}
+                                        onChange={(value) => setTagsMatch(value as TicketTagsMatch)}
+                                        options={[
+                                            { value: 'any', label: 'Match any' },
+                                            { value: 'all', label: 'Match all' },
+                                        ]}
+                                    />
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsFilter}
+                                    options={tagOptions}
+                                    onChange={setTagsFilter}
+                                    placeholder="Select or type tags..."
+                                    data-attr="tags-filter-input"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-muted text-xs">Exclude tags</span>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsExcludeFilter}
+                                    options={tagOptions}
+                                    onChange={setTagsExcludeFilter}
+                                    placeholder="Exclude tags..."
+                                    data-attr="tags-exclude-filter-input"
+                                />
+                            </div>
                         </div>
                     }
                 >
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {tagsFilter.length === 0
+                        {tagsFilter.length === 0 && tagsExcludeFilter.length === 0
                             ? 'All tags'
-                            : tagsFilter.length === 1
-                              ? tagsFilter[0]
-                              : `${tagsFilter.length} tags`}
+                            : [
+                                  tagsFilter.length > 0 &&
+                                      (tagsFilter.length === 1
+                                          ? tagsFilter[0]
+                                          : `${tagsMatch === 'all' ? 'all' : 'any'} of ${tagsFilter.length} tags`),
+                                  tagsExcludeFilter.length > 0 && `excl. ${tagsExcludeFilter.length}`,
+                              ]
+                                  .filter(Boolean)
+                                  .join(', ')}
                     </LemonButton>
                 </LemonDropdown>
-                {tagsFilter.length > 0 && (
+                {(tagsFilter.length > 0 || tagsExcludeFilter.length > 0) && (
                     <LemonButton
                         type="secondary"
                         size="small"
                         icon={<IconX />}
-                        onClick={() => setTagsFilter([])}
+                        onClick={() => {
+                            setTagsFilter([])
+                            setTagsExcludeFilter([])
+                        }}
                         tooltip="Clear tag filter"
                     />
                 )}

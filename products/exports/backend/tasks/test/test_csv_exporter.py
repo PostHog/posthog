@@ -57,7 +57,7 @@ regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%2
 @override_settings(SITE_URL="http://testserver")
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
-    def patched_request(self) -> Generator[Any, None, None]:
+    def patched_request(self) -> Generator[Any]:
         with patch("products.exports.backend.tasks.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200

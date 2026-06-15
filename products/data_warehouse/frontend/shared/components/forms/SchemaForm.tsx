@@ -157,6 +157,14 @@ export default function SchemaForm(): JSX.Element {
                                 </LemonTag>
                             </Tooltip>
                         )}
+                        {schema.rls_warning && (
+                            <Tooltip title={schema.rls_warning} placement="top">
+                                <LemonTag type="warning" className="cursor-help">
+                                    <IconWarning className="mr-1" />
+                                    RLS may hide rows
+                                </LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                 )
             },

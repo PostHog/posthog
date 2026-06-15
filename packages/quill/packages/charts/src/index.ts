@@ -16,6 +16,8 @@ export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarCha
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
+export { MetricCard } from './components/MetricCard/MetricCard'
+export type { MetricCardProps, ChangeColor, MetricChange } from './components/MetricCard/MetricCard'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -34,10 +36,24 @@ export type {
     BoxPlotProps,
     BoxPlotTooltipContext,
 } from './charts/BoxPlot/BoxPlot'
-export { computeBoxBand, computeBoxRect, computeSeriesBoxes } from './charts/BoxPlot/computeBoxLayout'
-export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
+export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
+
+// Slope chart
+export { SlopeChart } from './charts/SlopeChart/SlopeChart'
+export type {
+    SlopeChartConfig,
+    SlopeChartLegendConfig,
+    SlopeChartProps,
+    SlopeSeriesMeta,
+} from './charts/SlopeChart/SlopeChart'
+export { SlopeValueLabels } from './charts/SlopeChart/SlopeValueLabels'
+export type { SlopeValueLabelsProps } from './charts/SlopeChart/SlopeValueLabels'
+export { SlopeSeriesLabels } from './charts/SlopeChart/SlopeSeriesLabels'
+export type { SlopeSeriesLabelsProps } from './charts/SlopeChart/SlopeSeriesLabels'
+export { slopeLegendItems } from './charts/SlopeChart/slope-legend'
 
 // Pie / donut
 export { PieChart } from './charts/PieChart/PieChart'
@@ -79,8 +95,14 @@ export type {
 } from './core/types'
 export { DEFAULT_Y_AXIS_ID } from './core/types'
 
+// Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
+export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export type { ThemeFromCssOptions } from './core/theme'
+
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
+// Shared tooltip surface — reuse to build custom tooltips with the quill look
+export { TooltipSurface, TooltipSwatch, TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './overlays/TooltipSurface'
 
 // Optional overlays
 export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'
@@ -94,7 +116,7 @@ export type {
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
 export { ValueLabels } from './overlays/ValueLabels'
-export type { ValueLabelsProps } from './overlays/ValueLabels'
+export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
 export type { AxisTitlesProps } from './overlays/AxisTitles'
 

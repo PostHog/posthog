@@ -2,7 +2,10 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+
 import { useGroupList, UseGroupListResult } from '../hooks/useGroupList'
+import { hasRecentContext } from '../recentTaxonomicFiltersLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup } from '../types'
 import { useTaxonomicFilterContext } from './context'
 
@@ -129,6 +132,10 @@ function TaxonomicFilterActivePanel({
                 if (renderRow) {
                     return <div key={index}>{renderRow({ item, index, isActive, onSelect, onMouseEnter, group })}</div>
                 }
+                const label =
+                    hasRecentContext(item) && item._recentContext.propertyFilter
+                        ? formatPropertyLabel(item._recentContext.propertyFilter, {})
+                        : (group.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : ''))
                 return (
                     <ItemMenuItem
                         key={index}
@@ -139,7 +146,7 @@ function TaxonomicFilterActivePanel({
                         onClick={onSelect}
                         onMouseEnter={onMouseEnter}
                     >
-                        {group.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : '')}
+                        {label}
                     </ItemMenuItem>
                 )
             })}

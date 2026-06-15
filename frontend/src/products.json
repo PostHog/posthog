@@ -50,11 +50,11 @@
             "intents": ["llm_prompts"]
         },
         {
-            "path": "Skills",
+            "path": "Business knowledge",
             "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_skills",
-            "intents": ["llm_prompts"]
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
         },
         {
             "path": "Web scripts",
@@ -200,6 +200,7 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["llm_prompts"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {

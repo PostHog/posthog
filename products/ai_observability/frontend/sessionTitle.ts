@@ -64,7 +64,7 @@ function firstUserText(inputPayload: unknown): string | null {
             Array.isArray((inputPayload as { messages?: unknown }).messages)
           ? (inputPayload as { messages: unknown[] }).messages
           : inputPayload
-    const normalized = normalizeMessages(messages, 'user')
+    const normalized = normalizeMessages(messages, 'user').messages
     for (const message of normalized) {
         if (message.role !== 'user') {
             continue

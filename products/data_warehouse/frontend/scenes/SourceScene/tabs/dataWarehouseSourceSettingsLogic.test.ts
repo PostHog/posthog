@@ -128,9 +128,7 @@ describe('sourceSettingsLogic', () => {
         expect(logic.values.source?.schemas[0].should_sync).toBe(false)
     })
 
-    it('uses separate logic instances per browser tab', () => {
-        expect(sourceSettingsLogic({ id: 'source-1', tabId: 'tab-a' }).key).toEqual('source-1-tab-a')
-        expect(sourceSettingsLogic({ id: 'source-1', tabId: 'tab-b' }).key).toEqual('source-1-tab-b')
+    it('keys the logic by source id', () => {
         expect(sourceSettingsLogic({ id: 'source-1' }).key).toEqual('source-1')
     })
 
@@ -145,18 +143,18 @@ describe('sourceSettingsLogic', () => {
         expect(loadJobsSpy).not.toHaveBeenCalled()
     })
 
-    it('dispatches breadcrumb name to the sourceSceneLogic keyed with props.tabId', async () => {
-        const sceneLogicForTab = sourceSceneLogic({ id: 'managed-source-1', tabId: 'tab-a' })
-        sceneLogicForTab.mount()
+    it('dispatches breadcrumb name to the sourceSceneLogic for the source', async () => {
+        const sceneLogicForSource = sourceSceneLogic({ id: 'managed-source-1' })
+        sceneLogicForSource.mount()
 
-        logic = sourceSettingsLogic({ id: 'source-1', tabId: 'tab-a' })
+        logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(sceneLogicForTab.values.breadcrumbName).toEqual('warehouse')
+        expect(sceneLogicForSource.values.breadcrumbName).toEqual('warehouse')
 
-        sceneLogicForTab.unmount()
+        sceneLogicForSource.unmount()
     })
 
     it.each([408, 502, 503, 504])(

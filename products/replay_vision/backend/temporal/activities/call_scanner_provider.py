@@ -5,8 +5,6 @@ import time
 import asyncio
 from uuid import UUID
 
-from django.conf import settings
-
 import structlog
 from asgiref.sync import sync_to_async
 from google.genai import types
@@ -20,6 +18,7 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_PROVIDER_CALL
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, ChipSegment, Segment, TextSegment
@@ -157,7 +156,7 @@ async def _call_with_retry(
     *, scanner: BaseScanner, snapshot: ScannerSnapshot, prompt_parts: list[types.Part], team_id: int
 ) -> BaseModel:
     """One Gemini call, plus at most one retry that appends the validation error to the prompt."""
-    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    client = genai.AsyncClient(api_key=gemini_api_key())
     schema_class = scanner.llm_response_schema
     response_schema = schema_class.model_json_schema()
     parts = list(prompt_parts)

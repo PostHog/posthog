@@ -2,7 +2,6 @@ import json
 import time
 from urllib.parse import quote
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -15,7 +14,7 @@ from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID
 
 DUMMY_CALLBACK = "https://marketplace.stripe.com/oauth/callback"
 
@@ -82,9 +81,22 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
 
-    @pytest.mark.requires_secrets
-    @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET, STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
+    @override_settings(
+        STRIPE_SIGNING_SECRET=HMAC_SECRET,
+        STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+    )
     def test_full_a1_flow_with_token_exchange(self):
+        # The token exchange resolves the legacy Stripe OAuth app by client_id and now
+        # hard-fails if it's missing, so the e2e flow needs the app row to exist.
+        OAuthApplication.objects.create(
+            name="PostHog Stripe App",
+            client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+        )
         self._set_pending_auth("state_e2e", self.user.email)
 
         res = self.client.get("/api/agentic/authorize?state=state_e2e")

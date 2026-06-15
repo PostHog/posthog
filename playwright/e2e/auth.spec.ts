@@ -1,9 +1,17 @@
 import { LoginPage } from '../page-models/loginPage'
-import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwright-test-base'
+import { LOGIN_PASSWORD, LOGIN_USERNAME } from '../utils/playwright-test-core'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Auth', () => {
     let loginPage: LoginPage
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await page.locator('[data-attr=new-account-menu-button]').click()
         loginPage = new LoginPage(page)
     })
@@ -69,7 +77,8 @@ test.describe('Auth', () => {
         await expect(page.locator('[data-attr=password]')).toHaveValue('wrong password')
 
         await loginPage.clickLogin()
-        await expect(page.locator('.LemonBanner')).toContainText('Invalid email or password.')
+        // Scope to the error banner: on cloud a separate info banner (OtherRegionHint) also renders here.
+        await expect(page.locator('.LemonBanner--error')).toContainText('Invalid email or password.')
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()

@@ -19,6 +19,8 @@ import type {
     PatchedReplayScannerApi,
     ReplayObservationApi,
     ReplayScannerApi,
+    ScannerCreatorsResponseApi,
+    ScannerStatsResponseApi,
     VisionObservationsListParams,
     VisionQuotaApi,
     VisionScannersListParams,
@@ -48,7 +50,7 @@ export const getVisionObservationsListUrl = (projectId: string, params: VisionOb
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -110,7 +112,7 @@ export const getVisionScannersListUrl = (projectId: string, params?: VisionScann
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -238,7 +240,7 @@ export const getVisionScannersObservationsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -295,7 +297,7 @@ export const getVisionScannersObservationsStatsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -324,6 +326,23 @@ export const visionScannersObservationsStatsRetrieve = async (
     )
 }
 
+export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/creators/`
+}
+
+/**
+ * Distinct creators across the team's scanners — feeds the `Created by` filter dropdown.
+ */
+export const visionScannersCreatorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerCreatorsResponseApi> => {
+    return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/scanners/estimate/`
 }
@@ -341,5 +360,22 @@ export const visionScannersEstimateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/stats/`
+}
+
+/**
+ * Team-wide scanner counts — independent of list filters, so the overview stays stable.
+ */
+export const visionScannersStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerStatsResponseApi> => {
+    return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

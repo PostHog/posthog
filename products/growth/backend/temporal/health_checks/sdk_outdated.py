@@ -8,7 +8,7 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -21,7 +21,7 @@ from products.growth.backend.constants import (
 )
 from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
 
-# Issue severity follows the SDK Doctor assessment severity: a single outdated SDK is a warning,
+# Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
 _SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
     "danger": HealthIssue.Severity.CRITICAL,
@@ -75,7 +75,7 @@ def _load_github_sdk_data() -> dict[str, dict]:
 
 
 def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]]) -> None:
-    """Cache team SDK version data in Redis for the SDK Doctor API."""
+    """Cache team SDK version data in Redis for the SDK Health API."""
     if not team_sdk_data:
         return
 
@@ -94,13 +94,32 @@ class SdkOutdatedCheck(HealthCheck):
     policy = HealthExecutionPolicy(batch_size=10, max_concurrent=3)
     schedule = "0 8 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open the SDK Health page (the Health section of the app). It lists every SDK you're sending
+            events from, the versions in use, the latest available version, and how far behind each one is.
+            Follow each outdated SDK's upgrade guide — usually bumping the dependency in your package
+            manager (npm/yarn/pnpm, pip/poetry, gem, go get, etc.) and redeploying. For browser-snippet
+            installs, make sure you're loading the latest snippet.
+        """,
+        agent="""
+            Read this issue with `health-issues-get` to get the affected SDK and the latest version from
+            the payload, and use `execute-sql` to see which `properties.$lib` / `properties.$lib_version`
+            values still send events (`SELECT properties.$lib, properties.$lib_version, count() FROM events
+            WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY 1, 2 ORDER BY 3 DESC`). Then fix it in the
+            user's codebase: bump the PostHog SDK dependency to the latest version in the relevant manifest
+            (package.json, requirements.txt / pyproject.toml, Gemfile, go.mod, etc.), update the lockfile,
+            and check the SDK's changelog (via `docs-search`) for breaking changes to adjust. The issue
+            clears on the next check run once upgraded traffic arrives.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         sdk_name = issue.payload.get("sdk_name", "an SDK")
         # `reason` is the assessment's single source of truth (compute_sdk_health → _build_reason).
         # It already names the current in-use version and the specific older versions driving the
-        # alert, and routes every version through SDK Doctor's allowlist before interpolation — so
+        # alert, and routes every version through SDK Health's allowlist before interpolation — so
         # it's both complete and safe to forward to alert destinations (Slack, email, webhooks).
         summary = issue.payload.get("reason")
         if not summary:
@@ -116,7 +135,7 @@ class SdkOutdatedCheck(HealthCheck):
         return AlertContent(
             title=f"{sdk_name} SDK is outdated",
             summary=summary,
-            link="/health/sdk-doctor",
+            link="/health/sdk-health",
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

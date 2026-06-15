@@ -190,6 +190,27 @@ product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
+# Fail-fast circuit breaker for product databases. When a product DB is
+# unreachable, the custom backend raises immediately on connect instead of
+# blocking the worker on `connect_timeout`, so one product's outage can't
+# exhaust the shared worker pool. See posthog/db_circuit_breaker.py.
+PRODUCT_DB_FAIL_OPEN_ENGINE = "posthog.db_backends.failopen"
+PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: bool = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_ENABLED", not TEST, type_cast=str_to_bool
+)
+PRODUCT_DB_CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS", 30, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_PROBE_TIMEOUT_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_PROBE_TIMEOUT_SECONDS", 5, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_WINDOW_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_WINDOW_SECONDS", 30, type_cast=int
+)
+
 for route in product_routes:
     if route.database in configured_product_databases:
         continue
@@ -212,10 +233,12 @@ for route in product_routes:
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     if TEST:
         # Skip the global migration-graph walk during test DB setup. Without
@@ -313,6 +336,9 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# query_log_archive's single data table lives on the OPS cluster; every cluster's
+# Distributed read/write tables route to it via this cluster name.
+CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
@@ -533,6 +559,8 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 # Dedicated Redis for ai-gateway HyperCache reads
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
 
+TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
@@ -587,6 +615,19 @@ if AI_GATEWAY_REDIS_URL:
     CACHES[AI_GATEWAY_DEDICATED_CACHE_ALIAS] = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": AI_GATEWAY_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+if TASKS_REDIS_URL:
+    from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
+
+    CACHES[TASKS_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": TASKS_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",

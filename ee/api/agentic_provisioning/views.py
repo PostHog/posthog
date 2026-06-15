@@ -7,7 +7,7 @@ import base64
 import hashlib
 import secrets
 import unicodedata
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -20,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -31,15 +32,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
-from posthog.models.oauth import (
-    OAuthAccessToken,
-    OAuthApplication,
-    OAuthRefreshToken,
-    find_oauth_access_token,
-    find_oauth_refresh_token,
-)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -67,7 +63,10 @@ AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
-SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
+DEEP_LINK_MAX_PATH_LENGTH = 2000
+# Control chars, whitespace, and backslashes never appear in a legitimate in-app path; they are the
+# building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
+DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
@@ -91,7 +90,10 @@ PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
+# Stripe's contracted scope ceiling, seeded onto the legacy Stripe Projects OAuth
+# app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
+# the default in `_exchange_authorization_code` when no per-code scopes are given).
+STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # Cap partner-supplied prefix below the full label length so " - {team_name}" still
@@ -572,6 +574,7 @@ def _handle_existing_user(
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -734,6 +737,19 @@ def _handle_new_user(
         team_id=team.id,
     )
 
+    # Emit the standard signup event so provisioned accounts flow into the shared
+    # signup / activation / billing analyses, segmentable by client. Vercel does the
+    # same (ee/vercel/integration.py); the agentic path previously skipped it entirely.
+    report_user_signed_up(
+        user,
+        is_instance_first_user=False,
+        is_organization_first_user=True,
+        backend_processor="AgenticProvisioning",
+        social_provider=partner.name if partner else "",
+        user_analytics_metadata=user.get_analytics_metadata(),
+        org_analytics_metadata=organization.get_analytics_metadata(),
+    )
+
     try:
         reset_token = password_reset_token_generator.make_token(user)
         send_provisioning_welcome.delay(user.id, reset_token, partner_label)
@@ -745,6 +761,7 @@ def _handle_new_user(
     cache.set(
         cache_key,
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
@@ -837,6 +854,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
             {
+                "issued_at": timezone.now().isoformat(),
                 "user_id": user.id,
                 "org_id": str(organization.id),
                 "team_id": team.id,
@@ -944,6 +962,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -990,6 +1009,18 @@ def oauth_token(request: Request) -> Response:
             {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
             status=400,
         )
+
+
+def _lock_application(application_id: uuid.UUID) -> OAuthApplication | None:
+    """Row-lock the OAuthApplication so direct-mint serializes with revoke_application_sessions.
+
+    The revoke updates this row first and holds the lock for its whole transaction before
+    sweeping tokens, so a mint that takes the same lock is forced into one of two safe orders:
+    it holds the lock and its new tokens land before the revoke's sweep (which then catches
+    them), or the revoke committed first and the caller reads the now-visible
+    `sessions_revoked_at` and rejects. Must be called inside `transaction.atomic()`.
+    """
+    return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
 
 def _exchange_authorization_code(request: Request) -> Response:
@@ -1060,45 +1091,72 @@ def _exchange_authorization_code(request: Request) -> Response:
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
     # Use partner's OAuth app if available, fall back to Stripe
-    oauth_app = _get_oauth_app_for_code(code_data)
-
-    # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
-    # ceiling has to be enforced here before the token is created by hand.
-    requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
-    app_scopes = oauth_app.scopes if oauth_app else []
-    if not scopes_within_ceiling(requested_scopes, app_scopes):
-        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
+    try:
+        oauth_app = _get_oauth_app_for_code(code_data)
+    except LegacyStripeOAuthAppMissingError:
+        _capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
         return Response(
-            {
-                "error": "invalid_scope",
-                "error_description": "Requested scopes exceed the application's allowed scopes",
-            },
-            status=400,
+            {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
         )
-    scope_str = " ".join(requested_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+    # Lock the app row before reading the revoke stamp and minting, so this serializes
+    # with revoke_application_sessions (see _lock_application). Provisioning auth codes
+    # live in the cache, not OAuthGrant, so the revoke's sweep can't reach them — the
+    # `issued_at` carried on the code is what a revoke is checked against. Codes minted
+    # before `issued_at` shipped lack the field; fail closed (they expire in
+    # AUTH_CODE_TTL_SECONDS and the client can re-run the flow).
+    with transaction.atomic():
+        locked_app = _lock_application(oauth_app.pk) if oauth_app else None
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None:
+            issued_at_raw = code_data.get("issued_at")
+            issued_at = datetime.fromisoformat(issued_at_raw) if issued_at_raw else None
+            if issued_at is None or issued_at < sessions_revoked_at:
+                _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
+                return Response(
+                    {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                    status=400,
+                )
 
-    access_token_value = generate_random_oauth_access_token(None)
-    access_token = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=access_token_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=scope_str,
-        scoped_teams=[team_id],
-    )
+        # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
+        # ceiling has to be enforced here before the token is created by hand.
+        requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+        app_scopes = locked_app.scopes if locked_app else []
+        if not scopes_within_ceiling(requested_scopes, app_scopes):
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
+            return Response(
+                {
+                    "error": "invalid_scope",
+                    "error_description": "Requested scopes exceed the application's allowed scopes",
+                },
+                status=400,
+            )
+        scope_str = " ".join(requested_scopes)
 
-    refresh_token_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=refresh_token_value,
-        user=user,
-        access_token=access_token,
-        scoped_teams=[team_id],
-    )
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
+        )
+
+        access_token_value = generate_random_oauth_access_token(None)
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=access_token_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=scope_str,
+            scoped_teams=[team_id],
+        )
+
+        refresh_token_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=refresh_token_value,
+            user=user,
+            access_token=access_token,
+            scoped_teams=[team_id],
+        )
 
     account_id = str(code_data.get("org_id", ""))
 
@@ -1127,70 +1185,99 @@ def _exchange_refresh_token(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
-    old_refresh = find_oauth_refresh_token(refresh_token_value)
-    if old_refresh is None:
-        _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
-        return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
-
-    oauth_app = old_refresh.application
-    user = old_refresh.user
-    scoped_teams = old_refresh.scoped_teams
-    old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
-
-    # Cap the refreshed scope at the app's current ceiling before touching any
-    # token rows — a since-tightened ceiling must drop the removed scopes, and a
-    # token now fully outside the ceiling has to re-authorize rather than refresh.
-    # Done up front so a rejected refresh never revokes the caller's only token.
-    app_scopes = oauth_app.scopes if oauth_app else []
-    narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
-    if narrowed_scopes is None:
-        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
-        return Response(
-            {
-                "error": "invalid_grant",
-                "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
-            },
-            status=400,
+    # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
+    # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
+    # the revoke: either we hold the lock and our new tokens land before its sweep, or it
+    # committed first and we see the token already revoked (or the stamp) and reject. Looking
+    # the app up by id first (without locking the token row) keeps the lock order app→token,
+    # matching the revoke, so the two can't deadlock.
+    with transaction.atomic():
+        application_id = (
+            OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
+            .values_list("application_id", flat=True)
+            .first()
         )
-    new_scope = " ".join(narrowed_scopes)
+        locked_app = _lock_application(application_id) if application_id else None
+        old_refresh = (
+            OAuthRefreshToken.objects.select_related("user", "access_token")
+            .filter(token=refresh_token_value, revoked__isnull=True)
+            .first()
+        )
+        if old_refresh is None:
+            _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400
+            )
 
-    # provisioning_partner_type is a stable marker set at partner registration;
-    # checking it instead of is_provisioning_partner prevents a bypass when an admin
-    # clears provisioning_auth_method to disable a partner without revoking tokens.
-    if oauth_app and oauth_app.provisioning_partner_type:
-        if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
-            return error
+        oauth_app = locked_app
+        user = old_refresh.user
+        scoped_teams = old_refresh.scoped_teams
+        old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
-    old_access = old_refresh.access_token
-    old_refresh.access_token = None
-    old_refresh.revoked = timezone.now()
-    old_refresh.save(update_fields=["access_token", "revoked"])
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
+            _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                status=400,
+            )
 
-    if old_access:
-        old_access.delete()
+        # Cap the refreshed scope at the app's current ceiling before touching any
+        # token rows — a since-tightened ceiling must drop the removed scopes, and a
+        # token now fully outside the ceiling has to re-authorize rather than refresh.
+        # Done up front so a rejected refresh never revokes the caller's only token.
+        app_scopes = oauth_app.scopes if oauth_app else []
+        narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
+        if narrowed_scopes is None:
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
+            return Response(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                },
+                status=400,
+            )
+        new_scope = " ".join(narrowed_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+        # provisioning_partner_type is a stable marker set at partner registration;
+        # checking it instead of is_provisioning_partner prevents a bypass when an admin
+        # clears provisioning_auth_method to disable a partner without revoking tokens.
+        if oauth_app and oauth_app.provisioning_partner_type:
+            if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+                return error
 
-    new_access_value = generate_random_oauth_access_token(None)
-    new_access = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=new_access_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=new_scope,
-        scoped_teams=scoped_teams,
-    )
+        old_access = old_refresh.access_token
+        old_refresh.access_token = None
+        old_refresh.revoked = timezone.now()
+        old_refresh.save(update_fields=["access_token", "revoked"])
 
-    new_refresh_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=new_refresh_value,
-        user=user,
-        access_token=new_access,
-        scoped_teams=scoped_teams,
-    )
+        if old_access:
+            old_access.delete()
+
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
+        )
+
+        new_access_value = generate_random_oauth_access_token(None)
+        new_access = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=new_access_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=new_scope,
+            scoped_teams=scoped_teams,
+        )
+
+        new_refresh_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=new_refresh_value,
+            user=user,
+            access_token=new_access,
+            scoped_teams=scoped_teams,
+        )
 
     _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
 
@@ -1327,12 +1414,21 @@ def _extract_label_prefix(request: Request) -> str | None:
     return stripped
 
 
-def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = None) -> str | None:
+def _maybe_create_provisioned_pat(
+    user: User, team: Team, app: OAuthApplication | None, label_prefix: str | None = None
+) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
 
-    Scopes are ["*"] so downstream tooling (e.g. the wizard CI install flow)
-    can use the key without silent 403s — a narrow default has no in-product
-    recovery path since there's no scope upgrade UI.
+    Gated by ``app.provisioning_issues_personal_api_key``: off by default, so most
+    apps never receive a provisioned PAT (the OAuth token is the credential).
+    Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
+    from the response entirely.
+
+    When enabled (the grandfathered legacy Stripe app), the key is scoped to the
+    app's ``scopes`` ceiling rather than ``["*"]`` so a provisioned PAT can never
+    exceed what the issuing app is itself allowed. A flag-on app with an unseeded
+    ceiling mints nothing: an empty-scope PAT fails every scope check, and widening
+    to a wildcard would bypass the ceiling.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -1342,6 +1438,11 @@ def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = N
     ``label_prefix`` should be pre-validated by ``_extract_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
+    if not app or not app.provisioning_issues_personal_api_key:
+        return None
+    if not app.scopes:
+        _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
+        return None
     try:
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
@@ -1354,7 +1455,7 @@ def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = N
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=["*"],
+            scopes=list(app.scopes),
             scoped_teams=[team.id],
             scoped_organizations=[str(team.organization_id)],
         )
@@ -1632,7 +1733,9 @@ def provisioning_resources_create(request: Request) -> Response:
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1721,7 +1824,9 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -2025,18 +2130,17 @@ def deep_links(request: Request) -> Response:
             status=403,
         )
 
+    # `purpose` is a free-form label retained for analytics. `path` is the generic
+    # destination: any in-app path the partner wants the user to land on after login.
     purpose = request.data.get("purpose", "dashboard")
-    if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
+    path = request.data.get("path")
+    if path and not _is_safe_deep_link_path(path):
         _capture_provisioning_event(
-            "deep_link_created", "unsupported_purpose", partner=access_token.application, purpose=purpose
+            "deep_link_created", "invalid_path", partner=access_token.application, purpose=purpose
         )
-        return Response(
-            {
-                "error": {
-                    "code": "unsupported_purpose",
-                    "message": f"Unsupported purpose: {purpose}. Supported: {', '.join(sorted(SUPPORTED_DEEP_LINK_PURPOSES))}",
-                }
-            },
+        return _error_response(
+            "invalid_path",
+            "path must be a relative in-app path beginning with a single '/'",
             status=400,
         )
 
@@ -2054,6 +2158,7 @@ def deep_links(request: Request) -> Response:
             "user_id": access_token.user_id,
             "team_id": team_id,
             "purpose": purpose,
+            "path": path or None,
         },
         timeout=DEEP_LINK_TTL_SECONDS,
     )
@@ -2269,28 +2374,48 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
-def _get_legacy_stripe_oauth_app():
-    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-        try:
-            return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
-        except OAuthApplication.DoesNotExist:
-            logger.warning(
-                "provisioning.oauth_app.client_id_not_found",
-                client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
-            )
+class LegacyStripeOAuthAppMissingError(Exception):
+    """The configured Stripe Projects OAuth app could not be resolved.
 
-    from oauthlib.common import generate_token
+    Raised instead of fabricating an app on demand: a missing app is an
+    operational misconfiguration, not something to paper over with a freshly
+    created application that carries no scope ceiling.
+    """
 
-    return OAuthApplication.objects.create(
-        name=LEGACY_STRIPE_APP_NAME,
-        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
-        client_secret="",
-        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-        redirect_uris="https://localhost",
-        algorithm="RS256",
-        provisioning_can_issue_deep_links=True,
-    )
+
+def _seed_stripe_app_scopes(app: OAuthApplication) -> None:
+    """Seed the Stripe Projects app's scope ceiling when it is unset.
+
+    Region-agnostic by design: US and EU each hold their own OAuthApplication
+    row, so this runs independently the first time the app is resolved in each
+    region. Pre-seeding via the ops step in the slice notes avoids the on-request
+    write, but this keeps the ceiling correct even if that step is missed.
+    """
+    if app.scopes:
+        return
+    app.scopes = list(STRIPE_CONTRACTED_SCOPES)
+    app.save(update_fields=["scopes"])
+
+
+def _get_legacy_stripe_oauth_app() -> OAuthApplication:
+    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    if not client_id:
+        error = LegacyStripeOAuthAppMissingError("STRIPE_POSTHOG_OAUTH_CLIENT_ID is not configured")
+        capture_exception(error)
+        raise error
+
+    try:
+        app = OAuthApplication.objects.get(client_id=client_id)
+    except OAuthApplication.DoesNotExist as exc:
+        error = LegacyStripeOAuthAppMissingError("Stripe Projects OAuth app not found for configured client_id")
+        # Chain the DoesNotExist so the captured event keeps its traceback; the new
+        # error was never raised, so it carries no traceback of its own.
+        error.__cause__ = exc
+        capture_exception(error, additional_properties={"client_id": client_id})
+        raise error from None
+
+    _seed_stripe_app_scopes(app)
+    return app
 
 
 def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
@@ -2322,11 +2447,13 @@ def _get_callback_url(partner_id: str) -> str:
     return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
 
 
-def _get_oauth_app_for_code(code_data: dict):
+def _get_oauth_app_for_code(code_data: dict) -> OAuthApplication:
     """Resolve the OAuthApplication for a token exchange.
 
     If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the legacy Stripe Projects app lookup.
+    Otherwise fall back to the legacy Stripe Projects app lookup, which
+    hard-fails (raising ``LegacyStripeOAuthAppMissingError``) if the configured
+    app is missing rather than fabricating one.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:
@@ -2386,6 +2513,7 @@ def agentic_login(request: Any) -> HttpResponseBase:
     user_id = link_data.get("user_id")
     team_id = link_data.get("team_id")
     purpose = link_data.get("purpose", "dashboard")
+    path = link_data.get("path")
 
     if not user_id:
         _capture_deep_link_event("invalid_token_data")
@@ -2412,11 +2540,31 @@ def agentic_login(request: Any) -> HttpResponseBase:
     _capture_deep_link_event("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    redirect_path = _deep_link_redirect_path(purpose, team_id)
+    redirect_path = _deep_link_redirect_path(purpose, team_id, path)
     return HttpResponseRedirect(redirect_path)
 
 
-def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
+def _is_safe_deep_link_path(path: object) -> bool:
+    """Allow only relative, same-origin in-app paths so a deep link can't become an open redirect."""
+    return (
+        isinstance(path, str)
+        and 0 < len(path) <= DEEP_LINK_MAX_PATH_LENGTH
+        # Reject control chars, whitespace, and backslashes (the `/\` backslash-host form included).
+        and not DEEP_LINK_DISALLOWED_PATH_CHARS.search(path)
+        and path.startswith("/")
+        # Reject protocol-relative (`//`) forms; a single leading `/` keeps it same-origin.
+        and not path.startswith("//")
+        and url_has_allowed_host_and_scheme(path, allowed_hosts=None)
+    )
+
+
+def _deep_link_redirect_path(purpose: str, team_id: int | None, path: str | None = None) -> str:
+    if path and _is_safe_deep_link_path(path):
+        return path
+    if path:
+        # Unreachable in normal operation (mint-time validation already ran); a hit here means
+        # cache tampering or a mint-side regression.
+        logger.warning("agentic_login.unsafe_path_in_cache", path=path)
     if team_id and Team.objects.filter(id=team_id).exists():
         return f"/project/{team_id}"
     return "/"

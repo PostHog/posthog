@@ -93,6 +93,7 @@ class FinalizeRunRequestInput:
 
     approve_all: bool = False
     commit_to_github: bool = True
+    add_images_to_comment_on_pr: bool = False
 
 
 # --- Output DTOs ---
@@ -217,6 +218,19 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+
+
+@dataclass(frozen=True)
+class RunSnapshots:
+    """A run's snapshots plus the count of its currently-quarantined identifiers.
+
+    `quarantined_count` always reflects the full run regardless of whether
+    quarantined snapshots were filtered out of `snapshots`, so callers can
+    surface "N hidden" without a second fetch.
+    """
+
+    snapshots: list[Snapshot]
+    quarantined_count: int
 
 
 @dataclass(frozen=True)

@@ -79,6 +79,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -92,7 +93,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -819,7 +820,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentFunnelsQuery":
-        from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import (
+            ExperimentFunnelsQueryRunner,
+        )
 
         return ExperimentFunnelsQueryRunner(
             query=query,
@@ -831,7 +834,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentTrendsQuery":
-        from .experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_trends_query_runner import (
+            ExperimentTrendsQueryRunner,
+        )
 
         return ExperimentTrendsQueryRunner(
             query=query,
@@ -843,7 +848,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from .experiments.experiment_query_runner import ExperimentQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -855,7 +860,9 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
+            ExperimentExposuresQueryRunner,
+        )
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),
@@ -1395,7 +1402,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+        is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
         if self.is_query_service:
             tag_queries(chargeable=1)
@@ -1845,6 +1852,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         restricted = self._get_property_access_restrictions()
         if restricted:
             payload["restricted_properties"] = restricted
+
+        # Temporary (June 2026 MaxMind incident): only set while the geoip dict fallback is enabled for the team, so
+        # flipping HOGQL_GEOIP_DICT_FALLBACK_TEAMS invalidates exactly the affected teams' cached results (which hold
+        # blank geo values) and nothing changes for anyone else. Deliberately keyed on env membership alone, NOT the
+        # runtime dictionary probe: cache keys must depend only on operator-controlled config, or a transient probe
+        # failure would flip every enabled team's keys at once and recompute the fleet against an already-degraded
+        # cluster. Remove with the transform.
+        if geoip_dict_fallback_team_in_env(self.team.pk):
+            payload["geoip_dict_fallback"] = True
 
         return payload
 

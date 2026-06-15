@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
@@ -13,30 +15,51 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 
 logger = structlog.get_logger(__name__)
 
-# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag
-# picks which teams run scouts; per-scout SignalScoutConfig rows pick which scouts/schedules.
+# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag's JSON
+# payload picks which teams run scouts; per-scout SignalScoutConfig rows pick which
+# scouts/schedules.
 SIGNALS_SCOUT_DOGFOOD_FLAG = "signals-scout"
+
+# Fixed distinct_id for the payload read — enrollment is team-list-in-payload, not per-user.
+SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID = "internal_signals_scout_team_discovery"
+
+# Fail-safe allowlist used when the flag payload is missing/invalid — but only on PostHog
+# Cloud or local dev (see `_fallback_team_ids`). 1 (local dev), 2 (internal), 148051 (dev).
+DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
 # we run the most-overdue first and the rest catch up next tick (a poor-man's queue).
-MAX_RUNS_PER_TICK = 50
+# Set generously for now while scouts roll out to more teams — the per-team tick cap and
+# round-robin allocation do the day-to-day fairness work; this is the global ceiling.
+MAX_RUNS_PER_TICK = 1000
+
+# Per-team slice of the tick budget. Bounds what one team can consume per tick (and thus
+# per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
+# not everyone else's. Sized well above the canonical fleet (~16 scouts) so a fully-enrolled
+# team is never trimmed; round-robin allocation still keeps any one team from starving the
+# others even when this is close to the global cap.
+MAX_RUNS_PER_TEAM_PER_TICK = 50
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
-COORDINATOR_INTERVAL_MINUTES = 15
+COORDINATOR_INTERVAL_MINUTES = 30
+
+# Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
+# else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
+DUE_GRACE_SECONDS = 60
 
 
 @dataclass
@@ -91,7 +114,11 @@ async def fetch_enabled_signals_scout_runs_activity(
     schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
     """
     async with Heartbeater():
-        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)()
+        # Read the flag payload off the DB thread pool — the SDK call can block on a cold
+        # cache, and database_sync_to_async's pool is sized for DB-bound work (mirrors the
+        # asyncio.to_thread split in ai_observability/team_discovery.py).
+        enrolled_team_ids = await asyncio.to_thread(_enrolled_team_ids)
+        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(enrolled_team_ids)
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
 
@@ -132,11 +159,14 @@ class _DueRun:
     skill_name: str
 
 
-def _collect_planned_runs() -> list[PlannedRun]:
-    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt."""
+def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
+    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
+
+    Takes the already-resolved enrolled team ids so the flag read stays off this DB pool.
+    """
     now = timezone.now()
     due: list[_DueRun] = []
-    for team in _participating_teams():
+    for team in _participating_teams(enrolled_team_ids):
         # Sync canonical scouts so a freshly-enrolled team has skills to register on.
         # `prune=True`: the periodic tick is a deliberate reconciliation path, so it also
         # tombstones rows whose canonical was removed from disk (the runner cold-start sync
@@ -150,7 +180,7 @@ def _collect_planned_runs() -> list[PlannedRun]:
                 "signals_scout coordinator: canonical skill sync failed for team; continuing",
                 team_id=team.id,
             )
-        live_skills = _register_missing_configs(team)
+        live_skills = register_missing_configs(team.id)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
@@ -163,102 +193,129 @@ def _collect_planned_runs() -> list[PlannedRun]:
     if not due:
         return []
 
-    # Cost bound: when more scouts are due than the cap, run the most-overdue first and let
-    # the rest catch up next tick. Deterministic — no sampling.
-    due.sort(key=lambda d: d.overdue_s, reverse=True)
-    if len(due) > MAX_RUNS_PER_TICK:
-        logger.warning(
-            "signals_scout coordinator: more due than cap, deferring overflow",
-            due=len(due),
-            cap=MAX_RUNS_PER_TICK,
-        )
-        due = due[:MAX_RUNS_PER_TICK]
-
-    planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in due]
+    selected = _allocate_tick_budget(due)
+    planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
 
 
-def _participating_teams() -> list[Team]:
-    """Canonical dogfood teams: those with a scout skill or config, gated by the flag.
+def _allocate_tick_budget(due: list[_DueRun]) -> list[_DueRun]:
+    """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Bounded to teams that have opted into scouts (canonical fleet seeded or a user-authored
-    `signals-scout-*` skill) so the flag isn't evaluated against every team.
+    Each team's due runs are ordered most-overdue-first and trimmed to
+    `MAX_RUNS_PER_TEAM_PER_TICK`; the global `MAX_RUNS_PER_TICK` budget is then filled
+    round-robin across teams (one run per team per round) so a single team with many due
+    scouts can't monopolize the tick. Deferred runs stay unstamped, so they're the most
+    overdue next tick — a poor-man's queue, same catch-up semantics as before.
     """
-    team_ids = set(
-        LLMSkill.objects.filter(
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        )
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
-    team_ids |= set(SignalScoutConfig.all_teams.values_list("team_id", flat=True).distinct())
-    candidates = Team.objects.filter(id__in=team_ids)
-    canonical_ids = {team.parent_team_id or team.id for team in candidates}
-    canonical_teams = Team.objects.filter(id__in=canonical_ids).order_by("id")
-    return [team for team in canonical_teams if _team_passes_rollout_flag(team)]
-
-
-def _team_passes_rollout_flag(team: Team) -> bool:
-    """Whether the `signals-scout` dogfood flag is on for this team.
-
-    Passes organization + project group context — mirroring the inbox gate in
-    `backend/access.py` and the house pattern in `posthog/permissions.py` — so the flag is
-    targetable per project/org from the PostHog UI. A group-aggregated release condition only
-    matches when its group is supplied here, so without this the flag could only ever be a
-    blanket rollout %. Remote eval; fails closed (eval error → team dropped).
-    """
-    org_id = str(team.organization_id)
-    project_id = str(team.id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SIGNALS_SCOUT_DOGFOOD_FLAG,
-                project_id,
-                groups={"organization": org_id, "project": project_id},
-                group_properties={
-                    "organization": {"id": org_id},
-                    "project": {"id": project_id},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+    by_team: dict[int, list[_DueRun]] = {}
+    for d in due:
+        by_team.setdefault(d.team_id, []).append(d)
+    for team_id, runs in by_team.items():
+        runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
+        if len(runs) > MAX_RUNS_PER_TEAM_PER_TICK:
+            logger.warning(
+                "signals_scout coordinator: team over per-tick cap, deferring overflow",
+                team_id=team_id,
+                due=len(runs),
+                cap=MAX_RUNS_PER_TEAM_PER_TICK,
             )
+            del runs[MAX_RUNS_PER_TEAM_PER_TICK:]
+
+    # Count after per-team trimming — that's the real candidate pool the global cap defers
+    # against, so the warning doesn't fire on runs already dropped by the per-team caps.
+    total_after_team_caps = sum(len(runs) for runs in by_team.values())
+    if total_after_team_caps > MAX_RUNS_PER_TICK:
+        logger.warning(
+            "signals_scout coordinator: more due than cap, deferring overflow",
+            due=total_after_team_caps,
+            cap=MAX_RUNS_PER_TICK,
         )
+
+    # Most-overdue team first, team id as the deterministic tiebreak.
+    team_order = sorted(by_team, key=lambda t: (-by_team[t][0].overdue_s, t))
+    selected: list[_DueRun] = []
+    for round_idx in range(MAX_RUNS_PER_TEAM_PER_TICK):
+        if len(selected) >= MAX_RUNS_PER_TICK:
+            break
+        for team_id in team_order:
+            runs = by_team[team_id]
+            if round_idx >= len(runs):
+                continue
+            selected.append(runs[round_idx])
+            if len(selected) >= MAX_RUNS_PER_TICK:
+                break
+    return selected
+
+
+def _participating_teams(enrolled: set[int]) -> list[Team]:
+    """Resolve enrolled team ids to canonical `Team`s to run scouts on.
+
+    Enrollment is flag-driven: a team runs scouts iff its id is in the `signals-scout` flag
+    payload allowlist (resolved by `_enrolled_team_ids`, passed in). Adding an id in the flag
+    UI enrolls the team on the next tick with no manual seed — the tick body seeds canonical
+    skills + registers configs for it; removing it (or listing it in `skip_team_ids`) drains
+    it the next tick. Child envs canonicalize to their parent project so the per-project
+    singleton config is found once.
+    """
+    if not enrolled:
+        return []
+    candidates = Team.objects.filter(id__in=enrolled)
+    canonical_ids = {team.parent_team_id or team.id for team in candidates}
+    return list(Team.objects.filter(id__in=canonical_ids).order_by("id"))
+
+
+def _fallback_team_ids() -> list[int]:
+    """Default allowlist when the flag payload is absent/unreadable — gated to PostHog Cloud
+    and local dev. A self-hosted instance (where teams 1/2 exist but no one opted into scouts)
+    fails closed instead, so the coordinator never starts LLM scout runs for an unintended
+    tenant; a self-hoster opts in by setting the payload explicitly."""
+    return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
+
+
+def _enrolled_team_ids() -> set[int]:
+    """Project ids enrolled in scouts, read from the `signals-scout` flag's JSON payload.
+
+    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
+    drain) a team on the next tick; `skip_team_ids` is an override kill-switch. The flag must
+    stay 100%-on so the payload is served for the synthetic discovery distinct_id —
+    `match_value=True` additionally forces the true-variant payload under local evaluation.
+    Fail-safe: a missing/invalid payload or a read error falls back to `_fallback_team_ids`.
+    Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
+    """
+    fallback = _fallback_team_ids()
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            return set(fallback)
+
+        # Absent key or malformed value → fallback. An explicit empty list is honored as an
+        # intentional "drain all teams" — not coerced to the fallback.
+        guaranteed = payload.get("guaranteed_team_ids", fallback)
+        if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
+            guaranteed = fallback
+
+        skip = payload.get("skip_team_ids", [])
+        if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
+            skip = []
+
+        return set(guaranteed) - set(skip)
     except Exception as error:
         capture_exception(error)
-        return False
-
-
-def _register_missing_configs(team: Team) -> set[str]:
-    """Auto-create an enabled, default-schedule config for each scout skill lacking a row.
-
-    The "author a skill, get a scout" path: a user-authored `signals-scout-foo` skill gets
-    a row on the next tick with no further wiring. Returns the set of live `signals-scout-*`
-    skill names for the team, so the caller can skip dispatching configs whose skill is gone.
-    """
-    skill_names = set(
-        LLMSkill.objects.filter(
-            team_id=team.id,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", flat=True)
-    )
-    existing = set(SignalScoutConfig.all_teams.filter(team_id=team.id).values_list("skill_name", flat=True))
-    for name in sorted(skill_names - existing):
-        SignalScoutConfig.all_teams.get_or_create(team_id=team.id, skill_name=name)
-    return skill_names
+        return set(fallback)
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
-    """Seconds past due, or None if not yet due. Never-run rows are maximally overdue."""
+    """Seconds past due (down to `-DUE_GRACE_SECONDS`), or None if not yet due. Never-run rows are maximally overdue."""
     if config.last_run_at is None:
         return float("inf")
     overdue = (now - config.last_run_at).total_seconds() - config.run_interval_minutes * 60
-    return overdue if overdue >= 0 else None
+    return overdue if overdue >= -DUE_GRACE_SECONDS else None
 
 
 @workflow.defn(name="run-signals-scout-coordinator")

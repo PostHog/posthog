@@ -74,7 +74,7 @@ tools/hogli-commands/
     ├── telemetry_props.py# Boot module — registers PostHog telemetry props
     ├── hint_hook.py      # Boot module — registers the post-command hint hook
     ├── build.py          # Lazy: hogli build
-    ├── doctor.py         # Lazy: hogli doctor / doctor:disk / doctor:zombies
+    ├── doctor.py         # Lazy: hogli doctor / doctor:disk / doctor:zombies / doctor:report
     ├── ...               # Other lazy command modules
     ├── devbox/           # Devbox subpackage (lazy)
     ├── devenv/           # Intent-based dev environment subpackage (lazy)

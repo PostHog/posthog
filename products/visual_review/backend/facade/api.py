@@ -402,14 +402,33 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run, user_basic_infos)
 
 
-def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contracts.Snapshot]:
+def get_run_snapshots(
+    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+) -> contracts.RunSnapshots:
+    if not include_quarantined and team_id is None:
+        raise ValueError("team_id is required to exclude quarantined snapshots")
     snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
-        return []
+        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
     repo_id = snapshots[0].run.repo_id
+    run_type = snapshots[0].run.run_type
+    quarantined_identifiers = (
+        {q.identifier for q in logic.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
+        if team_id is not None
+        else set()
+    )
     user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
+    dtos: list[contracts.Snapshot] = []
+    quarantined_count = 0
+    for s in snapshots:
+        dto = _to_snapshot(s, repo_id, user_basic_infos)
+        if dto.identifier in quarantined_identifiers:
+            quarantined_count += 1
+            if not include_quarantined:
+                continue
+        dtos.append(dto)
+    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
@@ -503,6 +522,7 @@ def finalize_run(
     team_id: int | None = None,
     approve_all: bool = False,
     commit_to_github: bool = True,
+    add_images_to_comment_on_pr: bool = False,
 ) -> contracts.FinalizeResult:
     """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
@@ -515,7 +535,12 @@ def finalize_run(
     baseline YAML on ``baseline_content`` instead (for tooling that commits it itself).
     """
     run = logic.finalize_run(
-        run_id=run_id, user_id=user_id, team_id=team_id, approve_all=approve_all, commit_to_github=commit_to_github
+        run_id=run_id,
+        user_id=user_id,
+        team_id=team_id,
+        approve_all=approve_all,
+        commit_to_github=commit_to_github,
+        add_images_to_comment_on_pr=add_images_to_comment_on_pr,
     )
     baseline_content = "" if commit_to_github else logic.build_signed_baseline(run_id, team_id=team_id)
     return contracts.FinalizeResult(run=_to_run(run), baseline_content=baseline_content)
