@@ -190,23 +190,6 @@ DUCKDB_EXTRA_RESERVED_KEYWORDS = {
 MYSQL_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
 
 
-def escape_mysql_identifier(v: str) -> str:
-    if len(v) > 64:
-        raise QueryError(f'The MySQL identifier "{v}" is too long. Maximum length is 64 characters.')
-    # MySQL allows almost anything inside backticks, but ``%`` would be interpreted
-    # as a parameter placeholder by PyMySQL and NUL bytes are invalid identifiers.
-    if "%" in v:
-        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains the "%" character')
-    if "\0" in v:
-        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains a NUL character')
-
-    # Always backtick-quote unless the identifier is a simple lowercase name. MySQL's reserved
-    # word list is long and version-dependent, so quoting anything non-trivial is the safe default.
-    if MYSQL_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in MYSQL_RESERVED_KEYWORDS:
-        return v
-    return "`" + v.replace("`", "``") + "`"
-
-
 # https://dev.mysql.com/doc/refman/8.0/en/keywords.html — reserved words only (not the full
 # keyword list). Identifiers colliding with these must be backtick-quoted.
 MYSQL_RESERVED_KEYWORDS = {
@@ -251,6 +234,23 @@ MYSQL_RESERVED_KEYWORDS = {
     "WHEN", "WHERE", "WHILE", "WINDOW", "WITH", "WRITE",
     "XOR", "YEAR_MONTH", "ZEROFILL",
 }  # fmt: skip
+
+
+def escape_mysql_identifier(v: str) -> str:
+    if len(v) > 64:
+        raise QueryError(f'The MySQL identifier "{v}" is too long. Maximum length is 64 characters.')
+    # MySQL allows almost anything inside backticks, but ``%`` would be interpreted
+    # as a parameter placeholder by PyMySQL and NUL bytes are invalid identifiers.
+    if "%" in v:
+        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains the "%" character')
+    if "\0" in v:
+        raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains a NUL character')
+
+    # Always backtick-quote unless the identifier is a simple lowercase name. MySQL's reserved
+    # word list is long and version-dependent, so quoting anything non-trivial is the safe default.
+    if MYSQL_SIMPLE_IDENTIFIER_REGEX.match(v) and v.upper() not in MYSQL_RESERVED_KEYWORDS:
+        return v
+    return "`" + v.replace("`", "``") + "`"
 
 
 def escape_postgres_identifier(v: str) -> str:

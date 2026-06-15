@@ -328,7 +328,7 @@ class TestDirectMySQLQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError):
             executor.execute()
 
-    def test_execute_runs_read_only_session_and_maps_types(self):
+    def test_execute_runs_read_only_transaction_and_maps_types(self):
         source = self._create_source()
         self._create_table(source, "orders")
 
@@ -359,7 +359,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             response = executor.execute()
 
         executed_statements = [call.args[0] for call in cursor.execute.call_args_list]
-        self.assertEqual(executed_statements[0], "SET SESSION TRANSACTION READ ONLY")
-        self.assertTrue(executed_statements[1].startswith("SET SESSION MAX_EXECUTION_TIME"))
+        self.assertTrue(executed_statements[0].startswith("SET SESSION MAX_EXECUTION_TIME"))
+        self.assertEqual(executed_statements[1], "START TRANSACTION READ ONLY")
         self.assertEqual(response.results, [(1, "a@b.com")])
         self.assertEqual(response.types, [("id", "Int64"), ("email", "String")])

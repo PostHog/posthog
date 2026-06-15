@@ -759,13 +759,13 @@ class HogQLQueryExecutor:
             with self.timings.measure("mysql_execute"):
                 with mysql_implementation.connect(source_config, read_timeout=statement_timeout_seconds) as connection:
                     with connection.cursor() as cursor:
-                        cursor.execute("SET SESSION TRANSACTION READ ONLY")
                         try:
                             # MySQL 8 only and SELECT-only; MariaDB uses a different variable.
                             # The read_timeout above is the backstop if this is unavailable.
                             cursor.execute(f"SET SESSION MAX_EXECUTION_TIME = {statement_timeout_seconds * 1000}")
                         except pymysql.MySQLError:
                             pass
+                        cursor.execute("START TRANSACTION READ ONLY")
                         cursor.execute(self.direct_sql, self.direct_values or None)
                         results = cursor.fetchall()
                         description = cursor.description or []
