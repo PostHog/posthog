@@ -73,6 +73,13 @@ def parse_repo_url(url: str) -> RepoInfo:
     - https://github.com/owner/repo/tree/branch/path/to/subdir
 
     Raises ``GithubError`` for non-GitHub URLs or invalid format.
+
+    Limitation: a `/tree/<...>` URL is inherently ambiguous when the branch
+    name contains `/` (e.g. `feature/x`). GitHub resolves this server-side; we
+    can't, so we assume the first segment after `/tree/` is the ref and the rest
+    is the subdir. `.../tree/feature/my-branch` is therefore read as
+    ref=`feature`, subdir=`my-branch`. Prefer single-component refs
+    (`main`, `v1.2.3`) — or pass a bare repo URL and set the ref separately.
     """
 
     match = _GITHUB_REPO_PATTERN.match(url.strip())

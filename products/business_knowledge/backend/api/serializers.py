@@ -288,16 +288,6 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
     def validate(self, attrs: dict) -> dict:
         if not attrs:
             raise serializers.ValidationError("Provide at least one field to update.")
-        current_source = self.instance if isinstance(self.instance, KnowledgeSource) else None
-        crawl_mode = attrs.get("crawl_mode", current_source.crawl_mode if current_source else None)
-        url = attrs.get("url", current_source.source_url if current_source else None)
-        # Validate the effective URL whenever the source is (or becomes) a GitHub
-        # source, even when the client only updates `url` and omits `crawl_mode`.
-        if crawl_mode == CrawlMode.GITHUB_REPO.value and url:
-            try:
-                github.parse_repo_url(url)
-            except github.GithubError as exc:
-                raise serializers.ValidationError({"url": str(exc)})
         return attrs
 
     def to_internal_value(self, data: dict) -> dict:
@@ -324,8 +314,14 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         if crawl_mode == CrawlMode.GITHUB_REPO.value:
             repo_url = attrs.get("url", current_source.source_url if current_source else None)
             if repo_url and (entered_github_mode or "url" in attrs):
+                # Single parse: a failure surfaces as a 400 on `url` rather than
+                # an unhandled GithubError (to_internal_value runs before validate).
+                try:
+                    repo_info = github.parse_repo_url(repo_url)
+                except github.GithubError as exc:
+                    raise serializers.ValidationError({"url": str(exc)})
                 # Keep `crawl_config.ref` in sync with the selected tree URL.
-                crawl_fields["ref"] = github.parse_repo_url(repo_url).ref
+                crawl_fields["ref"] = repo_info.ref
         if crawl_fields:
             attrs["crawl_config"] = crawl_fields
         return attrs
@@ -415,15 +411,6 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         help_text="BFS depth for `same_origin`. Ignored by `sitemap`.",
     )
 
-    def validate(self, attrs: dict) -> dict:
-        attrs = super().validate(attrs)
-        if attrs.get("crawl_mode") == CrawlMode.GITHUB_REPO.value:
-            try:
-                github.parse_repo_url(attrs["url"])
-            except github.GithubError as exc:
-                raise serializers.ValidationError({"url": str(exc)})
-        return attrs
-
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
         attrs["source_type"] = SourceType.URL.value
@@ -437,16 +424,17 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         if crawl_mode == CrawlMode.GITHUB_REPO.value:
             if not include_globs:
                 include_globs = list(GITHUB_DEFAULT_INCLUDE_GLOBS)
+            # Single parse: a failure here surfaces as a 400 on `url`
+            # (to_internal_value runs before validate in DRF).
             try:
                 repo_info = github.parse_repo_url(attrs["url"])
-                ref = repo_info.ref
-            except github.GithubError:
-                ref = None
+            except github.GithubError as exc:
+                raise serializers.ValidationError({"url": str(exc)})
             attrs["crawl_config"] = {
                 "include_globs": include_globs,
                 "exclude_globs": exclude_globs,
                 "max_pages": max_pages,
-                "ref": ref,
+                "ref": repo_info.ref,
             }
         else:
             if not include_globs and crawl_mode == CrawlMode.SAME_ORIGIN.value:

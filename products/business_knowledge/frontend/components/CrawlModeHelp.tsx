@@ -23,7 +23,9 @@ export function CrawlModeHelp(): JSX.Element {
         return (
             <p className="text-xs text-muted">
                 Downloads the public GitHub repository and indexes matching files. By default, indexes documentation
-                files (*.md, *.mdx, *.rst, *.txt). Use the include/exclude globs to widen or narrow the scope.
+                files (*.md, *.mdx, *.rst, *.txt). Use the include/exclude globs to widen or narrow the scope. For a
+                specific branch or tag, prefer a simple ref like <code>main</code> or <code>v1.2.3</code> — tree URLs
+                with namespaced branch names (e.g. <code>feature/x</code>) can't be parsed reliably.
             </p>
         )
     }
