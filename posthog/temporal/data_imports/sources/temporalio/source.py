@@ -40,6 +40,11 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             "received fatal alert: BadCertificate": "Temporal rejected this source's client certificate as invalid. Update the source with a valid client certificate and key.",
             "received fatal alert: CertificateUnknown": "Temporal rejected this source's client certificate. Update the source with a valid client certificate and key.",
             "invalid peer certificate": "The Temporal server's certificate could not be verified. Check the host and port point at your Temporal namespace's gRPC endpoint.",
+            # tonic/rustls raises CertificateParseError when one of the PEM credential blobs cannot be
+            # decoded at all (vs the alerts above, which reject an otherwise-parseable cert). The blobs
+            # come straight from the source config, so this is a malformed-credential problem — retrying
+            # can never recover.
+            "CertificateParseError": "Temporal could not parse this source's TLS credentials. Check that the client certificate, client private key, and server root CA are valid PEM and re-enter them on the source.",
         }
 
     def get_schemas(
