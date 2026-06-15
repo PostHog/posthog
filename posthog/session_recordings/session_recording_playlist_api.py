@@ -6,7 +6,8 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Q, QuerySet, Value
+from django.db.models.functions import Coalesce, Lower
 from django.utils.timezone import now
 
 import structlog
@@ -587,50 +588,40 @@ class SessionRecordingPlaylistViewSet(
         return super().safely_get_object(queryset)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Override list to include synthetic playlists"""
-        # Get regular DB playlists
-        queryset = self.safely_get_queryset(self.get_queryset())
+        """Override list to include synthetic playlists.
 
-        # Get the total count of DB playlists before pagination
+        Synthetics have no DB row, so we compute each one's position in the merged
+        sort and split the requested page between synthetics and a DB queryset slice.
+        """
+        queryset = self.safely_get_queryset(self.get_queryset())
         db_count = queryset.count()
 
-        # Apply pagination to DB playlists
-        page = self.paginate_queryset(queryset)
-
-        # Check if we're on the first page by looking at offset parameter
-        # Synthetic playlists should only appear on the first page to avoid duplicates
-        offset = int(request.GET.get("offset", 0))
-        page_number = int(request.GET.get("page", 1))
-        is_first_page = offset == 0 and page_number == 1
-
-        # Create synthetic playlist instances (includes both static and dynamic)
         all_synthetic_playlists = get_all_synthetic_playlists(self.team)
         synthetic_instances = [
             create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
             for sp in all_synthetic_playlists
         ]
-
-        # Filter synthetic playlists based on request filters
         filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
+        sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
-        # Only include synthetic playlists on the first page
-        synthetics_to_include = filtered_synthetics if is_first_page else []
+        synth_count = len(sorted_synthetics)
+        total_count = db_count + synth_count
 
-        # Combine DB and synthetic playlists
-        if page is not None:
-            combined = list(page) + synthetics_to_include
-        else:
-            combined = list(queryset) + synthetics_to_include
-
-        # Apply ordering to the combined list
-        combined = self._order_playlists(request, combined)
-
-        # Enforce page size on the combined result so synthetic playlists
-        # don't cause the response to exceed the requested limit. The paginator
-        # already caps DB-backed pages at PLAYLIST_LIST_MAX_LIMIT; clamp here too
-        # so the synthetic slice is bounded identically.
         limit = min(int(request.GET.get("limit", 100)), PLAYLIST_LIST_MAX_LIMIT)
-        combined = combined[:limit]
+        offset = max(0, int(request.GET.get("offset", 0)))
+
+        # Each synthetic's position in the global sorted list of (DB + synthetics).
+        synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
+
+        page_end = offset + limit
+        synth_for_page = [s for r, s in zip(synth_ranks, sorted_synthetics) if offset <= r < page_end]
+        synths_before_page = sum(1 for r in synth_ranks if r < offset)
+
+        db_offset = max(0, offset - synths_before_page)
+        db_take = max(0, limit - len(synth_for_page))
+        db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
+
+        combined = self._order_playlists(request, synth_for_page + db_items)
 
         # Batch-fetch recording counts for the page to avoid the per-playlist
         # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
@@ -650,16 +641,58 @@ class SessionRecordingPlaylistViewSet(
 
         serializer = self.get_serializer(combined, many=True)
 
-        # Calculate total count including synthetic playlists (only counted once on first page)
-        total_count = db_count + len(filtered_synthetics)
+        # Build next/previous links over the merged total via a directly-seeded paginator.
+        paginator = SessionRecordingPlaylistPagination()
+        paginator.count = total_count
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.request = request
 
-        if page is not None:
-            # Manually construct paginated response with correct count
-            paginated_response = self.get_paginated_response(serializer.data)
-            # Override the count with the total including synthetic playlists
-            paginated_response.data["count"] = total_count
-            return paginated_response
-        return response.Response({"count": total_count, "next": None, "previous": None, "results": serializer.data})
+        return response.Response(
+            {
+                "count": total_count,
+                "next": paginator.get_next_link(),
+                "previous": paginator.get_previous_link(),
+                "results": serializer.data,
+            }
+        )
+
+    def _synthetic_global_ranks(
+        self,
+        request: request.Request,
+        queryset: QuerySet,
+        db_count: int,
+        sorted_synthetics: builtins.list[SessionRecordingPlaylist],
+    ) -> builtins.list[int]:
+        """Return the 0-based position of each synthetic in the global merged sort.
+
+        Timestamp orders put synthetics at one extreme; name order ranks each by the
+        count of DB rows before it (case-insensitive, matching _order_playlists).
+        """
+        if not sorted_synthetics:
+            return []
+
+        order = request.GET.get("order") or "-last_modified_at"
+        is_descending = order.startswith("-")
+        sort_field = order.lstrip("-")
+
+        if sort_field == "name":
+            annotated = queryset.annotate(_name_lower=Coalesce(Lower("name"), Lower("derived_name"), Value("")))
+            ranks: builtins.list[int] = []
+            for synth_idx, synth in enumerate(sorted_synthetics):
+                synth_name = (synth.name or synth.derived_name or "").lower()
+                if is_descending:
+                    db_before = annotated.filter(_name_lower__gt=synth_name).count()
+                else:
+                    db_before = annotated.filter(_name_lower__lt=synth_name).count()
+                ranks.append(db_before + synth_idx)
+            return ranks
+
+        # Timestamp (and unrecognised) orders: synthetics sort to datetime.max —
+        # front of a descending list, back of an ascending one.
+        if is_descending:
+            return list(range(len(sorted_synthetics)))
+        return [db_count + i for i in range(len(sorted_synthetics))]
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -673,7 +706,13 @@ class SessionRecordingPlaylistViewSet(
 
         order = self.request.GET.get("order", None)
         if order:
-            queryset = queryset.order_by(order)
+            if order.lstrip("-") == "name":
+                # Case-insensitive so the DB order matches _synthetic_global_ranks;
+                # otherwise the rank-derived offsets skip/duplicate items.
+                name_order = Coalesce(Lower("name"), Lower("derived_name"), Value(""))
+                queryset = queryset.order_by(name_order.desc() if order.startswith("-") else name_order.asc())
+            else:
+                queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("-last_modified_at")
 
