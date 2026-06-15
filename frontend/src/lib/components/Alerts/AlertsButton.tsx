@@ -25,14 +25,11 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const { alerts } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hogqlAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
-    const funnelAlertsEnabled = !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
 
-    const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+    const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled })
     // List only the insight types this account can actually alert on — naming a flag-gated type the
     // user doesn't have would disclose an unreleased feature.
-    const availableTypes = ['trends', hogqlAlertsEnabled && 'SQL', funnelAlertsEnabled && 'funnel']
-        .filter(Boolean)
-        .join(', ')
+    const availableTypes = ['trends', hogqlAlertsEnabled && 'SQL'].filter(Boolean).join(', ')
     // Existing alerts must stay manageable even if the gating flag is later disabled —
     // they keep evaluating server-side, so the user needs a way in to edit or disable them.
     const disabledReason =

@@ -21716,11 +21716,6 @@
             "required": ["action", "form_answers"],
             "type": "object"
         },
-        "FunnelConversionMetric": {
-            "description": "How a funnel alert measures conversion at its step. `conversion_from_start` = step count / first-step count; `conversion_from_previous` = step count / previous-step count.",
-            "enum": ["conversion_from_start", "conversion_from_previous"],
-            "type": "string"
-        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -22241,32 +22236,6 @@
                 }
             },
             "required": ["kind", "source"],
-            "type": "object"
-        },
-        "FunnelsAlertConfig": {
-            "additionalProperties": false,
-            "description": "Alert config for funnel insights. Evaluates the conversion rate (as a percentage) at one step.",
-            "properties": {
-                "funnel_step": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
-                },
-                "metric": {
-                    "$ref": "#/definitions/FunnelConversionMetric"
-                },
-                "type": {
-                    "const": "FunnelsAlertConfig",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "metric"],
             "type": "object"
         },
         "FunnelsDataWarehouseNode": {

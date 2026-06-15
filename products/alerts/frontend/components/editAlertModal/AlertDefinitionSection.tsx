@@ -12,12 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AlertFormType, HogQLAlertPreview } from 'lib/components/Alerts/alertFormLogic'
-import {
-    AlertSimulationResult,
-    isFunnelsAlertConfig,
-    isHogQLAlertConfig,
-    isTrendsAlertConfig,
-} from 'lib/components/Alerts/types'
+import { AlertSimulationResult, isHogQLAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -26,7 +21,7 @@ import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schem
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
-import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
+import { HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 export interface AlertDefinitionSectionProps {
@@ -37,8 +32,6 @@ export interface AlertDefinitionSectionProps {
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
-    /** Number of steps in the funnel, used to populate the step picker for funnel alerts. */
-    funnelStepCount: number
     /** What a SQL alert would evaluate right now; null until the insight result loads. */
     hogqlPreview: HogQLAlertPreview | null
     /** Result column names of the SQL insight, for the column pickers. */
@@ -72,7 +65,6 @@ export function AlertDefinitionSection({
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
-    funnelStepCount,
     hogqlPreview,
     hogqlColumns,
     hogqlValueColumnOptions,
@@ -88,11 +80,8 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
-    // Funnel alerts evaluate a single conversion-rate snapshot, so only absolute conditions apply.
-    const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
-        (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
@@ -111,8 +100,6 @@ export function AlertDefinitionSection({
                     isBreakdownValid={isBreakdownValid}
                     alertMode={alertMode}
                 />
-            ) : isFunnelsAlertConfig(alertForm.config) ? (
-                <FunnelsDefinitionFields funnelStepCount={funnelStepCount} />
             ) : (
                 <HogQLDefinitionFields
                     alertForm={alertForm}

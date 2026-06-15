@@ -249,16 +249,13 @@ export interface AlertFormLogicProps {
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
     /** Selects the default config type for new alerts based on the insight's query kind. */
-    insightAlertKind?: 'hogql' | 'funnels' | 'trends'
+    insightAlertKind?: 'hogql' | 'trends'
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
     if (kind === 'hogql') {
         // last_row is the default — the most common SQL alert shape is a chronological series.
         return { type: 'HogQLAlertConfig', evaluation: 'last_row' }
-    }
-    if (kind === 'funnels') {
-        return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
     }
     return {
         type: 'TrendsAlertConfig',

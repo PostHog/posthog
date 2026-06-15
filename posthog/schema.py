@@ -104,7 +104,6 @@ from posthog.schema_enums import (
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
-    FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
     FunnelCorrelationResultsType as FunnelCorrelationResultsType,
     FunnelLayout as FunnelLayout,
@@ -5168,18 +5167,6 @@ class FunnelExclusionSteps(BaseModel):
     )
     funnelFromStep: int
     funnelToStep: int
-
-
-class FunnelsAlertConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    funnel_step: int | None = Field(
-        default=None,
-        description=("Zero-based step index to evaluate. Null = the last step (overall conversion)."),
-    )
-    metric: FunnelConversionMetric
-    type: Literal["FunnelsAlertConfig"] = "FunnelsAlertConfig"
 
 
 class FunnelsFilterLegacy(BaseModel):

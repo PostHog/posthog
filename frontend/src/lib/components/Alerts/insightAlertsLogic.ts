@@ -8,13 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import {
-    containsHogQLQuery,
-    hasBreakdownFilter,
-    isFunnelsQuery,
-    isInsightVizNode,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { containsHogQLQuery, hasBreakdownFilter, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -33,15 +27,12 @@ export interface InsightAlertsLogicProps {
 
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
+    options: { hogqlAlertsEnabled?: boolean } = {}
 ): boolean => {
     if (!query) {
         return false
     }
     if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
-        return true
-    }
-    if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
         return true
     }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
@@ -229,11 +220,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
             const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
-            const funnelAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
-            if (
-                values.alerts.length === 0 ||
-                areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
-            ) {
+            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)
