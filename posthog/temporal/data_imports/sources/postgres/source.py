@@ -186,7 +186,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             "Network is unreachable": None,
+            # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
+            # Temporal wraps the activity failure (`ApplicationError` stringifies as
+            # "InsufficientPrivilege: ..."), so it matches at the workflow layer but NOT in the
+            # activity-level check, where `error_msg = str(e)` is the raw psycopg message —
+            # PostgreSQL's SQLSTATE 42501 text "permission denied for table/view/... <name>".
+            # Match that message substring so the role-lacks-SELECT case is caught at both layers
+            # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            "permission denied for": (
+                "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
+                '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
+                "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
+            ),
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,
