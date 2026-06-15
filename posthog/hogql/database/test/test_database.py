@@ -1,3 +1,4 @@
+import io
 import json
 import pickle
 import dataclasses
@@ -26,6 +27,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _CatalogUnpickler,
     _compute_system_table_access_decision,
     _construct_database_root_node,
     _preload_active_external_data_schemas,
@@ -143,6 +145,21 @@ class TestBuildDatabaseRootNode(TestCase):
         object.__setattr__(with_extra, "__pydantic_extra__", {"extra_key": "value"})
         restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
         assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
+
+    def test_catalog_unpickler_allowlists_catalog_classes_and_rejects_others(self):
+        # Restricted unpickler resolves catalog classes but rejects anything else, so a tampered blob
+        # can't instantiate code-execution gadgets.
+        unpickler = _CatalogUnpickler(io.BytesIO(b""))
+        assert unpickler.find_class("posthog.hogql.database.models", "StringDatabaseField") is not None
+        assert unpickler.find_class("posthog.clickhouse.workload", "Workload") is not None
+        for module, name in [
+            ("os", "system"),
+            ("builtins", "eval"),
+            ("subprocess", "Popen"),
+            ("posthog.models", "Team"),
+        ]:
+            with self.assertRaises(pickle.UnpicklingError):
+                unpickler.find_class(module, name)
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):

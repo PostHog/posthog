@@ -1,7 +1,9 @@
+import io
 import copy
 import pickle
 import threading
 import dataclasses
+import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -304,6 +306,21 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
 _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 
+# We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
+# it can reconstruct only the classes the catalog is built from, so even a future change that fed it
+# untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
+# under posthog.hogql.* except the Workload enum, so new table/field/AST types keep working and
+# anything else fails loudly.
+_CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
+_CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
+
+
+class _CatalogUnpickler(pickle.Unpickler):
+    def find_class(self, module: str, name: str) -> Any:
+        if module.startswith(_CATALOG_PICKLE_MODULE_PREFIXES) or module in _CATALOG_PICKLE_MODULES:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"refusing to unpickle disallowed catalog global {module}.{name}")
+
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
     # Double-checked locking so concurrent first-callers don't each rebuild + pickle the catalog.
@@ -313,14 +330,15 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
             blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
             if blob is None:
                 # Built lazily, not eager-warmed at import: that would move this cost onto startup for every importer of this module, query-related or not.
-                # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (in-process cache of our own code-built catalog, never untrusted input)
+                # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (serialising our own code-built catalog; loads are restricted by _CatalogUnpickler)
                 blob = pickle.dumps(
                     _construct_database_root_node(include_posthog_tables=include_posthog_tables),
                     protocol=pickle.HIGHEST_PROTOCOL,
                 )
+                blob = pickletools.optimize(blob)  # drop unused memo opcodes: ~10% smaller, faster load
                 _DATABASE_ROOT_NODE_BLOBS[include_posthog_tables] = blob
-    # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (in-process cache of our own code-built catalog, never untrusted input)
-    return pickle.loads(blob)
+    # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (_CatalogUnpickler restricts find_class to catalog classes, so untrusted bytes still can't execute code)
+    return _CatalogUnpickler(io.BytesIO(blob)).load()
 
 
 def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
