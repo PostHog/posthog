@@ -107,7 +107,7 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     statusCodes = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="Filter by HTTP status codes.",
+        help_text="Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
     )
     orderBy = serializers.ChoiceField(
         choices=["timestamp", "duration"],
@@ -312,7 +312,7 @@ class _TracingCountBodySerializer(serializers.Serializer):
     statusCodes = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="Filter by HTTP status codes.",
+        help_text="Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
     )
     filterGroup = serializers.ListField(
         child=_SpanPropertyFilterSerializer(),
