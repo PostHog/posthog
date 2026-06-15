@@ -1224,6 +1224,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             result = get_user_blast_radius(team, filters, group_type_index)
             return Response(BlastRadiusSerializer(result).data)
+        except exceptions.ValidationError as e:
+            return Response({"error": str(e.detail[0]) if isinstance(e.detail, list) else str(e.detail)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
@@ -1257,6 +1259,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     "has_more": len(users_affected) == PERSON_BATCH_SIZE,
                 }
             )
+        except exceptions.ValidationError as e:
+            return Response({"error": str(e.detail[0]) if isinstance(e.detail, list) else str(e.detail)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
