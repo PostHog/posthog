@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, QuerySet
-from django.db.models.deletion import ProtectedError
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -211,12 +210,11 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     def perform_destroy(self, instance: Gateway) -> None:
         gateway_id, slug = str(instance.id), instance.slug
-        try:
-            instance.delete()
-        except ProtectedError:
-            # The credential gateway FKs are PROTECT: a gateway can't be deleted while
-            # credentials still route through it. Surface a 409 so the caller unbinds first.
+        # The credential gateway FKs are SET_NULL, so deleting would silently unbind
+        # every key. Require an explicit drain first and surface a 409 otherwise.
+        if instance.project_secret_api_keys.exists() or instance.oauth_applications.exists():
             raise GatewayHasBoundCredentialsError()
+        instance.delete()
         report_user_action(
             self.request.user,
             "gateway deleted",

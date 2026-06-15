@@ -108,8 +108,8 @@ class TestGatewayAPI(APIBaseTest):
         self.assertFalse(Gateway.objects.for_team(self.team.id).exists())
 
     def test_delete_gateway_with_bound_credential_returns_409(self):
-        # The credential gateway FK is PROTECT, so a gateway can't be deleted while a
-        # credential still routes through it — unassign first.
+        # Deleting would SET_NULL every binding, so the endpoint refuses while a
+        # credential still routes through the gateway — unassign first.
         self.client.post(self._url(), {"slug": "busy"})
         gateway = self._gateway("busy")
         self._bind_key(gateway, "still-here")
