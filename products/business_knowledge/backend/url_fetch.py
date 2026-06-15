@@ -15,6 +15,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import io
 import hashlib
 import ipaddress
 import urllib.parse as urlparse
@@ -345,21 +346,25 @@ def is_html_content_type(content_type: str | None) -> bool:
 # --- Streaming fetch for large downloads (GitHub tarballs) --------------------
 
 
-class _CappedStreamWrapper(IO[bytes]):
+class _CappedStreamWrapper(io.RawIOBase):
     """
     File-like wrapper that counts bytes read and raises when a cap is exceeded.
 
     Used to wrap a streaming response's raw socket so tarfile can read from it
     while we enforce a compressed-size cap without buffering the whole body.
+    Subclasses ``io.RawIOBase`` so it's a concrete binary file object that
+    ``tarfile.open(fileobj=...)`` accepts (RawIOBase supplies the rest of the
+    file-object protocol — ``__iter__``, ``writelines``, etc.).
     """
 
     def __init__(self, raw: IO[bytes], max_bytes: int) -> None:
+        super().__init__()
         self._raw = raw
         self._max_bytes = max_bytes
         self._bytes_read = 0
 
-    def read(self, size: int = -1) -> bytes:
-        chunk = self._raw.read(size)
+    def read(self, size: int | None = -1) -> bytes:
+        chunk = self._raw.read(-1 if size is None else size)
         self._bytes_read += len(chunk)
         if self._bytes_read > self._max_bytes:
             raise UrlFetchError("Remote response exceeds the maximum allowed size.")
@@ -370,16 +375,11 @@ class _CappedStreamWrapper(IO[bytes]):
 
     def close(self) -> None:
         self._raw.close()
+        super().close()
 
     @property
     def bytes_read(self) -> int:
         return self._bytes_read
-
-    def __enter__(self) -> _CappedStreamWrapper:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.close()
 
 
 @contextmanager

@@ -317,7 +317,7 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
             elif crawl_mode == CrawlMode.GITHUB_REPO.value and (
                 entered_github_mode
                 or not isinstance(getattr(current_source, "crawl_config", None), dict)
-                or not (current_source.crawl_config or {}).get("include_globs")
+                or not (getattr(current_source, "crawl_config", None) or {}).get("include_globs")
             ):
                 crawl_fields["include_globs"] = list(GITHUB_DEFAULT_INCLUDE_GLOBS)
 
