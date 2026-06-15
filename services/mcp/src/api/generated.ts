@@ -408,6 +408,8 @@ export namespace Schemas {
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
+      /** Serve covered retention queries from the pre-aggregated retention_actor table (off by default) * */
+      useRetentionPreAggregation?: boolean | null;
       useWebAnalyticsPreAggregatedTables?: boolean | null;
     }
 
