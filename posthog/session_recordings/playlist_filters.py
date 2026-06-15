@@ -120,7 +120,8 @@ def convert_playlist_to_recordings_query(
     in-memory only — callers on a read path (e.g. rendering a dashboard widget) should not
     write to the shared playlist row as a side effect.
     """
-    filters = playlist.filters
+    # Copy so the popping below never mutates the shared playlist.filters dict in-place.
+    filters = dict(playlist.filters)
 
     # we used to send `version` and it's not part of query, so we pop to make sure
     filters.pop("version", None)
