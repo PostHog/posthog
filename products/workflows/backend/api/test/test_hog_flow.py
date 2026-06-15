@@ -1013,6 +1013,118 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert response.json()["attr"] == "edges"
 
+    def _create_draft_flow_with_graph(self) -> str:
+        # trigger -> action_1 (webhook) -> exit, created as a draft so the graph endpoint can edit it.
+        trigger = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://old.example.com"}}},
+        }
+        exit_action = {"id": "exit_1", "name": "exit_1", "type": "exit", "config": {}}
+        flow = {
+            "name": "Test Flow",
+            "status": "draft",
+            "actions": [trigger, action, exit_action],
+            "edges": [
+                {"from": "trigger_node", "to": "action_1", "type": "continue"},
+                {"from": "action_1", "to": "exit_1", "type": "continue"},
+            ],
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert create.status_code == 201, create.json()
+        return create.json()["id"]
+
+    def _patch_graph(self, flow_id: str, operations: list[dict], **extra):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": operations},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            **extra,
+        )
+
+    def test_graph_update_action_changes_single_field(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(
+            flow_id,
+            [
+                {
+                    "op": "update_action",
+                    "id": "action_1",
+                    "patch": {"config": {"inputs": {"url": {"value": "https://new.example.com"}}}},
+                }
+            ],
+        )
+        assert response.status_code == 200, response.json()
+        actions = {a["id"]: a for a in response.json()["actions"]}
+        assert actions["action_1"]["config"]["inputs"]["url"]["value"] == "https://new.example.com"
+        # The rest of the graph is intact.
+        assert actions["trigger_node"]["type"] == "trigger"
+        assert "exit_1" in actions
+
+    def test_graph_response_echoes_full_graph(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert {"actions", "edges", "trigger"} <= set(body.keys())
+        assert len(body["actions"]) == 3
+        assert body["edges"] == [
+            {"from": "trigger_node", "to": "action_1", "type": "continue"},
+            {"from": "action_1", "to": "exit_1", "type": "continue"},
+        ]
+
+    def test_graph_remove_action_reconnects_edges(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, [{"op": "remove_action", "id": "action_1"}])
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert sorted(a["id"] for a in body["actions"]) == ["exit_1", "trigger_node"]
+        assert body["edges"] == [{"from": "trigger_node", "to": "exit_1", "type": "continue"}]
+
+    def test_graph_dangling_edge_rejected_with_no_partial_write(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(
+            flow_id, [{"op": "add_edge", "edge": {"from": "action_1", "to": "ghost", "type": "continue"}}]
+        )
+        assert response.status_code == 400, response.json()
+        assert "unknown target action 'ghost'" in str(response.json())
+        # Atomicity: the workflow's edges are unchanged on disk.
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.edges == [
+            {"from": "trigger_node", "to": "action_1", "type": "continue"},
+            {"from": "action_1", "to": "exit_1", "type": "continue"},
+        ]
+
+    def test_graph_empty_operations_rejected(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, [])
+        assert response.status_code == 400, response.json()
+
+    def test_graph_mcp_cannot_edit_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "x"}}])
+        assert response.status_code == 400, response.json()
+        assert "active workflow isn't supported via MCP" in response.json()["detail"]
+
+    def test_graph_non_mcp_can_edit_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "Renamed via UI"}}]},
+        )
+        assert response.status_code == 200, response.json()
+        assert {a["id"]: a for a in response.json()["actions"]}["action_1"]["name"] == "Renamed via UI"
+
     def test_can_call_a_test_invocation(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

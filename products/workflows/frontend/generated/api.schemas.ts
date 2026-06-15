@@ -561,6 +561,52 @@ export interface HogFlowBatchJobApi {
     readonly updated_at: string
 }
 
+/**
+ * * `update_action` - update_action
+ * * `add_action` - add_action
+ * * `remove_action` - remove_action
+ * * `add_edge` - add_edge
+ * * `remove_edge` - remove_edge
+ * * `replace_action_edges` - replace_action_edges
+ */
+export type OpEnumApi = (typeof OpEnumApi)[keyof typeof OpEnumApi]
+
+export const OpEnumApi = {
+    UpdateAction: 'update_action',
+    AddAction: 'add_action',
+    RemoveAction: 'remove_action',
+    AddEdge: 'add_edge',
+    RemoveEdge: 'remove_edge',
+    ReplaceActionEdges: 'replace_action_edges',
+} as const
+
+export interface HogFlowGraphOperationApi {
+    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace every edge touching this action id with the given set (use when adding/removing branch conditions).
+     *
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges */
+    op: OpEnumApi
+    /** Action id. Required for update_action, remove_action, replace_action_edges. */
+    id?: string
+    /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+    patch?: unknown
+    /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+    action?: unknown
+    /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+    edge?: HogFlowEdgeApi
+    /** replace_action_edges only. The complete set of edges that should touch this action id. */
+    edges?: HogFlowEdgeApi[]
+}
+
+export interface PatchedHogFlowGraphUpdateApi {
+    /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+    operations?: HogFlowGraphOperationApi[]
+}
+
 export interface HogInvocationResultApi {
     invocation_id: string
     status: string

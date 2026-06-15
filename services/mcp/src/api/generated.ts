@@ -20315,6 +20315,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges
+     */
+    export type OpEnum = typeof OpEnum[keyof typeof OpEnum];
+
+
+    export const OpEnum = {
+      UpdateAction: 'update_action',
+      AddAction: 'add_action',
+      RemoveAction: 'remove_action',
+      AddEdge: 'add_edge',
+      RemoveEdge: 'remove_edge',
+      ReplaceActionEdges: 'replace_action_edges',
+    } as const;
+
+    export interface HogFlowGraphOperation {
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace every edge touching this action id with the given set (use when adding/removing branch conditions).
+       *
+       * * `update_action` - update_action
+       * * `add_action` - add_action
+       * * `remove_action` - remove_action
+       * * `add_edge` - add_edge
+       * * `remove_edge` - remove_edge
+       * * `replace_action_edges` - replace_action_edges */
+      op: OpEnum;
+      /** Action id. Required for update_action, remove_action, replace_action_edges. */
+      id?: string;
+      /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+      patch?: unknown;
+      /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+      action?: unknown;
+      /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+      edge?: HogFlowEdge;
+      /** replace_action_edges only. The complete set of edges that should touch this action id. */
+      edges?: HogFlowEdge[];
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
@@ -31217,6 +31259,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowGraphUpdate {
+      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+      operations?: HogFlowGraphOperation[];
     }
 
     export interface PatchedHogFlowSchedule {

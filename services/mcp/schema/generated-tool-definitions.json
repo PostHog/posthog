@@ -6901,6 +6901,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-patch-graph": {
+        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Patch workflow graph",
+        "title": "Patch workflow graph",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
         "category": "Workflows",
