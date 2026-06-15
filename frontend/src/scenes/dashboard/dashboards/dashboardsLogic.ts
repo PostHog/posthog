@@ -6,7 +6,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { objectClean } from 'lib/utils'
+import { objectClean, objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -45,6 +45,63 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
 /** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
 function urlSearchParamToString(value: unknown): string {
     return `${value ?? ''}`
+}
+
+/** kea-router JSON-decodes booleans, but tolerate a raw "true"/"false" string just in case. */
+function urlSearchParamToBoolean(value: unknown): boolean {
+    return value === true || value === 'true'
+}
+
+/** A single tag may arrive as a scalar; always normalise to a string array. */
+function urlSearchParamToTags(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.map((tag) => `${tag}`)
+    }
+    if (value === undefined || value === null || value === '') {
+        return []
+    }
+    return [`${value}`]
+}
+
+/**
+ * Read the non-search list filters out of the URL, falling back to defaults so an absent
+ * param resets to its default rather than lingering.
+ */
+function filtersFromSearchParams(searchParams: Record<string, any>): Partial<DashboardsFilters> {
+    return {
+        createdBy: searchParams['createdBy']
+            ? urlSearchParamToString(searchParams['createdBy'])
+            : DEFAULT_FILTERS.createdBy,
+        tags: urlSearchParamToTags(searchParams['tags']),
+        pinned: urlSearchParamToBoolean(searchParams['pinned']),
+        shared: urlSearchParamToBoolean(searchParams['shared']),
+    }
+}
+
+/**
+ * Serialise the list filters onto the existing query params, dropping any that sit at their
+ * default so URLs stay clean and shareable. Search is owned by its own handler and left alone.
+ */
+function filtersToSearchParams(
+    filters: DashboardsFilters,
+    currentSearchParams: Record<string, any>
+): Record<string, any> {
+    const searchParams: Record<string, any> = { ...currentSearchParams }
+
+    const setOrDelete = (key: string, value: unknown, isDefault: boolean): void => {
+        if (isDefault) {
+            delete searchParams[key]
+        } else {
+            searchParams[key] = value
+        }
+    }
+
+    setOrDelete('createdBy', filters.createdBy, filters.createdBy === DEFAULT_FILTERS.createdBy)
+    setOrDelete('tags', filters.tags, !filters.tags || filters.tags.length === 0)
+    setOrDelete('pinned', filters.pinned, !filters.pinned)
+    setOrDelete('shared', filters.shared, !filters.shared)
+
+    return searchParams
 }
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
@@ -259,11 +316,24 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
+        setFilters: () => {
+            const searchParams = filtersToSearchParams(values.filters, router.values.searchParams)
+
+            if (objectsEqual(searchParams, router.values.searchParams)) {
+                return
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
     })),
     urlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
             const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             actions.setCurrentTab(tab)
+
+            // Restore list filters before search so the search-triggered fetch already sees the
+            // tags from the URL and we don't fire a second request with stale (default) tags.
+            actions.setFilters(filtersFromSearchParams(searchParams))
 
             const search = urlSearchParamToString(searchParams['search'])
             actions.setSearch(search)

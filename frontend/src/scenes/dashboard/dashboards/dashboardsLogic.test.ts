@@ -298,4 +298,67 @@ describe('dashboardsLogic', () => {
             filters: expect.objectContaining({ search: '33333333' }),
         })
     })
+
+    it('syncs createdBy / pinned / shared / tags to URL when setFilters is called', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ createdBy: 'user2', pinned: true, shared: true, tags: ['finance', 'q4'] })
+        })
+
+        expect(router.values.searchParams.createdBy).toBe('user2')
+        expect(router.values.searchParams.pinned).toBe(true)
+        expect(router.values.searchParams.shared).toBe(true)
+        expect(router.values.searchParams.tags).toEqual(['finance', 'q4'])
+    })
+
+    it('removes filter params from URL when filters return to defaults', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ createdBy: 'user2', pinned: true, shared: true, tags: ['finance'] })
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({
+                createdBy: 'All users',
+                pinned: false,
+                shared: false,
+                tags: [],
+            })
+        })
+
+        expect(router.values.searchParams.createdBy).toBeUndefined()
+        expect(router.values.searchParams.pinned).toBeUndefined()
+        expect(router.values.searchParams.shared).toBeUndefined()
+        expect(router.values.searchParams.tags).toBeUndefined()
+    })
+
+    it('restores createdBy / pinned / shared / tags from URL on mount', async () => {
+        logic.unmount()
+        router.actions.push(urls.dashboards(), {
+            createdBy: 'user2',
+            pinned: true,
+            shared: true,
+            tags: ['finance', 'q4'],
+        })
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            filters: expect.objectContaining({
+                createdBy: 'user2',
+                pinned: true,
+                shared: true,
+                tags: ['finance', 'q4'],
+            }),
+        })
+    })
+
+    it('restores a single tag from URL as an array', async () => {
+        logic.unmount()
+        router.actions.push(urls.dashboards(), { tags: 'finance' })
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            filters: expect.objectContaining({ tags: ['finance'] }),
+        })
+    })
 })
