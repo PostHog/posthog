@@ -501,7 +501,7 @@ export function OverviewTab({
                 const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
                 return (
                     <LemonTag type="default" className="uppercase">
-                        {RUNTIME_LABELS[runtime]}
+                        {RUNTIME_LABELS[runtime] ?? RUNTIME_LABELS[FeatureFlagEvaluationRuntime.ALL]}
                     </LemonTag>
                 )
             },
