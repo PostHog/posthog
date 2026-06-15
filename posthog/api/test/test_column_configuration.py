@@ -320,6 +320,58 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["order_by"] == ["person.created_at ASC"]
 
+    def test_create_with_properties(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "customer_analytics_accounts_columns",
+                "columns": ["name"],
+                "properties": {"tiles": [{"id": "t1", "label": "Accounts", "metric": {"type": "count"}}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["properties"] == {
+            "tiles": [{"id": "t1", "label": "Accounts", "metric": {"type": "count"}}]
+        }
+
+    def test_properties_defaults_to_empty_dict(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {"context_key": "survey:123", "columns": ["*"]},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["properties"] == {}
+
+    def test_update_properties(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            created_by=self.user,
+            context_key="customer_analytics_accounts_columns",
+            columns=["name"],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+            {"properties": {"tiles": [{"id": "t2", "label": "MRR", "metric": {"type": "count"}}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["properties"]["tiles"][0]["id"] == "t2"
+
+    def test_properties_must_be_an_object(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {"context_key": "survey:123", "columns": ["*"], "properties": ["not", "a", "dict"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "properties must be an object"
+
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
 

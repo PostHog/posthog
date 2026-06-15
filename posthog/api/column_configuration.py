@@ -18,13 +18,22 @@ from posthog.models import ColumnConfiguration
 
 
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
-    filters = serializers.JSONField(required=False, default=dict)
+    filters = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Column filter state persisted with this view configuration.",
+    )
     order_by = serializers.ListField(
         child=serializers.CharField(),
         required=False,
         allow_null=True,
         allow_empty=True,
         help_text="Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.",
+    )
+    properties = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).",
     )
 
     class Meta:
@@ -36,6 +45,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
             "name",
             "filters",
             "order_by",
+            "properties",
             "visibility",
             "created_by",
             "created_at",
@@ -109,6 +119,10 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if len(order_by) > 100:
                 return Response({"error": "cannot order by more than 100 expressions"}, status=400)
+
+        properties = request.data.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            return Response({"error": "properties must be an object"}, status=400)
 
         return super().create(request, *args, **kwargs)
 
