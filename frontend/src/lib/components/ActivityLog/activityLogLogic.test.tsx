@@ -6,7 +6,11 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
-import { activityLogLogic, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import {
+    activityLogLogic,
+    describerFor,
+    ensureActivityDescribersLoaded,
+} from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 
@@ -16,6 +20,10 @@ import { ActivityScope } from '~/types'
 
 describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
+
+    beforeEach(async () => {
+        await ensureActivityDescribersLoaded()
+    })
 
     describe('when not scoped by ID', () => {
         beforeEach(() => {

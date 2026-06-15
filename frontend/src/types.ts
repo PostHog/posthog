@@ -247,6 +247,7 @@ export enum Realm {
 export enum Region {
     US = 'US',
     EU = 'EU',
+    DEV = 'DEV',
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
@@ -294,6 +295,7 @@ export enum AccessControlResourceType {
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -426,6 +428,33 @@ export interface NotificationSettings {
     pipeline_notifications_disabled?: Record<string, boolean>
 }
 
+export interface WebAnalyticsDigestMetricChange {
+    percent: number
+    direction: 'Up' | 'Down'
+    is_good: boolean
+}
+
+export interface WebAnalyticsDigestMetric {
+    key: string
+    label: string
+    value: string
+    change: WebAnalyticsDigestMetricChange | null
+}
+
+export interface WebAnalyticsDigestListItem {
+    label: string
+    value: string
+}
+
+export interface WebAnalyticsDigestMetadata {
+    period_label: string
+    project_name: string
+    dashboard_url: string
+    metrics: WebAnalyticsDigestMetric[]
+    top_pages: WebAnalyticsDigestListItem[]
+    top_sources: WebAnalyticsDigestListItem[]
+}
+
 export interface InAppNotification {
     id: string
     team_id: number | null
@@ -442,6 +471,7 @@ export interface InAppNotification {
     source_url: string
     source_type: string | null
     source_id: string | null
+    metadata: WebAnalyticsDigestMetadata | null
     created_at: string
 }
 
@@ -710,6 +740,7 @@ export interface ConversationsSettings {
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -1927,6 +1958,8 @@ export interface SessionRecordingType {
     summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
+    /** False when the recording was included in list results via a direct link despite not matching the filters. */
+    matches_filters?: boolean
 }
 
 export interface SessionRecordingUpdateType {
@@ -3900,6 +3933,8 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
         }
     > | null
 }
@@ -3975,6 +4010,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -4389,6 +4426,7 @@ export interface PreflightStatus {
     is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
+    anthropic_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -5256,15 +5294,21 @@ export enum SlackIntegrationScope {
     TEAM_READ = 'team:read',
     USERS_READ = 'users:read',
     USERS_READ_EMAIL = 'users:read.email',
-    // Pending Slack app-directory submission review — uncomment once approved. Until then we cannot
-    // request these in the OAuth install URL without Slack returning `invalid_scope`. Keeping the
-    // entries here so the next person widening the scope set has the full target list in one place.
-    // ASSISTANT_WRITE = 'assistant:write',
-    // IM_HISTORY = 'im:history',
-    // MPIM_READ = 'mpim:read',
 }
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
+
+// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
+// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
+// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
+// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
+export enum SlackIntegrationScopeInReview {
+    ASSISTANT_WRITE = 'assistant:write',
+    IM_HISTORY = 'im:history',
+    MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export interface IntegrationType {
     id: number
@@ -5521,6 +5565,7 @@ export type APIScopeObject =
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'field_note'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5693,6 +5738,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',

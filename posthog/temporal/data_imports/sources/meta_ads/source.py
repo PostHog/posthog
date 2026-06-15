@@ -1,7 +1,9 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -100,6 +102,8 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.META_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["facebook ads", "instagram ads"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",
@@ -130,7 +134,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             suggestedTables=[
                 SuggestedTable(
                     table="campaigns",

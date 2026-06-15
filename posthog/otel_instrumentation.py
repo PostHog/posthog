@@ -7,6 +7,7 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
@@ -89,6 +90,7 @@ def initialize_otel():
         )
 
         instrument_django(provider)
+        instrument_celery(provider)
         instrument_redis(provider)
         instrument_psycopg(provider)
         instrument_kafka(provider)
@@ -117,6 +119,14 @@ def instrument_django(provider: trace.TracerProvider):
         logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
+
+
+def instrument_celery(provider: trace.TracerProvider):
+    try:
+        CeleryInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="error", exc_info=e)
 
 
 def instrument_redis(provider: trace.TracerProvider):

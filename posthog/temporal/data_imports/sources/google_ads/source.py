@@ -2,7 +2,9 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -134,9 +136,11 @@ class GoogleAdsSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["adwords"],
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-ads",
             fields=cast(
@@ -273,5 +277,11 @@ class GoogleAdsSource(
                 return (
                     False,
                     "The Google account is not associated with any Google Ads accounts. Please use an account with Google Ads access.",
+                )
+            if "matching query does not exist" in error_message:
+                return (
+                    False,
+                    "Your Google Ads connection is no longer available — it may have been disconnected. "
+                    "Please reconnect your Google Ads account.",
                 )
             return False, f"Error validating credentials: {error_message}"

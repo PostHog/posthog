@@ -159,15 +159,21 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:exec:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
+        untracked: true
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
+        untracked: true
     devbox:logs:
         click: hogli_commands.devbox.cli:devbox_logs
         description: Tail devbox build and agent logs
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:destroy:
         click: hogli_commands.devbox.cli:devbox_destroy
         description: Destroy your devbox and its data
@@ -177,6 +183,8 @@ devbox:
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
         description: Forward PostHog UI to localhost
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)
@@ -195,6 +203,8 @@ devbox:
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -790,13 +800,13 @@ auth:
     metabase:cookie:
         click: hogli_commands.metabase:metabase_cookie
         description: Print the cached Metabase cookie header
+tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
         description: List Metabase databases (id, name, engine) for a region
     metabase:query:
         click: hogli_commands.metabase:metabase_query
         description: Run a SQL query against Metabase /api/dataset; results to stdout
-tools:
     doctor:
         click: hogli_commands.doctor:doctor
         description: Quick health check for your dev environment
@@ -806,6 +816,9 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:report:
+        click: hogli_commands.doctor:doctor_report
+        description: Dump a paste-ready dev-environment diagnostics report for devex triage
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure
@@ -983,15 +996,6 @@ environment:
     setup:python:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
-    telemetry:on:
-        click: hogli_commands.telemetry_commands:telemetry_on
-        description: Enable anonymous usage telemetry
-    telemetry:off:
-        click: hogli_commands.telemetry_commands:telemetry_off
-        description: Disable anonymous usage telemetry
-    telemetry:status:
-        click: hogli_commands.telemetry_commands:telemetry_status
-        description: Show current telemetry settings
     sandbox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
@@ -1026,4 +1030,12 @@ environment:
     build:dashboard:widget:types:
         bin_script: build-dashboard-widget-types.py
         description: Widget enum preflight, date options, and form-field manifest codegen
+        hidden: true
+    verify:metrics:pipe:
+        bin_script: verify-metrics-pipe
+        description: 'Verify the local metrics pipe reached ClickHouse metrics1'
+        hidden: true
+    send:dev:metrics:
+        bin_script: send-dev-metrics.sh
+        description: 'Send a synthetic OTLP counter/gauge/histogram through the metrics ingest chain'
         hidden: true

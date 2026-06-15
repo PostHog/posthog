@@ -1,5 +1,5 @@
 use crate::avro_schema::AVRO_SCHEMA;
-use crate::log_record::KafkaLogRow;
+use crate::log_record::{sum_kafka_log_row_bytes, KafkaLogRow};
 use crate::metric_record::KafkaMetricRow;
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
@@ -342,6 +342,7 @@ impl KafkaSink {
         token: &str,
         rows: &[T],
         uncompressed_bytes: u64,
+        records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
         let schema = Schema::parse_str(avro_schema_str)?;
@@ -365,7 +366,7 @@ impl KafkaSink {
             timestamp: None,
             headers: Some({
                 let created_at = Utc::now().to_rfc3339();
-                OwnedHeaders::new()
+                let mut headers = OwnedHeaders::new()
                     .insert(Header {
                         key: "token",
                         value: Some(&token.to_string()),
@@ -373,7 +374,16 @@ impl KafkaSink {
                     .insert(Header {
                         key: "bytes_uncompressed",
                         value: Some(&uncompressed_bytes.to_string()),
-                    })
+                    });
+                // Records-based size next to the payload-based `bytes_uncompressed`, so
+                // billing can compare the two before switching to the records-based value.
+                if let Some(records_bytes) = records_uncompressed_bytes {
+                    headers = headers.insert(Header {
+                        key: "bytes_uncompressed_records",
+                        value: Some(&records_bytes.to_string()),
+                    });
+                }
+                headers
                     .insert(Header {
                         key: "bytes_compressed",
                         value: Some(&payload.len().to_string()),
@@ -420,6 +430,15 @@ impl KafkaSink {
             counter!("capture_logs_timestamps_overridden").increment(timestamps_overridden);
         }
 
+        let records_uncompressed_bytes = sum_kafka_log_row_bytes(&rows);
+        counter!("capture_logs_bytes_uncompressed_payload").increment(uncompressed_bytes);
+        counter!("capture_logs_bytes_uncompressed_records").increment(records_uncompressed_bytes);
+        if records_uncompressed_bytes > uncompressed_bytes {
+            // Records sum should stay below the payload size (it excludes transport overhead);
+            // billing can only switch to it if that invariant holds.
+            counter!("capture_logs_records_bytes_exceed_payload").increment(1);
+        }
+
         self.write_avro_batch(
             &self.logs_producer,
             &self.logs_topic,
@@ -427,6 +446,7 @@ impl KafkaSink {
             token,
             &rows,
             uncompressed_bytes,
+            Some(records_uncompressed_bytes),
             timestamps_overridden,
         )
         .await?;
@@ -456,6 +476,7 @@ impl KafkaSink {
             token,
             &rows,
             uncompressed_bytes,
+            None,
             timestamps_overridden,
         )
         .await?;
@@ -485,6 +506,7 @@ impl KafkaSink {
             token,
             &rows,
             uncompressed_bytes,
+            None,
             timestamps_overridden,
         )
         .await?;

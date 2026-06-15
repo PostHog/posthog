@@ -12,10 +12,11 @@ import * as zod from 'zod'
 /**
  * Manage CIMD verification tokens for an organization.
  *
- * A partner embeds the plaintext token in their CIMD metadata document under
- * `posthog_verification_token`. When PostHog fetches the metadata, matching
- * the token links the partner app to this organization and grants a higher
- * default rate limit for account provisioning.
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -8954,6 +8955,18 @@ export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
     href: zod.string().nullish(),
     meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * Set or clear the Task associated with this folder's CONTEXT.md generation.
+ */
+export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
+    task_id: zod
+        .uuid()
+        .nullable()
+        .describe(
+            "ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association."
+        ),
 })
 
 /**

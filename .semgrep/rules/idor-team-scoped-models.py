@@ -54,6 +54,13 @@ def safe_filter_with_team(request, team):
 
 
 # ok: idor-taint-user-input-to-model-get
+def safe_get_with_for_team(request, team_id):
+    cohort_id = request.GET.get("cohort_id")
+    # ok: idor-lookup-without-team
+    return Cohort.objects.for_team(team_id).get(pk=cohort_id)
+
+
+# ok: idor-taint-user-input-to-model-get
 def not_user_input():
     # ruleid: idor-lookup-without-team
     return Cohort.objects.get(pk=123)

@@ -354,6 +354,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         removed_identifiers=list(input.removed_identifiers),
         purpose=input.purpose,
         metadata=_sanitize_run_metadata(input.metadata),
+        is_partial=input.is_partial,
     )
 
     upload_targets = [
@@ -522,6 +523,7 @@ def finalize_run(
     team_id: int | None = None,
     approve_all: bool = False,
     commit_to_github: bool = True,
+    add_images_to_comment_on_pr: bool = False,
 ) -> contracts.FinalizeResult:
     """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
@@ -534,7 +536,12 @@ def finalize_run(
     baseline YAML on ``baseline_content`` instead (for tooling that commits it itself).
     """
     run = logic.finalize_run(
-        run_id=run_id, user_id=user_id, team_id=team_id, approve_all=approve_all, commit_to_github=commit_to_github
+        run_id=run_id,
+        user_id=user_id,
+        team_id=team_id,
+        approve_all=approve_all,
+        commit_to_github=commit_to_github,
+        add_images_to_comment_on_pr=add_images_to_comment_on_pr,
     )
     baseline_content = "" if commit_to_github else logic.build_signed_baseline(run_id, team_id=team_id)
     return contracts.FinalizeResult(run=_to_run(run), baseline_content=baseline_content)
