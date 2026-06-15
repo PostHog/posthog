@@ -14,6 +14,7 @@ import type {
     TracingSpansValuesRetrieveParams,
     _HasSpansResponseApi,
     _TracingAggregationRequestApi,
+    _TracingAttributeBreakdownRequestApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
@@ -35,6 +36,23 @@ export const tracingSpansAggregateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingAggregationRequestApi),
+    })
+}
+
+export const getTracingSpansAttributeBreakdownCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/attribute-breakdown/`
+}
+
+export const tracingSpansAttributeBreakdownCreate = async (
+    projectId: string,
+    _tracingAttributeBreakdownRequestApi: _TracingAttributeBreakdownRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingAttributeBreakdownRequestApi),
     })
 }
 

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -80,6 +81,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
+            category=DataWarehouseSourceCategory.DATABASES,
             iconPath="/static/services/bigquery.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
