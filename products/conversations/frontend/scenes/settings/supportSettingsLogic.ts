@@ -23,7 +23,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'loadCurrentTeam']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
+        ],
     })),
     actions({
         generateNewToken: true,
@@ -96,6 +99,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         disconnectGithub: true,
         setGithubRepos: (repos: string[]) => ({ repos }),
         loadGithubRepos: true,
+        // AI suggestions
+        setAiSuggestionsEnabled: (enabled: boolean) => ({ enabled }),
+        setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -239,6 +245,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 installTeamsApp: (_, { teamId }) => teamId,
                 setTeamsInstallStatus: (_, { teamId }) => teamId,
                 disconnectTeams: () => null,
+            },
+        ],
+        aiSuggestionsLoading: [
+            false,
+            {
+                setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
             },
         ],
         slackTicketEmojiValue: [
@@ -421,6 +435,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         githubSelectedRepos: [
             (s) => [s.currentTeam],
             (currentTeam): string[] => currentTeam?.conversations_settings?.github_repos || [],
+        ],
+        aiSuggestionsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -790,6 +808,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return
             }
             actions.loadCurrentTeam()
+        },
+        setAiSuggestionsEnabled: ({ enabled }) => {
+            actions.setAiSuggestionsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_suggestions_enabled: enabled,
+                },
+            })
         },
         connectGithub: async ({ integrationId }) => {
             try {

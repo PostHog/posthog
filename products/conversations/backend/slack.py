@@ -648,7 +648,10 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'app_mention' event to create a support ticket.
 
-    The mention message becomes the first message of the ticket.
+    For a top-level mention, the mention message becomes the ticket's first message.
+    For a mention posted as a thread reply on an untracked thread, the ticket is
+    seeded from the message that started the thread (not the mention itself), then
+    the in-between replies are backfilled.
     """
     channel = event.get("channel")
     slack_user_id = event.get("user")
@@ -658,8 +661,10 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel or not slack_user_id:
         return
 
+    message_ts = event.get("ts")
+    event_thread_ts = event.get("thread_ts")
     # Use thread_ts if in a thread, otherwise the message ts
-    thread_ts = event.get("thread_ts") or event.get("ts")
+    thread_ts = event_thread_ts or message_ts
     if not thread_ts:
         return
 
@@ -675,6 +680,49 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         slack_channel_id=channel,
         slack_thread_ts=thread_ts,
     ).exists()
+
+    # When the mention is a reply on an untracked thread, the message that started
+    # the thread — not the @mention reply — should seed the ticket. Fetch the parent
+    # message and create the ticket from it, then backfill the in-between replies
+    # (including the mention itself).
+    is_thread_reply_mention = bool(event_thread_ts) and event_thread_ts != message_ts
+    if not existing and is_thread_reply_mention:
+        client = get_slack_client(team)
+        try:
+            result = client.conversations_history(
+                channel=channel,
+                latest=thread_ts,
+                inclusive=True,
+                limit=1,
+            )
+            messages: list[dict] = result.get("messages", [])
+        except Exception:
+            logger.warning("slack_support_mention_parent_fetch_failed", channel=channel, thread_ts=thread_ts)
+            messages = []
+
+        if messages:
+            parent_msg = messages[0]
+            parent_user = parent_msg.get("user", "")
+            parent_text = parent_msg.get("text", "")
+            parent_blocks = parent_msg.get("blocks")
+            parent_files = parent_msg.get("files")
+
+            if parent_user and (parent_text.strip() or parent_files):
+                ticket = create_or_update_slack_ticket(
+                    team=team,
+                    slack_channel_id=channel,
+                    thread_ts=thread_ts,
+                    slack_user_id=parent_user,
+                    text=parent_text,
+                    blocks=parent_blocks,
+                    files=parent_files,
+                    is_thread_reply=False,
+                    slack_team_id=slack_team_id,
+                    channel_detail=ChannelDetail.SLACK_BOT_MENTION,
+                )
+                if ticket:
+                    _backfill_thread_replies(client, team, ticket, channel, thread_ts)
+                return
 
     create_or_update_slack_ticket(
         team=team,

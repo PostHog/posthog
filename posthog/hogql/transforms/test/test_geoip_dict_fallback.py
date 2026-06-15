@@ -13,12 +13,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.hogql import translate_hogql
-from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.base import get_geoip_city_postal_dict
 from posthog.hogql.printer.utils import prepare_and_print_ast

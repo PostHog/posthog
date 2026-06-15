@@ -71,6 +71,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   output. Its discriminator is concentration-vs-diffusion — friction that piles up
   in one place is signal, friction that tracks traffic is baseline; exceptions per
   se are the error-tracking scout's territory.
+- `signals-scout-replay-vision/` — agentic pull watcher over Replay Vision scanners
+  (the standing LLM probes that write `$recording_observed` events). Replay Vision is
+  the newer evolution of session replay, so this scout and `signals-scout-session-replay`
+  intentionally coexist for now. Watches two promises: that enabled scanners are
+  actually observing (throughput / success-rate cliffs, exhausted quota — a silent
+  watch gap), and that what the scanners see in aggregate gets surfaced (a monitor's
+  `yes`-rate or a scorer's mean stepping away from its own baseline, a classifier tag
+  or recurring summarizer theme concentrating across many sessions). It is the
+  complement to the per-session push path: scanners with `emits_signals: true` already
+  emit one signal per session (source `replay_vision`, type `scanner_finding`) into the
+  same inbox, so this scout never repeats them — it adds the cross-session shape the
+  per-session probe can't see. Its discriminators are
+  aggregate-shift-vs-per-session-baseline and
+  configured-to-observe-vs-actually-observing; raw friction / capture is the
+  session-replay scout's territory and exceptions are the error-tracking scout's.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
@@ -119,6 +134,20 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   resolved status's promise against the post-deploy data stream. Emits only
   failed validations; confirmations are scratchpad memory. It never detects new
   problems — that's the rest of the fleet's territory.
+- `signals-scout-product-analytics/` — behavioral-regression watcher for the core
+  product-analytics primitives (funnels, retention, lifecycle, stickiness, paths).
+  Curates a watchlist of the team's saved funnel / retention / lifecycle insights
+  (and at most one inferred activation flow where none is saved) and re-scores each
+  flow's _derived rate_ — step-to-step conversion %, cohort return %, lifecycle
+  composition — against its own trailing, seasonality-matched baseline. Its
+  discriminator is a rate regression with a steady denominator: a conversion/retention
+  drop while entrants hold is a real product regression; a drop where entrants also
+  collapsed is a capture/volume problem and belongs elsewhere. Fills the seam neither
+  neighbor covers — `anomaly-detection` scores raw time-series insights the team views
+  (its `alert-simulate` path targets time-series, not funnels), and
+  `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
+  scout owns its behavioral health. Acquisition/attribution is the web-analytics
+  scout's territory and experiment validity is the experiments scout's.
 
 ### How the coordinator decides what runs
 

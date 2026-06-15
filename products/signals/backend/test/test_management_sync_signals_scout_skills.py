@@ -16,9 +16,9 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import CanonicalSkill
+from products.skills.backend.models.skills import LLMSkill
 
 
 def _fake_canonical(name: str, body: str = "# canonical body\n") -> CanonicalSkill:

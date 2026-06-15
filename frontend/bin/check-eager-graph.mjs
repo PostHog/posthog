@@ -34,14 +34,14 @@ const ROOTS = [
         label: 'entry (logged-out pages, app bootstrap)',
         // master 2026-06-12: 14.62 MiB / 751 files
         budgetBytes: 16_000_000,
-        forbidden: ['node_modules/monaco-editor/'],
+        forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // master 2026-06-12: 34.44 MiB / 5,381 files (post #62957 / #62967 / #63142 / #63146)
-        budgetBytes: 38_000_000,
-        forbidden: ['node_modules/monaco-editor/'],
+        // 2026-06-13: 30.86 MiB / 5,083 files (post lazy activity describers)
+        budgetBytes: 34_000_000,
+        forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
     },
 ]
 

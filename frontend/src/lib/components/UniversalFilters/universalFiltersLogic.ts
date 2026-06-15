@@ -67,6 +67,19 @@ function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void
     })
 }
 
+const QUICK_FILTER_PROPERTY_GROUP_TYPES = [
+    TaxonomicFilterGroupType.PageviewUrls,
+    TaxonomicFilterGroupType.Screens,
+    TaxonomicFilterGroupType.EmailAddresses,
+]
+
+function isPropertyEditableTaxonomicGroupType(groupType: TaxonomicFilterGroupType): boolean {
+    return (
+        taxonomicFilterTypeToPropertyFilterType(groupType) !== undefined ||
+        QUICK_FILTER_PROPERTY_GROUP_TYPES.includes(groupType)
+    )
+}
+
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
     values: [
@@ -157,27 +170,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         ],
         taxonomicPropertyFilterGroupTypes: [
             (_, p) => [p.taxonomicGroupTypes],
-            (types) =>
-                types.filter((t) =>
-                    [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        TaxonomicFilterGroupType.FeatureFlags,
-                        TaxonomicFilterGroupType.PageviewUrls,
-                        TaxonomicFilterGroupType.Screens,
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        TaxonomicFilterGroupType.Logs,
-                        TaxonomicFilterGroupType.LogAttributes,
-                        TaxonomicFilterGroupType.LogResourceAttributes,
-                        TaxonomicFilterGroupType.Spans,
-                        TaxonomicFilterGroupType.SpanAttributes,
-                        TaxonomicFilterGroupType.SpanResourceAttributes,
-                    ].includes(t)
-                ),
+            (types) => types.filter(isPropertyEditableTaxonomicGroupType),
         ],
     }),
 
