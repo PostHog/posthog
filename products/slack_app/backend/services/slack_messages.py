@@ -12,15 +12,15 @@ testable in isolation.
 """
 
 import re
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import Integration, SlackIntegration
+
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
 
 
 def resolve_user_mentions_text(
-    slack: "SlackIntegration",
-    integration: "Integration",
+    slack: SlackIntegration,
+    integration: Integration,
     text: str,
     *,
     strip_bot_user_id: str | None = None,
@@ -43,11 +43,6 @@ def resolve_user_mentions_text(
     Wire format alone can't distinguish a bot user ID from a human's — both
     are `U…`-prefixed. The flag is the only authoritative signal.
     """
-    # Deferred import: ``get_slack_user_info`` lives in ``api.py`` alongside a
-    # chain of caching helpers; importing it at module load would create a
-    # circular import via ``api.py -> services.slack_messages -> api.py``.
-    from products.slack_app.backend.api import get_slack_user_info  # noqa: PLC0415
-
     cache: dict[str, tuple[str, bool]] = {}
 
     def resolve_user(uid: str) -> tuple[str, bool]:
@@ -81,7 +76,7 @@ def resolve_user_mentions_text(
     return resolved
 
 
-def decode_slack_event_text(slack: "SlackIntegration", integration: "Integration", text: str) -> str:
+def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
     Trigger sites all want the same thing: drop the bot's self-ping (it's just
@@ -90,9 +85,6 @@ def decode_slack_event_text(slack: "SlackIntegration", integration: "Integration
     token verbatim to ping the user back. Centralised here so a new trigger
     handler can't drift back into the original mention-eating bug.
     """
-    # Deferred to break the circular dep between this module and slack_app api.py.
-    from products.slack_app.backend.api import get_cached_bot_user_id  # noqa: PLC0415
-
     bot_user_id = get_cached_bot_user_id(slack, integration)
     return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
