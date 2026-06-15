@@ -48,7 +48,8 @@ HORIZON_DAYS = 800
 STALENESS_SECONDS = 15 * 60
 
 _LOCK_TIMEOUT_SECONDS = 10 * 60
-_LOCK_BLOCKING_TIMEOUT_SECONDS = 5 * 60
+# Short, so a query contending on a concurrent build falls back to raw quickly instead of hanging.
+_LOCK_BLOCKING_TIMEOUT_SECONDS = 5
 _INSERT_MAX_EXECUTION_TIME_SECONDS = 5 * 60
 
 # initializeAggregation('minState', ts) and arrayReduce('groupUniqArrayState', days) build the
@@ -105,7 +106,10 @@ def kind_for_entity_id(entity_id: str | float | None) -> str:
 
 
 def _event_filter_sql(kind: str) -> str:
-    return "e.event = '$pageview'" if kind == PAGEVIEW_KIND else "1 = 1"
+    # The all-events marker matches every event; any other kind is a real event name (e.g. the
+    # `kind` column value itself), bound as a parameter — so a new SUPPORTED_KINDS entry filters
+    # on its own event instead of silently matching everything.
+    return "1 = 1" if kind == ALL_EVENTS_KIND else "e.event = %(event_name)s"
 
 
 def materialize_retention_actor(team: Team, kind: str) -> None:
@@ -120,7 +124,7 @@ def materialize_retention_actor(team: Team, kind: str) -> None:
     )
     sync_execute(
         sql,
-        {"team_id": team.pk, "kind": kind, "horizon": HORIZON_DAYS, "tz": team.timezone},
+        {"team_id": team.pk, "kind": kind, "event_name": kind, "horizon": HORIZON_DAYS, "tz": team.timezone},
         # Wait for the write to land on the AUX shard before marking fresh — otherwise a reader can
         # see the freshness marker and query a partially-populated table. Safe here because we
         # insert the small per-actor aggregate, not the raw event scan.
