@@ -318,6 +318,7 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
         with _DATABASE_ROOT_NODE_BLOBS_LOCK:
             blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
             if blob is None:
+                # Built lazily on first use, deliberately NOT eagerly at import: eager-warming would move this construct+pickle cost onto startup for every process that imports this module, including code unrelated to querying.
                 blob = pickle.dumps(
                     _construct_database_root_node(include_posthog_tables=include_posthog_tables),
                     protocol=pickle.HIGHEST_PROTOCOL,
