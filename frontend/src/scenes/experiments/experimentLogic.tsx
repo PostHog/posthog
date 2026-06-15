@@ -683,6 +683,7 @@ export const experimentLogic = kea<experimentLogicType>([
             triggeredBy: triggeredBy ?? 'manual',
             refreshIfStale: !!refreshIfStale,
         }),
+        refreshStaleResultsOnReentry: true,
         markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
             refreshId,
             triggeredBy,
@@ -1459,6 +1460,13 @@ export const experimentLogic = kea<experimentLogicType>([
             // Shows cached results immediately, then force-refreshes once if the experiment is warming up.
             if (experiment && isLaunched(experiment)) {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
+            }
+        },
+        refreshStaleResultsOnReentry: () => {
+            // In-app navigation back to an already-mounted experiment doesn't re-fire loadExperiment,
+            // so run the same page-load refresh here (cached load + a one-shot force if warming up).
+            if (values.experiment && isLaunched(values.experiment)) {
+                actions.refreshExperimentResults(false, 'page_load', true)
             }
         },
         launchExperiment: async () => {
