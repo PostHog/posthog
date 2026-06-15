@@ -15,11 +15,14 @@ import {
     WidgetTileFiltersBar,
 } from '../widgetTileFiltersReadOnly'
 import {
-    patchSessionReplayWidgetFilterFields,
     parseSessionReplayWidgetConfig,
+    patchSessionReplayWidgetFilterFields,
 } from './sessionReplayWidgetConfigValidation'
+import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSavedFiltersLogic'
 
 export type SessionReplayWidgetTileFiltersProps = DashboardWidgetTileFiltersProps
+
+const NO_SAVED_FILTER_OPTION = { value: null as string | null, label: 'No saved filter' }
 
 export function SessionReplayWidgetTileFilters({
     config,
@@ -30,13 +33,25 @@ export function SessionReplayWidgetTileFilters({
     const parsed = parseSessionReplayWidgetConfig(config)
     const dateFrom = (parsed.dateRange?.date_from ?? '-7d') as WidgetDateFromValue
     const widgetFilters = parsed.widgetFilters ?? {}
+    const savedFilterId = parsed.savedFilterId ?? null
+    const hasSavedFilter = !!savedFilterId
 
     const { quickFilters: projectFilterDefinitions } = useValues(
         quickFiltersLogic({ context: filterDefinitionsContext })
     )
+    const { savedFilterOptions, savedFiltersLoading } = useValues(sessionReplayWidgetSavedFiltersLogic)
     const filterDefinitions = useMemo(
         () => projectFilterDefinitions.filter(isAllowed),
         [projectFilterDefinitions, isAllowed]
+    )
+
+    const savedFilterSelectOptions = useMemo(
+        () => [NO_SAVED_FILTER_OPTION, ...savedFilterOptions],
+        [savedFilterOptions]
+    )
+    const savedFilterLabel = useMemo(
+        () => savedFilterOptions.find((option) => option.value === savedFilterId)?.label ?? savedFilterId,
+        [savedFilterOptions, savedFilterId]
     )
 
     const configRef = useRef(config)
@@ -48,6 +63,12 @@ export function SessionReplayWidgetTileFilters({
 
     const applyDateFrom = async (value: WidgetDateFromValue): Promise<void> => {
         const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, { dateFrom: value })
+        configRef.current = nextConfig
+        await persistConfigNow(nextConfig)
+    }
+
+    const applySavedFilter = async (value: string | null): Promise<void> => {
+        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, { savedFilterId: value })
         configRef.current = nextConfig
         await persistConfigNow(nextConfig)
     }
@@ -65,13 +86,19 @@ export function SessionReplayWidgetTileFilters({
     if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters-readonly">
-                <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
-                {filterDefinitions.length > 0 ? (
-                    <WidgetPropertyFiltersReadOnlyValues
-                        filterDefinitions={filterDefinitions}
-                        widgetFilters={widgetFilters}
-                    />
-                ) : null}
+                {hasSavedFilter ? (
+                    <span className="text-sm text-muted">Saved filter: {savedFilterLabel}</span>
+                ) : (
+                    <>
+                        <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
+                        {filterDefinitions.length > 0 ? (
+                            <WidgetPropertyFiltersReadOnlyValues
+                                filterDefinitions={filterDefinitions}
+                                widgetFilters={widgetFilters}
+                            />
+                        ) : null}
+                    </>
+                )}
             </WidgetTileFiltersBar>
         )
     }
@@ -80,22 +107,36 @@ export function SessionReplayWidgetTileFilters({
         <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters">
             <LemonSelect
                 size="small"
-                value={dateFrom}
+                value={savedFilterId}
                 disabled={!canUpdate}
                 disabledReason={controlDisabledReason}
-                options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                onChange={(value) => {
-                    if (value) {
-                        void applyDateFrom(value)
-                    }
-                }}
+                loading={savedFiltersLoading}
+                options={savedFilterSelectOptions}
+                placeholder="Saved filter"
+                onChange={(value) => void applySavedFilter(value ?? null)}
             />
-            {filterDefinitions.length > 0 ? (
-                <WidgetPropertyFiltersSection
-                    filterDefinitions={filterDefinitions}
-                    widgetFilters={widgetFilters}
-                    onWidgetFiltersChange={applyWidgetFilters}
-                />
+            {!hasSavedFilter ? (
+                <>
+                    <LemonSelect
+                        size="small"
+                        value={dateFrom}
+                        disabled={!canUpdate}
+                        disabledReason={controlDisabledReason}
+                        options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
+                        onChange={(value) => {
+                            if (value) {
+                                void applyDateFrom(value)
+                            }
+                        }}
+                    />
+                    {filterDefinitions.length > 0 ? (
+                        <WidgetPropertyFiltersSection
+                            filterDefinitions={filterDefinitions}
+                            widgetFilters={widgetFilters}
+                            onWidgetFiltersChange={applyWidgetFilters}
+                        />
+                    ) : null}
+                </>
             ) : null}
         </WidgetTileFiltersBar>
     )
