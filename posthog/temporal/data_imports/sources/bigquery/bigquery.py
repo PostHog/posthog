@@ -431,7 +431,16 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
-        if isinstance(last_value, datetime) or isinstance(last_value, date):
+        if isinstance(last_value, datetime):
+            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
+            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
+            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
+            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
+            # keep it.
+            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
+                last_value = last_value.replace(tzinfo=None)
+            last_value = f"'{last_value.isoformat()}'"
+        elif isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
         operator = incremental_type_to_operator(incremental_field_type)
