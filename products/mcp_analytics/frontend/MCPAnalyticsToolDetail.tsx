@@ -126,8 +126,7 @@ function renderPersonCell(value: unknown): JSX.Element {
     )
 }
 
-// Renders a comma-joined list of raw client names as compact, deduped harness logos
-// so the secondary "which harnesses" columns stay one line tall instead of wrapping.
+// Deduped harness logos so the column stays one line instead of wrapping.
 function HarnessLogos({ value }: { value: string }): JSX.Element {
     const categories = Array.from(
         new Set(
@@ -176,8 +175,7 @@ const neighborColumns: ResultColumn[] = [
     { header: 'In same conversation', align: 'right', render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)) },
 ]
 
-// Renders raw HogQL result rows (positional columns) as a card-wrapped quill table,
-// matching the dashboard table cards, with loading/empty states.
+// Card-wrapped quill table matching the dashboard table cards.
 function ResultTable({
     title,
     description,
@@ -271,9 +269,12 @@ function formatDurationMs(ms: number | null): string {
     return humanFriendlyDuration(ms / 1000, { secondsFixed: 2 })
 }
 
-// Last 7 days of a daily series, coalescing latency gaps (NaN) to 0 for the sparkline.
+// Tile sparkline window — the trailing slice of the 30-day daily series.
+const SPARKLINE_DAYS = 7
+
+// Trailing window of a daily series, coalescing latency gaps (NaN) to 0 for the sparkline.
 function spark(values: number[]): number[] {
-    return values.slice(-7).map((v) => (Number.isFinite(v) ? v : 0))
+    return values.slice(-SPARKLINE_DAYS).map((v) => (Number.isFinite(v) ? v : 0))
 }
 
 function StatTiles({

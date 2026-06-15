@@ -57,12 +57,11 @@ const EMPTY_CHART_DATA: DailyChartData = {
     sessions: [],
 }
 
-// Raw HogQL result rows (positional columns), rendered by the tool detail tables.
 export type ResultRows = unknown[][]
 
 // Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
 // Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
-function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+export function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
     if (rows.length === 0) {
         return EMPTY_CHART_DATA
     }
@@ -246,6 +245,8 @@ SELECT
     max(timestamp) AS last_seen,
     arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses
 FROM events
+-- $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name), so
+-- unlike the mcp_tool_call queries this matches the raw $mcp_tool_name without EFFECTIVE_TOOL_HOGQL/NEW_SDK_FILTER.
 WHERE event = '$exception'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(props.toolName)}'

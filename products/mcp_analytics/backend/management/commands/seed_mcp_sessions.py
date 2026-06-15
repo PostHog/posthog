@@ -146,6 +146,9 @@ EXCEPTION_MESSAGES: list[str] = [
     "KeyError: '$mcp_tool_name' not present in event payload",
 ]
 
+# Fraction of failing tool calls that also emit a paired $exception event.
+EXCEPTION_PAIR_PROBABILITY = 0.6
+
 
 class Command(BaseCommand):
     help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
@@ -322,7 +325,7 @@ class Command(BaseCommand):
 
                 # Pair some failures with an $exception event so the tool detail
                 # "Failures" table (which reads $exception events) has data.
-                if is_error and rng.random() < 0.6:
+                if is_error and rng.random() < EXCEPTION_PAIR_PROBABILITY:
                     create_event(
                         event_uuid=uuid.uuid4(),
                         event="$exception",
