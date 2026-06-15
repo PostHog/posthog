@@ -52,6 +52,20 @@ describe('email tracking code', () => {
                 },
             },
             {
+                // isTest sits after actionId/parentRunId, so it must survive both being empty.
+                name: 'roundtrips isTest when neither actionId nor parentRunId is supplied',
+                encoded: generateEmailTrackingCode({ functionId: 'fn-1', id: 'inv-2', teamId: 3 }, true),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: undefined,
+                    parentRunId: undefined,
+                    isTest: true,
+                    format: 'signed',
+                },
+            },
+            {
                 name: 'omits parentRunId when not supplied',
                 encoded: generateEmailTrackingCode({
                     functionId: 'fn-1',

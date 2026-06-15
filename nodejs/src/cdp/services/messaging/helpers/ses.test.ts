@@ -108,7 +108,13 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0]).toMatchObject({ functionId: 'abc123', invocationId: 'inv456' })
     })
 
-    it('skips metrics for test sends (isTest tracking code)', async () => {
+    // The `if (metricName && !isTest)` guard applies to every metric-emitting event type, so
+    // suppression must hold for all of them — not just Delivery.
+    it.each([
+        ['Open', { open: { timestamp: 't' } }],
+        ['Click', { click: { link: 'l', timestamp: 't' } }],
+        ['Delivery', { delivery: {} }],
+    ])('skips metrics for test sends on a %s event (isTest tracking code)', async (eventType, eventFields) => {
         const testMail = {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
@@ -116,13 +122,7 @@ describe('SesWebhookHandler', () => {
             headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
             tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
         }
-        const body = [
-            {
-                eventType: 'Delivery',
-                mail: testMail,
-                delivery: { timestamp: '2025-10-03T12:03:00Z' },
-            },
-        ]
+        const body = [{ eventType, mail: testMail, ...eventFields }]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics).toEqual([])

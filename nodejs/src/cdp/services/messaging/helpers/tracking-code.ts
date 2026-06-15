@@ -100,7 +100,6 @@ export const parseEmailTrackingCode = (
 
     try {
         const decoded = fromBase64UrlSafe(payloadB64)
-        // isTest is the optional 6th segment; legacy 4/5-segment codes leave it undefined → false.
         const [functionId, invocationId, teamId, actionId, parentRunId, isTest] = decoded.split(':')
         if (!functionId || !invocationId) {
             return null
