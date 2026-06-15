@@ -548,7 +548,10 @@ pub fn serialize_snapshot_data_sync(
 /// Cap the client-supplied `$lib` so an oversized value can't make the warning event itself too large.
 fn bounded_warning_lib(snapshot_library: &str) -> String {
     const MAX_WARNING_LIB_CHARS: usize = 200;
-    snapshot_library.chars().take(MAX_WARNING_LIB_CHARS).collect()
+    snapshot_library
+        .chars()
+        .take(MAX_WARNING_LIB_CHARS)
+        .collect()
 }
 
 fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
