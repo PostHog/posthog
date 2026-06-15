@@ -664,7 +664,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review|web_analytics)",
 ]
 
 # TODO: Experiments-specific temporary interface

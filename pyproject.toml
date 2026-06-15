@@ -515,6 +515,15 @@ ignore_imports = [
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
+    # web_analytics deferred presentation wave: the heatmaps + filter-preset + weekly-digest
+    # views still hold logic and reach internals directly. facade.api already provides the
+    # filter-preset reads; wiring the views (and sealing heatmaps' model/task/cohort access)
+    # is the follow-up presentation-wave PR.
+    "products.web_analytics.backend.presentation.views.api -> products.web_analytics.backend.weekly_digest",
+    "products.web_analytics.backend.presentation.views.heatmaps_api -> products.web_analytics.backend.models",
+    "products.web_analytics.backend.presentation.views.heatmaps_api -> products.web_analytics.backend.tasks.heatmap_screenshot",
+    "products.web_analytics.backend.presentation.views.heatmaps_api -> products.cohorts.backend.models.cohort",
+    "products.web_analytics.backend.presentation.views.web_analytics_filter_preset -> products.web_analytics.backend.models",
 ]
 
 [tool.ty.rules]
