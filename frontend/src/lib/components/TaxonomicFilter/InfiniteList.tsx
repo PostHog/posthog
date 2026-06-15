@@ -3,7 +3,7 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { CSSProperties, useEffect, useState } from 'react'
+import { CSSProperties, useCallback, useEffect, useMemo, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
@@ -787,6 +787,79 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
     const selectedItemIsQuickFilter = selectedItem ? isQuickFilterItem(selectedItem) : false
 
+    // react-window v2 rebuilds its internal bounds cache (and refires the layout-effect that calls
+    // setState) whenever the rowHeight or rowProps reference changes. Passing fresh inline values on
+    // every render makes that fire each commit, which under a resize/scroll nudge can spiral into a
+    // "Maximum update depth exceeded" loop (React #185). Keep both references stable.
+    const rowHeight = useCallback(
+        (i: number): number => (showSuggestedFiltersEmptyState && i === results.length ? 80 : 36),
+        [showSuggestedFiltersEmptyState, results.length]
+    )
+
+    const rowProps = useMemo(
+        (): InfiniteListRowProps => ({
+            results,
+            taxonomicGroups,
+            group,
+            listGroupType,
+            groupType,
+            value,
+            selectedProperties,
+            eventNames,
+            highlightedIndex: index,
+            isActiveTab,
+            mouseInteractionsEnabled,
+            showPopover,
+            totalListCount,
+            totalResultCount,
+            expandedCount,
+            isExpandable,
+            isLoading,
+            showNonCapturedEventOption,
+            trimmedSearchQuery,
+            dataWarehousePopoverFields,
+            popupAnchorElement,
+            showSuggestedFiltersEmptyState,
+            taxonomicGroupTypes,
+            setIndex,
+            pinnedRowIndex,
+            onToggleRowPin: togglePinnedRow,
+            expand,
+            selectItem,
+            setHighlightedItemElement,
+        }),
+        [
+            results,
+            taxonomicGroups,
+            group,
+            listGroupType,
+            groupType,
+            value,
+            selectedProperties,
+            eventNames,
+            index,
+            isActiveTab,
+            mouseInteractionsEnabled,
+            showPopover,
+            totalListCount,
+            totalResultCount,
+            expandedCount,
+            isExpandable,
+            isLoading,
+            showNonCapturedEventOption,
+            trimmedSearchQuery,
+            dataWarehousePopoverFields,
+            popupAnchorElement,
+            showSuggestedFiltersEmptyState,
+            taxonomicGroupTypes,
+            setIndex,
+            pinnedRowIndex,
+            togglePinnedRow,
+            expand,
+            selectItem,
+        ]
+    )
+
     return (
         <div
             className={cn(
@@ -811,39 +884,9 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                                 style={{ width, height }}
                                 rowCount={rowCount}
                                 overscanCount={100}
-                                rowHeight={(i) => (showSuggestedFiltersEmptyState && i === results.length ? 80 : 36)}
+                                rowHeight={rowHeight}
                                 rowComponent={InfiniteListRow}
-                                rowProps={{
-                                    results,
-                                    taxonomicGroups,
-                                    group,
-                                    listGroupType,
-                                    groupType,
-                                    value,
-                                    selectedProperties,
-                                    eventNames,
-                                    highlightedIndex: index,
-                                    isActiveTab,
-                                    mouseInteractionsEnabled,
-                                    showPopover,
-                                    totalListCount,
-                                    totalResultCount,
-                                    expandedCount,
-                                    isExpandable,
-                                    isLoading,
-                                    showNonCapturedEventOption,
-                                    trimmedSearchQuery,
-                                    dataWarehousePopoverFields,
-                                    popupAnchorElement,
-                                    showSuggestedFiltersEmptyState,
-                                    taxonomicGroupTypes,
-                                    setIndex,
-                                    pinnedRowIndex,
-                                    onToggleRowPin: togglePinnedRow,
-                                    expand,
-                                    selectItem,
-                                    setHighlightedItemElement,
-                                }}
+                                rowProps={rowProps}
                                 onRowsRendered={(visibleRows, allRows) =>
                                     onRowsRendered({
                                         startIndex: visibleRows.startIndex,
