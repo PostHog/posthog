@@ -68,16 +68,9 @@
                                     "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column)."
                                 },
                                 "evaluation": {
-                                    "anyOf": [
-                                        {
-                                            "enum": ["last_row", "any_row"],
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "How to read the result rows. Defaults to `last_row`."
+                                    "description": "How to read the result rows — an explicit choice, no implicit default.",
+                                    "enum": ["last_row", "first_row", "any_row"],
+                                    "type": "string"
                                 },
                                 "label_column": {
                                     "anyOf": [
@@ -96,6 +89,7 @@
                                     "type": "string"
                                 }
                             },
+                            "required": ["evaluation"],
                             "type": "object"
                         }
                     ],
