@@ -17,13 +17,12 @@ export const REPLAY_INGESTION_WARNING_PHRASES: Record<string, string> = {
     replay_message_invalid: 'some data was rejected as invalid',
 }
 
-/** Phrase for a warning type, or undefined if not a replay drop type. Own-property check
- * so a forged type like `constructor` can't reach an inherited Object.prototype member. */
+/** Phrase for a replay-drop warning type, else undefined. Own-property check keeps forged types like `constructor` out. */
 function replayWarningPhrase(type: string): string | undefined {
     return Object.hasOwn(REPLAY_INGESTION_WARNING_PHRASES, type) ? REPLAY_INGESTION_WARNING_PHRASES[type] : undefined
 }
 
-/** The session id of a replay warning: too_large uses details.replayRecord.session_id, the rest details.sessionId. */
+/** Session id of a replay warning: too_large nests it under replayRecord, others use sessionId. */
 function warningSessionId(warning: IngestionWarning): string | undefined {
     return warning.details?.replayRecord?.session_id ?? warning.details?.sessionId
 }
