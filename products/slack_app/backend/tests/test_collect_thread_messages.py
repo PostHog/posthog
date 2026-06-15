@@ -217,6 +217,32 @@ class TestResolveUserMentionsText:
 
         assert result == "do the thing"
 
+    def test_strips_bot_user_mentions_via_is_bot_flag(self, mock_get_user_info):
+        # A workspace bot (e.g. Grafana) is identified by ``users.info``'s ``is_bot``
+        # flag, not by wire-format syntax — bot user IDs are ``U…``-prefixed just
+        # like humans. The mention should be dropped, not labeled, so the agent
+        # doesn't echo it and ping the bot back.
+        def lookup(_slack, _integration, uid):
+            if uid == "UGRAFANA":
+                return {"user": {"is_bot": True, "profile": {"display_name": "grafana"}}}
+            return {"user": {"is_bot": False, "profile": {"display_name": "cleo"}}}
+
+        mock_get_user_info.side_effect = lookup
+
+        result = resolve_user_mentions_text(self.slack, self.integration, "<@UGRAFANA> is paging <@UCLEO> again")
+
+        assert result == "is paging <@UCLEO|cleo> again"
+
+    def test_failed_lookup_falls_back_to_labeled_unknown_not_stripped(self, mock_get_user_info):
+        # An exception during ``users.info`` lookup must not be mistaken for
+        # ``is_bot=True``: silently dropping the mention would re-introduce the
+        # original bug where real users get erased from the agent's context.
+        mock_get_user_info.side_effect = RuntimeError("slack down")
+
+        result = resolve_user_mentions_text(self.slack, self.integration, "ping <@UCLEO>")
+
+        assert result == "ping <@UCLEO|Unknown>"
+
 
 class TestLabeledMentionsToDisplayNames:
     def test_unwraps_labeled_mention(self):

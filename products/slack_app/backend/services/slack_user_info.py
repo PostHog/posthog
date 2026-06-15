@@ -37,12 +37,19 @@ SLACK_BOT_USER_ID_CACHE_TTL_SECONDS = 60 * 60 * 6
 
 
 def _format_slack_user_info_payload(
-    *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
+    *,
+    email: str | None,
+    display_name: str,
+    real_name: str,
+    is_admin: bool,
+    is_owner: bool,
+    is_bot: bool,
 ) -> dict[str, Any]:
     return {
         "user": {
             "is_admin": is_admin,
             "is_owner": is_owner,
+            "is_bot": is_bot,
             "profile": {
                 "email": email,
                 "display_name": display_name,
@@ -80,6 +87,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
         real_name=profile.real_name,
         is_admin=profile.is_admin,
         is_owner=profile.is_owner,
+        is_bot=profile.is_bot,
     )
 
 
@@ -96,6 +104,7 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
                 "real_name": profile.get("real_name") or "",
                 "is_admin": bool(user.get("is_admin")),
                 "is_owner": bool(user.get("is_owner")),
+                "is_bot": bool(user.get("is_bot")),
                 "refreshed_at": timezone.now(),
             },
         )

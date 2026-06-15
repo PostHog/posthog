@@ -897,7 +897,7 @@ def _collect_thread_messages(
         else:
             username = "Unknown"
 
-        text = resolve_user_mentions_text(slack, integration, _extract_message_text(msg), user_cache=user_cache)
+        text = resolve_user_mentions_text(slack, integration, _extract_message_text(msg))
         # `ts` lets downstream callers distinguish the initiator message from surrounding thread
         # context, since `app_mention` events surface only the initiator's ts.
         messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})

@@ -24,47 +24,60 @@ def resolve_user_mentions_text(
     text: str,
     *,
     strip_bot_user_id: str | None = None,
-    user_cache: dict[str, str] | None = None,
 ) -> str:
-    """Label `<@U…>` mentions with display names so the agent can echo them back.
+    """Label human `<@U…>` mentions with display names; drop every bot mention.
 
     Slack delivers events with bare `<@U_ID>` references — opaque to an LLM,
-    and easily paraphrased away into plain prose. Enriching to Slack's labeled
-    form `<@U_ID|displayname>` gives the agent both a human-readable handle to
-    reason about *and* the exact wire-format token it can echo verbatim to ping
-    the user back; Slack accepts the labeled form on the way out, so no
-    outbound transformation is needed.
+    and easily paraphrased away into plain prose. For real users we enrich to
+    Slack's labeled form `<@U_ID|displayname>`: the agent gets both a
+    human-readable handle to reason about *and* the exact wire-format token it
+    can echo verbatim to ping the user back. Slack accepts the labeled form on
+    the way out, so no outbound transformation is needed.
 
-    The bot's own self-mention is removed — it's just the trigger and carries
-    no information for the agent. Whitespace left where it sat is collapsed.
+    Bot users (our own, plus any other workspace bot — Grafana, GitHub, etc.)
+    are stripped entirely. There's nothing useful for the agent to do with a
+    bot mention, and echoing it would re-ping the bot. The `is_bot` flag comes
+    from `users.info` via the cached profile; `strip_bot_user_id` is a fast
+    path for the trigger's own self-mention that avoids the lookup.
+
+    Wire format alone can't distinguish a bot user ID from a human's — both
+    are `U…`-prefixed. The flag is the only authoritative signal.
     """
     # Deferred import: ``_get_slack_user_info`` lives in ``api.py`` alongside a
     # chain of caching helpers; importing it at module load would create a
     # circular import via ``api.py -> services.slack_messages -> api.py``.
     from products.slack_app.backend.api import _get_slack_user_info  # noqa: PLC0415
 
-    cache = user_cache if user_cache is not None else {}
+    cache: dict[str, tuple[str, bool]] = {}
 
-    def resolve_user(uid: str) -> str:
+    def resolve_user(uid: str) -> tuple[str, bool]:
         if uid not in cache:
             try:
                 user_info = _get_slack_user_info(slack, integration, uid)
-                profile = user_info.get("user", {}).get("profile", {})
-                cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
+                user = user_info.get("user", {})
+                profile = user.get("profile", {})
+                display = profile.get("display_name") or profile.get("real_name") or "Unknown"
+                cache[uid] = (display, bool(user.get("is_bot")))
             except Exception:
-                cache[uid] = "Unknown"
+                # Lookup failed — degrade to a labeled mention so a ping still
+                # works; treating an unknown user as a bot would silently drop
+                # a real user's mention, which is the bug this module exists
+                # to prevent.
+                cache[uid] = ("Unknown", False)
         return cache[uid]
 
     def replace_mention(match: re.Match) -> str:
         uid = match.group(1)
         if strip_bot_user_id and uid == strip_bot_user_id:
             return ""
-        return f"<@{uid}|{resolve_user(uid)}>"
+        display, is_bot = resolve_user(uid)
+        if is_bot:
+            return ""
+        return f"<@{uid}|{display}>"
 
     resolved = re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
-    if strip_bot_user_id:
-        # Tidy the gap left where the bot's own mention was removed.
-        resolved = re.sub(r"[ \t]{2,}", " ", resolved).strip()
+    # Tidy gaps left where bot mentions were removed.
+    resolved = re.sub(r"[ \t]{2,}", " ", resolved).strip()
     return resolved
 
 
