@@ -78,8 +78,9 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
     )
 }
 
-/** Mirror of the backend's ANY_ROW_MAX_ROWS — equality is pinned by a backend test. */
-export const HOGQL_ANY_ROW_MAX_ROWS = 1000
+/** Mirror of the backend's ANY_ROW_MAX_ROWS (products/alerts/backend/evaluation/hogql.py) — keep
+ * the two in sync. Advisory only; the backend extractor is the evaluation-time authority. */
+export const HOGQL_ANY_ROW_MAX_ROWS = 50
 
 /** One result row as the alert would read it, for the configure-time preview table. */
 export interface HogQLAlertPreviewRow {
@@ -553,7 +554,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
         hogqlAlertPreview: [
             // Inputs are narrowed to the fields the preview reads, so name/interval/etc. keystrokes
-            // don't re-derive it (the per-row map can cover up to 1000 rows).
+            // don't re-derive it (the per-row map can cover up to HOGQL_ANY_ROW_MAX_ROWS rows).
             (s) => [
                 s.insightData,
                 (state, logicProps) => s.alertForm(state, logicProps)?.config,

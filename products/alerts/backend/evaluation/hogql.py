@@ -21,7 +21,10 @@ from products.product_analytics.backend.models.insight import Insight
 _HOGQL_SUBJECT = "The SQL insight value"
 # Any-row alerts fail loud past this many rows: silently truncating could skip the breaching row
 # (a false negative), which is worse than asking the user to add a LIMIT or aggregate the query.
-ANY_ROW_MAX_ROWS = 1000
+# Deliberately conservative to start — easy to raise if users ask for more. Mirrored in the
+# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (frontend/src/lib/components/Alerts/alertFormLogic.ts);
+# keep the two in sync.
+ANY_ROW_MAX_ROWS = 50
 
 
 class HogQLExtractor:
@@ -36,15 +39,13 @@ class HogQLExtractor:
     rules in TypeScript (``deriveHogQLAlertPreview`` in
     frontend/src/lib/components/Alerts/alertFormLogic.ts) so the modal can preview instantly from
     the already-loaded result. The mirror is advisory only — this extractor is the sole authority
-    at evaluation time — but if you change any of these rules, update the mirror and both test
-    suites (test_hogql_extractor.py / alertFormLogic.test.ts):
+    at evaluation time — but if you change any of these rules, update the mirror to match:
       1. value-column resolution: explicit ``column`` -> single column -> single numeric column
       2. numeric classification: most recent non-None cell decides; bools are not numeric
       3. ``None`` cells evaluate as 0
       4. label-column resolution: explicit -> first non-evaluated column -> row number
       5. empty result evaluates as 0 (zero sentinel)
-      6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``; equality is
-         pinned by a test)
+      6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``)
     """
 
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:

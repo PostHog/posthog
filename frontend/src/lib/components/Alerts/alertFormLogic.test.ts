@@ -21,7 +21,13 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, deriveHogQLAlertPreview, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
+import {
+    alertFormLogic,
+    deriveHogQLAlertPreview,
+    HOGQL_ANY_ROW_MAX_ROWS,
+    thresholdAlertHasBounds,
+    type AlertFormType,
+} from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -567,10 +573,13 @@ describe('alertFormLogic', () => {
             ],
             [
                 'any-row over the row cap',
-                { result: Array.from({ length: 1001 }, (_, i) => [i]), columns: ['count'] },
+                {
+                    result: Array.from({ length: HOGQL_ANY_ROW_MAX_ROWS + 1 }, (_, i) => [i]),
+                    columns: ['count'],
+                },
                 { type: 'HogQLAlertConfig', evaluation: 'any_row' },
                 null,
-                { status: 'too-many-rows', rowCount: 1001 },
+                { status: 'too-many-rows', rowCount: HOGQL_ANY_ROW_MAX_ROWS + 1 },
             ],
             [
                 'missing explicit label column',
