@@ -615,27 +615,27 @@ def build_pipeline_mocks(mocker):
     # The metadata pass uses the patched `RedshiftImplementation`
     # methods, so a single cursor mock can serve both connections —
     # only the streaming connection requires `conn.adapters` to be set.
-    state = {"first_conn": True}
+    connections: list[MagicMock] = []
 
     def connect_side_effect(*args, **kwargs):
         conn = MagicMock()
         conn.__enter__.return_value = conn
         conn.cursor.return_value = streaming_cursor
-        if not state["first_conn"]:
+        if connections:
             conn.adapters = MagicMock()
-        state["first_conn"] = False
+        connections.append(conn)
         return conn
 
     mock_connect = mocker.patch(
         "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
         side_effect=connect_side_effect,
     )
-    return mock_connect, streaming_cursor
+    return mock_connect, streaming_cursor, connections
 
 
 class TestBuildPipeline:
     def test_returns_source_response(self, build_pipeline_mocks):
-        mock_connect, _ = build_pipeline_mocks
+        mock_connect, _, _ = build_pipeline_mocks
         impl = RedshiftImplementation()
         response = impl.build_pipeline(_make_config(), _make_inputs())
         assert response.name == "messages"
@@ -644,12 +644,23 @@ class TestBuildPipeline:
         assert mock_connect.called
 
     def test_streaming_drains_without_error(self, build_pipeline_mocks):
-        _, streaming_cursor = build_pipeline_mocks
+        _, streaming_cursor, _ = build_pipeline_mocks
         impl = RedshiftImplementation()
         response = impl.build_pipeline(_make_config(), _make_inputs())
         list(response.items())  # type: ignore[arg-type]
         # streaming cursor.execute should have been invoked for the streaming query
         assert streaming_cursor.execute.called
+
+    def test_metadata_connection_runs_in_autocommit(self, build_pipeline_mocks):
+        # Regression: the metadata probes share one connection and several swallow query errors and
+        # keep going. Without autocommit, one swallowed failure leaves the transaction aborted and the
+        # next probe raises a misleading `InFailedSqlTransaction`. Autocommit makes each probe its own
+        # transaction so a failed probe can't poison the rest.
+        _, _, connections = build_pipeline_mocks
+        impl = RedshiftImplementation()
+        impl.build_pipeline(_make_config(), _make_inputs())
+        # First connection is the metadata pass — it must be put into autocommit.
+        assert connections[0].autocommit is True
 
     def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")

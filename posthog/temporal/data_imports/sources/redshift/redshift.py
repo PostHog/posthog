@@ -940,6 +940,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
+            # Gather metadata in autocommit so each probe is its own transaction. Several of these
+            # helpers (`get_chunk_size`/`fetch_average_row_size`, `get_rows_to_sync`, …) swallow query
+            # errors and keep going; without autocommit a single swallowed failure leaves the shared
+            # transaction aborted, and every later probe then raises a misleading
+            # `InFailedSqlTransaction` instead of running. These are all read-only probes, so there is
+            # no atomicity to preserve. `SET statement_timeout` still persists for the connection.
+            connection.autocommit = True
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 full_table = self.get_table_metadata(cursor, schema, table_name, logger)
