@@ -41,6 +41,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return {
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
+            # OAuth2 error code returned by Google's token endpoint when the service account grant
+            # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
+            # service account ("account not found"). Raised as a `RefreshError` while refreshing the
+            # token, so it surfaces on every BigQuery call rather than at a single site. Retrying
+            # can't recover invalid credentials; the user must upload a new key file. Matched on the
+            # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
+            # token-endpoint failures that should stay retryable.
+            "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
