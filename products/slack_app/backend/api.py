@@ -1698,13 +1698,12 @@ _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
 ]
 _ASSISTANT_WELCOME = (
-    "Hi! I'm PostHog Code, an AI agent. DM me to investigate issues or open PRs in your connected "
-    "repos. I act on your behalf and can make mistakes — review my work before merging."
+    "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
+    "open PRs in your connected repos to fix them!"
 )
 _ASSISTANT_INSTALL_WELCOME = (
-    "Thanks for adding PostHog Code! :tada: I'm an AI agent — DM me here or @mention me in a channel "
-    "to investigate issues or open PRs in your connected repos. I act on your behalf and can make "
-    "mistakes, so review my work before merging."
+    "Thanks for adding PostHog! :tada: I'm an AI agent - DM me here or @mention me in a channel "
+    "to investigate issues or open PRs in your connected repos"
 )
 _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
