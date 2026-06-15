@@ -163,6 +163,7 @@ class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
         [
             ("secret_key_no_scope", ["feature_flag:read"], False),
             ("secret_key_wildcard_does_not_subsume", ["*"], False),
+            ("secret_key_write_only_not_projected", ["llm_gateway:write"], False),
             ("secret_key_has_scope", [GATEWAY_SCOPE], True),
         ]
     )
@@ -178,6 +179,8 @@ class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
             ("oauth_wildcard_does_not_subsume", "*", False),
             ("oauth_literal_scope", GATEWAY_SCOPE, True),
             ("oauth_no_scope", "feature_flag:read", False),
+            ("oauth_write_only_not_projected", "llm_gateway:write", False),
+            ("oauth_read_and_write_projected", "llm_gateway:read llm_gateway:write", True),
         ]
     )
     def test_oauth_scope_gating(self, _name: str, scope: str, should_write: bool):
