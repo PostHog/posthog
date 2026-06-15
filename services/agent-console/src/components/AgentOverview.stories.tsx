@@ -33,8 +33,10 @@ export const Default: Story = {
         liveRevision: weeklyDigestLiveRevision,
         stats: getAgentStatsFixture(weeklyDigest.id),
         recentSessions: listSessionsForAgentFixture(weeklyDigest.id),
+        ingressBaseUrl: 'https://weekly-digest.agents.posthog.com',
         onOpenSession: (id) => console.info('[mock] openSession', id),
         onOpenConfiguration: noop,
+        onOpenTriggers: noop,
         onOpenSessions: noop,
     },
 }

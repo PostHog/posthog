@@ -129,6 +129,32 @@ export function usePosthogBaseUrl(): string | null {
     return url
 }
 
+interface AgentIngressInfo {
+    routingMode: 'path' | 'domain'
+    domainSuffix: string | null
+    pathBaseUrl: string | null
+}
+
+/**
+ * Fallback ingress base URL for an agent, built from the console's own
+ * routing config (`/api/auth/me` → `agentIngress`). Django's
+ * `agent.ingress_base_url` is the canonical source; use this only when
+ * that's null — typically local dev, where Django has no
+ * `AGENT_INGRESS_PUBLIC_URL` but the ingress is reachable at the
+ * console's own `POSTHOG_AGENTS_BASE` (`http://localhost:3030`).
+ */
+export function useAgentIngressFallbackBaseUrl(slug: string): string | null {
+    const { info } = useSession()
+    const ingress = (info as { agentIngress?: AgentIngressInfo } | null)?.agentIngress ?? null
+    if (!ingress || !slug) {
+        return null
+    }
+    if (ingress.routingMode === 'domain') {
+        return ingress.domainSuffix ? `https://${slug}${ingress.domainSuffix}` : null
+    }
+    return ingress.pathBaseUrl ? `${ingress.pathBaseUrl.replace(/\/$/, '')}/agents/${slug}` : null
+}
+
 /**
  * `<SessionGate>` — blocks rendering until `/api/auth/me` resolves
  * (or errors). Mount it once inside the AppShell so child pages can

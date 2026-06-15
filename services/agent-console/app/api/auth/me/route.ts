@@ -12,7 +12,7 @@ import { NextResponse } from 'next/server'
 import { type AllowlistCheckProfile, checkAccessAllowlist } from '@/lib/auth/allowlist'
 import { clearSession, getSession, setSession, type SessionPayload } from '@/lib/auth/session'
 import { OAuthTokenError, refreshAccessToken } from '@/lib/auth/tokens'
-import { getConfig } from '@/lib/config'
+import { getConfig, isDev } from '@/lib/config'
 
 /**
  * `GET /api/auth/me` — returns the authenticated identity for the UI.
@@ -94,7 +94,32 @@ export async function GET(): Promise<Response> {
         // sidebar's "Back to PostHog" item) without leaking the internal
         // url into client code.
         posthogBaseUrl,
+        agentIngress: buildAgentIngressInfo(),
     })
+}
+
+/**
+ * The console's own view of the ingress routing config, surfaced so the UI
+ * can document an agent's hittable URLs even when Django doesn't return
+ * `ingress_base_url` (it omits the field when `AGENT_INGRESS_PUBLIC_URL` /
+ * `AGENT_INGRESS_DOMAIN_SUFFIX` is unset — e.g. local dev without a tunnel).
+ *
+ * The path-mode base (`POSTHOG_AGENTS_BASE`) is only exposed in dev, where
+ * it's the browser-reachable `http://localhost:3030`; in a deployed
+ * path-mode setup it may be a cluster-internal URL, and Django's
+ * `ingress_base_url` is the canonical public source there.
+ */
+function buildAgentIngressInfo(): {
+    routingMode: 'path' | 'domain'
+    domainSuffix: string | null
+    pathBaseUrl: string | null
+} {
+    const cfg = getConfig()
+    return {
+        routingMode: cfg.agentIngressRoutingMode,
+        domainSuffix: cfg.agentIngressDomainSuffix || null,
+        pathBaseUrl: cfg.agentIngressRoutingMode === 'path' && isDev() ? cfg.posthogAgentsBaseUrl : null,
+    }
 }
 
 async function fetchJson(url: string, accessToken: string): Promise<unknown | null> {

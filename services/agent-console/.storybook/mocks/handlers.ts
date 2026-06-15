@@ -57,6 +57,7 @@ export const handlers = [
             authenticated: true,
             teamId: STORYBOOK_TEAM_ID,
             posthogBaseUrl: 'https://app.posthog.com',
+            agentIngress: { routingMode: 'domain', domainSuffix: '.agents.posthog.com', pathBaseUrl: null },
             oidc: { sub: 'storybook-fake-sub' },
             profile: {
                 email: 'storybook@posthog.com',

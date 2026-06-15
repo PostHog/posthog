@@ -30,7 +30,9 @@
 import {
     AlertTriangleIcon,
     CalendarClockIcon,
+    CheckIcon,
     CodeIcon,
+    CopyIcon,
     GlobeIcon,
     HashIcon,
     InfoIcon,
@@ -537,7 +539,13 @@ function DetailPane({
             return card(
                 <ZapIcon className={HEAD} />,
                 'Triggers',
-                <TriggersOverview spec={spec} isMissing={isMissing} onSelectPath={onSelectPath} />,
+                <TriggersOverview
+                    spec={spec}
+                    isMissing={isMissing}
+                    onSelectPath={onSelectPath}
+                    agentSlug={agentSlug}
+                    ingressBaseUrl={ingressBaseUrl}
+                />,
                 `Help me with the triggers for \`${slug}\`.`
             )
         case 'trigger': {
@@ -901,10 +909,14 @@ function TriggersOverview({
     spec,
     isMissing,
     onSelectPath,
+    agentSlug,
+    ingressBaseUrl,
 }: {
     spec: Record<string, unknown>
     isMissing: (k: string) => boolean
     onSelectPath: (path: string) => void
+    agentSlug?: string
+    ingressBaseUrl?: string
 }): React.ReactElement {
     const trg = triggers(spec)
     const reqByTrigger = requiredSecretsByTrigger(spec)
@@ -935,7 +947,102 @@ function TriggersOverview({
                     })}
                 </JumpList>
             ) : null}
+            <TriggerEndpointsBlock triggers={trg} slug={agentSlug} ingressBaseUrl={ingressBaseUrl} />
         </Pad>
+    )
+}
+
+/**
+ * Externally-hittable routes per trigger type. Mirrors each ingress trigger
+ * module's `routes` export (`services/agent-ingress/src/triggers/<type>.ts`)
+ * and Django's `_TRIGGER_ROUTES`. Cron is absent — it fires from the
+ * janitor's scheduler, not from an inbound request.
+ */
+const TRIGGER_ENDPOINTS: Record<string, Array<{ method: 'POST' | 'GET'; path: string; blurb: string }>> = {
+    chat: [
+        { method: 'POST', path: '/run', blurb: 'start a session' },
+        { method: 'POST', path: '/send', blurb: 'send a follow-up' },
+        { method: 'GET', path: '/listen', blurb: 'stream events (SSE)' },
+    ],
+    webhook: [{ method: 'POST', path: '/webhook', blurb: 'JSON body becomes the agent’s first message' }],
+    mcp: [{ method: 'POST', path: '/mcp', blurb: 'HTTP MCP server — add to any MCP client' }],
+    slack: [
+        { method: 'POST', path: '/slack/events', blurb: 'Event Subscriptions request URL (set in the Slack app)' },
+        { method: 'POST', path: '/slack/interactivity', blurb: 'Interactivity request URL (set in the Slack app)' },
+    ],
+}
+
+/**
+ * The agent's hittable endpoints, one row per route across every configured
+ * trigger. URLs hang off the deployment's mode-aware ingress base
+ * (domain or path routing); when no public base is known we fall back to
+ * the placeholder host with a note.
+ */
+function TriggerEndpointsBlock({
+    triggers: trg,
+    slug,
+    ingressBaseUrl,
+}: {
+    triggers: Trigger[]
+    slug?: string
+    ingressBaseUrl?: string
+}): React.ReactElement | null {
+    const withEndpoints = trg.filter((t) => TRIGGER_ENDPOINTS[t.type]?.length)
+    if (!withEndpoints.length) {
+        return null
+    }
+    const base = (ingressBaseUrl ?? `${USAGE_HOST}/agents/${slug ?? '<slug>'}`).replace(/\/$/, '')
+    const hasCron = trg.some((t) => t.type === 'cron')
+    return (
+        <div className="space-y-1.5">
+            <p className="text-[0.75rem] font-medium text-foreground">Endpoints</p>
+            {!ingressBaseUrl ? (
+                <Muted>No public ingress URL is configured for this deployment — placeholder host shown.</Muted>
+            ) : null}
+            <div className="space-y-1">
+                {withEndpoints.flatMap((t) =>
+                    (TRIGGER_ENDPOINTS[t.type] ?? []).map((ep) => {
+                        const url = `${base}${ep.path}`
+                        return (
+                            <div key={`${t.type}${ep.path}`} className="flex items-center gap-2 text-[0.6875rem]">
+                                <TriggerIcon type={t.type} />
+                                <span className="w-8 shrink-0 font-mono text-muted-foreground">{ep.method}</span>
+                                <code className="truncate font-mono text-foreground" title={url}>
+                                    {url}
+                                </code>
+                                <CopyUrlButton text={url} />
+                                <span className="hidden truncate text-muted-foreground lg:inline">{ep.blurb}</span>
+                            </div>
+                        )
+                    })
+                )}
+            </div>
+            {hasCron ? <Muted>Cron triggers fire on their schedule — no inbound endpoint.</Muted> : null}
+        </div>
+    )
+}
+
+function CopyUrlButton({ text }: { text: string }): React.ReactElement {
+    const [copied, setCopied] = useState(false)
+    const copy = async (): Promise<void> => {
+        try {
+            await navigator.clipboard.writeText(text)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+        } catch {
+            // Clipboard can be blocked (insecure context / permissions) — no-op,
+            // the URL stays selectable.
+        }
+    }
+    return (
+        <button
+            type="button"
+            onClick={copy}
+            aria-label="Copy URL"
+            className="inline-flex shrink-0 cursor-pointer items-center rounded border border-border bg-card p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+            {copied ? <CheckIcon className="h-3 w-3 text-success-foreground" /> : <CopyIcon className="h-3 w-3" />}
+        </button>
     )
 }
 

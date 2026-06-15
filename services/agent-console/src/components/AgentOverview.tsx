@@ -13,14 +13,16 @@
 
 import {
     CalendarClockIcon,
+    CheckIcon,
     ChevronRightIcon,
+    CopyIcon,
     GlobeIcon,
     HashIcon,
     LineChartIcon,
     MessageSquareIcon,
     WebhookIcon,
 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, AgentRevisionFixture, AgentStats } from '@posthog/agent-chat/fixtures'
@@ -42,6 +44,16 @@ export interface AgentOverviewProps {
      * URL or team isn't resolved yet.
      */
     aiObservabilityUrl?: string
+    /**
+     * The agent's canonical public base URL — `agent.ingress_base_url`
+     * (routing-mode-aware: `https://<slug><suffix>` in domain mode,
+     * `<public_url>/agents/<slug>` in path mode), with the host's local-dev
+     * fallback applied. Renders a notice in the Triggers card linking to the
+     * per-endpoint documentation in the configuration triggers section.
+     */
+    ingressBaseUrl?: string | null
+    /** Open the configuration page focused on the triggers section. */
+    onOpenTriggers?: () => void
 }
 
 export function AgentOverview({
@@ -52,6 +64,8 @@ export function AgentOverview({
     onOpenConfiguration,
     onOpenSessions,
     aiObservabilityUrl,
+    ingressBaseUrl,
+    onOpenTriggers,
 }: AgentOverviewProps): React.ReactElement {
     // `agent` is on the props type for future use (e.g. surfacing per-agent
     // archived state inline) — header above the tabs already shows
@@ -126,13 +140,18 @@ export function AgentOverview({
                     ) : triggers.length === 0 ? (
                         <EmptyHint text="No triggers configured." />
                     ) : (
-                        <ul className="space-y-2">
-                            {triggers.map((t, i) => (
-                                <li key={i}>
-                                    <TriggerSummary trigger={t} />
-                                </li>
-                            ))}
-                        </ul>
+                        <div className="space-y-2">
+                            {ingressBaseUrl ? (
+                                <CanonicalUrlNotice url={ingressBaseUrl} onOpenTriggers={onOpenTriggers} />
+                            ) : null}
+                            <ul className="space-y-2">
+                                {triggers.map((t, i) => (
+                                    <li key={i}>
+                                        <TriggerSummary trigger={t} />
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     )}
                 </OverviewCard>
 
@@ -219,6 +238,54 @@ function DtDd({ k, v, mono = false }: { k: string; v: string; mono?: boolean }):
             <dt className="text-muted-foreground">{k}</dt>
             <dd className={'truncate text-right text-foreground' + (mono ? ' font-mono' : '')}>{v}</dd>
         </>
+    )
+}
+
+/**
+ * The agent's canonical public URL — every trigger's routes hang off it.
+ * The "Endpoints →" link opens the configuration triggers section, where
+ * each hittable route is documented per trigger.
+ */
+function CanonicalUrlNotice({ url, onOpenTriggers }: { url: string; onOpenTriggers?: () => void }): React.ReactElement {
+    return (
+        <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-[0.6875rem]">
+            <GlobeIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <code className="truncate font-mono text-foreground" title={url}>
+                {url}
+            </code>
+            <CopyButton text={url} />
+            <button
+                type="button"
+                onClick={onOpenTriggers}
+                className="ml-auto shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+            >
+                Endpoints →
+            </button>
+        </div>
+    )
+}
+
+function CopyButton({ text }: { text: string }): React.ReactElement {
+    const [copied, setCopied] = useState(false)
+    const copy = async (): Promise<void> => {
+        try {
+            await navigator.clipboard.writeText(text)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+        } catch {
+            // Clipboard can be blocked (insecure context / permissions) — no-op,
+            // the URL stays selectable.
+        }
+    }
+    return (
+        <button
+            type="button"
+            onClick={copy}
+            aria-label="Copy URL"
+            className="inline-flex shrink-0 cursor-pointer items-center rounded border border-border bg-card p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+            {copied ? <CheckIcon className="h-3 w-3 text-success-foreground" /> : <CopyIcon className="h-3 w-3" />}
+        </button>
     )
 }
 

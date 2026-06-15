@@ -21,7 +21,7 @@ import { useMemo, useState } from 'react'
 
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
 
-import { useSessionTeamId } from '@/components/session-context'
+import { useAgentIngressFallbackBaseUrl, useSessionTeamId } from '@/components/session-context'
 import { ApiError, archiveRevision, freezeRevision, getBundle, listEnvKeys, promoteRevision } from '@/lib/apiClient'
 import { getTriggerRequiredSecrets } from '@/lib/triggerSecrets'
 import { useResource } from '@/lib/useResource'
@@ -108,6 +108,9 @@ export function AgentConfigView({
 }: AgentConfigViewProps): React.ReactElement {
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
+    // Django's ingress_base_url is canonical; the console-config fallback
+    // covers local dev where Django has no AGENT_INGRESS_PUBLIC_URL.
+    const fallbackIngressBase = useAgentIngressFallbackBaseUrl(agent.slug)
 
     const sortedRevisions = useMemo(
         () => [...revisions].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()),
@@ -220,7 +223,7 @@ export function AgentConfigView({
                     selectedPath={selectedNode}
                     onSelectPath={onSelectNode}
                     agentSlug={agent.slug}
-                    ingressBaseUrl={agent.ingress_base_url ?? undefined}
+                    ingressBaseUrl={agent.ingress_base_url ?? fallbackIngressBase ?? undefined}
                     height="100%"
                 />
             </div>
