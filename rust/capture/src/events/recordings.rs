@@ -402,8 +402,7 @@ pub async fn process_replay_events(
     match sink.send(ProcessedEvent { metadata, event }).await {
         Ok(()) => {}
         Err(err @ CaptureError::EventTooBig(_)) => {
-            // The drop may cost the session its full snapshot, so surface a
-            // team-visible warning (best effort) before failing with 413.
+            // surface a team-visible warning (best effort) before failing with 413
             counter!("capture_replay_snapshot_too_large_total").increment(1);
             let warning = replay_message_too_large_warning(
                 context,
@@ -429,9 +428,7 @@ pub async fn process_replay_events(
     Ok(())
 }
 
-/// Warning event for a snapshot batch dropped for size. Ingestion resolves
-/// the team from the token and persists it as a `replay_message_too_large`
-/// ingestion warning.
+/// Warning for a snapshot batch dropped for size, persisted as a `replay_message_too_large` warning.
 fn replay_message_too_large_warning(
     context: &ProcessingContext,
     distinct_id: String,
@@ -444,6 +441,7 @@ fn replay_message_too_large_warning(
     let message = format!(
         "Replay data for session {session_id} was dropped because it was too large to ingest ({snapshot_bytes} bytes, {snapshot_items_count} snapshot items)"
     );
+    let lib = bounded_warning_lib(snapshot_library);
     let data = json!({
         "event": "$$client_ingestion_warning",
         "distinct_id": &distinct_id,
@@ -455,10 +453,10 @@ fn replay_message_too_large_warning(
                 "replayRecord": { "session_id": session_id },
                 "snapshotBytes": snapshot_bytes,
                 "snapshotItemsCount": snapshot_items_count,
-                "lib": snapshot_library,
+                "lib": lib.as_str(),
             },
             "$session_id": session_id,
-            "$lib": snapshot_library,
+            "$lib": lib.as_str(),
         }
     })
     .to_string();
@@ -545,6 +543,12 @@ pub fn serialize_snapshot_data_sync(
         }
     })
     .to_string()
+}
+
+/// Cap the client-supplied `$lib` so an oversized value can't make the warning event itself too large.
+fn bounded_warning_lib(snapshot_library: &str) -> String {
+    const MAX_WARNING_LIB_CHARS: usize = 200;
+    snapshot_library.chars().take(MAX_WARNING_LIB_CHARS).collect()
 }
 
 fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
@@ -1305,6 +1309,50 @@ mod tests {
         assert!(props["$$client_ingestion_warning_message"]
             .as_str()
             .is_some_and(|m| m.contains("test-session-123")));
+    }
+
+    #[tokio::test]
+    async fn test_oversized_snapshot_warning_caps_client_lib() {
+        let events_captured = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn Event + Send + Sync> = Arc::new(RejectSnapshotsSink {
+            error: || CaptureError::EventTooBig("too big".to_string()),
+            events: events_captured.clone(),
+        });
+
+        let huge_lib = "x".repeat(5000);
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "distinct_id": "test_user",
+            "properties": {
+                "$session_id": "test-session-123",
+                "$window_id": "test-window",
+                "$snapshot_data": [{"type": 1, "data": {"test": "data"}}],
+                "$snapshot_source": "web",
+                "$lib": huge_lib,
+            }
+        }))
+        .unwrap();
+        let context = create_test_context();
+
+        let result = process_replay_events(sink, None, None, vec![recording], &context).await;
+        assert!(matches!(result, Err(CaptureError::EventTooBig(_))));
+
+        let captured = events_captured.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        let data: Value = serde_json::from_str(&captured[0].event.data).unwrap();
+        let props = &data["properties"];
+        assert_eq!(
+            props["$$client_ingestion_warning_details"]["lib"]
+                .as_str()
+                .map(|s| s.chars().count()),
+            Some(200),
+            "client lib must be capped in the warning details"
+        );
+        assert_eq!(
+            props["$lib"].as_str().map(|s| s.chars().count()),
+            Some(200),
+            "top-level $lib must be capped too"
+        );
     }
 
     #[tokio::test]
