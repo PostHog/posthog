@@ -815,7 +815,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
         outputs:
-            setup_complete: ${{ steps.setup-complete.outputs.setup_complete }}
+            deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
         name: Repo checks (depot-ubuntu-latest)
@@ -848,13 +848,11 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             # Boundary between network-dependent setup and the deterministic
-            # checks below. The cancellation job uses this output to avoid
-            # canceling the whole run on a transient setup failure.
+            # checks below. The "Flag deterministic failure" step keys off this
+            # step's outcome so a transient setup failure doesn't cancel the run.
             - name: Mark setup complete
               id: setup-complete
-              run: |
-                  echo "setup_complete=true" >> "$GITHUB_OUTPUT"
-                  echo "Setup complete — any failure below is a deterministic check failure"
+              run: echo "Setup complete — any failure below is a deterministic check failure"
 
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
@@ -877,12 +875,18 @@ jobs:
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
 
+            # Deterministic = a static check above failed after setup completed.
+            # A retry can't fix it, so this signals the cancellation gate to stop the run.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.setup-complete.outcome == 'success'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
     cancel-backend-on-repo-check-failure:
         needs: [repo-checks]
         if: >
             always() &&
-            needs.repo-checks.result == 'failure' &&
-            needs.repo-checks.outputs.setup_complete == 'true' &&
+            needs.repo-checks.outputs.deterministic_failure == 'true' &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
@@ -1599,7 +1603,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
         outputs:
-            openapi_check_failed: ${{ steps.openapi-check.outcome == 'failure' && 'true' || 'false' }}
+            deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
 
@@ -1771,6 +1775,13 @@ jobs:
 
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
+            # Deterministic = the OpenAPI check step itself failed (not a transient
+            # setup or commit-step failure), so a retry can't fix it. Mirrors repo-checks.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.openapi-check.outcome == 'failure'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
             - name: Get app token for OpenAPI type commits
               if: steps.openapi-check.outputs.needs-commit == 'true'
               id: openapi-app-token
@@ -1801,8 +1812,7 @@ jobs:
         needs: [check-openapi-types]
         if: >
             always() &&
-            needs.check-openapi-types.result == 'failure' &&
-            needs.check-openapi-types.outputs.openapi_check_failed == 'true' &&
+            needs.check-openapi-types.outputs.deterministic_failure == 'true' &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
         timeout-minutes: 5
@@ -2636,11 +2646,11 @@ jobs:
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
-                    if [[ "${{ needs.repo-checks.result }}" == "failure" && "${{ needs.repo-checks.outputs.setup_complete }}" == "true" ]]; then
+                    if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                       echo ""
                       echo "**Root cause:** Repo checks failed deterministically. Open the repo checks job logs; downstream cancelled jobs are expected."
                     fi
-                    if [[ "${{ needs.check-openapi-types.result }}" == "failure" && "${{ needs.check-openapi-types.outputs.openapi_check_failed }}" == "true" ]]; then
+                    if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
                       echo ""
                       echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
                     fi
@@ -2651,12 +2661,12 @@ jobs:
                   deterministic_failure=false
                   failed=false
 
-                  if [[ "${{ needs.repo-checks.result }}" == "failure" && "${{ needs.repo-checks.outputs.setup_complete }}" == "true" ]]; then
+                  if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
                     deterministic_failure=true
                   fi
 
-                  if [[ "${{ needs.check-openapi-types.result }}" == "failure" && "${{ needs.check-openapi-types.outputs.openapi_check_failed }}" == "true" ]]; then
+                  if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
                     deterministic_failure=true
                   fi
