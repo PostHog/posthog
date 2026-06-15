@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
@@ -5,6 +7,7 @@ import {
     getEffectiveEventId,
     getInitialFocusEventId,
     getSingleTraceLoadTiming,
+    reportTraceNormalizationFailures,
     resolveTraceEventById,
     restoreTree,
 } from './aiObservabilityTraceDataLogic'
@@ -547,5 +550,85 @@ describe('getSingleTraceLoadTiming', () => {
             trace_timespan_seconds: 0,
             trace_query_runner_load_duration_ms: null,
         })
+    })
+})
+
+describe('reportTraceNormalizationFailures', () => {
+    let capture: jest.SpyInstance
+
+    beforeEach(() => {
+        capture = jest.spyOn(posthog, 'capture').mockImplementation()
+    })
+
+    afterEach(() => {
+        capture.mockRestore()
+    })
+
+    const traceWith = (events: Partial<LLMTraceEvent>[]): LLMTrace => ({
+        id: 'trace-1',
+        createdAt: '2024-01-01T00:00:00Z',
+        distinctId: 'user-1',
+        events: events.map((e, i) => ({
+            id: `event-${i}`,
+            event: '$ai_generation',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+            ...e,
+        })),
+    })
+
+    it('captures both unrecognized sides of a generation', () => {
+        reportTraceNormalizationFailures(
+            traceWith([{ properties: { $ai_input: { weird: 1 }, $ai_output: { odd: 2 } } }])
+        )
+
+        expect(capture).toHaveBeenCalledTimes(2)
+        expect(capture).toHaveBeenCalledWith('llma message normalization failed', {
+            message_keys: ['weird'],
+            message_type: 'object',
+        })
+        expect(capture).toHaveBeenCalledWith('llma message normalization failed', {
+            message_keys: ['odd'],
+            message_type: 'object',
+        })
+    })
+
+    it('skips non-generation events', () => {
+        reportTraceNormalizationFailures(
+            traceWith([{ event: '$ai_span', properties: { $ai_input_state: { weird: 1 } } }])
+        )
+
+        expect(capture).not.toHaveBeenCalled()
+    })
+
+    it('does not capture a recognized generation', () => {
+        reportTraceNormalizationFailures(
+            traceWith([
+                {
+                    properties: {
+                        $ai_input: { role: 'user', content: 'hi' },
+                        $ai_output_choices: { role: 'assistant', content: 'hello' },
+                    },
+                },
+            ])
+        )
+
+        expect(capture).not.toHaveBeenCalled()
+    })
+
+    it('prefers $ai_output_choices over $ai_output', () => {
+        reportTraceNormalizationFailures(
+            traceWith([
+                {
+                    properties: {
+                        $ai_input: { role: 'user', content: 'hi' },
+                        $ai_output_choices: { role: 'assistant', content: 'from choices' },
+                        $ai_output: { unrecognized: true },
+                    },
+                },
+            ])
+        )
+
+        expect(capture).not.toHaveBeenCalled()
     })
 })

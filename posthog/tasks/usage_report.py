@@ -23,8 +23,6 @@ from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
-from posthog.schema import AIEventType
-
 from posthog import version_requirement
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -39,6 +37,7 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.schema_enums import AIEventType
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
@@ -1138,6 +1137,8 @@ POSTHOG_AI_PRODUCTS = [
     "slack_app",
     "subscriptions",
     "alert_investigation_agent",
+    "product_analytics",
+    "surveys",
 ]
 
 # ai_product values billed as signals credits.
