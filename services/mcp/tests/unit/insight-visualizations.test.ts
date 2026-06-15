@@ -78,10 +78,26 @@ describe('insight visualizations', () => {
             })
 
             it('falls back to the query kind when results is a formatted string', () => {
-                // insight-query with output_format=optimized currently puts the server-side
-                // formatted summary (a string) into `results`; only the kind fallback fires.
+                // If a formatted summary (a string) ever reaches the UI app as `results`, the
+                // structural guards can't match and only the kind fallback can classify it.
                 const data = queryPayload('Date | $pageview\n2025-06-01 | 10', 'TrendsQuery')
                 expect(inferVisualizationType(data)).toBe('trends')
+            })
+
+            it.each([
+                ['DataVisualizationNode wrapping HogQLQuery', 'DataVisualizationNode', 'HogQLQuery', 'table'],
+                ['InsightVizNode wrapping TrendsQuery', 'InsightVizNode', 'TrendsQuery', 'trends'],
+                ['InsightVizNode wrapping RetentionQuery', 'InsightVizNode', 'RetentionQuery', 'retention'],
+            ] as const)('unwraps %s to its inner kind', (_label, wrapperKind, sourceKind, expected) => {
+                // Wrapper nodes carry the real query kind on `source.kind`; the fallback must
+                // unwrap so a formatted-string payload still resolves to the right visualization.
+                const data = { query: { kind: wrapperKind, source: { kind: sourceKind } }, results: 'col\n1' }
+                expect(inferVisualizationType(data)).toBe(expected)
+            })
+
+            it('returns null for a wrapper node with no source kind', () => {
+                const data = { query: { kind: 'DataVisualizationNode' }, results: 'col\n1' }
+                expect(inferVisualizationType(data)).toBeNull()
             })
 
             it('returns null for StickinessQuery with empty results', () => {

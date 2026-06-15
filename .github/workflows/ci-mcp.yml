@@ -473,6 +473,24 @@ jobs:
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
+                  # The dump is produced by ci-backend.yml, where TEST=1 activates
+                  # ProductDBRouter and routes the apps in products/db_routing.yaml to
+                  # separate databases: their tables are absent from the dump, but
+                  # django_migrations still records their migrations as applied. This job
+                  # configures no product DBs, so those apps live on the default DB —
+                  # drop their migration records so migrate below replays them from 0001
+                  # and actually creates the tables.
+                  APPS=$(python - <<'EOF'
+                  import yaml
+                  with open("products/db_routing.yaml") as f:
+                      routes = yaml.safe_load(f)["routes"]
+                  print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
+                  EOF
+                  )
+                  if [ -n "$APPS" ]; then
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog posthog \
+                        -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
+                  fi
 
             - name: Run migrations
               run: |
