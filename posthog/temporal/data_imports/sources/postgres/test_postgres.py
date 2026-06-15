@@ -1328,17 +1328,34 @@ class TestIsPartitionedTable:
 
 class TestGetTableChunkSize:
     @pytest.mark.django_db
-    def test_failing_probe_falls_back_without_poisoning_transaction(self):
+    def test_failing_probe_isolated_by_autocommit(self):
+        # Discovery runs the probes on an autocommit connection (no shared transaction), so a
+        # failing probe falls back to DEFAULT_CHUNK_SIZE and — crucially — doesn't poison the
+        # connection for later probes. A raw autocommit connection mirrors production here; the
+        # default django_db cursor runs inside a transaction and wouldn't exercise that path.
         logger = structlog.get_logger()
 
-        with django_connection.cursor() as dj_cursor:
-            inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
+        sd = django_connection.settings_dict
+        conn = psycopg.connect(
+            host=sd["HOST"] or None,
+            port=sd["PORT"] or None,
+            dbname=sd["NAME"],
+            user=sd["USER"] or None,
+            password=sd["PASSWORD"] or None,
+            autocommit=True,
+        )
+        try:
+            with conn.cursor() as cursor:
+                inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
 
-            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
-            assert chunk_size == DEFAULT_CHUNK_SIZE
+                chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger)
+                assert chunk_size == DEFAULT_CHUNK_SIZE
 
-            dj_cursor.execute("SELECT 1")
-            assert dj_cursor.fetchone()[0] == 1
+                # No poisoning: the next probe on the same connection still works.
+                cursor.execute("SELECT 1")
+                assert cursor.fetchone()[0] == 1
+        finally:
+            conn.close()
 
 
 class TestGetRowsToSync:
@@ -1360,6 +1377,35 @@ class TestGetRowsToSync:
         # Best-effort estimate falls back to 0 and never reports the handled failure.
         assert rows == 0
         mock_capture.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_failing_count_isolated_by_autocommit(self):
+        # Regression for the reported incident: on a read replica the COUNT(*) for rows-to-sync
+        # gets cancelled ("conflict with recovery"). Under the autocommit discovery connection
+        # that failure must stay contained — return 0 and leave the connection usable for the
+        # remaining probes — rather than poisoning a shared transaction.
+        logger = structlog.get_logger()
+        sd = django_connection.settings_dict
+        conn = psycopg.connect(
+            host=sd["HOST"] or None,
+            port=sd["PORT"] or None,
+            dbname=sd["NAME"],
+            user=sd["USER"] or None,
+            password=sd["PASSWORD"] or None,
+            autocommit=True,
+        )
+        count_query = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
+            table=sql.Identifier("information_schema", "tables"),
+            col=sql.Identifier("does_not_exist_count_col"),
+        )
+        try:
+            with conn.cursor() as cursor:
+                assert _get_rows_to_sync(cast(Any, cursor), count_query, logger) == 0
+
+                cursor.execute("SELECT 1")
+                assert cursor.fetchone()[0] == 1
+        finally:
+            conn.close()
 
     def test_temp_file_limit_error_still_raises(self):
         logger = structlog.get_logger()

@@ -1133,11 +1133,11 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
 
     try:
         # Debug-only and best-effort: a query may use syntax the source DB rejects (e.g.
-        # TABLESAMPLE on CockroachDB). Savepoint so a failure doesn't poison the transaction.
-        with cursor.connection.transaction(savepoint_name="explain_query"):
-            query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-            cursor.execute(query_with_explain)
-            rows = cursor.fetchall()
+        # TABLESAMPLE on CockroachDB). Discovery runs autocommit, so a failed EXPLAIN is
+        # isolated to its own statement and can't poison later probes.
+        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+        cursor.execute(query_with_explain)
+        rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
         for row in rows:
@@ -1283,13 +1283,12 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             ) as subquery
         """).format(inner_query)
 
-        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB). Savepoint
-        # so a failure falls back to DEFAULT_CHUNK_SIZE without poisoning the transaction.
-        with cursor.connection.transaction(savepoint_name="table_chunk_size"):
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
-            cursor.execute(query)
-            row = cursor.fetchone()
+        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB). Discovery
+        # runs autocommit, so a failure falls back to DEFAULT_CHUNK_SIZE without affecting later probes.
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
+        cursor.execute(query)
+        row = cursor.fetchone()
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
@@ -1366,13 +1365,22 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
 
 
 def _get_partition_settings(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    *,
+    is_partitioned: bool | None = None,
 ) -> PartitionSettings | None:
     # For partitioned tables, a plain COUNT(*) and pg_table_size on the
     # parent would scan every child partition / return 0. Use catalog
     # estimates instead.
     try:
-        if _is_partitioned_table(cursor, schema, table_name):
+        # Reuse the partition flag the caller already computed when available; only fall back
+        # to detecting it here when it wasn't passed. Saves a redundant catalog round trip.
+        if is_partitioned is None:
+            is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+        if is_partitioned:
             return _get_partition_settings_for_partitioned_table(cursor, schema, table_name, logger)
     except Exception as e:
         logger.debug(f"_get_partition_settings: partition detection failed, falling back: {e}")
@@ -1617,13 +1625,11 @@ def _get_table(
     # already materialized on disk and behave like tables here.
     if unconstrained_numeric_columns and probe_unconstrained_numeric_scale and not is_view:
         try:
-            # Isolate the probe in a savepoint so that any failure (permission denied, bad
-            # type, statement_timeout, network blip) rolls back cleanly without poisoning the
-            # enclosing metadata transaction. Without this, a probe error leaves the
-            # transaction in `INERROR` state and every subsequent query in `postgres_source`
-            # (SET LOCAL statement_timeout, _is_read_replica, _get_primary_keys, _get_rows_to_sync,
-            # ...) fails with `InFailedSqlTransaction: current transaction is aborted`.
-            with cursor.connection.transaction(savepoint_name="probe_numeric_scale"):
+            # Wrap the probe in its own transaction purely to scope the 30s `SET LOCAL
+            # statement_timeout` below to this one aggregation (it auto-resets on exit).
+            # Discovery runs autocommit, so this is a self-contained BEGIN/COMMIT — a probe
+            # failure rolls back cleanly and can't poison later probes.
+            with cursor.connection.transaction():
                 # Scope a short statement_timeout to the probe so a pathologically large table
                 # or slow aggregation can't hang schema discovery. The outer 10-minute
                 # statement_timeout isn't set until `postgres_source` continues after
@@ -1804,6 +1810,14 @@ def postgres_source(
                 ) from e
             raise
 
+        # Schema discovery runs a series of best-effort probes (row counts, RLS, partition
+        # detection, numeric-scale). Run them in autocommit so each probe is its own implicit
+        # transaction: a probe that fails — e.g. a read-replica recovery conflict on a slow
+        # COUNT(*), a statement timeout, a permission error — can't leave an aborted transaction
+        # that poisons every subsequent probe with `InFailedSqlTransaction`. This replaces the
+        # per-probe savepoint wrappers that previously guarded against that poisoning.
+        connection.autocommit = True
+
         with connection:
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
@@ -1822,8 +1836,11 @@ def postgres_source(
                     probe_unconstrained_numeric_scale=fresh_schema_being_created,
                 )
 
+                # Session-level (not LOCAL): under autocommit there's no surrounding transaction
+                # for a LOCAL setting to bind to, so it would be a no-op. A session SET persists
+                # across the autocommit probes below until the connection closes.
                 cursor.execute(
-                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    sql.SQL("SET statement_timeout = {timeout}").format(
                         timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
                     )
                 )
@@ -1934,7 +1951,7 @@ def postgres_source(
 
                     logger.debug("Getting partition settings...")
                     partition_settings = (
-                        _get_partition_settings(cursor, schema, table_name, logger)
+                        _get_partition_settings(cursor, schema, table_name, logger, is_partitioned=is_partitioned)
                         if should_use_incremental_field
                         else None
                     )
