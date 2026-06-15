@@ -15,6 +15,11 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+# Marker stamped on each feature-flag release group's `description` when an experiment's exposure is
+# closed. Closed-exposure state is derived from this marker, not stored on the experiment.
+EXPOSURE_CLOSED_GROUP_MARKER = "Added automatically when the experiment exposure was closed."
+
+
 class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
@@ -134,6 +139,16 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     def is_paused(self) -> bool:
         # Pause is not stored on the experiment — it is the running state with the linked flag deactivated.
         return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
+
+    @property
+    def is_exposure_closed(self) -> bool:
+        # Closed exposure is not stored on the experiment — it is the running state with the linked flag's
+        # release groups narrowed to a static snapshot of the already-exposed cohort. We detect it from the
+        # marker stamped on each group's description when the cohort condition was AND'd in.
+        if not self.is_running or self.feature_flag_id is None:
+            return False
+        groups = (self.feature_flag.filters or {}).get("groups", [])
+        return any(EXPOSURE_CLOSED_GROUP_MARKER in (group.get("description") or "") for group in groups)
 
     @property
     def computed_status(self) -> "Experiment.Status":

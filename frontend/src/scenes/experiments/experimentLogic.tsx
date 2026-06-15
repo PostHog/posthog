@@ -710,6 +710,8 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
+        closeExposure: true,
+        setCloseExposureLoading: (loading: boolean) => ({ loading }),
         archiveExperiment: true,
         unarchiveExperiment: true,
         resetRunningExperiment: true,
@@ -1269,6 +1271,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setEndExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        closeExposureLoading: [
+            false,
+            {
+                setCloseExposureLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -1554,6 +1562,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.closeResumeExperimentModal()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to resume experiment')
+            }
+        },
+        closeExposure: async () => {
+            actions.setCloseExposureLoading(true)
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/close_exposure`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.success('Exposure closed — enrollment is frozen and metrics keep collecting')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to close exposure')
+            } finally {
+                actions.setCloseExposureLoading(false)
             }
         },
         archiveExperiment: async () => {

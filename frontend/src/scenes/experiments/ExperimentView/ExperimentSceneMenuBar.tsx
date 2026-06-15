@@ -6,6 +6,7 @@ import {
     IconArchive,
     IconCopy,
     IconEye,
+    IconLock,
     IconPause,
     IconPlay,
     IconPlusSmall,
@@ -36,13 +37,13 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExperimentStatus } from '~/types'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
@@ -71,6 +72,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExposureCohort,
         createExperimentDashboard,
         resetRunningExperiment,
+        closeExposure,
         toggleDebugPanel,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
@@ -97,6 +99,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const exposureCohortId = experiment?.exposure_cohort
     const showRunningState = isExperimentRunning && !isExperimentStopped && !!experiment.feature_flag
     const paused = isExperimentPaused(experiment)
+    const exposureClosed = getExperimentStatus(experiment) === ExperimentStatus.ExposureClosed
 
     const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
     const handleDelete = (): void =>
@@ -133,6 +136,35 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                 children: 'Confirm',
                 type: 'primary',
                 onClick: resetRunningExperiment,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const handleCloseExposure = (): void => {
+        LemonDialog.open({
+            title: 'Close exposure?',
+            content: (
+                <div className="text-sm text-secondary max-w-md">
+                    <p>
+                        Enrollment will be frozen to the users already exposed — new users can no longer enter the
+                        experiment. Everyone already enrolled keeps their variant.
+                    </p>
+                    <p>
+                        The experiment <b>keeps running</b> so long-term metrics (revenue, retention, renewals) keep
+                        collecting. End the experiment when you're done measuring.
+                    </p>
+                </div>
+            ),
+            primaryButton: {
+                children: 'Close exposure',
+                type: 'primary',
+                onClick: closeExposure,
                 size: 'small',
             },
             secondaryButton: {
@@ -278,15 +310,27 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 Resume experiment
                             </SceneMenuBarItem>
                         ) : (
-                            <SceneMenuBarItem
-                                opensFloatingUi
-                                variant="destructive"
-                                onClick={() => openPauseExperimentModal()}
-                                data-attr={`${RESOURCE_TYPE}-menubar-pause`}
-                            >
-                                <IconPause />
-                                Pause experiment
-                            </SceneMenuBarItem>
+                            <>
+                                {!exposureClosed && (
+                                    <SceneMenuBarItem
+                                        opensFloatingUi
+                                        onClick={handleCloseExposure}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-close-exposure`}
+                                    >
+                                        <IconLock />
+                                        Close exposure
+                                    </SceneMenuBarItem>
+                                )}
+                                <SceneMenuBarItem
+                                    opensFloatingUi
+                                    variant="destructive"
+                                    onClick={() => openPauseExperimentModal()}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-pause`}
+                                >
+                                    <IconPause />
+                                    Pause experiment
+                                </SceneMenuBarItem>
+                            </>
                         ))}
                 </SceneMenuBarMenu>
                 {showStaffMenu && (

@@ -14,6 +14,7 @@ import {
     experimentsLogic,
     getExperimentStatus,
     getExperimentStatusColor,
+    getExperimentStatusLabel,
     hasEnded,
     isExperimentPaused,
 } from './experimentsLogic'
@@ -568,12 +569,31 @@ describe('utility functions', () => {
         })
     })
 
+    describe('getExperimentStatus', () => {
+        it('returns ExposureClosed when the API status is exposure_closed', () => {
+            const closedExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                status: ExperimentStatus.ExposureClosed,
+                feature_flag: { active: true },
+            })
+            expect(getExperimentStatus(closedExperiment)).toBe(ExperimentStatus.ExposureClosed)
+        })
+    })
+
     describe('getExperimentStatusColor', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
             expect(getExperimentStatusColor(ExperimentStatus.Paused)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.ExposureClosed)).toBe('highlight')
             expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
+        })
+    })
+
+    describe('getExperimentStatusLabel', () => {
+        it('labels exposure_closed as Measuring', () => {
+            expect(getExperimentStatusLabel(ExperimentStatus.ExposureClosed)).toBe('Measuring')
         })
     })
 

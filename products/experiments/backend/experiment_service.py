@@ -34,6 +34,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_CLOSED_GROUP_MARKER,
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
@@ -1411,6 +1412,153 @@ class ExperimentService:
         report_user_action(
             self.user,
             "experiment resumed",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Close exposure
+    # ------------------------------------------------------------------
+
+    def close_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
+        """Close enrollment on a running experiment while keeping metrics flowing.
+
+        Moves the experiment into a "measuring" state: it snapshots the
+        already-exposed users into a static cohort and narrows the feature flag so
+        only those users keep matching — new users can no longer enter. ``end_date``
+        is left null so long-term metrics (revenue/LTV/renewals/retention) keep
+        accumulating. Enrolled users keep their variant by deterministic hash since
+        ``multivariate.variants`` is left untouched.
+
+        Mirrors ``ship_variant``: the flag update goes through ``FeatureFlagSerializer``
+        so the approval workflow (``@approval_gate``) is honoured. If change-request
+        approval is required the serializer raises ``ApprovalRequired``, the flag is
+        left unmodified, the snapshot cohort is rolled back, and a 409 is returned to
+        the caller. ``request`` is required for the serializer's approval-policy
+        evaluation.
+
+        Group-aggregated experiments are rejected: their flags target groups, not
+        persons, so a person cohort cannot freeze the exposed set.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+        if experiment.is_exposure_closed:
+            raise ValidationError("Experiment exposure is already closed.")
+
+        flag = experiment.feature_flag
+        if flag is None:
+            raise ValidationError("Experiment does not have a feature flag linked.")
+        if flag.aggregation_group_type_index is not None:
+            raise ValidationError("Group-aggregated experiments cannot have their exposure closed.")
+
+        cohort = self._create_exposure_snapshot_cohort(experiment, flag)
+
+        new_filters = self._transform_filters_for_closed_exposure(flag.filters, cohort.id)
+
+        flag_serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": new_filters},
+            partial=True,
+            context={
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        try:
+            flag_serializer.is_valid(raise_exception=True)
+            flag_serializer.save()
+        except Exception:
+            # Keep the action non-destructive: if the flag change is rejected (e.g. an
+            # approval gate raises ApprovalRequired), drop the orphaned snapshot cohort so
+            # the experiment and flag are left exactly as they were.
+            cohort.delete()
+            raise
+
+        # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
+        flag.refresh_from_db()
+        experiment.feature_flag = flag
+
+        self._report_experiment_exposure_closed(experiment, request=request)
+
+        return experiment
+
+    def _create_exposure_snapshot_cohort(self, experiment: Experiment, flag: FeatureFlag) -> Cohort:
+        """Snapshot the actually-exposed users into a static cohort.
+
+        Static is required — behavioral cohorts are rejected by feature-flag validation.
+        The query selects persons who fired ``$feature_flag_called`` for this flag since
+        the experiment started, freezing the exposed set rather than the eligible audience.
+        """
+        context = {**self._build_serializer_context(), "team": self.team}
+        cohort_serializer = CohortSerializer(
+            data={
+                "is_static": True,
+                "name": f'Exposure snapshot for experiment "{experiment.name}"',
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": (
+                        "SELECT DISTINCT person_id FROM events "
+                        "WHERE event = '$feature_flag_called' "
+                        "AND properties.$feature_flag = {flag_key} "
+                        "AND timestamp >= toDateTime({start_date})"
+                    ),
+                    "values": {
+                        "flag_key": flag.key,
+                        "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                    },
+                },
+            },
+            context=context,
+        )
+        cohort_serializer.is_valid(raise_exception=True)
+        return cohort_serializer.save()
+
+    @staticmethod
+    def _transform_filters_for_closed_exposure(current_filters: dict, cohort_id: int) -> dict:
+        """AND a static-cohort condition into every release group and stamp the close marker.
+
+        AND (not a new group): groups are OR'd, so a separate group would *widen* access.
+        AND (not replace): the original per-group ``properties``/``rollout_percentage`` are
+        preserved so a future reopen or manual revert strips back to exactly the original.
+        Everything else (``multivariate``, ``payloads``, aggregation index) is left byte-for-byte.
+        """
+        cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
+
+        new_filters = deepcopy(current_filters)
+        new_groups = []
+        for group in current_filters.get("groups", []):
+            existing_description = group.get("description") or ""
+            description = (
+                existing_description
+                if EXPOSURE_CLOSED_GROUP_MARKER in existing_description
+                else f"{existing_description} {EXPOSURE_CLOSED_GROUP_MARKER}".strip()
+            )
+            new_groups.append(
+                {
+                    **deepcopy(group),
+                    "properties": [*deepcopy(group.get("properties", [])), cohort_condition],
+                    "description": description,
+                }
+            )
+        new_filters["groups"] = new_groups
+        return new_filters
+
+    def _report_experiment_exposure_closed(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment exposure closed",
             experiment.get_analytics_metadata(),
             team=experiment.team,
             request=request,
@@ -3035,3 +3183,5 @@ class _ServiceRequest:
         self.META: dict = {}
         self.headers: dict = {}
         self.session: dict = {}
+        # CohortSerializer checks request.FILES for CSV uploads when creating static cohorts.
+        self.FILES: dict = {}

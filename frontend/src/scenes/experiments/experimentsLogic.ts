@@ -134,6 +134,8 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
             return 'Running'
         case ExperimentStatus.Paused:
             return 'Paused'
+        case ExperimentStatus.ExposureClosed:
+            return 'Measuring'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
@@ -147,6 +149,8 @@ export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType
             return 'success'
         case ExperimentStatus.Paused:
             return 'warning'
+        case ExperimentStatus.ExposureClosed:
+            return 'highlight'
         case ExperimentStatus.Stopped:
             return 'completion'
     }

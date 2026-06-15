@@ -1284,6 +1284,53 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('closeExposure', () => {
+        it('calls close_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const closedResponse = { ...experiment, status: 'exposure_closed' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(closedResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            expect(keyed.values.closeExposureLoading).toBe(false)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.closeExposure()
+            })
+                .toDispatchActions(['closeExposure', 'setCloseExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/close_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('exposure_closed')
+            // Loading guard is reset after the request settles.
+            expect(keyed.values.closeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast and resets the loading guard on failure', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment exposure is already closed.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.closeExposure()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment exposure is already closed.')
+            expect(logic.values.closeExposureLoading).toBe(false)
+            createSpy.mockRestore()
+        })
+    })
+
     describe('resetRunningExperiment', () => {
         it('calls reset endpoint and updates experiment to draft state', async () => {
             const runningExperiment = {

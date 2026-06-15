@@ -1061,6 +1061,7 @@ export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
     Paused = 'paused',
+    ExposureClosed = 'exposure_closed',
     Stopped = 'stopped',
 }
 

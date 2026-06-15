@@ -4452,6 +4452,45 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_close_exposure_endpoint(self):
+        data = self._create_running_experiment(name="Close Endpoint", flag_key="close-endpoint-flag")
+        experiment_id = data["id"]
+
+        close_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/",
+        )
+        self.assertEqual(close_response.status_code, status.HTTP_200_OK)
+        body = close_response.json()
+        # Closed exposure is still running under the hood — precedence puts exposure_closed first.
+        self.assertEqual(body["status"], "exposure_closed")
+        self.assertIsNone(body["end_date"])
+        self.assertTrue(body["feature_flag"]["active"])
+
+    def test_close_exposure_already_closed_returns_400(self):
+        data = self._create_running_experiment(name="Double Close", flag_key="double-close-flag")
+        experiment_id = data["id"]
+
+        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/")
+
+        second_close = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/",
+        )
+        self.assertEqual(second_close.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_close_exposure_draft_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Close Draft", "feature_flag_key": "close-draft-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        close_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/",
+        )
+        self.assertEqual(close_response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_end_experiment_endpoint(self):
         data = self._create_running_experiment(name="End Endpoint", flag_key="end-endpoint-flag")
         experiment_id = data["id"]

@@ -17,6 +17,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
+from posthog.approvals.exceptions import ApprovalRequired
 from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -25,6 +26,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_CLOSED_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -2527,6 +2529,179 @@ class TestExperimentService(APIBaseTest):
 
         with self.assertRaises(ValidationError):
             service.resume_experiment(experiment)
+
+    # ------------------------------------------------------------------
+    # Close exposure
+    # ------------------------------------------------------------------
+
+    def _mark_group_as_exposure_closed(self, flag: FeatureFlag) -> None:
+        filters = deepcopy(flag.filters)
+        for group in filters.get("groups", []):
+            group["description"] = EXPOSURE_CLOSED_GROUP_MARKER
+        flag.filters = filters
+        flag.save()
+
+    @parameterized.expand(
+        [
+            ("running_with_marker", "running", True, True),
+            ("running_without_marker", "running", False, False),
+            ("draft_with_marker", "draft", True, False),
+            ("stopped_with_marker", "stopped", True, False),
+        ]
+    )
+    def test_is_exposure_closed_property(self, _name: str, state: str, marker: bool, expected: bool) -> None:
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="Exp Closed Draft", feature_flag_key=f"ec-{_name}")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="Exp Closed Stopped", feature_flag_key=f"ec-{_name}")
+        else:
+            experiment = self._create_running_experiment(name="Exp Closed Running", feature_flag_key=f"ec-{_name}")
+
+        if marker:
+            self._mark_group_as_exposure_closed(experiment.feature_flag)
+
+        experiment.refresh_from_db()
+        assert experiment.is_exposure_closed is expected
+
+    def test_close_exposure_success(self):
+        experiment = self._create_running_experiment(name="Close Exposure", feature_flag_key="close-exposure-flag")
+        original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])
+
+        closed = self._service().close_exposure(experiment, request=self._make_request())
+
+        closed.feature_flag.refresh_from_db()
+
+        # A static snapshot cohort was created.
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Close Exposure"')
+        assert cohort.is_static is True
+
+        # The cohort condition + marker were AND'd into every release group.
+        groups = closed.feature_flag.filters["groups"]
+        assert len(groups) >= 1
+        for group in groups:
+            assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in group["properties"]
+            assert EXPOSURE_CLOSED_GROUP_MARKER in group["description"]
+
+        # Variants left byte-for-byte unchanged so enrolled users keep their variant.
+        assert closed.feature_flag.filters["multivariate"] == original_variants
+
+        # Metrics keep flowing — not ended.
+        assert closed.end_date is None
+        assert closed.is_running is True
+        assert closed.is_exposure_closed is True
+
+    def test_close_exposure_multi_group_flag(self):
+        experiment = self._create_running_experiment(name="Close Multi", feature_flag_key="close-multi-flag")
+        flag = experiment.feature_flag
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        internal_group = {
+            "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+            "rollout_percentage": 100,
+        }
+        updated_filters = {**flag.filters, "groups": [catch_all, internal_group]}
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+
+        closed = self._service().close_exposure(experiment, request=self._make_request())
+        closed.feature_flag.refresh_from_db()
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Close Multi"')
+
+        groups = closed.feature_flag.filters["groups"]
+        assert len(groups) == 2
+        cohort_condition = {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"}
+
+        # Catch-all group: only the cohort condition added.
+        assert groups[0]["properties"] == [cohort_condition]
+        assert groups[0]["rollout_percentage"] == 100
+
+        # Internal group: original property preserved, cohort condition appended last.
+        assert len(groups[1]["properties"]) == 2
+        assert groups[1]["properties"][-1] == cohort_condition
+        assert groups[1]["properties"][0]["key"] == "email"
+        assert groups[1]["rollout_percentage"] == 100
+
+    @parameterized.expand(
+        [
+            ("draft",),
+            ("stopped",),
+            ("already_closed",),
+            ("group_aggregated",),
+            ("missing_flag",),
+        ]
+    )
+    def test_close_exposure_guards_raise(self, state: str):
+        service = self._service()
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="CE Draft", feature_flag_key=f"ce-{state}-flag")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="CE Stopped", feature_flag_key=f"ce-{state}-flag")
+        else:
+            experiment = self._create_running_experiment(name="CE Running", feature_flag_key=f"ce-{state}-flag")
+
+        if state == "already_closed":
+            self._mark_group_as_exposure_closed(experiment.feature_flag)
+            experiment.refresh_from_db()
+        elif state == "group_aggregated":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, "aggregation_group_type_index": 0}
+            flag.save()
+            experiment.refresh_from_db()
+        elif state == "missing_flag":
+            experiment.feature_flag = None
+
+        with self.assertRaises(ValidationError):
+            service.close_exposure(experiment, request=self._make_request())
+
+    def test_close_exposure_approval_gate_is_non_destructive(self):
+        experiment = self._create_running_experiment(name="CE Approval", feature_flag_key="ce-approval-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        with patch("products.experiments.backend.experiment_service.FeatureFlagSerializer") as mock_serializer_cls:
+            instance = mock_serializer_cls.return_value
+            instance.is_valid.return_value = True
+            instance.save.side_effect = ApprovalRequired(
+                change_request=MagicMock(), message="Approval required", required_approvers={}
+            )
+
+            with self.assertRaises(ApprovalRequired):
+                self._service().close_exposure(experiment, request=self._make_request())
+
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        # Flag untouched and the orphan snapshot cohort was rolled back.
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_closed is False
+        assert experiment.end_date is None
+        assert not Cohort.objects.filter(team=self.team, name='Exposure snapshot for experiment "CE Approval"').exists()
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_close_exposure_reports_analytics(self, mock_report: MagicMock):
+        experiment = self._create_running_experiment(name="CE Analytics", feature_flag_key="ce-analytics-flag")
+
+        self._service().close_exposure(experiment, request=self._make_request())
+
+        assert any(call.args[1] == "experiment exposure closed" for call in mock_report.call_args_list)
+
+    def test_close_exposure_retains_cohort_and_second_close_raises(self):
+        experiment = self._create_running_experiment(name="CE Retain", feature_flag_key="ce-retain-flag")
+
+        self._service().close_exposure(experiment, request=self._make_request())
+        experiment.refresh_from_db()
+
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "CE Retain"')
+
+        with self.assertRaises(ValidationError):
+            self._service().close_exposure(experiment, request=self._make_request())
+
+        # The snapshot cohort is retained (non-destructive).
+        assert Cohort.objects.filter(pk=cohort.pk).exists()
 
     # ------------------------------------------------------------------
     # Reset

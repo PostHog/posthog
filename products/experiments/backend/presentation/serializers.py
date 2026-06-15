@@ -216,13 +216,17 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
             "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'stopped' (ended)."
+            "feature_flag.active, not stored), 'exposure_closed' (running with enrollment frozen to the "
+            "already-exposed cohort while metrics keep flowing — virtual state derived from the flag's "
+            "release groups, not stored), 'stopped' (ended)."
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_closed", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
+        if instance.is_exposure_closed:
+            return "exposure_closed"
         if instance.is_paused:
             return "paused"
         return instance.status or instance.computed_status.value
