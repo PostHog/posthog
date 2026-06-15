@@ -1,27 +1,19 @@
 import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { drawAxes, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
-import type { DrawContext } from '../../core/canvas-renderer'
-import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { createScales as createSlopeScales, yTickCountForHeight } from '../../core/scales'
-import type { ScaleSet } from '../../core/scales'
 import type {
     ChartConfig,
-    ChartDimensions,
-    ChartDrawArgs,
     ChartMargins,
-    ChartScales,
     ChartTheme,
-    CreateScalesFn,
+    LineChartConfig,
     PointClickData,
-    ResolvedSeries,
     Series,
     TooltipContext,
     ValueDomain,
 } from '../../core/types'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
+import { LineChart } from '../LineChart/LineChart'
 import {
     defaultDeltaFormatter,
     defaultValueFormatter,
@@ -35,11 +27,6 @@ import { SlopeSeriesLabels } from './SlopeSeriesLabels'
 import { SlopeValueLabels } from './SlopeValueLabels'
 
 export type { SlopeSeriesMeta } from './slope-data'
-
-// Brand for the private ChartScales._private slot used by SlopeChart, mirroring LineChart.
-interface SlopeChartPrivate {
-    __slopeChart: ScaleSet
-}
 
 const LABEL_FONT = `600 12px ${FONT_FAMILY}`
 const VALUE_GAP = 8
@@ -120,10 +107,8 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         deltaFormatter = defaultDeltaFormatter,
         endpointRadius = DEFAULT_ENDPOINT_RADIUS,
         valueDomain,
-        yScaleType = 'linear',
     } = config ?? {}
 
-    // Per-series start/end value labels can be toggled via `meta`; fall back to the chart default.
     const showsStart = useCallback(
         (s: Series<Meta>): boolean => slopeLabelVisible(s, 'start', showStartLabels),
         [showStartLabels]
@@ -133,8 +118,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         [showEndLabels]
     )
 
-    // Reserve left/right gutters sized to the actual label content so the absolutely-positioned
-    // value/name labels (which live in the margins, beyond the plot edges) aren't clipped.
+    // Reserve left/right gutters for the value/name labels, which sit in the margins beyond the plot.
     const { margins, nameOffsetX } = useMemo(() => {
         const startWidth = maxLabelWidth(series.filter(showsStart).map((s) => valueFormatter(slopeStart(s))))
         const endWidth = maxLabelWidth(series.filter(showsEnd).map((s) => valueFormatter(slopeEnd(s))))
@@ -158,91 +142,20 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
     }, [series, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
-    // Slope charts encode the value through the start/end labels themselves, so the left value
-    // axis is hidden by default; the x-axis keeps the two column labels ("Before"/"After").
-    const chartConfig = useMemo<ChartConfig>(() => ({ hideYAxis: true, ...config, margins }), [config, margins])
-
-    const createScales: CreateScalesFn = useCallback(
-        (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
-            const d3Scales = createSlopeScales(coloredSeries, scaleLabels, dimensions, {
-                scaleType: yScaleType,
-                valueDomain,
-            })
-            const yTickCount = yTickCountForHeight(dimensions.plotHeight)
-            const slopePrivate: SlopeChartPrivate = { __slopeChart: d3Scales }
-            return {
-                x: (label: string) => d3Scales.x(label),
-                y: (value: number) => d3Scales.y(value),
-                yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
-                _private: slopePrivate,
-            }
-        },
-        [valueDomain, yScaleType]
+    // A slope is a two-point line — collapse each series to its endpoints, with a dot at each.
+    const slopeSeries = useMemo<Series<Meta>[]>(
+        () =>
+            series.map((s) => ({
+                ...s,
+                data: [slopeStart(s), slopeEnd(s)],
+                points: { ...s.points, radius: endpointRadius },
+            })),
+        [series, endpointRadius]
     )
 
-    const drawStatic = useCallback(
-        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme: drawTheme }: ChartDrawArgs) => {
-            const d3Scales = (scales._private as SlopeChartPrivate | undefined)?.__slopeChart
-            if (!d3Scales || drawLabels.length < 2) {
-                return
-            }
-            const drawCtx: DrawContext = { ctx, dimensions, xScale: d3Scales.x, yScale: d3Scales.y, labels: drawLabels }
-
-            if (config?.showAxisLines) {
-                drawAxes(drawCtx, { axisColor: drawTheme.gridColor })
-            }
-
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
-                }
-                // Collapse to the two endpoints so the shared line/point renderers map them to the
-                // start and end columns — a slope is a two-point line with a dot at each end.
-                const endpoints: ResolvedSeries = {
-                    ...s,
-                    data: [slopeStart(s), slopeEnd(s)],
-                    points: { radius: endpointRadius },
-                }
-                drawLine(drawCtx, endpoints)
-                drawPoints(drawCtx, endpoints)
-            }
-        },
-        [config?.showAxisLines, endpointRadius]
-    )
-
-    const drawHover = useCallback(
-        ({
-            ctx,
-            scales,
-            series: coloredSeries,
-            labels: drawLabels,
-            hoverIndex,
-            theme: drawTheme,
-        }: ChartDrawArgs): boolean => {
-            if (hoverIndex < 0 || drawLabels.length < 2) {
-                return false
-            }
-            const x = scales.x(drawLabels[hoverIndex])
-            if (x == null) {
-                return false
-            }
-            const background = drawTheme.backgroundColor ?? '#ffffff'
-            let drewAny = false
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
-                }
-                const value = hoverIndex === 0 ? slopeStart(s) : slopeEnd(s)
-                const y = scales.y(value)
-                if (!isFinite(y)) {
-                    continue
-                }
-                drawHighlightPoint(ctx, x, y, s.color, background, endpointRadius)
-                drewAny = true
-            }
-            return drewAny
-        },
-        [endpointRadius]
+    const lineConfig = useMemo<LineChartConfig>(
+        () => ({ ...config, hideYAxis: config?.hideYAxis ?? true, showGrid: false, margins, valueDomain }),
+        [config, margins, valueDomain]
     )
 
     const legendItems = useMemo(() => slopeLegendItems(series, theme, deltaFormatter), [series, theme, deltaFormatter])
@@ -256,14 +169,11 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
             gap={legend?.gap}
             legendDataAttr="hog-chart-slope-legend"
         >
-            <Chart
-                series={series}
+            <LineChart<Meta>
+                series={slopeSeries}
                 labels={labels}
-                config={chartConfig}
+                config={lineConfig}
                 theme={theme}
-                createScales={createScales}
-                drawStatic={drawStatic}
-                drawHover={drawHover}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
                 className={className}
@@ -276,7 +186,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 />
                 <SlopeSeriesLabels show={showSeriesLabels} offsetX={nameOffsetX} />
                 {children}
-            </Chart>
+            </LineChart>
         </ChartLegend>
     )
 }
