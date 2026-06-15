@@ -1127,9 +1127,10 @@ def get_query_runner_or_none(
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
 ) -> Optional["QueryRunner"]:
     try:
-        return get_query_runner(
+        runner = get_query_runner(
             query=query,
             team=team,
             timings=timings,
@@ -1141,6 +1142,11 @@ def get_query_runner_or_none(
         if "Can't get a runner for an unknown" in str(e):
             return None
         raise
+    # Reuse the caller's preloaded snapshot (e.g. one per request shared across a dashboard's
+    # insight runners) so the cache fingerprint doesn't bulk-load access control once per runner.
+    if user_access_control is not None and isinstance(runner, AnalyticsQueryRunner):
+        runner._user_access_control = user_access_control
+    return runner
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -1452,8 +1458,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
-        # __init__; let them refresh it now that we know the real user.
-        if user is not None:
+        # __init__; let them refresh it now that we know the real user. Only on an
+        # actual change - re-running for the same user would needlessly rebuild that
+        # state and drop a preloaded access-control snapshot.
+        if user is not None and user is not self.user:
             self.user = user
             self._on_user_changed()
         start_time = perf_counter()
