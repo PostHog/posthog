@@ -18,7 +18,7 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/recompute/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/recompute/`,
         })
         return result
     },
@@ -37,7 +37,7 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
         })
         return result
     },
@@ -55,7 +55,7 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPSessionIntent>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/generate_intent/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/generate_intent/`,
         })
         return result
     },
