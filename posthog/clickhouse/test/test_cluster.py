@@ -750,3 +750,10 @@ def test_query_repr_redacts_password_parameter():
     rendered = repr(Query("SOURCE(CLICKHOUSE(DB %(db)s PASSWORD %(password)s))", {"db": "posthog", "password": "pw"}))
     assert "pw" not in rendered
     assert "'db': 'posthog'" in rendered
+    assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_redacts_password_in_list_parameters():
+    rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
+    assert "pw" not in rendered
+    assert "'password': '[REDACTED]'" in rendered

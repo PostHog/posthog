@@ -580,6 +580,8 @@ def redact_sql_secrets(sql: str) -> str:
 def _redact_parameters(parameters: Any) -> Any:
     if isinstance(parameters, Mapping):
         return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
+    if isinstance(parameters, list):
+        return [_redact_parameters(p) for p in parameters]
     return parameters
 
 
@@ -595,7 +597,8 @@ class Query:
     def __repr__(self) -> str:
         query = redact_sql_secrets(self.query)
         if self.parameters and isinstance(self.parameters, list):
-            params_repr = f"{self.parameters[:50]!r} (showing first 50 out of {len(self.parameters)} parameters)"
+            shown = _redact_parameters(self.parameters[:50])
+            params_repr = f"{shown!r} (showing first 50 out of {len(self.parameters)} parameters)"
         else:
             params_repr = f"{_redact_parameters(self.parameters)!r}"
         return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
