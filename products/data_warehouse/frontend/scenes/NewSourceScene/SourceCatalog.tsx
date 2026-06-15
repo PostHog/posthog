@@ -20,7 +20,7 @@ const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 // Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
 // height) so a wrapped name plus the "Notify me" button can never clip.
 const TILE_CLASS =
-    'flex flex-row items-center gap-3 p-3 min-h-[6rem] rounded-lg border border-border bg-surface-primary'
+    'flex flex-row items-center gap-4 p-5 min-h-[8.5rem] rounded-lg border border-border bg-surface-primary'
 
 export interface SourceCatalogProps {
     allowedSources?: ExternalDataSourceType[]
