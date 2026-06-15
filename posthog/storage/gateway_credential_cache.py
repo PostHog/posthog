@@ -330,7 +330,7 @@ def refresh_all_gateway_credentials() -> int:
     removal. The team resolution and the per-OAuth membership/RBAC checks are memoized by team /
     (org, user) / (team, user) so the run does O(distinct teams/users) lookups, and .iterator()
     keeps the working set flat. The secret-key scopes lookup rides the projectsecretapikey_scopes_gin
-    index; OAuth scope is a whitespace-bounded regex.
+    index; the OAuth scope regex rides the oauthaccesstoken_scope_trgm trigram GIN index.
     """
     now = timezone.now()
     memo = _RefreshMemo()
