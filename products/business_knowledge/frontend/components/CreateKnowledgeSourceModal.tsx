@@ -114,7 +114,7 @@ export function CreateKnowledgeSourceModal({
                                     />
                                 </LemonField>
                                 <CrawlModeHelp />
-                                <CrawlConfigFields crawlMode={urlSource.crawl_mode} />
+                                <CrawlConfigFields crawlMode={urlSource.crawl_mode} url={urlSource.url} />
                                 <LemonField
                                     name="refresh_interval"
                                     label="Auto-refresh"

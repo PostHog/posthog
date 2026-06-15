@@ -2013,6 +2013,8 @@ export interface FunnelsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Compare to date range */
+    compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -6361,6 +6363,8 @@ export interface ErrorTrackingQueryApi {
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
+    useQueryV2?: boolean | null
+    useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
     volumeResolution: number

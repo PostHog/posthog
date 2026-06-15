@@ -232,6 +232,22 @@ where
     .await
 }
 
+pub async fn send_keyed_payloads_to_kafka_with_encoding<C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
+    topic: &str,
+    encoding: EnvelopeEncoding,
+    iter: impl IntoIterator<Item = (Option<String>, Vec<u8>)>,
+) -> Vec<Result<(), KafkaProduceError>> {
+    send_prepared_payloads_inner(
+        kafka_producer,
+        topic,
+        iter.into_iter()
+            .map(|(key, payload)| (key, None, Ok(payload))),
+        encoding,
+    )
+    .await
+}
+
 async fn send_keyed_iter_to_kafka_inner<T, C: ClientContext>(
     kafka_producer: &FutureProducer<C>,
     topic: &str,
@@ -243,15 +259,33 @@ async fn send_keyed_iter_to_kafka_inner<T, C: ClientContext>(
 where
     T: Serialize,
 {
+    let prepared = iter.into_iter().map(move |item| {
+        let key = key_extractor(&item);
+        let headers = headers_extractor(&item);
+        let payload = serde_json::to_vec(&item)
+            .map_err(|e| KafkaProduceError::SerializationError { error: e });
+        (key, headers, payload)
+    });
+    send_prepared_payloads_inner(kafka_producer, topic, prepared, encoding).await
+}
+
+async fn send_prepared_payloads_inner<C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
+    topic: &str,
+    iter: impl IntoIterator<
+        Item = (
+            Option<String>,
+            Option<rdkafka::message::OwnedHeaders>,
+            Result<Vec<u8>, KafkaProduceError>,
+        ),
+    >,
+    encoding: EnvelopeEncoding,
+) -> Vec<Result<(), KafkaProduceError>> {
     let mut results = Vec::new();
     let mut handles = Vec::new();
 
-    for (index, item) in iter.into_iter().enumerate() {
-        let key = key_extractor(&item);
-        let headers = headers_extractor(&item);
-        let json = match serde_json::to_vec(&item)
-            .map_err(|e| KafkaProduceError::SerializationError { error: e })
-        {
+    for (index, (key, headers, payload)) in iter.into_iter().enumerate() {
+        let json = match payload {
             Ok(p) => p,
             Err(e) => {
                 results.push((index, Err(e)));
