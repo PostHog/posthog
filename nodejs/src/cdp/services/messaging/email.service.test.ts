@@ -1,5 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
@@ -249,16 +251,20 @@ describe('EmailService', () => {
             // SES throttle responses become reschedule-with-backoff rather than
             // permanent failures. The local Valkey bucket already gates dequeue;
             // this path is the safety net for when SES disagrees with our estimate.
-            const throttleNames = [
-                'ThrottlingException',
-                'TooManyRequestsException',
-                'Throttling',
-                'SendingPausedException',
+            // Only TooManyRequestsException and SendingPausedException are
+            // retryable for SendEmailCommand per the SES v2 SDK's @throws.
+            const throttleCases: Array<[string, () => Error]> = [
+                [
+                    'TooManyRequestsException',
+                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
+                ],
+                [
+                    'SendingPausedException',
+                    () => new SendingPausedException({ $metadata: {}, message: 'Sending paused' }),
+                ],
             ]
-            it.each(throttleNames)('reschedules instead of failing when SES returns %s', async (errorName: string) => {
-                const sesError: any = new Error(`${errorName} from SES`)
-                sesError.name = errorName
-                sendEmailSpy.mockRejectedValueOnce(sesError)
+            it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, makeError) => {
+                sendEmailSpy.mockRejectedValueOnce(makeError())
 
                 const before = Date.now()
                 const result = await service.executeSendEmail(invocation)
@@ -277,9 +283,9 @@ describe('EmailService', () => {
             })
 
             it('still fails the job for non-throttle SES errors', async () => {
-                const sesError: any = new Error('something else broke')
-                sesError.name = 'MessageRejected'
-                sendEmailSpy.mockRejectedValueOnce(sesError)
+                sendEmailSpy.mockRejectedValueOnce(
+                    new MessageRejected({ $metadata: {}, message: 'something else broke' })
+                )
 
                 const result = await service.executeSendEmail(invocation)
 

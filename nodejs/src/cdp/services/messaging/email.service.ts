@@ -1,4 +1,11 @@
-import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import {
+    MessageHeader,
+    SESv2Client,
+    SendEmailCommand,
+    SendEmailCommandInput,
+    SendingPausedException,
+    TooManyRequestsException,
+} from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
@@ -23,17 +30,12 @@ const sesThrottleResponsesTotal = new Counter({
 })
 
 /**
- * AWS SDK error names that SES returns when we're being rate-limited or our
- * sending capacity is temporarily paused. These are retryable; everything else
- * is treated as a hard failure. `SendingPausedException` is account-level (can
- * mean a reputation issue) but is still expected to recover, so we retry.
+ * SES v2 throws these on rate-limit / temporary-pause. Both are retryable;
+ * `SendingPausedException` can mean a reputation issue but is still expected
+ * to recover, so we retry. Other SDK exceptions (BadRequest, MessageRejected,
+ * AccountSuspended, etc.) stay on the hard-failure path.
  */
-const SES_THROTTLE_ERROR_NAMES = new Set([
-    'ThrottlingException',
-    'TooManyRequestsException',
-    'Throttling',
-    'SendingPausedException',
-])
+type SesThrottleException = TooManyRequestsException | SendingPausedException
 
 /**
  * Tagged error signalling that SES rejected the send for a transient,
@@ -42,23 +44,15 @@ const SES_THROTTLE_ERROR_NAMES = new Set([
  * pick locally (SES doesn't return a Retry-After header).
  */
 export class SESThrottleError extends Error {
-    public readonly errorCode: string
+    public readonly errorCode: SesThrottleException['name']
     public readonly retryAfterMs: number
 
-    constructor(errorCode: string, retryAfterMs: number, message: string) {
+    constructor(errorCode: SesThrottleException['name'], retryAfterMs: number, message: string) {
         super(message)
         this.name = 'SESThrottleError'
         this.errorCode = errorCode
         this.retryAfterMs = retryAfterMs
     }
-}
-
-function isSesThrottleError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
-        return false
-    }
-    const name = (error as { name?: string }).name
-    return typeof name === 'string' && SES_THROTTLE_ERROR_NAMES.has(name)
 }
 
 function pickThrottleRetryDelayMs(): number {
@@ -333,14 +327,9 @@ export class EmailService {
                 throw new Error('No messageId returned from SES')
             }
         } catch (error: unknown) {
-            if (isSesThrottleError(error)) {
-                const errorCode = (error as { name: string }).name
-                sesThrottleResponsesTotal.inc({ error_code: errorCode })
-                throw new SESThrottleError(
-                    errorCode,
-                    pickThrottleRetryDelayMs(),
-                    error instanceof Error ? error.message : String(error)
-                )
+            if (error instanceof TooManyRequestsException || error instanceof SendingPausedException) {
+                sesThrottleResponsesTotal.inc({ error_code: error.name })
+                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
             const message = error instanceof Error ? error.message : String(error)
             throw new Error(`Failed to send email via SES: ${message}`)
