@@ -1305,6 +1305,8 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
+        if cursor.connection.broken:
+            raise
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
@@ -1325,6 +1327,8 @@ def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, l
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
+        if cursor.connection.broken:
+            raise
         logger.debug(f"_role_subject_to_rls: Error: {e}", exc_info=e)
         return False
 
@@ -1349,6 +1353,8 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
+        if cursor.connection.broken:
+            raise
         # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
         # It shares its FROM/WHERE with the real extraction query, so any genuine problem
         # (missing column, unpopulated materialized view, permissions, bad incremental field)
@@ -1657,6 +1663,8 @@ def _get_table(
                         probed_scales[col_name] = row[2 * i]
                         probed_int_digits[col_name] = row[2 * i + 1]
         except Exception as e:
+            if cursor.connection.broken:
+                raise
             # Probe is best-effort. Fall back to DEFAULT_NUMERIC_SCALE and let the downstream
             # `_process_batch` fallback chain infer the right type at row-fetching time.
             logger.warning(
@@ -1977,6 +1985,16 @@ def postgres_source(
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys, logger
+                        )
+
+                    # A probe whose connection was culled mid-savepoint leaves psycopg's transaction
+                    # counter leaked (Transaction.__exit__ early-returns without decrementing when
+                    # pgconn.status != OK). The implicit commit on `with connection:` exit then raises
+                    # the misleading "Explicit commit() forbidden within a Transaction context". Surface
+                    # the real, retryable cause instead.
+                    if connection.broken:
+                        raise psycopg.OperationalError(
+                            f"connection to server was lost during schema discovery for {schema}.{table_name}"
                         )
                 except psycopg.errors.QueryCanceled:
                     if should_use_incremental_field:
