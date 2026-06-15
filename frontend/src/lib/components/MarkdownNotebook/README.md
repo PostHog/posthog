@@ -24,7 +24,7 @@ See [COMPONENTS.md](./COMPONENTS.md) for how to register embeddable components (
 
 ## Supported markdown
 
-Inline: bold (`**`/`__`), italic (`*`/`_`, underscores only at word boundaries), underline (`<u>`), strikethrough (`~~`), inline code, links (http/https only; balanced parentheses in hrefs supported), and hard breaks. Blocks: paragraphs, headings (`#`–`######` parse and round-trip; the UI offers H1–H3), blockquotes (including quoted lists), ordered/unordered lists with nesting, GFM tables with column alignment (header and body rows must start with `|`), fenced code blocks (language tag preserved; the serializer picks a fence longer than any backtick run in the content), dividers (`---`/`***`/`___`, stored as a reserved `Divider` component tag), images (`![alt](src)`, stored as the `Image` component), and JSX-like component tags.
+Inline: bold (`**`/`__`), italic (`*`/`_`, underscores only at word boundaries), underline (`<u>`), strikethrough (`~~`), inline code, links (http/https only; balanced parentheses in hrefs supported), hard breaks, ref anchors (`<ref id="x">highlighted text</ref>`, lowercase inline tags so they can never collide with uppercase component tags), and mentions (`<mention id="5">@Name</mention>`; the text is the display label, the id is the member). Blocks: paragraphs, headings (`#`–`######` parse and round-trip; the UI offers H1–H3), blockquotes (including quoted lists), ordered/unordered lists with nesting, GFM task lists (`- [ ]`/`- [x]` on bullet items; the checkbox replaces the bullet and `1. [x]` stays literal), GFM tables with column alignment (header and body rows must start with `|`), fenced code blocks (language tag preserved; the serializer picks a fence longer than any backtick run in the content), dividers (`---`/`***`/`___`, stored as a reserved `Divider` component tag), images (`![alt](src)`, stored as the `Image` component), and JSX-like component tags.
 
 ### Round-trip guarantee
 
@@ -59,3 +59,15 @@ The component receives two props: `value` (the local content owned by the caller
 When `remoteValue` changes it is merged with `mergeNotebookMarkdownChanges({ base, local, remote })`, and the merged document is committed without touching the merge base (the merge result still contains unsaved local changes). When `remoteValue` catches up with the local serialization (autosave echo), the component is fully synced; undo history is intentionally preserved in that case.
 
 Save conflicts (HTTP 409) are resolved through the same path: `notebookLogic` reloads the fresh server content, which flows in as `remoteValue`, the editor merges and re-emits, and the save is retried against the new version.
+
+## Debug session recorder
+
+The debug drawer (`showDebug`) has a Log button that records an editing session as JSONL: every keystroke, mouse, input, and clipboard event on the notebook (capture phase), deduplicated selection snapshots, and every document commit with the resulting markdown — plus remote merges with their base/local/remote inputs and conflicts. Stop downloads the session as a `.log` file, built to be handed to an agent (or a human) to reconstruct exactly what the editor did and why.
+
+## Inline discussion comments
+
+A Google Docs-style comment thread is two paired pieces of markdown: an inline `<ref id="banana">highlighted text</ref>` anchor (a multi-block selection wraps each block's range in the same id) and a `<Comment ref="banana" replies={[…]} />` block placed right above the first block holding the highlight. When threads are present and the container is wide enough, the canvas reserves a right gutter (`--markdown-notebook-comment-gutter`) and pushes the text column left; each thread row keeps zero height so the card hangs in the gutter level with its content. Below `COMMENT_GUTTER_MIN_CONTAINER_WIDTH_PX` the threads flow inline as right-aligned cards. Replies live in the markdown itself as an id-keyed array, so two people replying at the same time merge by union (`mergeIdKeyedArrayPropValues` in `collaboration.ts`) instead of clobbering each other.
+
+Deletion is intentionally asymmetric (`removeNotebookNodesWithRefCleanup` in `documentModel.ts`): deleting the comment thread also unwraps its `<ref>` highlight, but removing the highlight (or the text holding it) leaves the thread in place — it contains people's replies and must be deleted on its own.
+
+The `Comment` tag also has an authorial-note flavor (`text` prop) that serializes as a plain `<!-- … -->` markdown comment; `isDiscussionCommentProps` in `markdown.ts` is the discriminator.

@@ -38,7 +38,7 @@
                     "items": {
                         "properties": {
                             "key": {
-                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
                                 "type": "string"
                             },
                             "operator": {
@@ -79,7 +79,7 @@
                     "type": "array"
                 },
                 "statusCodes": {
-                    "description": "Filter by HTTP status codes.",
+                    "description": "Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
                     "items": {
                         "type": "number"
                     },

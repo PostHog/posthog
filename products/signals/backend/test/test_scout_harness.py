@@ -16,7 +16,6 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
@@ -27,6 +26,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -148,8 +148,8 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
         # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'llma-skill-get(skill_name="signals-scout-errors", version=1)' in prompt
-        assert "llma-skill-file-get" in prompt
+        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # Second bootstrap step orients the agent on the project via the

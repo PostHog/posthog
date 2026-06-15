@@ -1,7 +1,9 @@
 import { RestoreInlineSelectionRequest, RestoreSelectionRequest } from './editorTypes'
+import { removeInlineRefMark, splitInlineNodesAt } from './inlineContent'
 import {
     COMMENT_COMPONENT_TAG,
     DIVIDER_COMPONENT_TAG,
+    isDiscussionCommentProps,
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
@@ -33,7 +35,7 @@ export function getNotebookStringProp(value: NotebookPropValue | undefined): str
     return typeof value === 'string' ? value : undefined
 }
 
-export type MarkdownNotebookTextSurface = 'text' | 'quote' | 'code'
+export type MarkdownNotebookTextSurface = 'text' | 'quote' | 'code' | 'comment'
 
 export type MarkdownNotebookVisualGroup =
     | {
@@ -54,9 +56,28 @@ export function getMarkdownNotebookVisualGroups(
 ): MarkdownNotebookVisualGroup[] {
     const groups: MarkdownNotebookVisualGroup[] = []
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
+    const isTextLikeNode = (node: NotebookBlockNode | undefined): boolean =>
+        !!node && (isTextBlockNode(node) || node.type === 'list' || node.type === 'code')
+
+    // A discussion comment sits right above the text it highlights; joining the surrounding
+    // text group keeps that text from being split into separate cards. A comment anchored to
+    // a standalone block (a component) stays its own row.
+    const commentJoinsTextGroup = (index: number): boolean => {
+        if (!isDiscussionCommentNode(nodes[index])) {
+            return false
+        }
+        if (currentTextGroup) {
+            return true
+        }
+        let nextIndex = index + 1
+        while (nextIndex < nodes.length && isDiscussionCommentNode(nodes[nextIndex])) {
+            nextIndex += 1
+        }
+        return isTextLikeNode(nodes[nextIndex])
+    }
 
     nodes.forEach((node, index) => {
-        if ((isTextBlockNode(node) || node.type === 'list' || node.type === 'code') && node.id !== insertMenuNodeId) {
+        if ((isTextLikeNode(node) || commentJoinsTextGroup(index)) && node.id !== insertMenuNodeId) {
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',
@@ -69,7 +90,13 @@ export function getMarkdownNotebookVisualGroups(
             currentTextGroup.items.push({
                 node,
                 index,
-                surface: node.type === 'code' ? 'code' : isGroupedBlockquoteNode(node) ? 'quote' : 'text',
+                surface: isDiscussionCommentNode(node)
+                    ? 'comment'
+                    : node.type === 'code'
+                      ? 'code'
+                      : isGroupedBlockquoteNode(node)
+                        ? 'quote'
+                        : 'text',
             })
             return
         }
@@ -102,6 +129,90 @@ export function isPromptComponentNode(node: NotebookBlockNode): node is Notebook
 
 export function isDividerComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG
+}
+
+/**
+ * A discussion comment is a `<Comment>` carrying human replies (and usually a `ref`
+ * anchor), as opposed to an authorial note which carries only `text` and serializes as a
+ * markdown `<!-- … -->` comment.
+ */
+export function isDiscussionCommentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return isCommentComponentNode(node) && isDiscussionCommentProps(node.props)
+}
+
+export function getDiscussionCommentRefId(node: NotebookBlockNode): string | null {
+    if (!isCommentComponentNode(node)) {
+        return null
+    }
+    const refId = node.props.ref
+    return typeof refId === 'string' && refId.trim() ? refId : null
+}
+
+function mapNodeInlineChildren(
+    node: NotebookBlockNode,
+    mapChildren: (children: NotebookInlineNode[]) => NotebookInlineNode[]
+): NotebookBlockNode {
+    if (isTextBlockNode(node)) {
+        const children = mapChildren(node.children)
+        return children === node.children ? node : { ...node, children }
+    }
+    if (node.type === 'list') {
+        let didChange = false
+        const items = node.items.map((item) => {
+            const children = mapChildren(item.children)
+            if (children === item.children) {
+                return item
+            }
+            didChange = true
+            return { ...item, children }
+        })
+        return didChange ? { ...node, items } : node
+    }
+    if (node.type === 'table') {
+        let didChange = false
+        const mapCell = (cell: { children: NotebookInlineNode[] }): { children: NotebookInlineNode[] } => {
+            const children = mapChildren(cell.children)
+            if (children === cell.children) {
+                return cell
+            }
+            didChange = true
+            return { ...cell, children }
+        }
+        const headers = node.headers.map(mapCell)
+        const rows = node.rows.map((row) => row.map(mapCell))
+        return didChange ? { ...node, headers, rows } : node
+    }
+    return node
+}
+
+/**
+ * Deletes blocks and, for any deleted discussion comment with a `ref` anchor, unwraps the
+ * matching `<ref>` tags so no orphaned highlight is left behind. The reverse direction is
+ * intentionally asymmetric: removing a ref never deletes the comment — it holds people's
+ * replies and stays anchored to the right until deleted on its own.
+ */
+export function removeNotebookNodesWithRefCleanup(document: NotebookDocument, nodeIds: Set<string>): NotebookDocument {
+    const removedRefIds = new Set(
+        document.nodes
+            .filter((node) => nodeIds.has(node.id))
+            .map(getDiscussionCommentRefId)
+            .filter((refId): refId is string => !!refId)
+    )
+    const remainingNodes = document.nodes.filter((node) => !nodeIds.has(node.id))
+    return { ...document, nodes: stripNotebookRefMarksFromNodes(remainingNodes, removedRefIds) }
+}
+
+/** Unwraps `<ref>` tags with the given ids across every text-bearing block, keeping the text. */
+export function stripNotebookRefMarksFromNodes(nodes: NotebookBlockNode[], refIds: Set<string>): NotebookBlockNode[] {
+    if (!refIds.size) {
+        return nodes
+    }
+
+    return nodes.map((node) =>
+        mapNodeInlineChildren(node, (children) =>
+            [...refIds].reduce((current, refId) => removeInlineRefMark(current, refId), children)
+        )
+    )
 }
 
 export function isCommentComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
@@ -192,11 +303,16 @@ export function normalizeNotebookTitlePasteBodyNode(node: NotebookBlockNode): No
     }
 }
 
-export function getListShortcut(text: string): { ordered: boolean; start?: number } | null {
+export function getListShortcut(text: string): { ordered: boolean; start?: number; checked?: boolean } | null {
     const normalizedText = text.replace(/\u00a0/g, ' ')
     const orderedMatch = normalizedText.match(/^(\d+)[.)]\s*$/)
     if (orderedMatch) {
         return { ordered: true, start: Number(orderedMatch[1]) }
+    }
+
+    const taskMatch = normalizedText.match(/^(?:[-*+•] )?\[( ?|x|X)\]\s+$/)
+    if (taskMatch) {
+        return { ordered: false, checked: taskMatch[1].toLowerCase() === 'x' }
     }
 
     if (/^[-*+•]\s+$/.test(normalizedText)) {
@@ -204,6 +320,28 @@ export function getListShortcut(text: string): { ordered: boolean; start?: numbe
     }
 
     return null
+}
+
+/**
+ * Detects a GFM task marker (`[ ] `, `[] `, `[x] `) typed at the start of a bullet list item,
+ * returning the item content with the marker stripped so the item can become a task.
+ */
+export function getTaskItemShortcut(
+    children: NotebookInlineNode[]
+): { checked: boolean; children: NotebookInlineNode[]; markerLength: number } | null {
+    const taskMatch = getInlineText(children)
+        .replace(/\u00a0/g, ' ')
+        .match(/^\[( ?|x|X)\] /)
+    if (!taskMatch) {
+        return null
+    }
+
+    const [, strippedChildren] = splitInlineNodesAt(children, taskMatch[0].length)
+    return {
+        checked: taskMatch[1].toLowerCase() === 'x',
+        children: strippedChildren,
+        markerLength: taskMatch[0].length,
+    }
 }
 
 export type TextBlockShortcutReplacement = {
@@ -296,6 +434,7 @@ export function getTextBlockShortcutReplacement(
                             depth: 0,
                             ordered: listShortcut.ordered,
                             start: listShortcut.start,
+                            checked: listShortcut.checked,
                         },
                     ],
                 },
@@ -331,8 +470,25 @@ export function getDividerShortcut(text: string): boolean {
 }
 
 export function ensureEditableNotebookDocument(document: NotebookDocument): NotebookDocument {
-    const nodes = document.nodes.length ? [...document.nodes] : [makeEmptyNotebookTitle('notebook-title')]
+    let nodes = document.nodes.length ? [...document.nodes] : [makeEmptyNotebookTitle('notebook-title')]
     let didChange = nodes.length !== document.nodes.length
+
+    // The `# ` title row always stays first: discussion comments that end up above it (a
+    // comment on the title itself, a merge, a manual markdown edit) slide below it instead
+    // of pushing a fresh empty title on top of the document.
+    let leadingCommentCount = 0
+    while (leadingCommentCount < nodes.length && isDiscussionCommentNode(nodes[leadingCommentCount])) {
+        leadingCommentCount += 1
+    }
+    if (leadingCommentCount > 0 && leadingCommentCount < nodes.length && isTextBlockNode(nodes[leadingCommentCount])) {
+        nodes = [
+            nodes[leadingCommentCount],
+            ...nodes.slice(0, leadingCommentCount),
+            ...nodes.slice(leadingCommentCount + 1),
+        ]
+        didChange = true
+    }
+
     const firstNode = nodes[0]
 
     if (isTextBlockNode(firstNode)) {

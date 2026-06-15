@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { IconCode, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
+import { IconCode, IconComment, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
@@ -44,6 +44,7 @@ export function FormattingToolbar({
     setBlockStyle,
     copySelection,
     askAIAboutSelection,
+    startInlineCommentAtSelection,
     lockPosition,
 }: {
     selectedBlockStyle: TextBlockStyle | null
@@ -58,6 +59,7 @@ export function FormattingToolbar({
     setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
+    startInlineCommentAtSelection?: () => void
     lockPosition: () => void
 }): JSX.Element {
     const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
@@ -242,6 +244,15 @@ export function FormattingToolbar({
                         onClick={copySelection}
                     />
                 </>
+            ) : null}
+            {showInlineActions && startInlineCommentAtSelection ? (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconComment />}
+                    tooltip="Comment"
+                    aria-label="Comment on selection"
+                    onClick={startInlineCommentAtSelection}
+                />
             ) : null}
             {showInlineActions && askAIAboutSelection ? (
                 <LemonButton
