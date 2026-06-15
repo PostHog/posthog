@@ -89,8 +89,8 @@ describe('subscriptionSceneLogic', () => {
                     deliveriesRequestUrls.push(request.url)
                     return [200, { results: [], next: null, previous: null }]
                 },
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: (req) => {
-                    deliveriesRequestUrls.push(req.url.toString())
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
                     return [200, { results: [], next: null, previous: null }]
                 },
             },
