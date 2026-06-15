@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from functools import cache
+from pickle import Unpickler, UnpicklingError
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -301,7 +302,7 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 
 
 # The static catalog is identical for every team/request, so build + pickle it once and reload per
-# request. Each pickle.loads is an independent tree (so per-request mutation can't leak between teams);
+# request. Each load returns an independent tree (so per-request mutation can't leak between teams);
 # the in-process blob can't go stale across deploys. Every catalog node must stay picklable.
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
 _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
@@ -315,11 +316,11 @@ _CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
 _CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
 
 
-class _CatalogUnpickler(pickle.Unpickler):
+class _CatalogUnpickler(Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         if module.startswith(_CATALOG_PICKLE_MODULE_PREFIXES) or module in _CATALOG_PICKLE_MODULES:
             return super().find_class(module, name)
-        raise pickle.UnpicklingError(f"refusing to unpickle disallowed catalog global {module}.{name}")
+        raise UnpicklingError(f"refusing to unpickle disallowed catalog global {module}.{name}")
 
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
