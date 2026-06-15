@@ -9,6 +9,8 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -95,6 +97,27 @@ class TestRetentionActorMaterialize(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(_days_to_dates(self._read()[0][2]), ["2024-03-01"])
         # Second call is served from the freshness marker without re-scanning.
         self.assertTrue(ensure_retention_actor(self.team, PAGEVIEW_KIND).ready)
+
+    @parameterized.expand(
+        [
+            # Explicit-UTC ("Z") timestamps decouple storage from team tz, so the day-number reveals
+            # which tz the materialiser buckets in. UTC-5: 02:00 UTC is the previous team-tz day.
+            ("america_new_york", "America/New_York", "2024-01-10T02:00:00Z", "2024-01-09"),
+            # UTC+5:30 (half-hour offset): 20:00 UTC is the next team-tz day.
+            ("asia_kolkata", "Asia/Kolkata", "2024-01-10T20:00:00Z", "2024-01-11"),
+        ]
+    )
+    def test_day_number_uses_team_timezone(self, _name: str, timezone: str, ts_utc: str, expected_day: str) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        self._event(self.ACTOR_A, ts_utc)
+        flush_persons_and_events()
+
+        materialize_retention_actor(self.team, PAGEVIEW_KIND)
+
+        # The stored day-number is the team-tz date, not the UTC date — so the read path's naive
+        # epoch+offset reconstruction lands on the right day for a non-UTC team.
+        self.assertEqual(_days_to_dates(self._read()[0][2]), [expected_day])
 
     def test_overrides_resolved_at_insert(self):
         # Two distinct_ids with separate person_ids that then merge: did_b -> person of did_a.
