@@ -69,17 +69,12 @@ export class CyclotronV2Worker {
             try {
                 this.lastPollTime = new Date()
 
-                let effectiveLimit = this.batchMaxSize
-                if (this.getBatchLimit) {
-                    const decision = await this.getBatchLimit()
-                    if (decision) {
-                        if (decision.limit <= 0) {
-                            await sleep(decision.sleepMs ?? this.pollDelayMs)
-                            continue
-                        }
-                        effectiveLimit = Math.min(decision.limit, this.batchMaxSize)
-                    }
+                const decision = await this.getBatchLimit?.()
+                if (decision && decision.limit <= 0) {
+                    await sleep(decision.sleepMs ?? this.pollDelayMs)
+                    continue
                 }
+                const effectiveLimit = decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize
 
                 const rows = await this.dequeueJobs(effectiveLimit)
 
