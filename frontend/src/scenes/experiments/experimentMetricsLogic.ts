@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -77,43 +78,42 @@ const metricsInOrder = (experiment: Experiment, type: 'primary' | 'secondary'): 
     return [...(inline as ExperimentMetric[]), ...sharedMetrics]
 }
 
-const buildRecalculationResultsByPosition = (
-    experiment: Experiment,
-    polledResults: readonly { metric_uuid: string; result: unknown }[] | undefined,
-    type: 'primary' | 'secondary'
-): CachedNewExperimentQueryResponse[] => {
-    if (!polledResults) {
-        return []
-    }
-    const resultByUuid = new Map(polledResults.map((r) => [r.metric_uuid, r.result]))
-    return metricsInOrder(experiment, type).map(
-        (metric) => resultByUuid.get(metric.uuid as string) as CachedNewExperimentQueryResponse
-    )
+type MetricErrorState = { detail: string } | null
+type ResolveByUuid<T> = (uuid: string) => T
+
+/**
+ * One value per metric, in `metricsInOrder` order. Curried: bind (experiment, type) once, then feed a
+ * per-uuid resolver, the only thing that differs between results and errors.
+ */
+const alignByMetricPosition =
+    (experiment: Experiment, type: 'primary' | 'secondary') =>
+    <T>(resolve: ResolveByUuid<T>): T[] =>
+        metricsInOrder(experiment, type).map((metric) => resolve(metric.uuid as string))
+
+// Resolver: a polled metric's computed result, or undefined if the run hasn't produced one yet.
+const resolveResultByUuid = (
+    polledResults: readonly { metric_uuid: string; result: unknown }[] | undefined
+): ResolveByUuid<CachedNewExperimentQueryResponse> => {
+    const resultByUuid = new Map((polledResults ?? []).map((r) => [r.metric_uuid, r.result]))
+    return (uuid) => resultByUuid.get(uuid) as CachedNewExperimentQueryResponse
 }
 
-// Errors positionally aligned with the results array: a metric that failed gets a `{ detail }` error
-// (the shape MetricErrorState renders), everything else `null`. `metric_errors` is the authoritative
-// per-metric failure map — it covers both FAILED result rows AND discovery-step failures that never
-// produced a result row (the latter are absent from `results`), so drive the errors off it.
-const buildRecalculationErrorsByPosition = (
-    experiment: Experiment,
-    recalculation: ExperimentMetricsRecalculationApi,
-    type: 'primary' | 'secondary'
-): (unknown | null)[] => {
-    const metricErrors = (recalculation.metric_errors as Record<string, { message?: string }> | null) || {}
-    // Result-row error_message as a fallback for any failed result not present in metric_errors.
-    const resultErrorByUuid = new Map<string, string>()
-    for (const result of recalculation.results || []) {
-        if (result.status === 'failed' && result.error_message) {
-            resultErrorByUuid.set(result.metric_uuid, result.error_message)
-        }
-    }
-
-    return metricsInOrder(experiment, type).map((metric) => {
-        const uuid = metric.uuid as string
-        const message = metricErrors[uuid]?.message ?? resultErrorByUuid.get(uuid)
+/**
+ * Resolver: a metric's failure as `{ detail }` (the MetricErrorState shape), or null. `metric_errors`
+ * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
+ * failed row's error_message.
+ */
+const resolveErrorByUuid = (recalculation: ExperimentMetricsRecalculationApi): ResolveByUuid<MetricErrorState> => {
+    const metricErrors = (recalculation.metric_errors as Record<string, { message?: string }> | null) ?? {}
+    const failedResultMessageByUuid = new Map(
+        (recalculation.results ?? [])
+            .filter((r) => r.status === 'failed' && r.error_message)
+            .map((r) => [r.metric_uuid, r.error_message as string])
+    )
+    return (uuid) => {
+        const message = metricErrors[uuid]?.message ?? failedResultMessageByUuid.get(uuid)
         return message ? { detail: message } : null
-    })
+    }
 }
 
 export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
@@ -122,6 +122,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     path((key) => ['scenes', 'experiment', 'experimentMetricsLogic', String(key)]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        actions: [eventUsageLogic, ['reportExperimentMetricRecalculation']],
     })),
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
@@ -212,22 +213,40 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         }
 
         /**
+         * Emit the terminal analytics event for a recalc run. Reads duration_ms / poll_count off the cache
+         * fields set on trigger; both are 0 on a terminal-on-create run because no poll ever happened.
+         */
+        const emitTerminalEvent = (recalculation: ExperimentMetricsRecalculationApi): void => {
+            const startMs = cache.recalcStartMs ?? Date.now()
+            actions.reportExperimentMetricRecalculation(
+                recalculation.status === RECALCULATION_STATUSES.completed ? 'completed' : 'failed',
+                {
+                    experiment_id: props.experiment.id as number,
+                    recalculation_id: recalculation.id,
+                    total_metrics: recalculation.total_metrics,
+                    succeeded: recalculation.completed_metrics,
+                    failed: recalculation.failed_metrics,
+                    duration_ms: Date.now() - startMs,
+                    poll_count: cache.pollCount ?? 0,
+                }
+            )
+        }
+
+        /**
          * apply per-metric results and errors by setting primary and secondary metric results and errors.
          * Partial failures will load the metrics that succeeded, and failed metrics get a nice error view.
          */
         const applyResults = (recalculation: ExperimentMetricsRecalculationApi): void => {
-            actions.setPrimaryMetricsResults(
-                buildRecalculationResultsByPosition(props.experiment, recalculation.results, 'primary')
-            )
-            actions.setSecondaryMetricsResults(
-                buildRecalculationResultsByPosition(props.experiment, recalculation.results, 'secondary')
-            )
-            actions.setPrimaryMetricsResultsErrors(
-                buildRecalculationErrorsByPosition(props.experiment, recalculation, 'primary')
-            )
-            actions.setSecondaryMetricsResultsErrors(
-                buildRecalculationErrorsByPosition(props.experiment, recalculation, 'secondary')
-            )
+            const resultFor = resolveResultByUuid(recalculation.results)
+            const errorFor = resolveErrorByUuid(recalculation)
+
+            const alignPrimary = alignByMetricPosition(props.experiment, 'primary')
+            const alignSecondary = alignByMetricPosition(props.experiment, 'secondary')
+
+            actions.setPrimaryMetricsResults(alignPrimary(resultFor))
+            actions.setSecondaryMetricsResults(alignSecondary(resultFor))
+            actions.setPrimaryMetricsResultsErrors(alignPrimary(errorFor))
+            actions.setSecondaryMetricsResultsErrors(alignSecondary(errorFor))
         }
 
         return {
@@ -302,28 +321,41 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 try {
                     const { projectId, experimentId } = resolvedIds
                     // 201 with a new pending run, or 200 with the already-active one. No results yet.
-                    /**
-                     * create a new recalculation workflow. If 200, there's already a workflow running, so we poll for it.
-                     * If 201, we started a new workflow run.
-                     */
+                    // Create a recalculation workflow. 201: a new run. 200: one is already running, poll it.
                     const recalculation = await experimentsMetricsRecalculationCreate(String(projectId), experimentId, {
                         trigger: 'manual',
                     })
 
-                    // Mark this as the active run. breakpoint handles poll-vs-poll supersession, but a
-                    // terminal-on-create run (below) applies results without dispatching pollRecalculation,
-                    // so it can't abort an older run's in-flight poll that way. pollRecalculation re-checks
-                    // this id after its fetch and bails if a newer run has taken over.
+                    /**
+                     * Mark the active run. A terminal-on-create run (below) applies results without
+                     * dispatching pollRecalculation, so breakpoint can't abort an older poll; pollRecalculation
+                     * re-checks this id after its fetch and bails if a newer run took over.
+                     */
                     cache.activeRecalculationId = recalculation.id
+                    /**
+                     * Lifecycle clock + poll count for the terminal-state analytics event. Reset on every
+                     * trigger so duration_ms / poll_count are anchored to THIS run.
+                     */
+                    cache.recalcStartMs = Date.now()
+                    cache.pollCount = 0
                     actions.setCurrentRecalculation(recalculation)
+                    actions.reportExperimentMetricRecalculation('triggered', {
+                        experiment_id: experimentId,
+                        recalculation_id: recalculation.id,
+                        trigger: 'manual',
+                        is_existing: recalculation.is_existing,
+                    })
 
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed ||
                         recalculation.status === RECALCULATION_STATUSES.failed
                     ) {
-                        // Create can return an already-terminal run (e.g. a completed one finished between
-                        // request and response). Load its results directly rather than polling.
+                        /**
+                         * Create can return an already-terminal run (e.g. a completed one finished between
+                         * request and response). Load its results directly rather than polling.
+                         */
                         applyResults(recalculation)
+                        emitTerminalEvent(recalculation)
                     } else {
                         actions.pollRecalculation(recalculation.id)
                     }
@@ -331,20 +363,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 }
             },
-            // Polls one recalculation run until it reaches a terminal status, re-arming itself one tick at
-            // a time (see `actions.pollRecalculation(recalculationId)` below) rather than looping in place.
-            //
-            // `breakpoint` is kea's listener-cancellation primitive. It does two jobs here:
-            //   - `await breakpoint(ms)` pauses for `ms` AND throws (silently aborting this listener run) if
-            //     pollRecalculation is dispatched again or the logic unmounts during the wait — so it doubles
-            //     as our poll interval.
-            //   - `breakpoint()` (no args) re-checks the same condition after an await without delaying.
-            //
-            // Why this is the right tool: when a NEWER recalculation supersedes this one by dispatching
-            // pollRecalculation again, the in-flight breakpoint of the OLD run throws before it can write
-            // stale results. kea gives us that poll-vs-poll supersession guard for free — no interval to
-            // clear on unmount. The one case breakpoint can't see is a newer terminal-on-create run, which
-            // applies results without dispatching pollRecalculation; cache.activeRecalculationId covers it.
+            /**
+             * Polls one run to terminal status, re-arming one tick at a time rather than looping in place.
+             * `breakpoint` is kea's cancellation primitive: `await breakpoint(ms)` paces the poll and throws
+             * if pollRecalculation re-fires or the logic unmounts; `breakpoint()` re-checks without delaying.
+             * So a newer poll auto-cancels this one's in-flight breakpoint before it can write stale results:
+             * free poll-vs-poll supersession, no interval to clear. The gap: a terminal-on-create run applies
+             * results without dispatching pollRecalculation, so cache.activeRecalculationId covers that case.
+             */
             pollRecalculation: async ({ recalculationId }, breakpoint) => {
                 if (!flagEnabled()) {
                     return
@@ -373,11 +399,19 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 }
                 // A newer poll may have started while the request was in flight; abort before writing results.
                 breakpoint()
-                // breakpoint covers a newer POLL; this covers a newer terminal-on-create run that applied
-                // results directly without dispatching pollRecalculation (so breakpoint never fired for us).
+                /**
+                 * breakpoint covers a newer POLL; this covers a newer terminal-on-create run that applied
+                 * results directly without dispatching pollRecalculation (so breakpoint never fired for us).
+                 */
                 if (cache.activeRecalculationId !== recalculationId) {
                     return
                 }
+
+                /**
+                 * Count only polls that pass the supersession check so the analytics event reflects the work
+                 * THIS run actually paid for; superseded ticks would otherwise inflate the number.
+                 */
+                cache.pollCount = (cache.pollCount ?? 0) + 1
 
                 actions.setCurrentRecalculation(recalculation)
 
@@ -391,6 +425,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
 
                 // Successful metrics load, failed metrics surface their error in-row.
                 applyResults(recalculation)
+                emitTerminalEvent(recalculation)
                 if (recalculation.failed_metrics > 0) {
                     lemonToast.error(
                         `${recalculation.failed_metrics} of ${recalculation.total_metrics} metrics failed to load`
@@ -404,9 +439,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         actions.loadLatestRecalculation()
 
         /**
-         * re-check for the latest recalculation only when we have nothin loaded when the tab get's visible.
-         * We want to preserver failure states, and re-fetching the latest complete recalculation would destroy
-         * that state.
+         * On tab visible, re-fetch the latest only when nothing is loaded: refetching would overwrite a
+         * displayed failure state with the last completed run.
          */
         cache.disposables.add(
             () => {

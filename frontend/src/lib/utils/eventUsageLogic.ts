@@ -783,6 +783,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             teamId,
             context,
         }),
+        // Single event for the whole recalc lifecycle — see docs/superpowers/specs/2026-06-04-experiment-metric-
+        // recalculation-events.md. status discriminates the moment ('triggered' / 'completed' / 'failed' —
+        // 'polled' is deliberately not emitted); the property bag carries the fields relevant to that moment.
+        reportExperimentMetricRecalculation: (
+            status: 'triggered' | 'completed' | 'failed',
+            properties: {
+                experiment_id: number
+                recalculation_id: string | null
+                trigger?: 'manual' | 'experiment_launch' | 'experiment_stop' | 'experiment_update'
+                is_existing?: boolean
+                total_metrics?: number
+                succeeded?: number
+                failed?: number
+                duration_ms?: number
+                poll_count?: number
+            }
+        ) => ({ status, properties }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
@@ -1809,6 +1826,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 team_id: teamId,
                 ...context,
             })
+        },
+        reportExperimentMetricRecalculation: ({ status, properties }) => {
+            posthog.capture('experiment metric recalculation', { status, ...properties })
         },
         reportExperimentFeatureFlagModalOpened: () => {
             posthog.capture('experiment feature flag modal opened')

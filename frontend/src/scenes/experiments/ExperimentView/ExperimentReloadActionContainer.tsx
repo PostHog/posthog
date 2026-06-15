@@ -21,7 +21,7 @@ export function ExperimentReloadActionContainer({
     lastRefresh,
 }: {
     experiment: Experiment
-    /** Legacy "last refreshed" timestamp from experimentLogic results — used only on the legacy path.
+    /** Legacy "last refreshed" timestamp from experimentLogic results, used only on the legacy path.
      * The recalculation path derives its own from the completed run. */
     lastRefresh: string
 }): JSX.Element {

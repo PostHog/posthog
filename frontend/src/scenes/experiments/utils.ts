@@ -961,7 +961,7 @@ export type MetricWithResult = {
 }
 
 /**
- * Narrows to a real, saved experiment — present and not the "new"/draft sentinel id. Used by the
+ * Narrows to a real, saved experiment: present and not the "new"/draft sentinel id. Used by the
  * recalculation-flow component wrappers before mounting experiment-keyed child logics.
  */
 export const isSavedExperiment = (experiment: Experiment | null | undefined): experiment is Experiment =>
@@ -990,7 +990,8 @@ export const metricResults =
         ) as ExperimentMetric[]
 
         /**
-         * build shared metrics in the same shame as regular metrics.
+         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
+         * ordered together below.
          */
         const sharedMetrics = (experiment.saved_metrics || [])
             .filter((sharedMetric) => sharedMetric.metadata?.type === type)
@@ -1006,39 +1007,31 @@ export const metricResults =
             })) as ExperimentMetric[]
 
         /**
-         * merge regular and shared metrics and remove metric without uuid.
-         * This is purely defensive.
+         * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric
+         * carries everything the output row needs, keyed by uuid for the ordering pass below.
          */
-        const indexedMetrics = [...regularMetrics, ...sharedMetrics]
-            .map((metric, index) => ({ metric, index }))
-            .filter((entry): entry is { metric: ExperimentMetric & { uuid: string }; index: number } =>
-                Boolean(entry.metric.uuid)
-            )
-
-        /**
-         * map results
-         */
-        const metricsMap = new Map(indexedMetrics.map(({ metric }) => [metric.uuid, metric]))
-        const resultsMap = new Map(indexedMetrics.map(({ metric, index }) => [metric.uuid, results[index]]))
-        const errorsMap = new Map(indexedMetrics.map(({ metric, index }) => [metric.uuid, errors[index]]))
-        const originalIndexMap = new Map(indexedMetrics.map(({ metric, index }) => [metric.uuid, index]))
+        const byUuid = new Map(
+            [...regularMetrics, ...sharedMetrics]
+                .map((metric, index) => ({ metric, result: results[index], error: errors[index], index }))
+                .filter((entry): entry is { metric: ExperimentMetric & { uuid: string } } & typeof entry =>
+                    Boolean(entry.metric.uuid)
+                )
+                .map((entry) => [entry.metric.uuid, entry])
+        )
 
         const orderedUuids =
             type === 'secondary'
                 ? experiment.secondary_metrics_ordered_uuids || []
                 : experiment.primary_metrics_ordered_uuids || []
 
-        /**
-         * return the ordered metrics
-         */
         return orderedUuids
-            .map((uuid) => metricsMap.get(uuid))
-            .filter((metric): metric is ExperimentMetric & { uuid: string } => Boolean(metric))
-            .map((metric, index) => ({
+            .map((uuid) => byUuid.get(uuid))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .map(({ metric, result, error, index }, displayIndex) => ({
                 metric,
-                result: resultsMap.get(metric.uuid),
-                error: errorsMap.get(metric.uuid),
-                displayIndex: index,
-                metricIndex: originalIndexMap.get(metric.uuid) ?? index,
+                result,
+                error,
+                displayIndex,
+                metricIndex: index,
             }))
     }

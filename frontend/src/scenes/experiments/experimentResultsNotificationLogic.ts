@@ -91,12 +91,21 @@ export const experimentResultsNotificationLogic = kea<experimentResultsNotificat
             actions.setNotifyWhenResultsReady(false)
         },
     })),
+    /**
+     * Subscriptions (not listeners) on purpose: we react to the EDGE of `isRecalculating`, a derived
+     * boolean composed from two upstream actions (setCurrentRecalculation + setRecalculationLoading) on
+     * experimentMetricsLogic. There's no single action whose handler cleanly expresses "the derived value
+     * just flipped", so this is the skill's sanctioned subscriptions case. The (next, prev) args give us
+     * the transition for free instead of hand-tracking a previous value across two listeners.
+     */
     subscriptions(({ actions, cache }) => ({
         isRecalculating: (isRecalculating: boolean, previous: boolean | undefined) => {
             if (isRecalculating && !previous) {
-                // A recalculation just started — offer the banner after it has been running a while.
-                // Keep the timer running while the tab is hidden; the whole point is to notify the user
-                // who has navigated away, so it must not pause on page-hide.
+                /**
+                 * A recalculation just started: offer the banner after it has been running a while. The
+                 * timer must keep running while the tab is hidden (the point is to notify a user who has
+                 * navigated away), so it opts out of pause-on-page-hide.
+                 */
                 cache.disposables.add(
                     () => {
                         const timer = setTimeout(
