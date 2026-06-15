@@ -8425,23 +8425,25 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/connect_link?source_type={source_type}"
         )
 
-    def test_connect_link_oauth_source(self):
-        response = self._connect_link("Hubspot")
+    @parameterized.expand(
+        [
+            # OAuth-only sources connect via the same page — the form renders the integration picker.
+            ("oauth_only", "Hubspot", "oauth"),
+            ("credentials_only", "Postgres", "credentials"),
+            # Stripe's OAuth option is nested inside the auth_method select alongside API key —
+            # the page form offers both, so the user chooses how to authenticate.
+            ("mixed_auth", "Stripe", "credentials"),
+        ]
+    )
+    def test_connect_link_always_points_at_the_connect_page(self, _name, source_type, expected_auth_method):
+        response = self._connect_link(source_type)
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["auth_method"] == "oauth"
-        assert data["integration_field"] == "hubspot_integration_id"
-        assert "/api/integrations/authorize?kind=hubspot" in data["connect_url"]
-        # The post-auth return path lands on the minimal connect page, not the full wizard.
-        assert "data-warehouse%2Fconnect" in data["connect_url"]
-
-    def test_connect_link_credentials_source(self):
-        response = self._connect_link("Postgres")
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["auth_method"] == "credentials"
-        assert data["integration_field"] == "credential_id"
-        assert f"/project/{self.team.pk}/data-warehouse/connect?kind=Postgres" in data["connect_url"]
+        assert data["auth_method"] == expected_auth_method
+        assert f"/project/{self.team.pk}/data-warehouse/connect?kind={source_type}" in data["connect_url"]
+        # One discovery path for every source: the page stores a credential, the agent passes its id.
+        assert "data-warehouse-stored-credentials-list" in data["instructions"]
+        assert "credential_id" in data["instructions"]
 
     def test_connect_link_missing_source_type(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")

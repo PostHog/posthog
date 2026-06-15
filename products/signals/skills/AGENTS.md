@@ -71,6 +71,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   output. Its discriminator is concentration-vs-diffusion — friction that piles up
   in one place is signal, friction that tracks traffic is baseline; exceptions per
   se are the error-tracking scout's territory.
+- `signals-scout-replay-vision/` — agentic pull watcher over Replay Vision scanners
+  (the standing LLM probes that write `$recording_observed` events). Replay Vision is
+  the newer evolution of session replay, so this scout and `signals-scout-session-replay`
+  intentionally coexist for now. Watches two promises: that enabled scanners are
+  actually observing (throughput / success-rate cliffs, exhausted quota — a silent
+  watch gap), and that what the scanners see in aggregate gets surfaced (a monitor's
+  `yes`-rate or a scorer's mean stepping away from its own baseline, a classifier tag
+  or recurring summarizer theme concentrating across many sessions). It is the
+  complement to the per-session push path: scanners with `emits_signals: true` already
+  emit one signal per session (source `replay_vision`, type `scanner_finding`) into the
+  same inbox, so this scout never repeats them — it adds the cross-session shape the
+  per-session probe can't see. Its discriminators are
+  aggregate-shift-vs-per-session-baseline and
+  configured-to-observe-vs-actually-observing; raw friction / capture is the
+  session-replay scout's territory and exceptions are the error-tracking scout's.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.

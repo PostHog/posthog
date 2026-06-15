@@ -1,7 +1,13 @@
 import { parseMarkdownNotebook, serializeMarkdownNotebook, serializeNode } from './markdown'
 import { getStableComponentKey, reconcileNotebookDocuments } from './reconcile'
 import { applyTextChanges, getTextChanges, transformTextChanges, tryApplyTextChanges } from './textChanges'
-import { NotebookBlockNode, NotebookCollaborationConflict, NotebookComponentBlockNode, NotebookDocument } from './types'
+import {
+    NotebookBlockNode,
+    NotebookCollaborationConflict,
+    NotebookComponentBlockNode,
+    NotebookDocument,
+    NotebookPropValue,
+} from './types'
 import { cloneNotebookNode, getNodeFingerprint, getNodeSignature } from './utils'
 
 export type { TextChange } from './textChanges'
@@ -387,10 +393,15 @@ function mergeNotebookComponentNodes(
         const remoteChanged = !arePropValuesEqual(remoteValue, baseValue)
 
         let mergedValue: NotebookComponentBlockNode['props'][string] | undefined
+        const idArrayMerge = !localChanged
+            ? null
+            : mergeIdKeyedArrayPropValues(baseValue ?? [], localValue, remoteValue)
         if (!localChanged) {
             mergedValue = remoteValue
         } else if (!remoteChanged || arePropValuesEqual(localValue, remoteValue)) {
             mergedValue = localValue
+        } else if (idArrayMerge) {
+            mergedValue = idArrayMerge
         } else if (typeof baseValue === 'string' && typeof localValue === 'string' && typeof remoteValue === 'string') {
             const textMerge = mergeTextChanges(baseValue, localValue, remoteValue)
             if (textMerge.conflicted) {
@@ -413,6 +424,100 @@ function mergeNotebookComponentNodes(
         raw: undefined,
         errors: undefined,
     }
+}
+
+type IdKeyedEntry = { [key: string]: NotebookPropValue } & { id: string }
+
+/**
+ * Three-way merge for array props whose entries are objects keyed by a unique string `id`
+ * (chat `replies` being the motivating case). Two people replying to the same chat at the
+ * same time must both keep their replies: entries added on either side survive, entries
+ * deleted on one side stay deleted, and an entry edited on one side takes that side's
+ * version. Returns null when the shape doesn't qualify — the caller falls back to its
+ * other strategies.
+ */
+function mergeIdKeyedArrayPropValues(
+    baseValue: NotebookPropValue | undefined,
+    localValue: NotebookPropValue | undefined,
+    remoteValue: NotebookPropValue | undefined
+): NotebookPropValue[] | null {
+    const base = asIdKeyedArray(baseValue)
+    const local = asIdKeyedArray(localValue)
+    const remote = asIdKeyedArray(remoteValue)
+    if (!base || !local || !remote) {
+        return null
+    }
+
+    const baseById = new Map(base.map((entry) => [entry.id, entry]))
+    const localById = new Map(local.map((entry) => [entry.id, entry]))
+    const merged: IdKeyedEntry[] = []
+    const mergedIds = new Set<string>()
+    const push = (entry: IdKeyedEntry): void => {
+        if (!mergedIds.has(entry.id)) {
+            merged.push(entry)
+            mergedIds.add(entry.id)
+        }
+    }
+
+    for (const localEntry of local) {
+        const baseEntry = baseById.get(localEntry.id)
+        const remoteEntry = remote.find((entry) => entry.id === localEntry.id)
+
+        if (baseEntry && !remoteEntry) {
+            // Deleted remotely; a concurrent deletion must not resurrect on every merge.
+            continue
+        }
+        if (remoteEntry && baseEntry && arePropValuesEqual(localEntry, baseEntry)) {
+            push(remoteEntry)
+            continue
+        }
+        push(localEntry)
+    }
+
+    // Entries the remote side added (or that local deleted but remote edited) are inserted
+    // after their closest surviving remote predecessor, keeping both sides' ordering intact.
+    remote.forEach((remoteEntry, remoteIndex) => {
+        if (mergedIds.has(remoteEntry.id)) {
+            return
+        }
+        const baseEntry = baseById.get(remoteEntry.id)
+        if (baseEntry && !localById.has(remoteEntry.id) && arePropValuesEqual(remoteEntry, baseEntry)) {
+            // Deleted locally and untouched remotely: the deletion wins.
+            return
+        }
+
+        let insertIndex = merged.length
+        for (let previousIndex = remoteIndex - 1; previousIndex >= 0; previousIndex--) {
+            const anchorPosition = merged.findIndex((entry) => entry.id === remote[previousIndex].id)
+            if (anchorPosition !== -1) {
+                insertIndex = anchorPosition + 1
+                break
+            }
+        }
+        merged.splice(insertIndex, 0, remoteEntry)
+        mergedIds.add(remoteEntry.id)
+    })
+
+    return merged
+}
+
+function asIdKeyedArray(value: NotebookPropValue | undefined): IdKeyedEntry[] | null {
+    if (!Array.isArray(value)) {
+        return null
+    }
+
+    const ids = new Set<string>()
+    for (const entry of value) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return null
+        }
+        const id = entry.id
+        if (typeof id !== 'string' || !id || ids.has(id)) {
+            return null
+        }
+        ids.add(id)
+    }
+    return value as IdKeyedEntry[]
 }
 
 function arePropValuesEqual(

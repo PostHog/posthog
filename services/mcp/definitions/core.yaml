@@ -60,6 +60,12 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-context-generation-retrieve:
+        operation: desktop_file_system_context_generation_retrieve
+        enabled: false
+    desktop-file-system-context-generation-update:
+        operation: desktop_file_system_context_generation_update
+        enabled: false
     desktop-file-system-count-by-path-create:
         operation: desktop_file_system_count_by_path_create
         enabled: false

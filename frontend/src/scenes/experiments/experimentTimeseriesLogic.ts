@@ -48,6 +48,8 @@ export interface ProcessedChartData {
     labels: string[]
     datasets: ChartDataset[]
     processedData: ProcessedTimeseriesDataPoint[]
+    /** When the timeseries was last computed (ISO string), shared across all data points. */
+    computedAt: string | null
 }
 
 export interface ExperimentTimeseriesLogicProps {
@@ -249,9 +251,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s, props) => [s.processedVariantData, props.experiment, props.metric],
+            (s, props) => [s.processedVariantData, s.timeseries, props.experiment, props.metric],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
+                timeseries: ExperimentMetricTimeseries | null,
                 experiment: Experiment,
                 metric: ExperimentMetric | undefined
             ): ((variantKey: string) => ProcessedChartData | null) => {
@@ -400,6 +403,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         labels,
                         datasets,
                         processedData: trimmedData,
+                        computedAt: timeseries?.computed_at ?? null,
                     }
                 }
             },

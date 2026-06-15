@@ -1102,11 +1102,10 @@ export const getExternalDataSourcesConnectLinkRetrieveUrl = (
 /**
  * Return a secure browser link for connecting a data warehouse source.
  *
- * For OAuth sources the link starts the OAuth authorize flow; for credential sources it opens a minimal
- * connect page where the user enters only their credentials — no table selection, no source creation.
- * Either way the user authenticates in their browser, credentials never pass through the agent, and the
- * agent finishes setup afterwards by passing the resulting reference (integration id or credential id)
- * to data-warehouse-source-setup.
+ * The link opens a minimal connect page rendering the source's full connection form — OAuth options
+ * included — with no table selection and no source creation. The user authenticates in their browser,
+ * secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
+ * credential id to data-warehouse-source-setup.
  */
 export const externalDataSourcesConnectLinkRetrieve = async (
     projectId: string,

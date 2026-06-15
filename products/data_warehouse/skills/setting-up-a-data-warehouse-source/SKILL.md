@@ -49,19 +49,15 @@ missing required fields).
 1. **Discover the source type and its fields** (optional): `external-data-sources-wizard` lists every source type and
    the credential fields each needs. Use it to know what to ask the user for; skip it if the source type is obvious.
 2. **Collect credentials securely**: call `data-warehouse-source-connect-link({source_type})`. It returns a
-   `connect_url` to share with the user. Either way the page is a terminal hand-off: it collects the authorization or
-   credentials and nothing else — the user returns to the chat and you finish setup:
-   - **OAuth sources** (Hubspot, Salesforce, Google Ads, …) → an authorize URL. After the user confirms they've
-     authorized, find the new integration id via `integrations-list` (filter by the source's kind) and pass the
-     returned `integration_field` key to setup (e.g. `{"hubspot_integration_id": 123}`).
-   - **Credential sources** (Postgres, MySQL, Stripe API key, …) → a minimal connect page where they enter only their
-     credentials over TLS. The page validates them against a live connection and stashes them encrypted in a temporary
-     store — it does NOT create the source. After the user confirms they're done, find the stored credential id via
-     `data-warehouse-stored-credentials-list` (filter by `source_type`, newest first; the page also shows the id to
-     the user) and pass `{"credential_id": <id>}` to setup. Stored credentials are single-use — deleted as soon as
-     setup consumes them — and expire after 24 hours.
+   `connect_url` to a minimal connect page rendering the source's full connection form — the user authorizes via
+   OAuth or enters credentials there, whichever the source offers (the response's `auth_method` tells you which to
+   expect). The page validates the details against a live connection and stashes them encrypted in a temporary
+   store — it does NOT create the source. After the user confirms they're done, find the stored credential id via
+   `data-warehouse-stored-credentials-list` (filter by `source_type`, newest first; the page also shows the id to
+   the user) and pass `{"credential_id": <id>}` to setup. Stored credentials are single-use — deleted as soon as
+   setup consumes them — and expire after 24 hours.
 
-   Never ask the user to paste raw database passwords or API keys into the chat.
+   Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.
 
 3. **Create in one call**: `data-warehouse-source-setup({source_type, payload, prefix})`. The server validates
    credentials, discovers all tables, enables them with sync defaults (incremental where a tracking column exists,
@@ -311,10 +307,11 @@ If the user wants near-real-time replication from Postgres:
 - **Prefix is load-bearing.** It's part of every HogQL query the user will ever write against these tables. Pick
   something short, descriptive, and not already taken.
 - **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user
-  authenticates in their browser — OAuth sources (Hubspot, Salesforce, Google Ads) authorize via PostHog, and
-  credential sources (Postgres, Stripe key, …) enter secrets on the minimal connect page, which stores them without
-  creating the source. Don't collect OAuth tokens or database passwords in chat; pass the integration id or
-  `credential_id` reference to setup — source creation always happens through setup, not the UI.
+  authenticates in their browser — the connect page renders the source's full connection form (OAuth and credential
+  options alike) and stores the result without creating the source. Don't collect OAuth tokens or database passwords
+  in chat; pass the `credential_id` reference to setup — source creation always happens through setup, not the UI.
+  (An already-connected OAuth integration can also be passed directly via its id key, e.g.
+  `{"hubspot_integration_id": 123}`.)
 - **Webhooks are a separate step after create.** Setting `sync_type: "webhook"` on a schema doesn't register the
   webhook — the `create-webhook` call does. Always follow create → create-webhook → webhook-info for webhook-type
   schemas, and never leave a webhook schema dangling without registration (it just won't receive events).
