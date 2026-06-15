@@ -8,8 +8,6 @@ export interface ChartTheme {
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
-    selectionFill?: string
-    selectionStroke?: string
 }
 
 /** Default axis id used when a series doesn't specify one. */

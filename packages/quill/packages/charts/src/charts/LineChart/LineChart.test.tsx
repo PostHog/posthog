@@ -401,6 +401,72 @@ describe('LineChart', () => {
             expect(onDateRangeZoom).not.toHaveBeenCalled()
             expect(onPointClick).not.toHaveBeenCalled()
         })
+
+        it('treats a sub-threshold mousedown+move as a click, not a drag', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            act(() => {
+                // Move only 2px — below DRAG_THRESHOLD_PX, so the gesture must stay a click.
+                fireEvent.mouseDown(chart.element, { button: 0, clientX: testDimensions.plotLeft + 100, clientY: y })
+                fireEvent.mouseMove(chart.element, { clientX: testDimensions.plotLeft + 102, clientY: y })
+                fireEvent(
+                    window,
+                    new MouseEvent('mouseup', { bubbles: true, clientX: testDimensions.plotLeft + 102, clientY: y })
+                )
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+
+            await chart.clickAtIndex(2)
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('ignores a non-primary-button drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            act(() => {
+                fireEvent.mouseDown(chart.element, { button: 2, clientX: testDimensions.plotLeft + 50, clientY: y })
+                fireEvent.mouseMove(chart.element, { clientX: testDimensions.plotLeft + 300, clientY: y })
+                fireEvent(
+                    window,
+                    new MouseEvent('mouseup', { bubbles: true, clientX: testDimensions.plotLeft + 300, clientY: y })
+                )
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('does not start a drag from outside the plot area', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            const yAbovePlot = testDimensions.plotTop - 5
+            act(() => {
+                fireEvent.mouseDown(chart.element, {
+                    button: 0,
+                    clientX: testDimensions.plotLeft + 50,
+                    clientY: yAbovePlot,
+                })
+                fireEvent.mouseMove(chart.element, { clientX: testDimensions.plotLeft + 300, clientY: yAbovePlot })
+                fireEvent(
+                    window,
+                    new MouseEvent('mouseup', { bubbles: true, clientX: testDimensions.plotLeft + 300, clientY: yAbovePlot })
+                )
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
     })
 
     describe('children & error boundary', () => {

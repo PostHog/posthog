@@ -834,7 +834,7 @@ export function composeDrawHoverWithCrosshair(
     }
 }
 
-// Match chartjs-plugin-zoom selection colors.
+// Translucent blue band (fill) with a solid border (stroke) for the drag selection.
 const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
 const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
 
@@ -859,7 +859,7 @@ export function drawSelectionRect(
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
 }
 
-// Always spans full plot height; mirrors chartjs-plugin-zoom mode: 'x'.
+// The selection always spans the full plot height — this is x-axis range selection only.
 export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
     return (args) => {
         const result = baseDrawHover(args)
@@ -872,16 +872,12 @@ export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawH
         if (x1 <= x0) {
             return result
         }
-        drawSelectionRect(
-            args.ctx,
-            {
-                x: x0,
-                y: args.dimensions.plotTop,
-                width: x1 - x0,
-                height: args.dimensions.plotHeight,
-            },
-            { fill: args.theme.selectionFill, stroke: args.theme.selectionStroke }
-        )
+        drawSelectionRect(args.ctx, {
+            x: x0,
+            y: args.dimensions.plotTop,
+            width: x1 - x0,
+            height: args.dimensions.plotHeight,
+        })
         return result
     }
 }

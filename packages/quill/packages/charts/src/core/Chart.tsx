@@ -56,6 +56,8 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
+     *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     dataAttr?: string

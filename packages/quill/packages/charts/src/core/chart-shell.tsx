@@ -46,7 +46,7 @@ export interface ChartShellProps {
     children?: React.ReactNode
 }
 
-// Literal cursor classes (no runtime concat) so Tailwind v4's source scan sees them — see above.
+// Literal cursor classes (no runtime concat) so Tailwind v4's source scan sees them — see the package's tailwind contract.
 function cursorClass(pointer: boolean, crosshair: boolean): string {
     if (pointer) {
         return 'cursor-pointer'

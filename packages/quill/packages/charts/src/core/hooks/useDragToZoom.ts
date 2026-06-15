@@ -44,6 +44,7 @@ export function useDragToZoom({
     const [dragRect, setDragRect] = useState<DragRect | null>(null)
     const dragOriginRef = useRef<{ x: number; y: number; active: boolean } | null>(null)
     const dragJustCompletedRef = useRef(false)
+    const swallowResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const labelsRef = useLatest(labels)
     const labelPositionsRef = useLatest(labelPositions)
     const onDateRangeZoomRef = useLatest(onDateRangeZoom)
@@ -58,17 +59,24 @@ export function useDragToZoom({
             if (origin.active) {
                 const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
                 if (range && onDateRangeZoomRef.current) {
-                    const ls = labelsRef.current
+                    const currentLabels = labelsRef.current
                     onDateRangeZoomRef.current({
-                        startLabel: ls[range.startIndex],
-                        endLabel: ls[range.endIndex],
+                        startLabel: currentLabels[range.startIndex],
+                        endLabel: currentLabels[range.endIndex],
                         startIndex: range.startIndex,
                         endIndex: range.endIndex,
                     })
                 }
+                // Swallow the trailing `click` that the browser fires after the gesture's mouseup.
+                // shouldSwallowClick() clears this synchronously on that click; the timer is the
+                // fallback for when no click follows (drag released off-target), cleared on unmount.
                 dragJustCompletedRef.current = true
-                setTimeout(() => {
+                if (swallowResetTimerRef.current) {
+                    clearTimeout(swallowResetTimerRef.current)
+                }
+                swallowResetTimerRef.current = setTimeout(() => {
                     dragJustCompletedRef.current = false
+                    swallowResetTimerRef.current = null
                 }, 0)
             }
             dragOriginRef.current = null
@@ -77,9 +85,12 @@ export function useDragToZoom({
         [labelPositionsRef, labelsRef, onDateRangeZoomRef]
     )
 
-    // Global mouseup catches gestures that end outside the chart wrapper.
+    // Global mouseup catches gestures that end outside the chart wrapper. Gate on a stable
+    // boolean rather than the `onDateRangeZoom` identity so an inline-arrow prop (the common
+    // case) doesn't re-subscribe this window listener on every parent render.
+    const zoomEnabled = !!onDateRangeZoom
     useEffect(() => {
-        if (!onDateRangeZoom) {
+        if (!zoomEnabled) {
             return
         }
         const handler = (e: MouseEvent): void => {
@@ -92,11 +103,20 @@ export function useDragToZoom({
         }
         window.addEventListener('mouseup', handler)
         return () => window.removeEventListener('mouseup', handler)
-    }, [onDateRangeZoom, wrapperRef, completeDrag])
+    }, [zoomEnabled, wrapperRef, completeDrag])
+
+    useEffect(
+        () => () => {
+            if (swallowResetTimerRef.current) {
+                clearTimeout(swallowResetTimerRef.current)
+            }
+        },
+        []
+    )
 
     const onMouseDown = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (!onDateRangeZoom || !scales || !dimensions || e.button !== 0) {
+            if (!zoomEnabled || !scales || !dimensions || e.button !== 0) {
                 return
             }
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -107,7 +127,7 @@ export function useDragToZoom({
             }
             dragOriginRef.current = { x: mouseX, y: mouseY, active: false }
         },
-        [onDateRangeZoom, scales, dimensions]
+        [zoomEnabled, scales, dimensions]
     )
 
     const handleMouseMove = useCallback(

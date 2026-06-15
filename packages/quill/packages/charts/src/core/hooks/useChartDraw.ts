@@ -24,7 +24,6 @@ interface UseChartDrawOptions {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
-    /** Live drag-to-zoom selection, when the chart type supports it. Omitted by charts that don't. */
     dragRect?: DragRect | null
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
