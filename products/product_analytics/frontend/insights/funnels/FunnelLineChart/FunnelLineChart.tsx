@@ -91,9 +91,6 @@ export function FunnelLineChart({
                 getColor: (step) =>
                     getFunnelsColor({
                         ...step,
-                        // Pair current/previous compare rows on the same base color: `colorIndex`
-                        // is shared across a current/previous pair (keyed on breakdown_value only),
-                        // whereas `seriesIndex` differs and would pick a different palette color.
                         breakdownIndex: step.colorIndex,
                     } as unknown as FlattenedFunnelStepByBreakdown),
             }),

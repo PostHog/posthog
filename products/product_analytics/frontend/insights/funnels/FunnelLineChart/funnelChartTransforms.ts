@@ -27,8 +27,6 @@ interface NormalizedFunnelStep {
     days?: string[]
     breakdown_value?: SeriesDatum['breakdown_value']
     order: number
-    // Carried through so `buildDerivedConfigs` builds the `comparisonOf` map that dims
-    // the previous-period series.
     compare?: boolean
     compare_label?: string | null
 }
