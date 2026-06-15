@@ -85,6 +85,11 @@ def process_due_reminders() -> None:
             )
             for reminder in due:
                 now = timezone.now()
+                if reminder.created_by_id is None:
+                    reminder.status = Reminder.Status.COMPLETED
+                    reminder.last_error = "Reminder has no owner (creator was deleted)."
+                    reminder.save(update_fields=["status", "last_error", "updated_at"])
+                    continue
                 if (
                     reminder.end_date
                     and reminder.end_date <= now
