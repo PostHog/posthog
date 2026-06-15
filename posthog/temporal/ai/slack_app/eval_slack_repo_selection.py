@@ -80,7 +80,7 @@ django.setup()
 from django.conf import settings
 
 from posthog.models import Team
-from posthog.temporal.ai.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
+from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
 
 from products.slack_app.backend.api import _extract_explicit_repo, classify_task_needs_repo
 from products.tasks.backend.models import Task
