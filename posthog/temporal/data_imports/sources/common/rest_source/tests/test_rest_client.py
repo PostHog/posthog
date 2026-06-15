@@ -20,6 +20,17 @@ def _make_response(json_body: Any, status_code: int = 200) -> Response:
     return resp
 
 
+def _make_truncated_response(status_code: int = 200) -> Response:
+    # Simulates a body cut off mid-stream — `response.json()` raises a JSONDecodeError
+    # ("Unterminated string"), the same shape we see when an upstream truncates a large page.
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = b'{"results": [{"id": 1, "name": "unterminated'
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.example.com/items"
+    return resp
+
+
 class TestRESTClient:
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_single_page(self, MockSession) -> None:
@@ -306,3 +317,34 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(90.0)
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_send_request_retries_on_truncated_json(self, MockSession, mock_sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.side_effect = [_make_truncated_response(), ok]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_send_request_raises_retryable_after_persistent_truncated_json(self, MockSession, mock_sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        mock_session.send.return_value = _make_truncated_response()
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientRetryableError):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 5
