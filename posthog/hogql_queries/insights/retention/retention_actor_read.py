@@ -57,9 +57,17 @@ arrayJoin(
 )
 """
 
-# Absolute day-number -> Date. toDate has no integer overload in HogQL, so reconstruct via
-# Date + interval arithmetic from the epoch (day-numbers are days since 1970-01-01).
+# Absolute day-number -> Date (the actor's team-tz calendar day). toDate has no integer overload
+# in HogQL, so reconstruct via Date + interval arithmetic from the epoch (days since 1970-01-01).
+# Used for the cohort-window bound check, which compares against toDate(...) bounds in the same
+# calendar space.
 _DATE_OF_DAYNUM = "toDate('1970-01-01') + toIntervalDay({daynum})"
+
+# Same day as a team-tz-aware DateTime, so get_start_of_interval_hogql yields interval starts that
+# match the legacy `date_range` (whose entries are team-tz). The toString round-trip makes the
+# printer parse it in the team timezone; a naive Date source prints as UTC-midnight and its
+# interval starts never equal the team-tz date_range for a non-UTC team (→ empty result).
+_DATETIME_OF_DAYNUM = "toDateTime(toString(toDate('1970-01-01') + toIntervalDay({daynum})))"
 
 
 def build_preagg_base_query(builder: RetentionFixedIntervalBaseQueryBuilder) -> ast.SelectQuery:
@@ -70,7 +78,7 @@ def build_preagg_base_query(builder: RetentionFixedIntervalBaseQueryBuilder) -> 
     # interval (day/week/month, team tz), dedupe + sort. Several days in the same week/month
     # collapse to one — correct per-actor rollup. Used as BOTH start and return timestamps.
     interval_of_daynum = runner.query_date_range.get_start_of_interval_hogql(
-        source=parse_expr(_DATE_OF_DAYNUM, {"daynum": ast.Field(chain=["dn"])})
+        source=parse_expr(_DATETIME_OF_DAYNUM, {"daynum": ast.Field(chain=["dn"])})
     )
     active_intervals = parse_expr(
         "arraySort(arrayDistinct(arrayMap(dn -> {interval_of_daynum}, day_nums)))",

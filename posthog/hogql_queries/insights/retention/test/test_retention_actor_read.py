@@ -2,6 +2,8 @@ from datetime import datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
@@ -79,6 +81,28 @@ class TestRetentionActorReadParity(ClickhouseTestMixin, APIBaseTest):
             {
                 "dateRange": {"date_from": "2024-01-01", "date_to": "2024-02-05"},
                 "retentionFilter": {"period": "Week", "totalIntervals": 5, "retentionType": "retention_first_time"},
+            }
+        )
+
+    @parameterized.expand(
+        [
+            # Near-midnight team-local events whose stored UTC instant lands on a different
+            # calendar day — so a path that bucketed in UTC instead of team tz would diverge.
+            ("america_new_york_late", "America/New_York", 23),
+            ("asia_kolkata_early", "Asia/Kolkata", 2),
+        ]
+    )
+    def test_parity_non_utc_team(self, _name: str, timezone: str, hour: int) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        for uid, days in ((A, [0, 1, 3]), (B, [1, 2]), (C, [0, 5])):
+            for d in days:
+                self._event(uid, d, hour=hour)
+        flush_persons_and_events()
+        self._assert_parity(
+            {
+                "dateRange": {"date_from": "2024-01-01", "date_to": "2024-01-08"},
+                "retentionFilter": {"period": "Day", "totalIntervals": 7, "retentionType": "retention_first_time"},
             }
         )
 
