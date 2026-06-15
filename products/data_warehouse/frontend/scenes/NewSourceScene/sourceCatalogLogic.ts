@@ -19,6 +19,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { HogFunctionTemplateStatus } from '~/types'
 
+import { availableSourcesLogic } from './availableSourcesLogic'
 import type { sourceCatalogLogicType } from './sourceCatalogLogicType'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
@@ -64,8 +65,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
     props({} as SourceCatalogLogicProps),
     connect(() => ({
         values: [
+            // Read the managed connector list straight from the /wizard loader rather than
+            // sourceWizardLogic.connectors — the latter derives from sourceWizardLogic's
+            // `availableSources` prop, which isn't reliably populated when the catalog is
+            // mounted outside the wizard (e.g. the pipeline new-source page).
+            availableSourcesLogic,
+            ['availableSources'],
             sourceWizardLogic,
-            ['connectors', 'manualConnectors'],
+            ['manualConnectors'],
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
@@ -87,13 +94,13 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
     selectors({
         catalogItems: [
             (s) => [
-                s.connectors,
+                s.availableSources,
                 s.manualConnectors,
                 s.featureFlags,
                 (_, p: SourceCatalogLogicProps) => p.allowedSources,
             ],
-            (connectors, manualConnectors, featureFlags, allowedSources): CatalogItem[] => {
-                const managed = connectors
+            (availableSources, manualConnectors, featureFlags, allowedSources): CatalogItem[] => {
+                const managed = Object.values(availableSources ?? {})
                     .filter((c) => !allowedSources || allowedSources.includes(c.name))
                     .map((connector: SourceConfig): CatalogItem => {
                         // Mirror nonHogFunctionTemplatesLogic: a declared-but-absent flag reads as
