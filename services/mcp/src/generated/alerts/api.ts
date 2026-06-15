@@ -145,9 +145,8 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
                             ),
                         evaluation: zod
-                            .union([zod.enum(['last_row', 'any_row']), zod.null()])
-                            .optional()
-                            .describe('How to read the result rows. Defaults to `last_row`.'),
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
                         label_column: zod
                             .union([zod.string(), zod.null()])
                             .optional()
@@ -1422,9 +1421,8 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
                             ),
                         evaluation: zod
-                            .union([zod.enum(['last_row', 'any_row']), zod.null()])
-                            .optional()
-                            .describe('How to read the result rows. Defaults to `last_row`.'),
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
                         label_column: zod
                             .union([zod.string(), zod.null()])
                             .optional()

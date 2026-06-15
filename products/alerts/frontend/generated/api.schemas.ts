@@ -193,6 +193,7 @@ export type HogQLAlertEvaluationApi = (typeof HogQLAlertEvaluationApi)[keyof typ
 
 export const HogQLAlertEvaluationApi = {
     LastRow: 'last_row',
+    FirstRow: 'first_row',
     AnyRow: 'any_row',
 } as const
 
@@ -205,8 +206,8 @@ export const HogQLAlertConfigApiType = {
 export interface HogQLAlertConfigApi {
     /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
     column?: string | null
-    /** How to read the result rows. Defaults to `last_row`. */
-    evaluation?: HogQLAlertEvaluationApi | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluationApi
     /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
     label_column?: string | null
     type: HogQLAlertConfigApiType
