@@ -327,30 +327,30 @@ class TestFetchTableStats:
 
 class TestFetchAverageRowSize:
     def test_returns_none_when_no_columns(self, impl, cursor, logger):
-        cursor.fetchall.return_value = []
+        cursor.description = []
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
 
     def test_returns_none_when_sample_empty(self, impl, cursor, logger):
-        cursor.fetchall.return_value = [("id",), ("email",)]
+        cursor.description = [("id",), ("email",)]
         cursor.fetchone.return_value = None
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
 
     def test_returns_row_size_bytes(self, impl, cursor, logger):
-        cursor.fetchall.return_value = [("id",), ("email",)]
+        cursor.description = [("id",), ("email",)]
         cursor.fetchone.return_value = (256.4,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result == 256
 
     def test_clamps_to_at_least_one(self, impl, cursor, logger):
-        cursor.fetchall.return_value = [("id",)]
+        cursor.description = [("id",)]
         cursor.fetchone.return_value = (0,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result == 1
 
     def test_quotes_column_names_in_length_sum(self, impl, cursor, logger):
-        cursor.fetchall.return_value = [("id",), ("email",)]
+        cursor.description = [("id",), ("email",)]
         cursor.fetchone.return_value = (100,)
         impl.fetch_average_row_size(cursor, "db", "t", "SELECT * FROM x", {}, logger)
         # The second execute call is the size query — inspect it.
@@ -360,11 +360,40 @@ class TestFetchAverageRowSize:
         assert "`email`" in sql
         assert "LENGTH(COALESCE(`id`" in sql
 
+    def test_samples_only_projected_inner_query_columns(self, impl, cursor, logger):
+        # Regression: the sync projects a subset of columns (column
+        # selection / primary keys / incremental field). Column names must
+        # come from the `inner_query`'s own projection — reading every table
+        # column from information_schema previously summed `LENGTH(...)` over
+        # de-selected columns inside the subselect and failed with
+        # "Unknown column '<col>' in 'field list'".
+        cursor.description = [("id",), ("task_id",), ("status",)]
+        cursor.fetchone.return_value = (42,)
+        inner_query = "select `id`, `task_id`, `status` from `db`.`t` where `id` > %(id)s order by `id` asc"
+
+        result = impl.fetch_average_row_size(cursor, "db", "t", inner_query, {"id": 5}, logger)
+        assert result == 42
+
+        # First execute discovers the projected columns from the inner query
+        # itself (LIMIT 0 fetches no rows), reusing the same bound args.
+        discovery_sql, discovery_args = cursor.execute.call_args_list[0].args
+        assert inner_query in discovery_sql
+        assert "LIMIT 0" in discovery_sql
+        assert discovery_args == {"id": 5}
+
+        # Size query references only the projected columns — no de-selected
+        # column (e.g. `tool_input`) leaks into the LENGTH(...) sum.
+        size_sql = cursor.execute.call_args_list[1].args[0]
+        assert "LENGTH(COALESCE(`id`" in size_sql
+        assert "`task_id`" in size_sql
+        assert "`status`" in size_sql
+        assert "tool_input" not in size_sql
+
     def test_rejects_malformed_column_names(self, impl, cursor, logger):
-        # If INFORMATION_SCHEMA somehow returns a weird column name, we must
+        # If the inner query somehow exposes a weird column name, we must
         # reject it rather than splice it into SQL. The quoter raises; the
         # method catches and returns None.
-        cursor.fetchall.return_value = [("bad;col",)]
+        cursor.description = [("bad;col",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None

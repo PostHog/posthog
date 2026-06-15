@@ -628,31 +628,27 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
     ) -> int | None:
         """Sample `LENGTH(COALESCE(col, ''))` across columns on the first 1000 rows.
 
-        Column names are pulled from `information_schema.COLUMNS`, then
-        each name is passed through the identifier quoter before being
-        interpolated into the `LENGTH(...)` sum. `inner_query` is the
-        SELECT the sync is about to run — its identifiers were already
-        quoted by the shared `SelectQueryBuilder`, and its arguments are
-        rebound as parameters here. No untrusted value ever reaches raw
-        SQL.
+        Column names come from `inner_query`'s own result metadata — not
+        `information_schema.COLUMNS` — because the sync only selects the
+        *projected* columns (column selection + primary keys + incremental
+        field), not every column on the table. Summing `LENGTH(...)` over
+        de-selected columns inside the `inner_query` subselect would
+        reference columns absent from the derived table and fail with
+        `Unknown column '<col>' in 'field list'`. Each name is still passed
+        through the identifier quoter before interpolation; `inner_query`
+        was already quoted by the shared `SelectQueryBuilder`, and its
+        arguments are rebound as parameters here. No untrusted value ever
+        reaches raw SQL.
         """
         try:
-            cursor.execute(
-                """
-                    SELECT COLUMN_NAME
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = %(schema)s
-                    AND TABLE_NAME = %(table_name)s
-                    ORDER BY ORDINAL_POSITION
-                """,
-                {"schema": schema, "table_name": table_name},
-            )
-            rows = cursor.fetchall()
-            if not rows:
+            # `LIMIT 0` fetches no rows but still populates the cursor
+            # description with exactly the columns the sync projects.
+            cursor.execute("SELECT * FROM (" + inner_query + ") as t LIMIT 0", inner_query_args)
+            columns = [col[0] for col in cursor.description or []]
+            if not columns:
                 logger.debug("fetch_average_row_size: No columns found.")
                 return None
 
-            columns = [row[0] for row in rows]
             length_sum = " + ".join(f"LENGTH(COALESCE({_IDENTIFIER_QUOTER.quote(col)}, ''))" for col in columns)
             # length_sum and inner_query are built from sanitized identifiers;
             # no user-supplied values are interpolated into the SQL itself.
