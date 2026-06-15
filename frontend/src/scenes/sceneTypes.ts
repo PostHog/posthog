@@ -41,6 +41,7 @@ export enum Scene {
     DataOps = 'DataOps',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
+    DataWarehouseSourceConnect = 'DataWarehouseSourceConnect',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DataWarehouseSourceSchema = 'DataWarehouseSourceSchema',
     DeadLetterQueue = 'DeadLetterQueue',

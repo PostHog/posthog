@@ -17,8 +17,13 @@ from .adyen.source import AdyenSource
 from .aircall.source import AircallSource
 from .airtable.source import AirtableSource
 from .amazon_ads.source import AmazonAdsSource
+from .amazon_cloudwatch.source import AmazonCloudWatchSource
+from .amazon_eventbridge.source import AmazonEventBridgeSource
+from .amazon_kinesis.source import AmazonKinesisSource
 from .amazon_s3.source import AmazonS3Source
 from .amazon_selling_partner.source import AmazonSellingPartnerSource
+from .amazon_sns.source import AmazonSNSSource
+from .amazon_sqs.source import AmazonSQSSource
 from .amplitude.source import AmplitudeSource
 from .apollo.source import ApolloSource
 from .apple_search_ads.source import AppleSearchAdsSource
@@ -149,6 +154,7 @@ from .notion.source import NotionSource
 from .okta.source import OktaSource
 from .omnisend.source import OmnisendSource
 from .onedrive.source import OneDriveSource
+from .openai_ads.source import OpenAIAdsSource
 from .opsgenie.source import OpsgenieSource
 from .optimizely.source import OptimizelySource
 from .oracle.source import OracleSource

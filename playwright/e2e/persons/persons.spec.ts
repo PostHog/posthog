@@ -133,7 +133,6 @@ test.describe('Persons', () => {
     })
 
     test('Split a person with multiple distinct IDs', async ({ page }) => {
-        test.setTimeout(60_000)
         const persons = new PersonsPage(page)
         const { primaryDistinctId } = personWithMultipleIds.expected
         const secondaryDistinctId = personWithMultipleIds.person.distinct_ids[1]

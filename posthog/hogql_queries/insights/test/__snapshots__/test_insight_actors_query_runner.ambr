@@ -202,7 +202,7 @@
                        start_of_interval
               HAVING greater(count(), 0))
            GROUP BY aggregation_target)
-        WHERE ifNull(equals(num_intervals, 7), 0)) AS source
+        WHERE equals(num_intervals, 7)) AS source
      INNER JOIN
        (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'US/Pacific')), 1) AS properties___name,
                groups.group_type_index AS index,
@@ -253,7 +253,7 @@
                        start_of_interval
               HAVING greater(count(), 0))
            GROUP BY aggregation_target)
-        WHERE ifNull(equals(num_intervals, 2), 0)) AS source
+        WHERE equals(num_intervals, 2)) AS source
      INNER JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -280,7 +280,7 @@
                                                                                                                GROUP BY aggregation_target, start_of_interval
                                                                                                                HAVING greater(count(), 0))
                                                                                                             GROUP BY aggregation_target)
-                                                                                                         WHERE ifNull(equals(num_intervals, 2), 0)) AS source)))
+                                                                                                         WHERE equals(num_intervals, 2)) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,

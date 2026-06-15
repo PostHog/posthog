@@ -343,9 +343,14 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return context
 
-    def _get_sharing_configuration(self, context: dict[str, Any]):
+    def _get_sharing_configuration(self, context: dict[str, Any], dedupe: bool = False):
         """
-        Gets but does not create a SharingConfiguration. Only once enabled do we actually store it
+        Gets but does not create a SharingConfiguration. Only once enabled do we actually store it.
+
+        ``dedupe`` expires duplicate active rows, which is a mutation — only pass it from a write
+        path that has already authorized the caller via ``check_can_edit_sharing_configuration``.
+        The read path (``list``) must leave it ``False`` so that merely viewing the sharing config
+        never invalidates public share tokens.
         """
         context = context or self.get_serializer_context()
         dashboard = context.get("dashboard")
@@ -362,17 +367,36 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "expires_at": None,
         }
 
-        try:
-            instance = SharingConfiguration.objects.get(**config_kwargs)
-        except SharingConfiguration.DoesNotExist:
+        instance = SharingConfiguration.get_active_for_resource(
+            dedupe=dedupe,
+            team_id=self.team_id,
+            insight=insight,
+            dashboard=dashboard,
+            recording=recording,
+            notebook=notebook,
+        )
+        if instance is None:
             instance = SharingConfiguration(**config_kwargs)
 
         if dashboard:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
             if dashboard.share_token and dashboard.share_token != instance.access_token:
-                instance.enabled = dashboard.is_shared
-                instance.access_token = dashboard.share_token
-                instance.save()
+                if (
+                    SharingConfiguration.objects.filter(access_token=dashboard.share_token)
+                    .exclude(pk=instance.pk)
+                    .exists()
+                ):
+                    if instance.pk:
+                        dashboard.share_token = instance.access_token
+                        dashboard.is_shared = instance.enabled
+                    else:
+                        dashboard.share_token = None
+                        dashboard.is_shared = False
+                    dashboard.save(update_fields=["share_token", "is_shared"])
+                else:
+                    instance.enabled = dashboard.is_shared
+                    instance.access_token = dashboard.share_token
+                    instance.save()
 
         return instance
 
@@ -390,6 +414,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         instance = self._get_sharing_configuration(context)
 
         check_can_edit_sharing_configuration(self, request, instance)
+
+        # Now that the caller is authorized to edit, collapse any duplicate active rows.
+        instance = self._get_sharing_configuration(context, dedupe=True)
 
         if request.data.get("password_required", False):
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -550,6 +577,8 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
 
+        sharing_config = self._get_sharing_configuration(context, dedupe=True)
+
         if not sharing_config.password_required:
             return response.Response(
                 {"error": "Password protection must be enabled before creating passwords"},
@@ -595,6 +624,8 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         sharing_config = self._get_sharing_configuration(context)
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
+
+        sharing_config = self._get_sharing_configuration(context, dedupe=True)
 
         if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
