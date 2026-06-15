@@ -1878,10 +1878,10 @@
   FROM (
     SELECT col_a AS col_a, groupArray(tuple(col_b, col_c)) AS g 
     FROM (
-      SELECT nullIf(nullIf(events.properties.index, ''), 'null') AS col_a, events.event AS col_b, count() AS col_c 
+      SELECT if(isNull(events.properties.index), NULL, toString(events.properties.index)) AS col_a, events.event AS col_b, count() AS col_c 
       FROM events_json AS events 
       WHERE equals(events.team_id, 99999) 
-      GROUP BY nullIf(nullIf(events.properties.index, ''), 'null'), events.event) 
+      GROUP BY if(isNull(events.properties.index), NULL, toString(events.properties.index)), events.event) 
     GROUP BY col_a) 
   GROUP BY col_a 
   ORDER BY col_a ASC 
@@ -1943,10 +1943,10 @@
   '''
   -- ClickHouse
   WITH PIVOT_TABLE_COL_ABC AS (
-    SELECT nullIf(nullIf(events.properties.index, ''), 'null') AS col_a, events.event AS col_b, count() AS col_c 
+    SELECT if(isNull(events.properties.index), NULL, toString(events.properties.index)) AS col_a, events.event AS col_b, count() AS col_c 
     FROM events_json AS events 
     WHERE equals(events.team_id, 99999) 
-    GROUP BY nullIf(nullIf(events.properties.index, ''), 'null'), events.event), PIVOT_FUNCTION_1 AS (
+    GROUP BY if(isNull(events.properties.index), NULL, toString(events.properties.index)), events.event), PIVOT_FUNCTION_1 AS (
     SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
     FROM PIVOT_TABLE_COL_ABC 
     GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (
@@ -2021,10 +2021,10 @@
   '''
   -- ClickHouse
   WITH PIVOT_TABLE_COL_ABC AS (
-    SELECT nullIf(nullIf(events.properties.index, ''), 'null') AS col_a, events.event AS col_b, count() AS col_c 
+    SELECT if(isNull(events.properties.index), NULL, toString(events.properties.index)) AS col_a, events.event AS col_b, count() AS col_c 
     FROM events_json AS events 
     WHERE equals(events.team_id, 99999) 
-    GROUP BY nullIf(nullIf(events.properties.index, ''), 'null'), events.event), PIVOT_FUNCTION_1 AS (
+    GROUP BY if(isNull(events.properties.index), NULL, toString(events.properties.index)), events.event), PIVOT_FUNCTION_1 AS (
     SELECT PIVOT_TABLE_COL_ABC.col_a AS col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
     FROM PIVOT_TABLE_COL_ABC 
     GROUP BY PIVOT_TABLE_COL_ABC.col_a), PIVOT_FUNCTION_2 AS (
