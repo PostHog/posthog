@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
@@ -25,6 +25,8 @@ import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSaved
 export type SessionReplayWidgetTileFiltersProps = DashboardWidgetTileFiltersProps
 
 const NO_SAVED_FILTER_OPTION = { value: null as string | null, label: 'No saved filter' }
+// Sentinel value: selecting it navigates to session replay to create a filter rather than persisting.
+const CREATE_SAVED_FILTER_VALUE = '__create_saved_filter__'
 
 export function SessionReplayWidgetTileFilters({
     config,
@@ -47,17 +49,25 @@ export function SessionReplayWidgetTileFilters({
         [projectFilterDefinitions, isAllowed]
     )
 
-    const savedFilterSelectOptions = useMemo(
-        () => [NO_SAVED_FILTER_OPTION, ...savedFilterOptions],
-        [savedFilterOptions]
-    )
+    const savedFilterSelectOptions = useMemo(() => {
+        const options: { value: string | null; label: string; sideIcon?: JSX.Element }[] = [
+            NO_SAVED_FILTER_OPTION,
+            ...savedFilterOptions,
+        ]
+        // When the project has no saved filters yet, offer a shortcut to create one in session replay.
+        if (!savedFiltersLoading && savedFilterOptions.length === 0) {
+            options.push({
+                value: CREATE_SAVED_FILTER_VALUE,
+                label: 'Create a saved filter',
+                sideIcon: <IconOpenInNew />,
+            })
+        }
+        return options
+    }, [savedFilterOptions, savedFiltersLoading])
     const savedFilterLabel = useMemo(
         () => savedFilterOptions.find((option) => option.value === savedFilterId)?.label ?? savedFilterId,
         [savedFilterOptions, savedFilterId]
     )
-    // When the project has no saved filters yet, prompt the user to create one in session replay
-    // rather than showing an empty picker.
-    const showSavedFilterPrompt = !savedFiltersLoading && savedFilterOptions.length === 0 && !hasSavedFilter
 
     const configRef = useRef(config)
     configRef.current = config
@@ -73,6 +83,11 @@ export function SessionReplayWidgetTileFilters({
     }
 
     const applySavedFilter = async (value: string | null): Promise<void> => {
+        // The "create" item is a navigation shortcut, not a persisted value.
+        if (value === CREATE_SAVED_FILTER_VALUE) {
+            window.open(urls.replay(), '_blank', 'noopener,noreferrer')
+            return
+        }
         const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, { savedFilterId: value })
         configRef.current = nextConfig
         await persistConfigNow(nextConfig)
@@ -110,25 +125,16 @@ export function SessionReplayWidgetTileFilters({
 
     return (
         <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters">
-            {showSavedFilterPrompt ? (
-                <span className="text-xs text-muted" data-attr="session-replay-widget-no-saved-filters">
-                    No saved filters yet —{' '}
-                    <Link to={urls.replay()} target="_blank">
-                        create one in session replay
-                    </Link>
-                </span>
-            ) : (
-                <LemonSelect
-                    size="small"
-                    value={savedFilterId}
-                    disabled={!canUpdate}
-                    disabledReason={controlDisabledReason}
-                    loading={savedFiltersLoading}
-                    options={savedFilterSelectOptions}
-                    placeholder="Saved filter"
-                    onChange={(value) => void applySavedFilter(value ?? null)}
-                />
-            )}
+            <LemonSelect
+                size="small"
+                value={savedFilterId}
+                disabled={!canUpdate}
+                disabledReason={controlDisabledReason}
+                loading={savedFiltersLoading}
+                options={savedFilterSelectOptions}
+                placeholder="Saved filter"
+                onChange={(value) => void applySavedFilter(value ?? null)}
+            />
             {!hasSavedFilter ? (
                 <>
                     <LemonSelect
