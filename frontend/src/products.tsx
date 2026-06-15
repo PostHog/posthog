@@ -1989,7 +1989,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Skills',
-        intents: [ProductKey.LLM_PROMPTS],
+        intents: [ProductKey.SKILLS],
         category: ProductItemCategory.TOOLS,
         type: 'llm_skills',
         iconType: 'llm_prompts' as FileSystemIconType,
