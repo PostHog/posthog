@@ -3,6 +3,7 @@
 !.devcontainer
 !.kearc
 !bin
+!common/__init__.py
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
