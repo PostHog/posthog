@@ -167,10 +167,17 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
-                        # hogli db commands used for test database setup
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli db setup (db:restore-schema-fresh). Scoped to the
+                        # modules that command actually imports — framework,
+                        # manifest, boot modules, db_schema — so unrelated hogli
+                        # commands (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
 
             - name: Read ClickHouse versions from JSON
               id: read-versions

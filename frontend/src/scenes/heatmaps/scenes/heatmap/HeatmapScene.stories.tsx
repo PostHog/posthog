@@ -88,7 +88,7 @@ export const IframeExample: Story = {
             get: {
                 '/api/environments/:team_id/saved/hm_iframe/': (_req, res, ctx) =>
                     res(ctx.status(200), ctx.json(makeIframeSaved())),
-                '/api/heatmap/': (_req, res, ctx) =>
+                '/api/projects/:team_id/heatmaps/': (_req, res, ctx) =>
                     res(
                         ctx.status(200),
                         ctx.json({

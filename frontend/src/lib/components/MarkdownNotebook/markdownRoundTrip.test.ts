@@ -8,7 +8,7 @@ import {
     NotebookTableBlockNode,
     NotebookTextBlockNode,
 } from './types'
-import { getNodeText } from './utils'
+import { getInlineText, getNodeText } from './utils'
 
 function makeDocument(nodes: NotebookBlockNode[]): NotebookDocument {
     return { type: 'doc', nodes, errors: [] }
@@ -65,6 +65,8 @@ const TEXT_PIECES = [
     '#tag',
     '- not a list',
     '1. not ordered',
+    '[x] not a task',
+    '[ ] also not a task',
     '| not | a | table |',
     '<Important note',
     '```',
@@ -147,6 +149,7 @@ describe('markdown round trip', () => {
                         depth,
                         ordered,
                         start: ordered ? 1 : undefined,
+                        checked: !ordered && random() < 0.3 ? random() < 0.5 : undefined,
                     }
                 })
                 return { id: '', type: 'list', ordered, start: ordered ? 1 : undefined, items }
@@ -479,6 +482,129 @@ describe('markdown round trip', () => {
         })
     })
 
+    describe('inline ref and mention tags', () => {
+        it('parses a ref tag into a ref mark', () => {
+            const nodes = parseMarkdownNotebook('Before <ref id="banana">highlighted text</ref> after').nodes
+            const node = nodes[0] as NotebookTextBlockNode
+
+            expect(node.children).toEqual([
+                { type: 'text', text: 'Before ' },
+                { type: 'text', text: 'highlighted text', marks: [{ type: 'ref', id: 'banana' }] },
+                { type: 'text', text: ' after' },
+            ])
+        })
+
+        it('parses a mention tag into a mention mark', () => {
+            const nodes = parseMarkdownNotebook('Ping <mention id="5">@Marius</mention> please').nodes
+            const node = nodes[0] as NotebookTextBlockNode
+
+            expect(node.children[1]).toEqual({
+                type: 'text',
+                text: '@Marius',
+                marks: [{ type: 'mention', id: '5' }],
+            })
+        })
+
+        it('round-trips ref and mention marks', () => {
+            const document = makeDocument([
+                paragraph([
+                    text('Hello '),
+                    text('@Marius', [{ type: 'mention', id: '5' }]),
+                    text(' look at '),
+                    text('this number', [{ type: 'ref', id: 'banana' }]),
+                ]),
+            ])
+
+            expect(serializeMarkdownNotebook(document)).toEqual(
+                'Hello <mention id="5">@Marius</mention> look at <ref id="banana">this number</ref>'
+            )
+            expect(stripIds(roundTrip(document))).toEqual(stripIds(document))
+        })
+
+        it('keeps formatting marks inside the ref tag', () => {
+            const document = makeDocument([
+                paragraph([text('important', [{ type: 'bold' }, { type: 'ref', id: 'r1' }])]),
+            ])
+
+            expect(serializeMarkdownNotebook(document)).toEqual('<ref id="r1">**important**</ref>')
+            expect(stripIds(roundTrip(document))).toEqual(stripIds(document))
+        })
+
+        it('parses formatting nested inside a ref tag', () => {
+            const nodes = parseMarkdownNotebook('<ref id="r1">plain **bold** tail</ref>').nodes
+            const node = nodes[0] as NotebookTextBlockNode
+
+            expect(node.children).toEqual([
+                { type: 'text', text: 'plain ', marks: [{ type: 'ref', id: 'r1' }] },
+                { type: 'text', text: 'bold', marks: [{ type: 'bold' }, { type: 'ref', id: 'r1' }] },
+                { type: 'text', text: ' tail', marks: [{ type: 'ref', id: 'r1' }] },
+            ])
+        })
+
+        it.each(['<ref id="x">unclosed', '<ref>no id</ref>', '<ref id="">empty</ref>', '<refid="x">a</ref>'])(
+            'treats malformed inline tag %s as literal text',
+            (markdown) => {
+                const nodes = parseMarkdownNotebook(markdown).nodes
+                const node = nodes[0] as NotebookTextBlockNode
+
+                expect(node.children.every((child) => child.type !== 'text' || !child.marks?.length)).toBe(true)
+                expect(getNodeText(node)).toEqual(markdown)
+            }
+        )
+
+        it('round-trips literal ref-looking text without creating a mark', () => {
+            const document = makeDocument([paragraph([text('see <ref id="x">this</ref> tag')])])
+            const result = roundTrip(document)
+
+            expect(stripIds(result)).toEqual(stripIds(document))
+        })
+
+        it('round-trips ref marks inside list items', () => {
+            const document = makeDocument([
+                {
+                    id: '',
+                    type: 'list',
+                    ordered: false,
+                    items: [
+                        {
+                            children: [text('todo item', [{ type: 'ref', id: 'r2' }])],
+                            depth: 0,
+                            ordered: false,
+                            start: undefined,
+                        },
+                    ],
+                },
+            ])
+
+            expect(stripIds(roundTrip(document))).toEqual(stripIds(document))
+        })
+    })
+
+    describe('discussion comment tags', () => {
+        it('round-trips a discussion comment as a JSX tag, not an html comment', () => {
+            const markdown = '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"Looks off"}]} />'
+            const nodes = parseMarkdownNotebook(markdown).nodes
+
+            expect(nodes[0]).toMatchObject({
+                type: 'component',
+                tagName: 'Comment',
+                props: {
+                    ref: 'banana',
+                    replies: [{ id: 'r1', author: 'Ann', text: 'Looks off' }],
+                },
+            })
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+        })
+
+        it('keeps the authorial note flavor serializing as an html comment', () => {
+            const document = makeDocument([
+                { id: '', type: 'component', tagName: 'Comment', props: { text: 'just a note' } },
+            ])
+
+            expect(serializeMarkdownNotebook(document)).toEqual('<!-- just a note -->')
+        })
+    })
+
     describe('list indentation', () => {
         it('clamps externally indented nesting to one level per step', () => {
             const nodes = parseMarkdownNotebook('- parent\n    - child\n        - grandchild').nodes
@@ -492,6 +618,71 @@ describe('markdown round trip', () => {
             const list = nodes[0] as NotebookListBlockNode
 
             expect(list.items.map((item) => item.depth)).toEqual([0, 1, 0])
+        })
+    })
+
+    describe('task lists', () => {
+        it('parses checked and unchecked task markers on bullet items', () => {
+            const nodes = parseMarkdownNotebook('- [ ] open\n- [x] done\n- [X] also done\n- plain').nodes
+            const list = nodes[0] as NotebookListBlockNode
+
+            expect(list.items.map((item) => item.checked)).toEqual([false, true, true, undefined])
+            expect(list.items.map((item) => getInlineText(item.children))).toEqual([
+                'open',
+                'done',
+                'also done',
+                'plain',
+            ])
+        })
+
+        it('serializes task state back to GFM markers and reaches a fixpoint', () => {
+            const markdown = '- [ ] open\n- [x] done\n  - [ ] nested open\n- plain'
+
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+        })
+
+        it('parses an empty task item without a trailing space', () => {
+            const list = parseMarkdownNotebook('- [ ]').nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toEqual(false)
+            expect(list.items[0].children).toEqual([])
+        })
+
+        it('keeps a task marker on an ordered item as literal text', () => {
+            const list = parseMarkdownNotebook('1. [x] not a task').nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toBeUndefined()
+            expect(getNodeText(list)).toEqual('[x] not a task')
+        })
+
+        it('does not parse a marker without following whitespace as a task', () => {
+            const list = parseMarkdownNotebook('- [x](https://posthog.com/docs) linked')
+                .nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toBeUndefined()
+        })
+
+        it('round-trips literal task-marker text in a bullet item without creating a task', () => {
+            const document = makeDocument([
+                {
+                    id: '',
+                    type: 'list',
+                    ordered: false,
+                    items: [{ children: [text('[x] literal marker')], depth: 0, ordered: false, start: undefined }],
+                },
+            ])
+            const result = roundTrip(document)
+            const list = result.nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toBeUndefined()
+            expect(getNodeText(list)).toEqual('[x] literal marker')
+            expect(stripIds(roundTrip(result))).toEqual(stripIds(result))
+        })
+
+        it('round-trips task items inside a blockquoted list', () => {
+            const markdown = '> - [x] quoted done\n> - [ ] quoted open'
+
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
         })
     })
 })

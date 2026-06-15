@@ -410,6 +410,7 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
+    SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -1342,6 +1343,12 @@ class ExternalDataSourceType(StrEnum):
     SAP_SUCCESS_FACTORS = "SapSuccessFactors"
     ORACLE_EBS = "OracleEbs"
     ORACLE_FUSION = "OracleFusion"
+    AMAZON_SNS = "AmazonSNS"
+    AMAZON_EVENT_BRIDGE = "AmazonEventBridge"
+    AMAZON_SQS = "AmazonSQS"
+    AMAZON_KINESIS = "AmazonKinesis"
+    AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
+    OPEN_AI_ADS = "OpenAIAds"
     CUSTOM = "Custom"
 
 
