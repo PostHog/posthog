@@ -79,6 +79,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -1851,6 +1852,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         restricted = self._get_property_access_restrictions()
         if restricted:
             payload["restricted_properties"] = restricted
+
+        # Temporary (June 2026 MaxMind incident): only set while the geoip dict fallback is enabled for the team, so
+        # flipping HOGQL_GEOIP_DICT_FALLBACK_TEAMS invalidates exactly the affected teams' cached results (which hold
+        # blank geo values) and nothing changes for anyone else. Deliberately keyed on env membership alone, NOT the
+        # runtime dictionary probe: cache keys must depend only on operator-controlled config, or a transient probe
+        # failure would flip every enabled team's keys at once and recompute the fleet against an already-degraded
+        # cluster. Remove with the transform.
+        if geoip_dict_fallback_team_in_env(self.team.pk):
+            payload["geoip_dict_fallback"] = True
 
         return payload
 

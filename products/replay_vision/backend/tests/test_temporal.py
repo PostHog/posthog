@@ -12,6 +12,7 @@ from django.utils import timezone
 import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -20,10 +21,6 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
-    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
-    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
-)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -42,7 +39,8 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
-from products.replay_vision.backend.temporal.activities.embed_summarizer_observation import (
+from products.replay_vision.backend.temporal.activities.embed_observation import (
+    embed_observation_activity,
     embed_summarizer_observation_activity,
 )
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -64,9 +62,14 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
+    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
+    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
+)
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, SummarizerScanner
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
@@ -79,6 +82,7 @@ from products.replay_vision.backend.temporal.types import (
     CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
+    EmbedObservationInputs,
     EmbedSummarizerObservationInputs,
     EmitClassifierTagsInputs,
     EnsureSessionAssetInputs,
@@ -1326,6 +1330,7 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert activity_order[4:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
+        embed_observation_activity,
         emit_observation_event_activity,
         mark_observation_succeeded_activity,
         cleanup_gemini_file_activity,
@@ -1525,7 +1530,7 @@ def _classifier_output() -> ClassifierOutput:
 
 
 @pytest.mark.asyncio
-async def test_embed_summarizer_observation_emits_one_request_per_nonempty_facet() -> None:
+async def test_embed_observation_emits_one_request_per_nonempty_facet() -> None:
     out = SummarizerOutput(
         title="Investigation",
         summary="User browsed dashboards and clicked through several insights.",
@@ -1535,13 +1540,14 @@ async def test_embed_summarizer_observation_emits_one_request_per_nonempty_facet
         keywords=["dashboard", "insight"],
         confidence=0.8,
     )
-    inputs = EmbedSummarizerObservationInputs(
-        team_id=99, session_id="sess-abc", observation_id=uuid.uuid4(), summarizer_output=out
+    scanner_id = uuid.uuid4()
+    inputs = EmbedObservationInputs(
+        team_id=99, session_id="sess-abc", observation_id=uuid.uuid4(), scanner_id=scanner_id, model_output=out
     )
     with patch(
-        "products.replay_vision.backend.temporal.activities.embed_summarizer_observation.emit_embedding_request"
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
     ) as mock_emit:
-        await embed_summarizer_observation_activity(inputs)
+        await embed_observation_activity(inputs)
 
     renderings = [call.kwargs["rendering"] for call in mock_emit.call_args_list]
     assert renderings == ["intent", "outcome", "keywords"]
@@ -1551,26 +1557,91 @@ async def test_embed_summarizer_observation_emits_one_request_per_nonempty_facet
         assert call.kwargs["document_type"] == "replay-observation"
         assert call.kwargs["document_id"] == str(inputs.observation_id)
         assert call.kwargs["models"] == ["text-embedding-3-large-3072"]
-        # session_id is carried in metadata so search results can map embeddings → sessions.
+        # session_id + scanner_id are carried in metadata so search results map embeddings → sessions, scoped to a scanner.
         assert call.kwargs["metadata"]["session_id"] == "sess-abc"
         assert call.kwargs["metadata"]["team_id"] == 99
         assert call.kwargs["metadata"]["observation_id"] == str(inputs.observation_id)
+        assert call.kwargs["metadata"]["scanner_id"] == str(scanner_id)
+
+
+@parameterized.expand(
+    [
+        (
+            "monitor",
+            MonitorOutput(verdict="no", reasoning="checkout button never rendered", confidence=0.9),
+            {"verdict": "no"},
+        ),
+        (
+            "scorer",
+            ScorerOutput(score=0.0, reasoning="user rage-clicked a broken button", confidence=0.7),
+            {"score": 0.0},
+        ),
+        ("classifier", _classifier_output(), {"tags": ["support", "billing"]}),
+    ]
+)
+@pytest.mark.asyncio
+async def test_embed_observation_emits_reasoning_for_non_summarizer(_name, model_output, expected_metadata) -> None:
+    scanner_id = uuid.uuid4()
+    inputs = EmbedObservationInputs(
+        team_id=99, session_id="sess-r", observation_id=uuid.uuid4(), scanner_id=scanner_id, model_output=model_output
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
+    ) as mock_emit:
+        await embed_observation_activity(inputs)
+
+    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["reasoning"]
+    call = mock_emit.call_args_list[0]
+    assert call.kwargs["content"] == model_output.reasoning
+    assert call.kwargs["document_id"] == str(inputs.observation_id)
+    metadata = call.kwargs["metadata"]
+    assert metadata["scanner_id"] == str(scanner_id)
+    # The exact outcome is stamped into metadata so search can filter on it inside ClickHouse.
+    for key, value in expected_metadata.items():
+        assert metadata[key] == value
 
 
 @pytest.mark.asyncio
-async def test_embed_summarizer_observation_raises_propagates_failure() -> None:
+async def test_embed_summarizer_observation_alias_still_emits_facets() -> None:
+    # Back-compat: the renamed activity keeps the old name registered so summarizer workflows already in flight
+    # at deploy time resolve. It takes the old input shape and emits facets with the old (scanner-less) metadata.
+    out = SummarizerOutput(
+        title="Investigation",
+        summary="User browsed dashboards.",
+        intent="Investigate slow query response",
+        outcome="No issue reproduced.",
+        keywords=["dashboard"],
+        confidence=0.8,
+    )
     inputs = EmbedSummarizerObservationInputs(
+        team_id=99, session_id="sess-legacy", observation_id=uuid.uuid4(), summarizer_output=out
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
+    ) as mock_emit:
+        await embed_summarizer_observation_activity(inputs)
+
+    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["intent", "outcome", "keywords"]
+    metadata = mock_emit.call_args_list[0].kwargs["metadata"]
+    assert metadata["session_id"] == "sess-legacy"
+    assert "scanner_id" not in metadata  # old metadata shape, pre-rename
+
+
+@pytest.mark.asyncio
+async def test_embed_observation_raises_propagates_failure() -> None:
+    inputs = EmbedObservationInputs(
         team_id=99,
         session_id="sess-x",
         observation_id=uuid.uuid4(),
-        summarizer_output=_summarizer_output_with_facets(),
+        scanner_id=uuid.uuid4(),
+        model_output=_summarizer_output_with_facets(),
     )
     with patch(
-        "products.replay_vision.backend.temporal.activities.embed_summarizer_observation.emit_embedding_request",
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
         side_effect=RuntimeError("kafka down"),
     ):
         with pytest.raises(RuntimeError, match="kafka down"):
-            await embed_summarizer_observation_activity(inputs)
+            await embed_observation_activity(inputs)
 
 
 @pytest.mark.asyncio
@@ -1622,21 +1693,22 @@ async def test_emit_classifier_tags_raises_when_metadata_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embed_summarizer_observation_raises_when_kafka_delivery_fails() -> None:
-    inputs = EmbedSummarizerObservationInputs(
+async def test_embed_observation_raises_when_kafka_delivery_fails() -> None:
+    inputs = EmbedObservationInputs(
         team_id=99,
         session_id="sess-x",
         observation_id=uuid.uuid4(),
-        summarizer_output=_summarizer_output_with_facets(),
+        scanner_id=uuid.uuid4(),
+        model_output=_summarizer_output_with_facets(),
     )
     failed_result = MagicMock()
     failed_result.get.side_effect = RuntimeError("broker timeout")
     with patch(
-        "products.replay_vision.backend.temporal.activities.embed_summarizer_observation.emit_embedding_request",
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
         return_value=failed_result,
     ):
         with pytest.raises(RuntimeError, match="broker timeout"):
-            await embed_summarizer_observation_activity(inputs)
+            await embed_observation_activity(inputs)
 
 
 @pytest.mark.asyncio
@@ -1688,15 +1760,15 @@ async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facet
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == embed_summarizer_observation_activity
+    assert activity_order[call_idx + 1] == embed_observation_activity
     assert activity_order[call_idx + 2] == emit_observation_event_activity
     assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
     assert emit_classifier_tags_activity not in activity_order
 
-    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_summarizer_observation_activity)
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
     assert embed_input.session_id == "sess-sum"
     assert embed_input.team_id == 99
-    assert embed_input.summarizer_output == model_output
+    assert embed_input.model_output == model_output
 
 
 @pytest.mark.asyncio
@@ -1720,7 +1792,7 @@ async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets(
     await _run_workflow(_build_inputs(session_id="sess-nofacets"), mocks)
 
     called = {fn for fn, _ in mocks.activity_calls}
-    assert embed_summarizer_observation_activity not in called
+    assert embed_observation_activity not in called
 
 
 @pytest.mark.asyncio
@@ -1742,19 +1814,22 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
 
     await _run_workflow(_build_inputs(session_id="sess-cls", team_id=99), mocks, workflow_id="wf-cls")
 
+    # Classifiers embed their reasoning AND fan out tags; embedding runs first.
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == emit_classifier_tags_activity
-    assert activity_order[call_idx + 2] == emit_observation_event_activity
-    assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
-    assert embed_summarizer_observation_activity not in activity_order
+    assert activity_order[call_idx + 1] == embed_observation_activity
+    assert activity_order[call_idx + 2] == emit_classifier_tags_activity
+    assert activity_order[call_idx + 3] == emit_observation_event_activity
+    assert activity_order[call_idx + 4] == mark_observation_succeeded_activity
 
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
+    assert embed_input.model_output == model_output
     tag_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_classifier_tags_activity)
     assert tag_input.classifier_output == model_output
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
+async def test_apply_scanner_workflow_embeds_monitor_reasoning_without_classifier_tags() -> None:
     new_observation_id = uuid.uuid4()
     model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
@@ -1773,8 +1848,12 @@ async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
     await _run_workflow(_build_inputs(session_id="sess-mon", team_id=99), mocks, workflow_id="wf-mon")
 
     called = {fn for fn, _ in mocks.activity_calls}
-    assert embed_summarizer_observation_activity not in called
+    # Monitors carry a `reasoning` paragraph, so the embedding side-effect runs; only classifiers fan out tags.
+    assert embed_observation_activity in called
     assert emit_classifier_tags_activity not in called
+
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
+    assert embed_input.model_output == model_output
 
 
 @pytest.mark.asyncio
@@ -1794,7 +1873,7 @@ async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> 
             ),
             call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_with_facets()),
         },
-        activity_errors={embed_summarizer_observation_activity: side_effect_error},
+        activity_errors={embed_observation_activity: side_effect_error},
     )
 
     with pytest.raises(ApplicationError, match="embedding kafka down"):

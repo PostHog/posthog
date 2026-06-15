@@ -67,11 +67,13 @@ the row lists both.
 | calendly          | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor  | HTTP                        | requests                                                        | ✅                          |
 | chargebee         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| checkout_com      | HTTP                        | requests                                                        | ✅                          |
 | coda              | HTTP                        | requests                                                        | ✅                          |
 | commercetools     | HTTP                        | requests                                                        | ✅                          |
 | confluence        | HTTP                        | requests                                                        | ✅                          |
 | chartmogul        | HTTP                        | requests                                                        | ✅                          |
 | circleci          | HTTP                        | requests                                                        | ✅                          |
+| cloudflare        | HTTP                        | requests                                                        | ✅                          |
 | clari             | HTTP                        | requests                                                        | ✅                          |
 | clerk             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse        | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
@@ -245,9 +247,7 @@ doesn't conflict with concurrent PRs.
 - box
 - branch
 - campaign_manager_360
-- checkout_com
 - chorus
-- cloudflare
 - cockroachdb
 - constant_contact
 - copper

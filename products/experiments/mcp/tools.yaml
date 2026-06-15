@@ -277,8 +277,8 @@ tools:
             ("Experiment has already ended.").
 
 
-            Other options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag
-            without ending.
+            Other options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate
+            the flag without ending.
         param_overrides:
             id:
                 cast: string-int
@@ -803,7 +803,7 @@ tools:
 
 
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
-            ship_variant tools instead.
+            experiment-ship-variant tools instead.
         include_params:
             - name
             - description

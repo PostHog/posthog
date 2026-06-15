@@ -111,6 +111,7 @@ class TestChatCompletionsEndpoint:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)

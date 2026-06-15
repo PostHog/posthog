@@ -54,7 +54,9 @@ test.describe('Cohorts', () => {
 
         // The panel's open state persists across the client-side nav. The open
         // button is unmounted while the panel is open, so only click it if the
-        // panel actually closed.
+        // panel actually closed. Wait for the URL to advance to the new cohort
+        // before checking visibility.
+        await page.waitForURL(/\/cohorts\/\d+/)
         const reopenPanelButton = page.locator('[data-attr=open-context-panel-button]').first()
         if (await reopenPanelButton.isVisible().catch(() => false)) {
             await reopenPanelButton.click()
