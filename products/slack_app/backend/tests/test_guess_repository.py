@@ -454,7 +454,7 @@ class TestHandleRulesCommandActivity:
             slack_team_id="T12345",
         )
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_list_empty_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -473,7 +473,7 @@ class TestHandleRulesCommandActivity:
         msg = mock_slack.client.chat_postMessage.call_args
         assert "No routing rules" in msg.kwargs["text"]
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_help_uses_posthog_commands(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -493,7 +493,7 @@ class TestHandleRulesCommandActivity:
         assert "@PostHog <task description>" in msg.kwargs["text"]
         assert "@PostHog Code" not in msg.kwargs["text"]
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -523,7 +523,7 @@ class TestHandleRulesCommandActivity:
     @patch(
         "products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog", "posthog/posthog-js"]
     )
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_add_with_repo_creates_rule(self, mock_slack_cls, _mock_repos):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -560,7 +560,7 @@ class TestHandleRulesCommandActivity:
         assert result.pending_rule_text == "JS SDK bugs"
 
     @patch("products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog"])
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_add_rejects_disconnected_repo(self, mock_slack_cls, _mock_repos):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -580,7 +580,7 @@ class TestHandleRulesCommandActivity:
         msg = mock_slack.client.chat_postMessage.call_args
         assert "not connected" in msg.kwargs["text"]
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_remove_deletes_rule(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -603,7 +603,7 @@ class TestHandleRulesCommandActivity:
         remaining = RepoRoutingRule.objects.get(team=self.team)
         assert remaining.rule_text == "Second rule"
 
-    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_remove_invalid_number(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack

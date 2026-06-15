@@ -21,11 +21,11 @@ def block_if_team_over_quota(
 ) -> bool:
     """Refuse a Slack-bot turn when the team is over its AI credits quota.
 
-    Tach blocks ``products.slack_app`` from importing ``ee.billing``, so the
-    quota lookup lives here (where the temporal layer can freely import ee)
-    while the user-facing denial message lives in ``slack_app.backend.api``
-    (where the Slack-posting helpers live). Returns True when the team was
-    blocked and a denial was posted.
+    The user-facing denial message lives in ``products.slack_app.backend.api``
+    next to the Slack-posting helpers, while the quota lookup lives here so
+    activity modules can compose both without each one re-importing
+    ``ee.billing``. Returns True when the team was blocked and a denial was
+    posted.
     """
     from products.slack_app.backend.api import post_quota_exhausted_denial
 

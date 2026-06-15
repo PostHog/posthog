@@ -15,9 +15,6 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
-    # Imported lazily to break a circular import: products.slack_app.backend.api
-    # imports the workflow classes defined in the mention workflow module at its
-    # top level.
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.api import resolve_slack_user

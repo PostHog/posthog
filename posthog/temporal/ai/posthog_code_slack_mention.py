@@ -15,7 +15,6 @@ from posthog.temporal.ai.slack_app import (
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
-    derive_mention_workflow_id,
     discover_posthog_code_repository_via_agent_activity,
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
@@ -28,16 +27,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
-
-
-# Re-exported so external callers and tests can keep importing from this module.
-__all__ = [
-    "POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE",
-    "POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS",
-    "POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES",
-    "PostHogCodeSlackMentionWorkflow",
-    "derive_mention_workflow_id",
-]
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")

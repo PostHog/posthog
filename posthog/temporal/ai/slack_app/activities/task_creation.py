@@ -196,6 +196,7 @@ def create_posthog_code_task_for_repo_activity(
 
     # 2. Create mapping BEFORE starting the workflow to avoid race condition
     # where the agent finishes and tries to relay before the mapping exists
+    task_run = None
     if task:
         task_run = task.latest_run
         if task_run:

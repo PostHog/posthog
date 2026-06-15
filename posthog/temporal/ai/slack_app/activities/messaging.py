@@ -118,12 +118,8 @@ def block_posthog_code_task_if_no_personal_github_activity(
     """
     from django.conf import settings
 
-    import structlog
-
     from posthog.models.integration import Integration, SlackIntegration
     from posthog.models.user_integration import UserIntegration
-
-    log = structlog.get_logger(__name__)
 
     has_personal_github = UserIntegration.objects.filter(
         user_id=user_id,
@@ -163,7 +159,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
             },
         ],
     )
-    log.info(
+    logger.info(
         "posthog_code_task_blocked_no_personal_github",
         user_id=user_id,
         team_id=integration.team_id,
