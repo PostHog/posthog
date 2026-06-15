@@ -44,3 +44,24 @@ export function dragSelection(wrapper: HTMLElement, fromIndex: number, toIndex: 
         fireEvent.click(wrapper, to)
     })
 }
+
+interface RawDragOptions {
+    from: { x: number; y: number }
+    to: { x: number; y: number }
+    /** Mouse button for the mousedown. Defaults to 0 (primary). */
+    button?: number
+    /** Window mouseup coordinates, for releases outside the wrapper. Defaults to `to`. */
+    release?: { x: number; y: number }
+}
+
+/** Pixel-precise drag with explicit client coords — for edge cases `dragSelection` can't express
+ *  (sub-threshold moves, non-primary buttons, out-of-plot starts, off-wrapper releases). The mouseup
+ *  fires on window since the chart's drag handler listens globally; no trailing click is dispatched. */
+export function rawDrag(wrapper: HTMLElement, { from, to, button = 0, release }: RawDragOptions): void {
+    const releaseAt = release ?? to
+    act(() => {
+        fireEvent.mouseDown(wrapper, { button, clientX: from.x, clientY: from.y })
+        fireEvent.mouseMove(wrapper, { clientX: to.x, clientY: to.y })
+        fireEvent(window, new MouseEvent('mouseup', { bubbles: true, clientX: releaseAt.x, clientY: releaseAt.y }))
+    })
+}

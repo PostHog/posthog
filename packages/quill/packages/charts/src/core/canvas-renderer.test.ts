@@ -10,7 +10,7 @@ import {
     drawLine,
     drawSelectionRect,
 } from './canvas-renderer'
-import type { ChartDrawArgs, ChartScales, ChartTheme } from './types'
+import type { ChartDrawArgs, ChartTheme } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -52,6 +52,22 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
 /** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
 function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
     return ctx.setLineDash.mock.calls.map(([p]) => p as number[])
+}
+
+function makeDrawArgs(ctx: CanvasRenderingContext2D, overrides: Partial<ChartDrawArgs> = {}): ChartDrawArgs {
+    return {
+        ctx,
+        dimensions,
+        scales: { x: () => undefined, y: () => 0, yTicks: () => [] },
+        series: [],
+        labels: ['Mon', 'Tue', 'Wed'],
+        hoverIndex: -1,
+        hoverPosition: null,
+        theme: {} as ChartTheme,
+        hoverProgress: 1,
+        resetHoverFade: () => 0,
+        ...overrides,
+    }
 }
 
 describe('hog-charts canvas-renderer', () => {
@@ -603,23 +619,7 @@ describe('hog-charts canvas-renderer', () => {
             hoverIndex: number,
             xValue: number | undefined
         ): ChartDrawArgs {
-            const scales: ChartScales = {
-                x: () => xValue,
-                y: () => 0,
-                yTicks: () => [],
-            }
-            return {
-                ctx,
-                dimensions,
-                scales,
-                series: [],
-                labels: ['Mon', 'Tue', 'Wed'],
-                hoverIndex,
-                hoverPosition: null,
-                theme: {} as ChartTheme,
-                hoverProgress: 1,
-                resetHoverFade: () => 0,
-            }
+            return makeDrawArgs(ctx, { hoverIndex, scales: { x: () => xValue, y: () => 0, yTicks: () => [] } })
         }
 
         it('always invokes the underlying drawHover', () => {
@@ -728,7 +728,8 @@ describe('hog-charts canvas-renderer', () => {
             const ctx = mockCanvasContext()
             drawSelectionRect(ctx, { x: 100, y: 20, width: 50, height: 200 })
             expect(ctx.fillRect).toHaveBeenCalledWith(100, 20, 50, 200)
-            expect(ctx.strokeRect).toHaveBeenCalledTimes(1)
+            // Stroke is inset by half a pixel so the 1px border lands on whole pixels.
+            expect(ctx.strokeRect).toHaveBeenCalledWith(100.5, 20.5, 49, 199)
         })
 
         it('is a no-op for a zero-width rect', () => {
@@ -752,21 +753,11 @@ describe('hog-charts canvas-renderer', () => {
         const plotWidth = dimensions.plotWidth
         const plotHeight = dimensions.plotHeight
 
-        function makeSelectionArgs(ctx: CanvasRenderingContext2D, dragRect: { x0: number; x1: number } | null): ChartDrawArgs {
-            const scales: ChartScales = { x: () => undefined, y: () => 0, yTicks: () => [] }
-            return {
-                ctx,
-                dimensions,
-                scales,
-                series: [],
-                labels: ['Mon', 'Tue', 'Wed'],
-                hoverIndex: -1,
-                hoverPosition: null,
-                theme: {} as ChartTheme,
-                hoverProgress: 1,
-                resetHoverFade: () => 0,
-                dragRect,
-            }
+        function makeSelectionArgs(
+            ctx: CanvasRenderingContext2D,
+            dragRect: { x0: number; x1: number } | null
+        ): ChartDrawArgs {
+            return makeDrawArgs(ctx, { dragRect })
         }
 
         it('always invokes the underlying drawHover', () => {

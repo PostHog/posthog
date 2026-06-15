@@ -15,6 +15,9 @@ interface UseDragToZoomOptions {
     labels: string[]
     labelPositions: LabelPosition[]
     wrapperRef: React.RefObject<HTMLDivElement>
+    /** Drag-to-zoom only operates on a horizontal x-axis; it's disabled when the chart's
+     *  interaction axis is vertical. */
+    interactionAxis?: 'x' | 'y'
     /** Fired once when a drag crosses the activation threshold (used to dismiss the hover tooltip). */
     onDragActivate: () => void
 }
@@ -39,6 +42,7 @@ export function useDragToZoom({
     labels,
     labelPositions,
     wrapperRef,
+    interactionAxis = 'x',
     onDragActivate,
 }: UseDragToZoomOptions): UseDragToZoomResult {
     const [dragRect, setDragRect] = useState<DragRect | null>(null)
@@ -88,7 +92,7 @@ export function useDragToZoom({
     // Global mouseup catches gestures that end outside the chart wrapper. Gate on a stable
     // boolean rather than the `onDateRangeZoom` identity so an inline-arrow prop (the common
     // case) doesn't re-subscribe this window listener on every parent render.
-    const zoomEnabled = !!onDateRangeZoom
+    const zoomEnabled = !!onDateRangeZoom && interactionAxis === 'x'
     useEffect(() => {
         if (!zoomEnabled) {
             return

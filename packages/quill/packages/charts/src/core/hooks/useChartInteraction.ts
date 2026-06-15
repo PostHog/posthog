@@ -155,6 +155,7 @@ export function useChartInteraction<Meta = unknown>({
         labels,
         labelPositions,
         wrapperRef,
+        interactionAxis,
         onDragActivate: clearTooltip,
     })
 

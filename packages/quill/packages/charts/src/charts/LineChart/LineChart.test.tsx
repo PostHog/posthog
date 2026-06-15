@@ -1,8 +1,6 @@
-import { act, fireEvent } from '@testing-library/react'
-
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { dimensions as testDimensions, renderHogChart } from '../../testing'
+import { dimensions as testDimensions, rawDrag, renderHogChart } from '../../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = {
@@ -303,7 +301,7 @@ describe('LineChart', () => {
             })
         })
 
-        it('does not fire onPointClick when a drag completes', async () => {
+        it('does not fire onPointClick when a drag completes', () => {
             const onDateRangeZoom = jest.fn()
             const onPointClick = jest.fn()
             const { chart } = renderHogChart(
@@ -357,17 +355,11 @@ describe('LineChart', () => {
                 />
             )
 
-            act(() => {
-                fireEvent.mouseDown(chart.element, {
-                    button: 0,
-                    clientX: testDimensions.plotLeft + 10,
-                    clientY: testDimensions.plotTop + testDimensions.plotHeight / 2,
-                })
-                fireEvent.mouseMove(chart.element, {
-                    clientX: testDimensions.plotLeft + 200,
-                    clientY: testDimensions.plotTop + testDimensions.plotHeight / 2,
-                })
-                fireEvent(window, new MouseEvent('mouseup', { bubbles: true, clientX: 9999, clientY: 9999 }))
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 10, y },
+                to: { x: testDimensions.plotLeft + 200, y },
+                release: { x: 9999, y: 9999 },
             })
             expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
 
@@ -415,14 +407,10 @@ describe('LineChart', () => {
                 />
             )
             const y = testDimensions.plotTop + testDimensions.plotHeight / 2
-            act(() => {
-                // Move only 2px — below DRAG_THRESHOLD_PX, so the gesture must stay a click.
-                fireEvent.mouseDown(chart.element, { button: 0, clientX: testDimensions.plotLeft + 100, clientY: y })
-                fireEvent.mouseMove(chart.element, { clientX: testDimensions.plotLeft + 102, clientY: y })
-                fireEvent(
-                    window,
-                    new MouseEvent('mouseup', { bubbles: true, clientX: testDimensions.plotLeft + 102, clientY: y })
-                )
+            // Move only 2px — below DRAG_THRESHOLD_PX, so the gesture must stay a click.
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 100, y },
+                to: { x: testDimensions.plotLeft + 102, y },
             })
             expect(onDateRangeZoom).not.toHaveBeenCalled()
 
@@ -436,13 +424,10 @@ describe('LineChart', () => {
                 <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
             )
             const y = testDimensions.plotTop + testDimensions.plotHeight / 2
-            act(() => {
-                fireEvent.mouseDown(chart.element, { button: 2, clientX: testDimensions.plotLeft + 50, clientY: y })
-                fireEvent.mouseMove(chart.element, { clientX: testDimensions.plotLeft + 300, clientY: y })
-                fireEvent(
-                    window,
-                    new MouseEvent('mouseup', { bubbles: true, clientX: testDimensions.plotLeft + 300, clientY: y })
-                )
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 50, y },
+                to: { x: testDimensions.plotLeft + 300, y },
+                button: 2,
             })
             expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
@@ -453,17 +438,9 @@ describe('LineChart', () => {
                 <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
             )
             const yAbovePlot = testDimensions.plotTop - 5
-            act(() => {
-                fireEvent.mouseDown(chart.element, {
-                    button: 0,
-                    clientX: testDimensions.plotLeft + 50,
-                    clientY: yAbovePlot,
-                })
-                fireEvent.mouseMove(chart.element, { clientX: testDimensions.plotLeft + 300, clientY: yAbovePlot })
-                fireEvent(
-                    window,
-                    new MouseEvent('mouseup', { bubbles: true, clientX: testDimensions.plotLeft + 300, clientY: yAbovePlot })
-                )
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 50, y: yAbovePlot },
+                to: { x: testDimensions.plotLeft + 300, y: yAbovePlot },
             })
             expect(onDateRangeZoom).not.toHaveBeenCalled()
         })

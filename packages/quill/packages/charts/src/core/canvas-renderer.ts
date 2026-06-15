@@ -834,28 +834,24 @@ export function composeDrawHoverWithCrosshair(
     }
 }
 
-// Translucent blue band (fill) with a solid border (stroke) for the drag selection.
+// Drag-selection band styling. Intentionally a fixed accent rather than a theme token: there's no
+// selection color in the design tokens yet, and the band is a transient interaction affordance, not
+// chart data. Add a `--color-graph-selection-*` token and thread it through here if it needs theming.
 const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
 const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
-
-export interface DrawSelectionRectOptions {
-    fill?: string
-    stroke?: string
-    lineWidth?: number
-}
+const SELECTION_LINE_WIDTH = 1
 
 export function drawSelectionRect(
     ctx: CanvasRenderingContext2D,
-    rect: { x: number; y: number; width: number; height: number },
-    options: DrawSelectionRectOptions = {}
+    rect: { x: number; y: number; width: number; height: number }
 ): void {
     if (rect.width <= 0 || rect.height <= 0) {
         return
     }
-    ctx.fillStyle = options.fill ?? SELECTION_FILL
+    ctx.fillStyle = SELECTION_FILL
     ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
-    ctx.strokeStyle = options.stroke ?? SELECTION_STROKE
-    ctx.lineWidth = options.lineWidth ?? 1
+    ctx.strokeStyle = SELECTION_STROKE
+    ctx.lineWidth = SELECTION_LINE_WIDTH
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
 }
 
