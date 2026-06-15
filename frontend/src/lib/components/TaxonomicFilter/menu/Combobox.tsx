@@ -43,8 +43,17 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
-import { COLLAPSED_TO_CONTAINS_ROW, urlContainsRowLabel } from '../utils/collapsedContainsRow'
+import {
+    OPEN_AS_SELF_ON_REOPEN,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from '../types'
+import {
+    COLLAPSED_TO_CONTAINS_ROW,
+    partitionContainsShortcuts,
+    urlContainsRowLabel,
+} from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
@@ -95,21 +104,61 @@ const NO_ENTRIES: MenuFilterEntry[] = []
  *  legacy picker so the search telemetry is comparable across variants. */
 export const SEARCH_QUERY_DEBOUNCE_MS = 500
 
+/** An entry's canonical value — what the dedup key, the DOM id, and the
+ *  selection match all key off. They MUST agree (a row keyed one way but
+ *  matched another is the bug class this file guards against), so they share
+ *  this single derivation rather than repeating it. */
+function entryValue(entry: MenuFilterEntry): string {
+    return String(entry.group.getValue?.(entry.item) ?? entry.name)
+}
+
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
-    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
-        entry.recentPropertyFilter ? '::full' : ''
-    }`
+    return `${entry.group.type}::${entryValue(entry)}${entry.recentPropertyFilter ? '::full' : ''}`
 }
 
 /** Stable DOM id for a menu row — used for scroll-into-view, checkmark
  *  lookups, and `aria-activedescendant`. The format must be identical
  *  everywhere it is constructed. */
 function rowDomId(entry: MenuFilterEntry): string {
-    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
-        entry.recentPropertyFilter ? '-full' : ''
-    }`
+    return `menu-filter-row-${entry.group.type}-${entryValue(entry)}${entry.recentPropertyFilter ? '-full' : ''}`
+}
+
+/** Exact match: the entry's canonical value equals the selection's. This is the
+ *  authoritative match — when it holds, the two are the same definition. */
+function entryValueMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    return entry.group.type === selected.group.type && entryValue(entry) === entryValue(selected)
+}
+
+/** Heuristic match: the selection's stored value equals the entry's raw name or
+ *  resolved friendly label. `ActionFilterRow` threads `filter.name`, which can
+ *  be the friendly label (`Pageview`) rather than the raw key (`$pageview`), so
+ *  a synthetic entry built from the label won't match the real row on value
+ *  alone — this bridges that gap. Looser than the value match: a custom event
+ *  literally named `Pageview` would label-match the core `$pageview` row, so
+ *  callers must prefer `entryValueMatchesSelection` first (see `selectedRowId`). */
+function entryLabelMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    if (entry.group.type !== selected.group.type) {
+        return false
+    }
+    const target = entryValue(selected)
+    return entry.name === target || (entry.friendlyLabel != null && entry.friendlyLabel === target)
+}
+
+/** Either kind of match — used for dedup, where any real row representing the
+ *  selection means we must not also prepend a synthetic placeholder. */
+function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
+}
+
+/** Move the element at `index` to the front, preserving the order of the rest.
+ *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1). */
+function floatToFront<T>(list: T[], index: number): T[] {
+    if (index <= 0) {
+        return list
+    }
+    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
@@ -165,19 +214,17 @@ export function MenuFilterCombobox({
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
-    // When opening with chips visible (`drillTo='all'`) and a current
-    // selection exists, start on the matching chip so the user lands on
-    // their selection's category by default — they can still tab back to
-    // "All" or any other chip without leaving the combobox.
-    const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
-        // Collapsed groups (e.g. Pageview URLs) aren't navigable categories, so a
-        // selection from one lands on "All" — its row still surfaces there via the
-        // selected-entry prepend — instead of stranding the user in a hidden scope.
-        if (drillTo === 'all' && selectedEntry && !COLLAPSED_TO_CONTAINS_ROW.has(selectedEntry.group.type)) {
-            return selectedEntry.group.type
-        }
-        return drillTo
-    })
+    // Open on the drill scope ("All" for the default surface). Reopening with a committed
+    // selection used to jump to that item's category; we now lead with "All" so the user
+    // lands on recents/pinned + a cross-category search (the selection still surfaces via
+    // the selected-entry prepend). The exception is config/edit flows (data-warehouse
+    // columns reach the combobox as DataWarehouseProperties) — they reopen on their own
+    // chip so the user can reconfigure, mirroring the legacy `activeTab`.
+    const [activeChip, setActiveChip] = useState<DrillCategory>(() =>
+        drillTo === 'all' && selectedEntry && OPEN_AS_SELF_ON_REOPEN.has(selectedEntry.group.type)
+            ? selectedEntry.group.type
+            : drillTo
+    )
     // The scope the user is actually looking at: the active chip when chips show
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
@@ -221,48 +268,6 @@ export function MenuFilterCombobox({
     useEffect(() => {
         includeStaleEventsRef.current = includeStaleEvents
     }, [includeStaleEvents])
-
-    // Stable DOM id for the selected row — derived via `rowDomId` to stay in
-    // sync with `Row`'s `stableId` and the `filtered` selected-promotion logic.
-    const selectedRowId = useMemo<string | null>(() => {
-        if (!selectedEntry) {
-            return null
-        }
-        return rowDomId(selectedEntry)
-    }, [selectedEntry])
-
-    // Scroll the selected row into view after the list mounts. Polls a few
-    // animation frames because rows render after the underlying group's
-    // items resolve (remote endpoints), so the element won't exist on the
-    // first paint. Stops as soon as the node appears or after ~10 frames.
-    useEffect(() => {
-        if (!selectedRowId) {
-            return
-        }
-        let cancelled = false
-        let attempts = 0
-        const tick = (): void => {
-            if (cancelled) {
-                return
-            }
-            const el = document.getElementById(selectedRowId)
-            if (el) {
-                // `center` keeps a comfortable buffer above + below the
-                // selected row so it never lands flush against the edge
-                // of the scroll viewport (where the scroll-to button or
-                // the scrollbar fade can obscure it).
-                el.scrollIntoView({ block: 'center' })
-                return
-            }
-            if (attempts++ < 10) {
-                requestAnimationFrame(tick)
-            }
-        }
-        tick()
-        return () => {
-            cancelled = true
-        }
-    }, [selectedRowId])
 
     const reportItems = useCallback((type: string, next: TaxonomicDefinitionTypes[]): void => {
         setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
@@ -354,9 +359,13 @@ export function MenuFilterCombobox({
                 if (trimmedQuery && items.length > 0) {
                     const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
-                        // `isContainsShortcut` tags this synthetic row so the commit
-                        // telemetry can measure adoption of the contains shortcut vs
-                        // the old per-URL value-picker.
+                        // A plain item (not a QuickFilterItem): the commit reads its value via
+                        // `group.getValue` (the query) and the group `type` drives the host's
+                        // expansion — PageviewUrls -> `$current_url IContains`, PageviewEvents ->
+                        // a `$pageview` event with that filter (ActionFilterRow's group-type
+                        // branch). The legacy list reaches the same filter via the QuickFilterItem
+                        // `eventName` path instead — see `buildUrlContainsShortcut`.
+                        // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
                         item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
@@ -386,19 +395,13 @@ export function MenuFilterCombobox({
             // mixed scope left here is `all`.
             const fitsScope = scope === 'all' || scope === selectedEntry.group.type
             if (fitsScope) {
-                // Stringify both sides so a synthetic `selected` shimmed in
-                // by callers like `TaxonomicPopoverMenu` (where the value
-                // arrives as e.g. `'5'`) dedups against the real entry
-                // returned by the endpoint (`cohort.id === 5`). Without this
-                // coercion the two land side-by-side with two checkmarks —
-                // the stableId path below already coerces, so matching here
-                // keeps the prepend logic aligned with how rows are keyed.
-                const selectedValue = String(selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name)
-                const present = merged.some(
-                    (e) =>
-                        e.group.type === selectedEntry.group.type &&
-                        String(e.group.getValue?.(e.item) ?? e.name) === selectedValue
-                )
+                // `entryMatchesSelection` reconciles a synthetic `selected`
+                // shimmed in by callers like `TaxonomicPopoverMenu` against the
+                // real endpoint row — by value (`cohort.id === 5` vs `'5'`) or
+                // by friendly label (a value of `Pageview` vs the real
+                // `$pageview` row). Only prepend the placeholder when the real
+                // row genuinely isn't loaded (paginated past it).
+                const present = merged.some((e) => entryMatchesSelection(e, selectedEntry))
                 if (!present) {
                     merged.unshift(selectedEntry)
                 }
@@ -423,6 +426,57 @@ export function MenuFilterCombobox({
         searchQuery,
         surveyQuestionLabels,
     ])
+
+    // Stable DOM id for the selected row — drives `Row`'s checkmark, the
+    // scroll-into-view below, and the `filtered` idle-promotion. Resolve the
+    // committed selection to the real loaded row when one matches (the stored
+    // value may be a friendly label, not the row's raw value), so all three
+    // land on the canonical row rather than a synthetic placeholder. Falls back
+    // to the selection itself when the real row hasn't loaded (paginated past).
+    const selectedRowId = useMemo<string | null>(() => {
+        if (!selectedEntry) {
+            return null
+        }
+        // Prefer an exact value match over the label heuristic so a custom event
+        // sharing a core event's friendly label can't steal the selection.
+        const real =
+            indexed.find((e) => entryValueMatchesSelection(e, selectedEntry)) ??
+            indexed.find((e) => entryLabelMatchesSelection(e, selectedEntry))
+        return rowDomId(real ?? selectedEntry)
+    }, [indexed, selectedEntry])
+
+    // Scroll the selected row into view after the list mounts. Polls a few
+    // animation frames because rows render after the underlying group's
+    // items resolve (remote endpoints), so the element won't exist on the
+    // first paint. Stops as soon as the node appears or after ~10 frames.
+    useEffect(() => {
+        if (!selectedRowId) {
+            return
+        }
+        let cancelled = false
+        let attempts = 0
+        const tick = (): void => {
+            if (cancelled) {
+                return
+            }
+            const el = document.getElementById(selectedRowId)
+            if (el) {
+                // `center` keeps a comfortable buffer above + below the
+                // selected row so it never lands flush against the edge
+                // of the scroll viewport (where the scroll-to button or
+                // the scrollbar fade can obscure it).
+                el.scrollIntoView({ block: 'center' })
+                return
+            }
+            if (attempts++ < 10) {
+                requestAnimationFrame(tick)
+            }
+        }
+        tick()
+        return () => {
+            cancelled = true
+        }
+    }, [selectedRowId])
 
     // Recents + pinned that lead the default "All" surface (fixed order:
     // recents, then pinned). Idle shows the top-3 of each; searching shows the
@@ -488,29 +542,42 @@ export function MenuFilterCombobox({
                     : null
             base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
         }
+        const scope = showChips ? activeChip : drillTo
         // Promote the committed selection to index 0 so base-ui's
-        // `autoHighlight="always"` lands on it the moment the list
-        // mounts — keyboard nav starts on the selected row, the
-        // preview pane shows the right definition, and `Enter` re-commits
-        // without forcing the user to scroll. Skip when the user has
-        // typed a search query — relevance order should win there.
-        if (!q && selectedRowId) {
-            const idx = base.findIndex((e) => rowDomId(e) === selectedRowId)
-            if (idx > 0) {
-                base = [base[idx], ...base.slice(0, idx), ...base.slice(idx + 1)]
-            }
+        // `autoHighlight="always"` lands on it the moment the list mounts — keyboard nav
+        // starts on the selected row, the preview shows the right definition, and `Enter`
+        // re-commits without scrolling. Skip while searching (relevance wins). The All scope
+        // re-floats after its recents/pinned assembly below, so only do it here for drilled scopes.
+        if (!q && selectedRowId && scope !== 'all') {
+            base = floatToFront(
+                base,
+                base.findIndex((e) => rowDomId(e) === selectedRowId)
+            )
         }
         // Default "All" surface leads with recents/pinned (fixed order), then
         // the cross-tab content with `email`/`url` promotion. Recents/pinned
         // stay above the content rows so users can learn the order.
-        const scope = showChips ? activeChip : drillTo
         if (scope === 'all') {
             const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
-            return [
+            // The "URL contains <query>" shortcut leads the whole list — ahead of
+            // recents/pinned/content — because a URL search almost always means the user
+            // wants the contains match. Everything else keeps the recents-then-pinned order.
+            const [shortcuts, rest] = partitionContainsShortcuts(content, (e) => e.item)
+            const assembled = [
+                ...shortcuts,
                 ...recentsPinnedPrefix,
-                ...promoteMatchingBy(content, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
+                ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
+            // Idle (no search): float the committed selection to the very first row so the
+            // user can see/verify what's currently chosen without leaving the All surface.
+            if (!q && selectedRowId) {
+                return floatToFront(
+                    assembled,
+                    assembled.findIndex((e) => rowDomId(e) === selectedRowId)
+                )
+            }
+            return assembled
         }
         return base
     }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])

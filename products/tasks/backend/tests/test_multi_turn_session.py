@@ -30,6 +30,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _console_line,
     _cost_less_usage_update_line,
     _end_turn_line,
+    _progress_line,
     _tool_call_line,
     _usage_update_line,
     _user_message_line,
@@ -639,6 +640,87 @@ class TestPollForTurnStaleSalvage:
         ):
             with pytest.raises(RuntimeError, match="timed out"):
                 await poll_for_turn(fake, skip_lines=0)
+
+    @parameterized.expand(
+        [
+            ("one_console_line", [_console_line("agentsh network events")]),
+            (
+                "console_then_credential_refresh",
+                [_console_line("agentsh network events"), _console_line("Refreshed sandbox credentials: github")],
+            ),
+            ("sandbox_output", [_console_line("npm install ...", method="_posthog/sandbox_output")]),
+        ]
+    )
+    async def test_salvages_when_late_fingerprint_and_trailing_relay_lines_both_land_on_reread(self, _name, trailing):
+        # The growth check must discount transient relay side-channels, not just the tail classifier.
+        # Polls saw only the agent_message; the late null-cost usage_update AND trailing relay line(s)
+        # both appear on the salvage reread. Raw growth is +2 or more, but only +1 line is turn-relevant
+        # (the finalization fingerprint), so salvage must proceed — counting the relay lines as growth
+        # would re-open the exact dropped-finalization-behind-trailing-logs case this path recovers.
+        seen = _agent_message_line("close-out summary")  # message only, no fingerprint yet
+        finalized = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000), *trailing])
+        calls = {"n": 0}
+
+        def next_log(*_args, **_kwargs):
+            calls["n"] += 1
+            # polls 1-3 see only the message; the salvage reread (4th) sees the fingerprint + relay lines.
+            return finalized if calls["n"] > 3 else seen
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+
+    @pytest.mark.asyncio
+    async def test_failed_progress_after_fingerprint_declines_salvage(self):
+        # The workflow's failure/cancel handlers emit a `_posthog/progress` status="failed" BEFORE the
+        # TaskRun reaches a terminal status. A salvage reread landing in that window must treat the
+        # failed progress marker as decisive — not skip it as informational setup progress and report a
+        # bogus success off the preceding finalization fingerprint. Status is still non-terminal here,
+        # so without this the run would salvage instead of letting the terminal drain win.
+        log = "\n".join(
+            [_agent_message_line("close-out summary"), _usage_update_line(165000), _progress_line(status="failed")]
+        )
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await poll_for_turn(fake, skip_lines=0)
+
+    @parameterized.expand([("in_progress",), ("completed",)])
+    async def test_informational_progress_after_fingerprint_still_salvages(self, status):
+        # Only failed/cancelled progress is decisive — an informational progress line (a normal setup
+        # step) trailing the fingerprint is still skipped as transient, so the dropped finalization is
+        # salvaged as before.
+        log = "\n".join(
+            [_agent_message_line("close-out summary"), _usage_update_line(165000), _progress_line(status=status)]
+        )
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
 
 
 class TestPollForTurnTerminalDrain:
