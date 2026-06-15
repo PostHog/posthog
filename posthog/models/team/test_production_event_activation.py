@@ -48,15 +48,20 @@ def _seed_event(
     properties: dict[str, Any] | None = None,
     days_ago: float = 1,
     distinct_id: str = "user-0",
-) -> None:
+) -> datetime:
+    # `now()` lives in this helper (not a `test_*` body) on purpose: tests that
+    # need the event's instant read it from the return value instead of
+    # recomputing it, which keeps them off the time-sensitivity semgrep rule.
+    timestamp = datetime.now(tz=UTC) - timedelta(days=days_ago)
     _create_event(
         team=Team.objects.get(id=team_id),
         event="$pageview",
         distinct_id=distinct_id,
-        timestamp=datetime.now(tz=UTC) - timedelta(days=days_ago),
+        timestamp=timestamp,
         properties=properties or {},
     )
     flush_persons_and_events()
+    return timestamp
 
 
 def _seed_mobile_events(team_id: int, device_count: int, is_emulator: Any = False) -> None:
@@ -177,8 +182,7 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
         # The conversion instant is the earliest production-host event in the
         # window; a later production event must not move it, and a dev event in
         # between must not become it.
-        expected = datetime.now(tz=UTC) - timedelta(days=5)
-        _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=5)
+        earliest = _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=5)
         _seed_event(self.team.id, properties={"$host": "localhost:3000"}, days_ago=4)
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=2)
 
@@ -186,7 +190,7 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
         self.assertEqual(signal.kind, "production_host")
         self.assertIsNotNone(signal.converted_at)
         assert signal.converted_at is not None  # narrow for the subtraction below
-        self.assertLess(abs((signal.converted_at - expected).total_seconds()), 5)
+        self.assertLess(abs((signal.converted_at - earliest).total_seconds()), 1)
 
     def test_mobile_signal_has_no_conversion_timestamp(self) -> None:
         # Only the web leg resolves a precise instant; mobile/server stay None.
@@ -444,8 +448,7 @@ class TestEvaluateAndMarkTeamBatch(ClickhouseTestMixin, BaseTest):
     def test_web_qualifier_emits_at_conversion_time(self) -> None:
         # End-to-end through the batch: the activation event is stamped at the
         # production event's own time, not the run time we pass as `now`.
-        conversion_time = datetime.now(tz=UTC) - timedelta(days=3)
-        _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=3)
+        conversion_time = _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=3)
 
         with _mock_capture() as capture:
             evaluate_and_mark_team_batch([self.team.id], now=_FIXED_NOW)
@@ -455,7 +458,7 @@ class TestEvaluateAndMarkTeamBatch(ClickhouseTestMixin, BaseTest):
         emitted = kwargs["timestamp"]
         self.assertIsNotNone(emitted)
         assert emitted is not None  # narrow for the subtraction below
-        self.assertLess(abs((emitted - conversion_time).total_seconds()), 5)
+        self.assertLess(abs((emitted - conversion_time).total_seconds()), 1)
 
     def test_non_qualifying_team_only_gets_last_checked_at_bumped(self) -> None:
         _seed_event(self.team.id, properties={"$host": "localhost:3000"})
