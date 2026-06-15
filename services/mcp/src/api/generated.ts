@@ -21356,6 +21356,8 @@ export namespace Schemas {
       avg_duration_nano: number;
       /** Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph. */
       avg_start_offset_nano: number;
+      /** How many times this child runs per parent invocation (edge count / parent span count). Separates fan-out volume from per-call cost: a child can dominate total_duration_nano purely by running many times per parent. Null for root edges (no parent invocation to ratio against). */
+      calls_per_parent_invocation?: number | null;
       count: number;
       error_count: number;
       name: string;

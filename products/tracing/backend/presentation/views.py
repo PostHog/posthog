@@ -40,7 +40,12 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..facade.api import run_attribute_breakdown_query, run_count_query, run_duration_histogram_query
+from ..facade.api import (
+    annotate_self_time,
+    run_attribute_breakdown_query,
+    run_count_query,
+    run_duration_histogram_query,
+)
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
@@ -812,6 +817,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         runner = TraceSpansQueryRunner(spans_query, self.team)
         response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+
+        # Only this endpoint returns the (practically) full trace, so per-span self-time
+        # is computable here — query results elsewhere see partial traces.
+        if isinstance(response.results, list):
+            annotate_self_time(response.results)
 
         return Response(
             {"results": response.results},

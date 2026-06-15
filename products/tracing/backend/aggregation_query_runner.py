@@ -325,6 +325,28 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return response
 
 
+def _annotate_calls_per_parent_invocation(rows: list[SpanTreeNode]) -> None:
+    """Set each edge's child-calls-per-parent-invocation ratio, in place.
+
+    A parent's invocation count is the sum of edge counts where it appears as the child
+    (it may appear under several grandparents). Root edges have no parent invocation to
+    ratio against, so they stay None.
+
+    The denominator is reconstructed from the returned rows, so when the tree hits the
+    `_ROW_LIMIT` cap a parent's child edges can be split across the cut, understating the
+    denominator and overstating the ratio. That only happens with very high span-name
+    cardinality in one service; the prompt doc flags the ratio as approximate at the cap.
+    """
+    invocations: dict[tuple[str, str], int] = {}
+    for node in rows:
+        key = (node.service_name, node.name)
+        invocations[key] = invocations.get(key, 0) + node.count
+    for node in rows:
+        parent_total = invocations.get((node.parent_service, node.parent_name))
+        if parent_total:
+            node.calls_per_parent_invocation = node.count / parent_total
+
+
 class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[TraceSpansTreeQueryResponse]):
     query: TraceSpansTreeQuery
     cached_response: CachedTraceSpansTreeQueryResponse
@@ -337,6 +359,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
 
     def _calculate(self) -> TraceSpansTreeQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
+        _annotate_calls_per_parent_invocation(current_rows)
+        if previous_rows is not None:
+            _annotate_calls_per_parent_invocation(previous_rows)
         return TraceSpansTreeQueryResponse(results=current_rows, compare=previous_rows)
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
