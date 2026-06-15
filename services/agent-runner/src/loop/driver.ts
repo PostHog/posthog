@@ -72,6 +72,7 @@ import {
     SessionEventKind,
     SessionInputsStore,
     SLACK_BOT_TOKEN_KEY,
+    SlackStatusReporter,
     slackTextFromContent,
     TabularStore,
     toolSpanId,
@@ -245,6 +246,20 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
         runLog[level](meta ?? {}, msg)
     }
+
+    // Slack "working on it" status: a message the runner keeps in the thread
+    // while a turn is in flight and removes when a real reply lands. Null for
+    // non-slack sessions.
+    const slackStatus = slackReply
+        ? new SlackStatusReporter({
+              http: deps.http,
+              token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+              channel: slackReply.channel,
+              thread_ts: slackReply.thread_ts,
+              sessionId: session.id,
+              logger: { warn: (meta, m) => log('warn', m, meta), info: (meta, m) => log('info', m, meta) },
+          })
+        : null
 
     const emit = async (kind: SessionEventKind, data: Record<string, unknown> = {}): Promise<void> => {
         const ts = new Date().toISOString()
@@ -494,6 +509,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     turn++
                     controlThisTurn = undefined
                     await emit('turn_started', { turn })
+                    // Show "working on it" in the thread while this turn runs.
+                    await slackStatus?.start(':hourglass_flowing_sand: _Working on it…_')
                     return
                 }
                 case 'message_start': {
@@ -528,6 +545,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         t0: Date.now(),
                     })
                     await emit('tool_call', { name: event.toolName, args: event.args, id: event.toolCallId })
+                    // Reflect the in-flight tool in the "working" status.
+                    await slackStatus?.update(
+                        `:hourglass_flowing_sand: _Working on it… (\`${event.toolName.replace(/^@posthog\//, '')}\`)_`
+                    )
                     return
                 }
                 case 'tool_execution_end': {
@@ -613,11 +634,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     // to the console). Never throws — a Slack hiccup must not break
                     // the loop. Turns with no prose (pure tool calls) post nothing.
                     if (slackReply) {
+                        const replyText = slackTextFromContent(msg.content)
+                        if (replyText) {
+                            // Drop the "working" status so the reply is the latest
+                            // message; a subsequent turn re-posts it.
+                            await slackStatus?.clear()
+                        }
                         await postSlackReply(deps.http, {
                             token: deps.secrets[SLACK_BOT_TOKEN_KEY],
                             channel: slackReply.channel,
                             thread_ts: slackReply.thread_ts,
-                            text: slackTextFromContent(msg.content),
+                            text: replyText,
                             sessionId: session.id,
                             logger: {
                                 warn: (meta, m) => log('warn', m, meta),
@@ -1022,6 +1049,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         return outcome
     } finally {
         tearDownClientDispatch()
+        // Guarantee the "working" status never lingers past the run (e.g. a
+        // turn that ended without prose, or a thrown loop).
+        await slackStatus?.clear()
     }
 }
 

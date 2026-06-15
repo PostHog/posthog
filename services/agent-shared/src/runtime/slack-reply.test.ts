@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { HttpFetcher } from './http-client'
-import { isSlackTriggerMetadata, postSlackReply, slackTextFromContent } from './slack-reply'
+import { isSlackTriggerMetadata, postSlackReply, SlackStatusReporter, slackTextFromContent } from './slack-reply'
 
 function jsonResponse(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -101,6 +101,76 @@ describe('slackTextFromContent', () => {
 
     it('returns empty string for a pure tool-call turn', () => {
         expect(slackTextFromContent([{ type: 'toolCall' }])).toBe('')
+    })
+})
+
+describe('SlackStatusReporter', () => {
+    function recorder(): { http: HttpFetcher; calls: Array<{ url: string; body: Record<string, unknown> }> } {
+        const calls: Array<{ url: string; body: Record<string, unknown> }> = []
+        const http = {
+            fetch: vi.fn(async (url: string | URL, init?: RequestInit) => {
+                calls.push({
+                    url: typeof url === 'string' ? url : url.toString(),
+                    body: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+                })
+                return jsonResponse({ ok: true, ts: 'TS1' })
+            }),
+        } as unknown as HttpFetcher
+        return { http, calls }
+    }
+
+    it('start posts once; a second start is a no-op', async () => {
+        const { http, calls } = recorder()
+        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't' })
+        await r.start('working')
+        await r.start('working again')
+        const posts = calls.filter((c) => c.url.endsWith('chat.postMessage'))
+        expect(posts).toHaveLength(1)
+        expect(posts[0].body).toMatchObject({ channel: 'C1', thread_ts: 't', text: 'working' })
+    })
+
+    it('no-ops entirely without a token', async () => {
+        const { http, calls } = recorder()
+        const r = new SlackStatusReporter({ http, token: undefined, channel: 'C1', thread_ts: 't' })
+        await r.start('working')
+        await r.update('x')
+        await r.clear()
+        expect(calls).toHaveLength(0)
+    })
+
+    it('update edits the message and is throttled by minUpdateIntervalMs', async () => {
+        const { http, calls } = recorder()
+        let nowMs = 1000
+        const r = new SlackStatusReporter({
+            http,
+            token: 'xoxb',
+            channel: 'C1',
+            thread_ts: 't',
+            minUpdateIntervalMs: 1000,
+            now: () => nowMs,
+        })
+        await r.start('working')
+        await r.update('step 1') // within the throttle window → skipped
+        expect(calls.filter((c) => c.url.endsWith('chat.update'))).toHaveLength(0)
+        nowMs += 1000
+        await r.update('step 2')
+        const updates = calls.filter((c) => c.url.endsWith('chat.update'))
+        expect(updates).toHaveLength(1)
+        expect(updates[0].body).toMatchObject({ channel: 'C1', ts: 'TS1', text: 'step 2' })
+    })
+
+    it('clear deletes the message and is idempotent; start after clear re-posts', async () => {
+        const { http, calls } = recorder()
+        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't' })
+        await r.start('working')
+        await r.clear()
+        await r.clear()
+        const deletes = calls.filter((c) => c.url.endsWith('chat.delete'))
+        expect(deletes).toHaveLength(1)
+        expect(deletes[0].body).toMatchObject({ channel: 'C1', ts: 'TS1' })
+
+        await r.start('working again')
+        expect(calls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(2)
     })
 })
 

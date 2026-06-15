@@ -57,6 +57,126 @@ export interface PostSlackReplyOpts {
     logger?: SlackReplyLogger
 }
 
+export interface SlackStatusReporterDeps {
+    http: HttpFetcher
+    token: string | undefined
+    channel: string
+    thread_ts: string
+    sessionId?: string
+    logger?: SlackReplyLogger
+    /** Min gap between chat.update calls — Slack rate-limits updates. Default 1000ms. */
+    minUpdateIntervalMs?: number
+    /** Injectable clock for tests. Default Date.now. */
+    now?: () => number
+}
+
+/**
+ * A single ephemeral-feeling "working on it" status message in the thread. The
+ * runner posts it while a turn is in flight, updates it as tools run, and
+ * removes it the moment a real reply lands (re-posting on the next turn) so the
+ * latest visible message is always the agent's actual answer. Never throws.
+ *
+ * Not a true Slack ephemeral (those need a response_url and can't be edited) —
+ * a normal message we post / chat.update / chat.delete, which works from an
+ * event-triggered session.
+ */
+export class SlackStatusReporter {
+    private ts: string | null = null
+    private lastText: string | null = null
+    private lastUpdateMs = 0
+
+    constructor(private readonly deps: SlackStatusReporterDeps) {}
+
+    /** Post the status message if it isn't already shown. */
+    async start(text: string): Promise<void> {
+        if (this.ts || !this.deps.token) {
+            return
+        }
+        const res = await this.call('chat.postMessage', {
+            channel: this.deps.channel,
+            thread_ts: this.deps.thread_ts,
+            text,
+        })
+        if (res?.ts) {
+            this.ts = res.ts
+            this.lastText = text
+            this.lastUpdateMs = this.clock()
+        }
+    }
+
+    /** Edit the status text. Throttled + best-effort; no-op if not shown. */
+    async update(text: string): Promise<void> {
+        if (!this.ts || !this.deps.token || text === this.lastText) {
+            return
+        }
+        const now = this.clock()
+        if (now - this.lastUpdateMs < (this.deps.minUpdateIntervalMs ?? 1000)) {
+            return
+        }
+        this.lastText = text
+        this.lastUpdateMs = now
+        await this.call('chat.update', { channel: this.deps.channel, ts: this.ts, text })
+    }
+
+    /** Remove the status message. Idempotent. */
+    async clear(): Promise<void> {
+        if (!this.ts || !this.deps.token) {
+            return
+        }
+        const ts = this.ts
+        this.ts = null
+        await this.call('chat.delete', { channel: this.deps.channel, ts })
+    }
+
+    private clock(): number {
+        return (this.deps.now ?? Date.now)()
+    }
+
+    private async call(method: string, body: Record<string, unknown>): Promise<{ ok?: boolean; ts?: string } | null> {
+        try {
+            const res = await this.deps.http.fetch(`https://slack.com/api/${method}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.deps.token}`,
+                    'Content-Type': 'application/json; charset=utf-8',
+                },
+                body: JSON.stringify(body),
+            })
+            let parsed: { ok?: boolean; ts?: string; error?: string } = {}
+            try {
+                parsed = (await res.json()) as { ok?: boolean; ts?: string; error?: string }
+            } catch {
+                // Non-JSON — treated as a failure via res.ok below.
+            }
+            if (!res.ok || parsed.ok === false) {
+                this.deps.logger?.warn(
+                    {
+                        session_id: this.deps.sessionId,
+                        channel: this.deps.channel,
+                        method,
+                        status: res.status,
+                        slack_error: parsed.error ?? null,
+                    },
+                    'slack_status_failed'
+                )
+                return null
+            }
+            return parsed
+        } catch (err) {
+            this.deps.logger?.warn(
+                {
+                    session_id: this.deps.sessionId,
+                    channel: this.deps.channel,
+                    method,
+                    err: err instanceof Error ? err.message : String(err),
+                },
+                'slack_status_threw'
+            )
+            return null
+        }
+    }
+}
+
 export async function postSlackReply(http: HttpFetcher, opts: PostSlackReplyOpts): Promise<boolean> {
     const text = opts.text.trim()
     if (!text) {

@@ -1294,8 +1294,9 @@ describe('slack trigger: real e2e', () => {
                         return Promise.resolve({
                             ok: true,
                             status: 200,
-                            json: async () => ({ ok: true }),
-                            text: async () => '{"ok":true}',
+                            // ts lets the status reporter track + delete its message.
+                            json: async () => ({ ok: true, ts: 'TS_STATUS' }),
+                            text: async () => '{"ok":true,"ts":"TS_STATUS"}',
                         } as unknown as Response)
                     }
                     return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
@@ -1339,13 +1340,19 @@ describe('slack trigger: real e2e', () => {
                 expect(res.status).toBe(200)
                 await cc.drain()
 
-                const posts = slackCalls.filter((c) => c.url.endsWith('chat.postMessage'))
-                expect(posts).toHaveLength(1)
-                expect(posts[0].body).toMatchObject({
-                    channel: 'C01',
-                    thread_ts: '700.0',
-                    text: 'the valuable answer',
-                })
+                // While working: a "working on it" status is posted, then removed
+                // before the real reply lands so the reply is the latest message.
+                const statusPosts = slackCalls.filter(
+                    (c) => c.url.endsWith('chat.postMessage') && String(c.body.text).includes('Working on it')
+                )
+                expect(statusPosts).toHaveLength(1)
+                expect(slackCalls.filter((c) => c.url.endsWith('chat.delete'))).toHaveLength(1)
+
+                const replyPosts = slackCalls.filter(
+                    (c) => c.url.endsWith('chat.postMessage') && c.body.text === 'the valuable answer'
+                )
+                expect(replyPosts).toHaveLength(1)
+                expect(replyPosts[0].body).toMatchObject({ channel: 'C01', thread_ts: '700.0' })
             } finally {
                 await cc.teardown()
             }
