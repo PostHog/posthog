@@ -223,6 +223,29 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert result["data"] == [2, 4]
 
     @snapshot_clickhouse_queries
+    def test_smoothing_does_not_starve_the_last_point(self):
+        # Smoothing is a trailing-window moving average that reads interior buckets. The slope must
+        # clear it and return the raw first/last bucket values, not a window-starved average.
+        self._create_events(
+            [
+                ("first_day", [("2024-05-01T10:00:00Z",), ("2024-05-01T11:00:00Z",)]),
+                ("middle", [("2024-05-05T10:00:00Z",), ("2024-05-06T10:00:00Z",)]),
+                ("last_day", [("2024-05-10T08:00:00Z",), ("2024-05-10T09:00:00Z",), ("2024-05-10T10:00:00Z",)]),
+            ]
+        )
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-05-01", date_to="2024-05-10"),
+            interval="day",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH, smoothingIntervals=7),
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="total")],
+        )
+        response = SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        result = response.results[0]
+        # Same raw endpoints as the unsmoothed query — smoothing is ignored, not applied to a starved window.
+        assert result["data"] == [2, 3]
+
+    @snapshot_clickhouse_queries
     def test_monthly_active_math_keeps_its_trailing_window(self):
         # monthly_active is a 30-day trailing window; like weekly_active it must skip the scan restriction.
         self._create_events([("u", [("2024-04-20T10:00:00Z",)])])

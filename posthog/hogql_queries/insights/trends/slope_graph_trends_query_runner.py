@@ -52,6 +52,9 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
             series_query.trendsFilter = TrendsFilter()
         # Compute the interval series in one query; we slice it to its ends below.
         series_query.trendsFilter.display = ChartDisplayType.ACTIONS_LINE_GRAPH
+        # Smoothing is a trailing-window moving average — like active-users math it reads the buckets
+        # the scan restriction drops, and it's meaningless on a two-point slope anyway. Clear it.
+        series_query.trendsFilter.smoothingIntervals = None
         # Read only the two end buckets, not everything between them — ANDed alongside the query's
         # own filters so a filtered (e.g. shared) slope keeps them rather than going unfiltered.
         # Active-users maths need the days between the buckets for their trailing window, so they skip
