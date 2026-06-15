@@ -5,6 +5,8 @@ from collections import (
 from collections.abc import Generator
 from typing import Union, cast
 
+from django.conf import settings
+
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_column_for_property
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.entity import Entity
@@ -74,6 +76,8 @@ class FOSSColumnOptimizer:
             column = get_materialized_column_for_property(table, table_column, property_name)
             if column is not None and not column.is_nullable:
                 column_names.add(column.name)
+            elif settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and table == "events":
+                continue
             else:
                 column_names.add(table_column)
         return column_names

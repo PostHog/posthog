@@ -1,6 +1,8 @@
 import json
 from typing import cast
 
+from django.conf import settings
+
 from posthog.schema import (
     CachedSessionsTimelineQueryResponse,
     EventType,
@@ -44,49 +46,77 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
         with self.timings.measure("build_events_subquery"):
+            event_field_prefix = ["event_source"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else []
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
-                    left=ast.Field(chain=["timestamp"]),
+                    left=ast.Field(chain=[*event_field_prefix, "timestamp"]),
                     right=ast.Constant(value=after),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["timestamp"]),
+                    left=ast.Field(chain=[*event_field_prefix, "timestamp"]),
                     right=ast.Constant(value=before),
                 ),
             ]
             if self.query.personId:
                 event_conditions.append(
                     ast.CompareOperation(
-                        left=ast.Field(chain=["person_id"]),
+                        left=ast.Field(chain=[*event_field_prefix, "person_id"]),
                         right=ast.Constant(value=self.query.personId),
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
-            select_query = parse_select(
-                """
-                SELECT
-                    uuid,
-                    person_id AS person_id,
-                    timestamp AS timestamp,
-                    event,
-                    properties,
-                    distinct_id,
-                    elements_chain,
-                    $session_id AS session_id,
-                    lagInFrame($session_id, 1) OVER (
-                        PARTITION BY person_id ORDER BY timestamp
-                    ) AS prev_session_id
-                FROM events
-                WHERE {event_conditions}
-                ORDER BY timestamp DESC
-                LIMIT {event_limit_with_more}""",
-                placeholders={
-                    "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
-                    "event_conditions": ast.And(exprs=event_conditions),
-                },
-            )
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                select_query = parse_select(
+                    """
+                    SELECT
+                        event_source.uuid,
+                        event_source.person_id AS person_id,
+                        event_source.timestamp AS timestamp,
+                        event_source.event,
+                        toString(legacy_events.properties) AS properties,
+                        event_source.distinct_id,
+                        event_source.elements_chain,
+                        event_source.$session_id AS session_id,
+                        lagInFrame(event_source.$session_id, 1) OVER (
+                            PARTITION BY event_source.person_id ORDER BY event_source.timestamp
+                        ) AS prev_session_id
+                    FROM events AS event_source
+                    LEFT JOIN posthog.raw_events AS legacy_events
+                    ON legacy_events.team_id = event_source.team_id AND legacy_events.uuid = event_source.uuid
+                    WHERE {event_conditions}
+                    ORDER BY event_source.timestamp DESC
+                    LIMIT {event_limit_with_more}""",
+                    placeholders={
+                        "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                        "event_conditions": ast.And(exprs=event_conditions),
+                    },
+                )
+            else:
+                select_query = parse_select(
+                    """
+                    SELECT
+                        uuid,
+                        person_id AS person_id,
+                        timestamp AS timestamp,
+                        event,
+                        properties,
+                        distinct_id,
+                        elements_chain,
+                        $session_id AS session_id,
+                        lagInFrame($session_id, 1) OVER (
+                            PARTITION BY person_id ORDER BY timestamp
+                        ) AS prev_session_id
+                    FROM events
+                    WHERE {event_conditions}
+                    ORDER BY timestamp DESC
+                    LIMIT {event_limit_with_more}""",
+                    placeholders={
+                        "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                        "event_conditions": ast.And(exprs=event_conditions),
+                    },
+                )
         return cast(ast.SelectQuery, select_query)
 
     def to_query(self) -> ast.SelectQuery:

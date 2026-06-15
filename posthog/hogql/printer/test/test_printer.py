@@ -1887,6 +1887,28 @@ class TestPrinter(BaseTest):
             "A CompareOperation cannot be used as a SELECT source",
         )
 
+    def test_posthog_raw_events_prints_legacy_events_table(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            restricted_properties={("secret", PropertyDefinition.Type.EVENT)},
+        )
+        printed = self._select(
+            """
+            SELECT legacy_events.properties
+            FROM events
+            LEFT JOIN posthog.raw_events AS legacy_events
+            ON legacy_events.team_id = events.team_id AND legacy_events.uuid = events.uuid
+            """,
+            context=context,
+        )
+
+        self.assertIn(f"LEFT JOIN {CLICKHOUSE_DATABASE}.events AS legacy_events ON", printed)
+        self.assertIn("JSONDropKeys", printed)
+        self.assertIn("legacy_events.properties", printed)
+        self.assertNotIn("events_json AS legacy_events", printed)
+        self.assertNotIn("toJSONString", printed)
+
     def test_select_cross_join(self):
         self.assertEqual(
             self._select("select 1 from events cross join raw_groups"),
@@ -5419,16 +5441,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert result.clickhouse
 
-        # Note: When legacy columns are materialized, empty strings become NULL due to
-        # nullIf(nullIf(..., ''), 'null') wrapping - this is known inconsistent behaviour for materialized properties.
-        legacy_materialized_column = is_materialized and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        # Materialized string columns use nullIf(nullIf(..., ''), 'null'), so empty strings become NULL.
+        materialized_column_nullifies_empty_string = is_materialized and (
+            not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            or poe_mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        )
         expected_results = {
             (distinct_id_with_email, "test@example.com", 0, 0),
             (
                 distinct_id_with_empty,
-                None if legacy_materialized_column else "",
-                1 if legacy_materialized_column else 0,
-                1 if legacy_materialized_column else 0,
+                None if materialized_column_nullifies_empty_string else "",
+                1 if materialized_column_nullifies_empty_string else 0,
+                1 if materialized_column_nullifies_empty_string else 0,
             ),
             (distinct_id_with_null, None, 1, 1),
             (distinct_id_without, None, 1, 1),

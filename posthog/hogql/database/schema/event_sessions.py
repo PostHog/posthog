@@ -162,16 +162,16 @@ def join_with_events_table_session_duration(
     context: HogQLContext,
     node: ast.SelectQuery,
 ):
-    events_table = EVENTS_QUERY_TABLE()
     select_query = parse_select(
-        f"""
+        """
             select "$session_id" as id, dateDiff('second', min(timestamp), max(timestamp)) as duration
-            from {events_table}
+            from events
             group by id
         """
     )
 
     if isinstance(select_query, ast.SelectQuery):
+        select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[EVENTS_QUERY_TABLE()]))
         compare_operators = (
             WhereClauseExtractor(node.where, join_to_add.from_table, node.type, context).compare_operators
             if node.where and node.type

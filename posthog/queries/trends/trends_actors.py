@@ -1,6 +1,8 @@
 import json
 from typing import Any, Optional, cast
 
+from django.conf import settings
+
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import PropertyOperatorType
@@ -99,13 +101,17 @@ class TrendsActors(ActorBaseQuery):
         if self._filter.include_recordings:
             extra_fields += ["uuid"]
 
+        extra_event_properties = ["$window_id", "$session_id"] if self._filter.include_recordings else []
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and self.is_aggregating_by_groups:
+            extra_event_properties.append(self._aggregation_actor_field)
+
         events_query, params = TrendsEventQuery(
             filter=self._filter,
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
             and self._team.person_on_events_mode != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
+            extra_event_properties=extra_event_properties,
             extra_fields=extra_fields,
             person_on_events_mode=self._team.person_on_events_mode,
         ).get_query()

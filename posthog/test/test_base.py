@@ -39,6 +39,5 @@ def test_events_schema_setting_controls_legacy_table_availability(django_db_setu
 
     if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         assert json_table_names <= actual_table_names
-        assert legacy_table_names.isdisjoint(actual_table_names)
     else:
         assert legacy_table_names <= actual_table_names

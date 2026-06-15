@@ -90,6 +90,16 @@ def _events_json_subcolumn_string_expr(column: str, property_name: str, table_al
     return f"ifNull(toString({field}), '')"
 
 
+def _date_property_expr(property_expr: str) -> str:
+    numeric_value = f"toFloat64OrNull({property_expr})"
+    numeric_timestamp = f"if(isNull({numeric_value}), NULL, fromUnixTimestamp64Milli(toInt64({numeric_value} * 1000)))"
+    return (
+        f"coalesce(parseDateTimeBestEffortOrNull({property_expr}), "
+        f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)), "
+        f"{numeric_timestamp})"
+    )
+
+
 # Property json is of the form:
 # { type: 'AND | OR', groups: List[Property] }
 # which is parsed and sent to this function ->
@@ -577,10 +587,7 @@ def prop_filter_json_extract(
         # if we're comparing against a date with no time,
         # truncate the values in the DB which may have times
         granularity = "day" if re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value) else "second"
-        query = f"""AND date_trunc('{granularity}', coalesce(
-            parseDateTimeBestEffortOrNull({property_expr}),
-            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
-        )) = %({prop_value_param_key})s"""
+        query = f"AND date_trunc('{granularity}', {_date_property_expr(property_expr)}) = %({prop_value_param_key})s"
 
         return (
             query,
@@ -596,16 +603,12 @@ def prop_filter_json_extract(
         # use 2019-01-01 23:59:59
         is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
 
-        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
-
         if is_date_only:
             adjusted_value = f"subtractSeconds(addDays(toDate(%({prop_value_param_key})s), 1), 1)"
         else:
             adjusted_value = f"%({prop_value_param_key})s"
 
-        query = f"""{property_operator} {first_of_date_or_timestamp} > {adjusted_value}"""
+        query = f"""{property_operator} {_date_property_expr(property_expr)} > {adjusted_value}"""
 
         return (
             query,
@@ -615,10 +618,7 @@ def prop_filter_json_extract(
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
-        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
-        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
-        query = f"""{property_operator} {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
+        query = f"""{property_operator} {_date_property_expr(property_expr)} < %({prop_value_param_key})s"""
 
         return (
             query,
@@ -637,7 +637,7 @@ def prop_filter_json_extract(
             params,
         )
     else:
-        if is_json(prop.value) and not is_denormalized:
+        if is_json(prop.value) and not is_denormalized and not uses_events_json_subcolumn:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,

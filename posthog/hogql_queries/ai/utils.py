@@ -11,6 +11,7 @@ from posthog.caching.utils import ThresholdMode, is_stale
 # These are stripped from the properties JSON by the MV and stored in dedicated columns.
 # Derived from AI_PROPERTY_TO_COLUMN to avoid drift between the two mappings.
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.team.team import Team
 
 _HEAVY_PROPERTIES: frozenset[str] = frozenset(
@@ -89,6 +90,10 @@ def parse_ai_properties(properties: Any) -> dict[str, Any]:
     parsed = parse_ai_property_value(properties)
     if not isinstance(parsed, dict):
         return {}
+
+    for prop_key in EVENTS_PROPERTIES_JSON_SUBCOLUMNS:
+        if parsed.get(prop_key) in ("", None):
+            parsed.pop(prop_key, None)
 
     for prop_key in _NUMERIC_AI_PROPERTIES:
         value = parsed.get(prop_key)

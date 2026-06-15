@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
@@ -8,6 +10,7 @@ from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property.util import get_property_string_expr
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
@@ -106,7 +109,17 @@ class TrendsEventQueryBase(EventQuery):
             )
         else:
             # If aggregating by group, exclude events that aren't associated with a group
-            return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
+            group_field = f"$group_{self._entity.math_group_type_index}"
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                group_expr = get_property_string_expr(
+                    "events",
+                    group_field,
+                    f"'{group_field}'",
+                    "properties",
+                    table_alias=self.EVENT_TABLE_ALIAS,
+                )[0]
+                return f"AND {group_expr} != ''"
+            return f"""AND "{group_field}" != ''"""
 
     def _get_date_filter(self) -> tuple[str, dict]:
         date_query = ""

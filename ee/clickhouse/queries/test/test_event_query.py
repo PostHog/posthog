@@ -7,6 +7,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.conf import settings
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.element import Element
 from posthog.models.entity import Entity
@@ -332,7 +334,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data=filters)
         _, query = self._run_query(filter)
-        self.assertIn("mat_test_prop", query)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("mat_test_prop", query)
+        else:
+            self.assertIn("mat_test_prop", query)
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")

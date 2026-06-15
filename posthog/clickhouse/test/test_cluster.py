@@ -5,7 +5,6 @@ from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
 
 import pytest
-from posthog.test.base import materialized
 from unittest.mock import Mock, patch, sentinel
 
 from clickhouse_driver import Client
@@ -315,22 +314,25 @@ def test_find_existing_mutations_handles_multiline_formatted_command(cluster: Cl
 
 
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
-    table = EVENTS_INSERT_DATA_TABLE()
-    count = 100
-
-    # make sure there is some data to play with first
-    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
-
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
+    table = f"test_alter_mutation_multiple_commands_{sentinel_uuid.hex}"
+    column_a = f"mat_{sentinel_uuid.hex}_a"
+    column_b = f"mat_{sentinel_uuid.hex}_b"
+    column_c = f"mat_{sentinel_uuid.hex}_c"
+    column_names = {column_a, column_b, column_c}
 
-    with (
-        materialized("events", f"{sentinel_uuid}_a") as column_a,
-        materialized("events", f"{sentinel_uuid}_b") as column_b,
-        materialized("events", f"{sentinel_uuid}_c") as column_c,
-    ):
+    try:
+        cluster.map_all_hosts(Query(f"CREATE TABLE {table} (id UInt64) ENGINE = MergeTree() ORDER BY id")).result()
+        cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} (id) SELECT number FROM numbers(1)")).result()
+
+        for column_name in column_names:
+            cluster.map_one_host_per_shard(
+                Query(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column_name} String DEFAULT ''")
+            ).result()
+
         runner = AlterTableMutationRunner(
             table=table,
-            commands={f"MATERIALIZE COLUMN {column_a.name}", f"MATERIALIZE COLUMN {column_b.name}"},
+            commands={f"MATERIALIZE COLUMN {column_a}", f"MATERIALIZE COLUMN {column_b}"},
         )
 
         # nothing should be running yet
@@ -349,7 +351,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         # code change that removes a command from the mutation, we won't error when we mutations from previous versions)
         runner_with_single_command = AlterTableMutationRunner(
             table=table,
-            commands={f"MATERIALIZE COLUMN {column_a.name}"},
+            commands={f"MATERIALIZE COLUMN {column_a}"},
         )
 
         # "start" all mutations (in actuality, this is a noop)
@@ -365,7 +367,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         )
 
         # if we run the same mutation with additional commands, only the new command should be executed
-        new_command = f"MATERIALIZE COLUMN {column_c.name}"
+        new_command = f"MATERIALIZE COLUMN {column_c}"
         runner_with_extra_command = AlterTableMutationRunner(
             table=table,
             commands={*runner.commands, new_command},
@@ -385,6 +387,8 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
                 cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result().values()
             )
         )
+    finally:
+        cluster.map_all_hosts(Query(f"DROP TABLE IF EXISTS {table}")).result()
 
 
 def test_map_hosts_by_role() -> None:

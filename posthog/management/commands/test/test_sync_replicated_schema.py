@@ -60,8 +60,14 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
             _, create_table_queries, _ = Command().analyze_cluster_tables()
             sync_execute("DROP TABLE sharded_events SYNC")
 
-            self.assertIn("mat_some_property", create_table_queries["sharded_events"])
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self.assertNotIn("mat_some_property", create_table_queries["sharded_events"])
+            else:
+                self.assertIn("mat_some_property", create_table_queries["sharded_events"])
             Command().create_missing_tables({"test_host": {"sharded_events"}}, create_table_queries)
 
             schema = sync_execute("SHOW CREATE TABLE sharded_events")[0][0]
-            self.assertIn("mat_some_property", schema)
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self.assertNotIn("mat_some_property", schema)
+            else:
+                self.assertIn("mat_some_property", schema)

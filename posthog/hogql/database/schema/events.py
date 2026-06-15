@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
@@ -33,6 +34,10 @@ def events_table_clickhouse_name() -> str:
 
 def events_table_clickhouse_table_ref() -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
+
+def raw_events_table_clickhouse_table_ref() -> str:
+    return f"{escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)}.events"
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -189,6 +194,26 @@ class EventsTable(Table):
             "$virt_bot_name",
             "$virt_bot_operator",
         ]
+
+
+class RawEventsTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        "uuid": StringDatabaseField(name="uuid", nullable=False),
+        "properties": StringJSONDatabaseField(name="properties", nullable=False),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return events_table_clickhouse_name()
+
+    def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
+        return raw_events_table_clickhouse_table_ref()
+
+    def to_printed_postgres(self, context):
+        return "events"
+
+    def to_printed_hogql(self):
+        return "posthog.raw_events"
 
 
 # All table types that represent the events table (including virtual subtables like poe/goe).

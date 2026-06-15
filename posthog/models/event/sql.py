@@ -64,11 +64,7 @@ def EVENTS_QUERY_TABLE() -> str:
 
 
 def EVENTS_PROPERTIES_COLUMN() -> str:
-    return (
-        "legacy_events.properties AS event_properties"
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        else "properties"
-    )
+    return "legacy_events.properties AS properties" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
 
 
 def EVENTS_PROPERTIES_JOIN(events_alias: str = "events") -> str:
@@ -77,7 +73,7 @@ def EVENTS_PROPERTIES_JOIN(events_alias: str = "events") -> str:
 
     legacy_events_table = f"{_escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)}.events"
     return (
-        f"INNER JOIN {legacy_events_table} AS legacy_events "
+        f"LEFT JOIN {legacy_events_table} AS legacy_events "
         f"ON legacy_events.team_id = {events_alias}.team_id AND legacy_events.uuid = {events_alias}.uuid"
     )
 
@@ -1118,12 +1114,22 @@ SELECT
     events.distinct_id AS distinct_id,
     events.elements_chain AS elements_chain,
     events.created_at AS created_at
-FROM {events_table} AS events
+FROM (
+    SELECT
+        events.uuid AS uuid,
+        events.event AS event,
+        events.timestamp AS timestamp,
+        events.team_id AS team_id,
+        events.distinct_id AS distinct_id,
+        events.elements_chain AS elements_chain,
+        events.created_at AS created_at
+    FROM {events_table} AS events
+    WHERE
+    events.team_id = %(team_id)s
+    {conditions}
+    {filters}
+) AS events
 {properties_join}
-WHERE
-events.team_id = %(team_id)s
-{conditions}
-{filters}
 ORDER BY events.timestamp {order} {limit}
 """
 

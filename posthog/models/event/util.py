@@ -369,8 +369,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        properties_column = "event_properties" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
-        props = parse_properties(event[properties_column])
+        props = parse_properties(event["properties"])
         restricted = self.context.get("restricted_event_properties")
         if restricted:
             props = {k: v for k, v in props.items() if k not in restricted}

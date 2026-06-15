@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -375,7 +377,9 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             ),
         ):
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
-        assert results == []
+
+        expected_names = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"EventOnly"}
+        assert {result.name for result in results} == expected_names
 
     def test_is_column_uses_events_scan(self):
         self._insert_rows([(self.team.pk, "event", "event", "TableOnly", 3, datetime.now())])

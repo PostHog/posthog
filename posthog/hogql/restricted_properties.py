@@ -2,7 +2,7 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable, RawEventsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
 logger = structlog.get_logger(__name__)
@@ -36,7 +36,7 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
 
     if isinstance(table, EventsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
-    elif isinstance(table, EventsTable):
+    elif isinstance(table, (EventsTable, RawEventsTable)):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON

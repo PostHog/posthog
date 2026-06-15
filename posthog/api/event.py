@@ -680,7 +680,7 @@ class EventViewSet(
 
         result = execute_hogql_query(query, team=query_params.team)
 
-        values = []
+        values: list[Any] = []
         for row in result.results:
             if isinstance(row[0], float | int | bool | uuid.UUID):
                 values.append(row[0])

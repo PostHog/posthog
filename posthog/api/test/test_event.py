@@ -16,6 +16,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from dateutil import parser
@@ -130,7 +131,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
         # access control, instance settings (poe, rate limit)
-        expected_queries = 10
+        expected_queries = 9 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 10
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

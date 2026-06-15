@@ -93,7 +93,7 @@ def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> 
     if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA or isinstance(id_based_key, str):
         response_keys.insert(0, id_based_key)
 
-    coalesce_args = [
+    coalesce_args: list[ast.Expr] = [
         ast.Call(
             name="nullif",
             args=[_build_property_access(response_key), ast.Constant(value="")],

@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
+from django.conf import settings
+
 from posthog.models.filters import Filter, RetentionFilter
 
 from products.actions.backend.models.action import Action
@@ -210,17 +212,23 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         optimizer = lambda: EnterpriseColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
         optimizer_groups = lambda: EnterpriseColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
 
-        self.assertEqual(optimizer().event_columns_to_query, {"properties"})
+        expected_event_columns = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"properties"}
+
+        self.assertEqual(optimizer().event_columns_to_query, expected_event_columns)
         self.assertEqual(optimizer().person_columns_to_query, {"properties"})
-        self.assertEqual(optimizer_groups().event_columns_to_query, {"properties"})
+        self.assertEqual(optimizer_groups().event_columns_to_query, expected_event_columns)
         self.assertEqual(optimizer_groups().person_columns_to_query, {"properties"})
 
         materialize("events", "event_prop")
         materialize("person", "person_prop")
 
-        self.assertEqual(optimizer().event_columns_to_query, {"mat_event_prop"})
+        expected_materialized_event_columns = (
+            set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"mat_event_prop"}
+        )
+
+        self.assertEqual(optimizer().event_columns_to_query, expected_materialized_event_columns)
         self.assertEqual(optimizer().person_columns_to_query, {"pmat_person_prop"})
-        self.assertEqual(optimizer_groups().event_columns_to_query, {"mat_event_prop"})
+        self.assertEqual(optimizer_groups().event_columns_to_query, expected_materialized_event_columns)
         self.assertEqual(optimizer_groups().person_columns_to_query, {"pmat_person_prop"})
 
     def test_materialized_columns_checks_person_on_events(self):
@@ -240,16 +248,24 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             self.team.id,
         )
 
-        self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
+        expected_person_on_event_columns = (
+            set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"person_properties"}
+        )
+
+        self.assertEqual(optimizer().person_on_event_columns_to_query, expected_person_on_event_columns)
 
         # materialising the props on `person` table should make no difference
         materialize("person", "person_prop")
 
-        self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
+        self.assertEqual(optimizer().person_on_event_columns_to_query, expected_person_on_event_columns)
 
         materialize("events", "person_prop", table_column="person_properties")
 
-        self.assertEqual(optimizer().person_on_event_columns_to_query, {"mat_pp_person_prop"})
+        expected_materialized_person_on_event_columns = (
+            set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"mat_pp_person_prop"}
+        )
+
+        self.assertEqual(optimizer().person_on_event_columns_to_query, expected_materialized_person_on_event_columns)
 
     def test_group_types_to_query(self):
         group_types_to_query = lambda filter: EnterpriseColumnOptimizer(filter, self.team.id).group_types_to_query

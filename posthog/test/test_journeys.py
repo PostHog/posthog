@@ -8,11 +8,12 @@ from uuid import UUID, uuid4
 
 from posthog.test.base import _create_event, flush_persons_and_events
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Group, Person, PersonDistinctId, Team
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_INSERT_DATA_TABLE
 
 
 def journeys_for(
@@ -157,12 +158,10 @@ def _create_all_events_raw(all_events: list[dict]):
         ('{in_memory_event.event_uuid}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
         """
 
-    sync_execute(
-        f"""
-    INSERT INTO {EVENTS_INSERT_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
-    {parsed}
-    """
-    )
+    columns = "uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset"
+    sync_execute(f"INSERT INTO {EVENTS_INSERT_DATA_TABLE()} ({columns}) VALUES {parsed}")
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        sync_execute(f"INSERT INTO {EVENTS_DATA_TABLE()} ({columns}) VALUES {parsed}")
 
 
 def create_all_events(all_events: list[dict]):
