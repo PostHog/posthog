@@ -2087,7 +2087,13 @@ def postgres_source(
                             connection = get_connection()
                             connection.autocommit = True
 
-                        with connection.cursor() as cursor:
+                        # Use psycopg.Cursor directly to bypass cursor_factory: on a
+                        # non-read-replica source it is ServerCursor (set in get_rows),
+                        # which requires a `name` and makes an unnamed connection.cursor()
+                        # raise "ServerCursor.__init__() missing 1 required positional
+                        # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
+                        # unnamed client cursor.
+                        with psycopg.Cursor(connection) as cursor:
                             query_with_limit = cast(
                                 LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
                             )
