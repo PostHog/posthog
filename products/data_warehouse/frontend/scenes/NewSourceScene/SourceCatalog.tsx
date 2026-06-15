@@ -17,8 +17,10 @@ import { CatalogItem, sourceCatalogLogic } from './sourceCatalogLogic'
 // "Request a data warehouse source" survey — shown when a user can't find the source they want.
 const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 
+// Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
+// height) so a wrapped name plus the "Notify me" button can never clip.
 const TILE_CLASS =
-    'flex flex-col items-center justify-center gap-2 p-4 h-40 rounded-lg border border-border bg-surface-primary text-center'
+    'flex flex-row items-center gap-3 p-3 min-h-[6rem] rounded-lg border border-border bg-surface-primary'
 
 export interface SourceCatalogProps {
     allowedSources?: ExternalDataSourceType[]
@@ -33,13 +35,26 @@ function SourceTile({
     accessDisabledReason: string | null
     onNotify: (item: CatalogItem) => void
 }): JSX.Element {
-    const inner = (
+    const content = (
         <>
-            <SourceIcon type={item.iconType} size="medium" disableTooltip />
-            <div className="font-medium text-sm leading-tight">{item.label}</div>
-            <div className="flex items-center gap-1">
+            <div className="shrink-0">
+                <SourceIcon type={item.iconType} size="medium" disableTooltip />
+            </div>
+            <div className="flex flex-col items-start gap-1 min-w-0 text-left">
+                <div className="font-medium text-sm leading-tight line-clamp-2">{item.label}</div>
                 {item.status === 'coming_soon' ? (
-                    <LemonTag type="warning">Coming soon</LemonTag>
+                    <>
+                        <LemonTag type="warning">Coming soon</LemonTag>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconMegaphone />}
+                            onClick={() => onNotify(item)}
+                            data-attr="catalog-notify-me"
+                        >
+                            Notify me
+                        </LemonButton>
+                    </>
                 ) : (
                     <SourceReleaseTag releaseStatus={item.releaseStatus} />
                 )}
@@ -48,33 +63,20 @@ function SourceTile({
     )
 
     if (item.status === 'coming_soon') {
-        return (
-            <div className={TILE_CLASS}>
-                {inner}
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    icon={<IconMegaphone />}
-                    onClick={() => onNotify(item)}
-                    data-attr="catalog-notify-me"
-                >
-                    Notify me
-                </LemonButton>
-            </div>
-        )
+        return <div className={TILE_CLASS}>{content}</div>
     }
 
     if (accessDisabledReason) {
         return (
             <Tooltip title={accessDisabledReason}>
-                <div className={`${TILE_CLASS} opacity-50 cursor-not-allowed`}>{inner}</div>
+                <div className={`${TILE_CLASS} opacity-50 cursor-not-allowed`}>{content}</div>
             </Tooltip>
         )
     }
 
     return (
         <Link to={item.url} className={`${TILE_CLASS} hover:border-primary cursor-pointer`} data-attr="catalog-source">
-            {inner}
+            {content}
         </Link>
     )
 }
@@ -83,13 +85,17 @@ function RequestSourceTile(): JSX.Element {
     return (
         <button
             type="button"
-            className={`${TILE_CLASS} border-dashed hover:border-primary cursor-pointer`}
+            className={`${TILE_CLASS} border-dashed hover:border-primary cursor-pointer text-left`}
             onClick={() => posthog.displaySurvey(SOURCE_REQUEST_SURVEY_ID)}
             data-attr="catalog-request-source"
         >
-            <IconPlusSmall className="text-2xl text-muted" />
-            <div className="font-medium text-sm leading-tight">Request a source</div>
-            <div className="text-xs text-muted">Tell us what you'd like to connect</div>
+            <div className="shrink-0 flex items-center justify-center w-[60px]">
+                <IconPlusSmall className="text-3xl text-muted" />
+            </div>
+            <div className="flex flex-col items-start gap-1 min-w-0">
+                <div className="font-medium text-sm leading-tight">Request a source</div>
+                <div className="text-xs text-muted">Tell us what you'd like to connect</div>
+            </div>
         </button>
     )
 }
@@ -138,7 +144,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     </div>
                 )}
 
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
                     {filteredItems.map((item) => (
                         <SourceTile
                             key={item.name}
