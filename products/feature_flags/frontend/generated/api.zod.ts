@@ -35,9 +35,26 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
 
-POST hides the name; DELETE restores it. The underlying context row and any flags already
-using it are never modified — this only controls what gets suggested.
+export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    context_name: zod
+        .string()
+        .max(organizationsProjectsEvaluationContextSuggestionsCreateBodyContextNameMax)
+        .describe(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
+})
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
  */
 export const environmentsEvaluationContextSuggestionsCreateBodyContextNameMax = 255
 
