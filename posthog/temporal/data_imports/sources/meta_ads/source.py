@@ -46,8 +46,9 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             "Ad account owner has NOT": None,
             "cannot be loaded due to missing permissions": None,
             # Meta returns this 500 when the requested query is too large for their backend to
-            # service. We already adaptively shrink stats chunks (30 → 7 → 1 day) and detect this
-            # message in `_is_timeout_error`; if it still escapes, retrying the whole job won't help.
+            # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
+            # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
+            # fallbacks are exhausted, retrying the whole job won't help.
             "Please reduce the amount of data you're asking for": None,
         }
 
