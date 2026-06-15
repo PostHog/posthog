@@ -347,6 +347,9 @@ class FileDownloadBatchExportOnDemandViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "batch_export"
+    # `mcp_create` starts a brand-new export just like `create`, so it must require
+    # project-wide batch-export write access — object-specific access must not satisfy it.
+    access_control_create_actions = ["create", "mcp_create"]
     queryset = (
         BatchExportRun.objects.select_related("batch_export_on_demand__destination", "batch_export_on_demand__team")
         .exclude(batch_export_on_demand__deleted=True)

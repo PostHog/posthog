@@ -9,6 +9,7 @@ import freezegun
 import unittest.mock
 
 from django.conf import settings
+from django.core.cache import cache
 from django.test import AsyncClient, override_settings
 
 import aiohttp
@@ -18,6 +19,8 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.batch_exports.backend.api.file_download import (
@@ -32,6 +35,8 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+
+from ee.models.rbac.access_control import AccessControl
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -560,6 +565,90 @@ async def test_file_download_mcp_create_rejects_future_data_interval_end(
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == f"The provided 'data_interval_end' ({data_interval_end_iso}) is in the future"
     mock_start.assert_not_called()
+
+
+async def _restrict_batch_export_access(team, user, resource_level: str, object_level: str | None) -> None:
+    """Demote the user to a plain member under access control with the given grants.
+
+    `resource_level` is the project-wide `batch_export` access; `object_level`, when set,
+    grants access to a single specific export (the object-specific path that must not be
+    enough to start a brand-new export).
+    """
+    membership = await OrganizationMembership.objects.aget(organization_id=team.organization_id, user=user)
+    membership.level = OrganizationMembership.Level.MEMBER
+    await membership.asave(update_fields=["level"])
+
+    await Organization.objects.filter(id=team.organization_id).aupdate(
+        available_product_features=[{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+    )
+
+    await AccessControl.objects.acreate(
+        team=team,
+        resource="batch_export",
+        resource_id=None,
+        organization_member=membership,
+        access_level=resource_level,
+    )
+    if object_level is not None:
+        await AccessControl.objects.acreate(
+            team=team,
+            resource="batch_export",
+            resource_id=str(uuid.uuid4()),
+            organization_member=membership,
+            access_level=object_level,
+        )
+    cache.clear()
+
+
+@pytest.mark.parametrize(
+    "resource_level,object_level,expected_status",
+    [
+        # Object-specific access to some export must NOT let a member start a brand-new one.
+        ("none", "editor", status.HTTP_403_FORBIDDEN),
+        # Project-wide batch_export write access is required and sufficient.
+        ("editor", None, status.HTTP_202_ACCEPTED),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_mcp_create_requires_resource_create_access(
+    async_client: AsyncClient,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+    resource_level,
+    object_level,
+    expected_status,
+):
+    await _restrict_batch_export_access(team, user, resource_level, object_level)
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/mcp",
+            {
+                "file": {"format": "Parquet"},
+                "model": {"type": "events"},
+                "data_interval_start": data_interval_start,
+                "data_interval_end": data_interval_end,
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.json()
+    if expected_status == status.HTTP_202_ACCEPTED:
+        mock_start.assert_called_once()
+    else:
+        mock_start.assert_not_called()
+        assert (
+            await BatchExportRun.objects.filter(
+                batch_export_on_demand__team_id=team.pk,
+                batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+            ).acount()
+            == 0
+        )
 
 
 @pytest.mark.django_db(transaction=True)
