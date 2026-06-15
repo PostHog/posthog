@@ -22,17 +22,16 @@ Usage:
 Then in the Temporal UI, set the codec server endpoint to http://localhost:8089
 """
 
-import base64
-import json
-import subprocess
 import sys
+import json
+import base64
+import subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, MultiFernet
 from temporalio.api.common.v1 import Payload
-
 
 REGIONS = {
     "us": {"aws_profile": "prod-us-secrets", "aws_region": "us-east-1"},
@@ -50,7 +49,11 @@ ALLOWED_ORIGINS = {
 }
 
 
-def get_fernet(region: str) -> Fernet:
+class _HasDecrypt(Protocol):
+    def decrypt(self, data: bytes) -> bytes: ...
+
+
+def get_fernet(region: str) -> MultiFernet:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError, TokenRetrievalError
 
@@ -76,13 +79,27 @@ def get_fernet(region: str) -> Fernet:
 
     secret_data = json.loads(response["SecretString"])
     if "TEMPORAL_SECRET_KEY" not in secret_data:
-        print(f"TEMPORAL_SECRET_KEY not found in {AWS_SECRET_NAME}. Available keys: {sorted(secret_data.keys())}", file=sys.stderr)
+        print(
+            f"TEMPORAL_SECRET_KEY not found in {AWS_SECRET_NAME}. Available keys: {sorted(secret_data.keys())}",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    secret_key = secret_data["TEMPORAL_SECRET_KEY"]
-    return Fernet(_prepare_key(_load_as_bytes(secret_key)))
+
+    secret_key = Fernet(_prepare_key(_load_as_bytes(secret_data["TEMPORAL_SECRET_KEY"])))
+    fallback_keys = map(
+        Fernet(
+            _prepare_key,
+            (
+                _load_as_bytes(secret, check_length=should_check_length)
+                for secret in secret_data.get("TEMPORAL_FALLBACK_SECRET_KEYS", [])
+            ),
+        )
+    )
+
+    return MultiFernet([secret_key, *fallback_keys])
 
 
-def decode_payload(payload: dict, fernet: Fernet) -> dict:
+def decode_payload(payload: dict, fernet: _HasDecrypt) -> dict:
     """Decode a single Temporal payload if it's Fernet-encrypted."""
     metadata = payload.get("metadata", {})
     if metadata.get("encoding") != ENCRYPTED_ENCODING:
@@ -104,7 +121,7 @@ def decode_payload(payload: dict, fernet: Fernet) -> dict:
 
 
 class CodecHandler(BaseHTTPRequestHandler):
-    fernet: Fernet
+    fernet: _HasDecrypt
 
     def do_OPTIONS(self) -> None:
         if not self._is_origin_allowed():
@@ -174,7 +191,9 @@ class CodecHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         sys.stderr.write(f"[codec-server] {args[0]}\n")
 
-#region Lifted from posthog.temporal.common.codec
+
+# region Lifted from posthog.temporal.common.codec
+
 
 def _load_as_bytes(raw: str | bytes, /, check_length: bool = True) -> bytes:
     if isinstance(raw, bytes):
@@ -213,6 +232,7 @@ def _prepare_key(key: bytes) -> bytes:
     encoded_key = base64.urlsafe_b64encode(resized_key)
     return encoded_key
 
+
 def _resize_key(key: bytes, size: int = 32) -> bytes:
     """Resize key to size bytes.
 
@@ -221,7 +241,9 @@ def _resize_key(key: bytes, size: int = 32) -> bytes:
     padding = b"\0" * max(size - len(key), 0)
     return (padding + key)[:size]
 
-#endregion
+
+# endregion
+
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] not in REGIONS:
