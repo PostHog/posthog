@@ -37,7 +37,7 @@ will throw away.
 ## Phase 1 — discover
 
 ```text
-agent-native-tools-list                  → built-in tool catalog
+@posthog/agent-applications-native-tools-list                → built-in tool catalog
 agent-applications-list                  → existing agents (clone target?)
 ```
 
@@ -360,7 +360,7 @@ revision before promoting.
   assistant for X". Will work for trivial cases, fail for
   anything specific. Push depth into skills.
 - **Premature custom tooling.** User reaches for a custom tool
-  before checking native ones. Cross-check `agent-native-tools-list`
+  before checking native ones. Cross-check `@posthog/agent-applications-native-tools-list`
   first — half the time the native tool exists.
 - **Secrets in `agent.md`.** Comes up often. Refuse hard, load
   `skills/secrets-and-integrations`.

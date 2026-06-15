@@ -126,7 +126,7 @@ This is the most common source of confusion. Be precise.
 | **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.            |
 | **Client**            | `{ kind: "client", from_native \| id }`            | In the connecting client | `@posthog/ui/focus`, `@posthog/ui/toast`                              |
 
-Native tools are catalogued via `agent-native-tools-list`. MCP
+Native tools are catalogued via `@posthog/agent-applications-native-tools-list`. MCP
 tools are discoverable per server via the MCP `tools/list` call
 made at session start. Client tools are declared in the spec; the
 connecting client opts into the subset it implements.

@@ -77,14 +77,14 @@ path, or a revision/session id must come from:
 
 - An MCP / native tool call result earlier in this session
 - A message from the user
-- The catalog endpoints (`agent-native-tools-list` for tools)
+- The catalog endpoints (`@posthog/agent-applications-native-tools-list` for tools)
 
 If you don't have it, **fetch it before referencing it**. The
 single most common waste of user time is "the bundle has a file
 called X" when X doesn't exist.
 
 Concrete check: before naming a tool in your output, ensure
-you've called `agent-native-tools-list` at least once in the
+you've called `@posthog/agent-applications-native-tools-list` at least once in the
 session (it's small, cache it). Before naming a file path,
 ensure you've called `agent-applications-revisions-manifest-retrieve`
 or `-bundle-retrieve`. Before naming a session id, ensure you've

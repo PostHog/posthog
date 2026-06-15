@@ -89,7 +89,7 @@ Returns `{ ok, errors[], warnings[] }`.
 Common errors:
 
 - `unknown_tool_id` — you wrote `@posthog/queries` instead of
-  `@posthog/query`. Cross-check against `agent-native-tools-list`.
+  `@posthog/query`. Cross-check against `@posthog/agent-applications-native-tools-list`.
 - `unresolved_skill_path` — `spec.skills[].path` points at a file
   that isn't in the bundle. Either add the file or remove the spec
   entry.

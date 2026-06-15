@@ -22,24 +22,16 @@
             "auth": {
                 "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
             }
-        },
-        {
-            "type": "cron",
-            "config": {
-                "name": "nightly-fleet-audit",
-                "schedule": "0 7 * * *",
-                "timezone": "America/Los_Angeles",
-                "prompt": "Run the nightly fleet audit for {fired_at:date}. Load skills/auditing-the-fleet and follow it end to end. Sweep every agent in this team, investigate each one's recent sessions for failures, anomalies, and degraded behaviour, diagnose the root cause of anything that tripped an agent up, and for each concrete fix branch a DRAFT revision with the change applied (validate it; never freeze or promote — drafts are proposals a human reviews). Write the full report to memory, then post the condensed digest to the team's configured fleet-audit Slack channel; if no channel is configured, skip the post silently — the memory report is the source of truth. Read yesterday's report first so this one leads with what's new or worsening rather than repeating known issues. This is an unattended run: no human is on the other end, the focus_*/toast/set_secret client tools time out, and there is no session_principal to approve a promote — stay strictly read-and-propose.",
-                "external_key": "fleet-audit:{fired_at:date}",
-                "catch_up": "most_recent",
-                "max_catch_up_age_seconds": 7200
-            }
         }
     ],
     "tools": [
         {
             "kind": "native",
             "id": "@posthog/agent-applications-list"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-native-tools-list"
         },
         {
             "kind": "native",

@@ -107,37 +107,6 @@ describe('example: agent-concierge bundle', () => {
         expect(triggerTypes).toContain('mcp')
     })
 
-    it('wires the nightly-fleet-audit cron with its durable-output tools + skill', async () => {
-        const { spec, files } = await loadBundle()
-        // The unattended audit is a cron trigger — no human, no client tools.
-        // Its only durable outputs are memory + Slack, so those native tools
-        // and the SLACK_BOT_TOKEN secret must be present, and the orchestration
-        // skill it loads on the first turn must exist as a bundle file.
-        const cron = spec.triggers.find((t) => t.type === 'cron')
-        expect(cron, 'a cron trigger should be declared').not.toBeUndefined()
-        expect(cron!.config?.name).toBe('nightly-fleet-audit')
-        // The cron's prompt is the entire instruction set for an unattended run —
-        // empty/placeholder here means the nightly job does nothing useful.
-        expect((cron!.config?.prompt ?? '').length).toBeGreaterThan(80)
-
-        const nativeIds = new Set(spec.tools.filter((t) => t.kind === 'native').map((t) => t.id))
-        for (const id of [
-            '@posthog/memory-search',
-            '@posthog/memory-read',
-            '@posthog/memory-write',
-            '@posthog/slack-post-message',
-        ]) {
-            expect(nativeIds.has(id), `${id} should be wired for the audit's report output`).toBe(true)
-        }
-        // slack-post-message reads the agent's own SLACK_BOT_TOKEN (per-app, not
-        // a team integration) — so the secret has to be declared.
-        expect(spec.secrets).toContain('SLACK_BOT_TOKEN')
-
-        const auditSkill = spec.skills.find((s) => s.id === 'auditing-the-fleet')
-        expect(auditSkill, 'auditing-the-fleet skill should be declared').not.toBeUndefined()
-        expect(files[auditSkill!.path]).not.toBeUndefined()
-    })
-
     it('declares the client tools the agent-console implements', async () => {
         const { spec } = await loadBundle()
         // Author-defined inline shape (id, description, args_schema) —
