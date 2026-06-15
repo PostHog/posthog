@@ -66,6 +66,26 @@ def test_table_from_py_list_inconsistent_other_types():
     )
 
 
+def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
+    with pytest.raises(TypeError) as exc_info:
+        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
+
+    message = str(exc_info.value)
+    # Preserves the original phrase so source non-retryable matching still fires
+    assert "must be real number, not str" in message
+    # Names the column and shows the offending text and blank cells
+    assert "revenue" in message
+    assert "N/A" in message
+    assert "<blank>" in message
+
+
+def test_table_from_py_list_float_column_with_none_gaps():
+    table = table_from_py_list([{"column": 1.5}, {"column": None}, {"column": 2.5}, {"column": None}])
+
+    assert table.column("column").to_pylist() == [1.5, None, 2.5, None]
+    assert pa.types.is_floating(table.schema.field("column").type)
+
+
 def test_table_from_py_list_inconsistent_types_with_none():
     table = table_from_py_list([{"column": None}, {"column": "hello"}, {"column": 12}, {"column": None}])
 
