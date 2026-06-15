@@ -245,6 +245,52 @@ describe('EmailService', () => {
                 })
             })
         })
+        describe('SES throttle handling', () => {
+            // SES throttle responses become reschedule-with-backoff rather than
+            // permanent failures. The local Valkey bucket already gates dequeue;
+            // this path is the safety net for when SES disagrees with our estimate.
+            const throttleNames = [
+                'ThrottlingException',
+                'TooManyRequestsException',
+                'Throttling',
+                'SendingPausedException',
+            ]
+            it.each(throttleNames)('reschedules instead of failing when SES returns %s', async (errorName: string) => {
+                const sesError: any = new Error(`${errorName} from SES`)
+                sesError.name = errorName
+                sendEmailSpy.mockRejectedValueOnce(sesError)
+
+                const before = Date.now()
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                // Jittered 500–1000ms retry: must land in the future but never further
+                // than the upper bound + scheduler overhead.
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
+                expect(scheduledMs).toBeLessThan(before + 2000)
+                // No business metric emitted on throttle — the eventual retry
+                // will produce email_sent.
+                expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('still fails the job for non-throttle SES errors', async () => {
+                const sesError: any = new Error('something else broke')
+                sesError.name = 'MessageRejected'
+                sendEmailSpy.mockRejectedValueOnce(sesError)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: something else broke/)
+                // Business metric should record the failure.
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction

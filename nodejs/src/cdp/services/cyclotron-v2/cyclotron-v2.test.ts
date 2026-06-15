@@ -488,6 +488,60 @@ describe('Cyclotron V2', () => {
             expect(jobs[0].queueName).toBe(QUEUE)
         })
 
+        describe('getBatchLimit (rate-limit hook)', () => {
+            // The hook is consulted on every poll. Returning a positive limit
+            // clamps the SQL LIMIT to min(limit, batchMaxSize); 0 skips the
+            // dequeue and sleeps; undefined falls back to batchMaxSize.
+            it('clamps the batch to the granted limit', async () => {
+                for (let i = 0; i < 10; i++) {
+                    await manager.createJob({ teamId: 1, queueName: QUEUE })
+                }
+
+                const worker = createWorker(QUEUE, {
+                    batchMaxSize: 100,
+                    // eslint-disable-next-line @typescript-eslint/require-await
+                    getBatchLimit: async () => ({ limit: 3 }),
+                })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(3)
+                expect(await countByStatus('available')).toBe(7)
+            })
+
+            it('skips the dequeue entirely when the granted limit is 0', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                const worker = createWorker(QUEUE, {
+                    batchMaxSize: 100,
+                    includeEmptyBatches: false,
+                    // eslint-disable-next-line @typescript-eslint/require-await
+                    getBatchLimit: async () => ({ limit: 0, sleepMs: 5 }),
+                })
+                const jobs = await dequeueOneBatch(worker, 200)
+
+                expect(jobs).toHaveLength(0)
+                // Critical: the SQL UPDATE never fires — rows stay 'available'.
+                expect(await countByStatus('available')).toBe(2)
+                expect(await countByStatus('running')).toBe(0)
+            })
+
+            it('falls back to batchMaxSize when the hook returns undefined', async () => {
+                for (let i = 0; i < 5; i++) {
+                    await manager.createJob({ teamId: 1, queueName: QUEUE })
+                }
+
+                const worker = createWorker(QUEUE, {
+                    batchMaxSize: 100,
+                    // eslint-disable-next-line @typescript-eslint/require-await
+                    getBatchLimit: async () => undefined,
+                })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(5)
+            })
+        })
+
         it.each([
             ['ack', 'completed'],
             ['fail', 'failed'],

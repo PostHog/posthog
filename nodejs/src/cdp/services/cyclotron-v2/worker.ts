@@ -41,6 +41,7 @@ export class CyclotronV2Worker {
     private readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
     private readonly includeEmptyBatches: boolean
+    private readonly getBatchLimit?: CyclotronV2WorkerConfig['getBatchLimit']
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
@@ -52,6 +53,7 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
+        this.getBatchLimit = config.getBatchLimit
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -66,7 +68,20 @@ export class CyclotronV2Worker {
         while (this.isConsuming) {
             try {
                 this.lastPollTime = new Date()
-                const rows = await this.dequeueJobs()
+
+                let effectiveLimit = this.batchMaxSize
+                if (this.getBatchLimit) {
+                    const decision = await this.getBatchLimit()
+                    if (decision) {
+                        if (decision.limit <= 0) {
+                            await sleep(decision.sleepMs ?? this.pollDelayMs)
+                            continue
+                        }
+                        effectiveLimit = Math.min(decision.limit, this.batchMaxSize)
+                    }
+                }
+
+                const rows = await this.dequeueJobs(effectiveLimit)
 
                 if (rows.length === 0) {
                     if (this.includeEmptyBatches) {
@@ -85,7 +100,7 @@ export class CyclotronV2Worker {
         }
     }
 
-    private async dequeueJobs(): Promise<RawJobRow[]> {
+    private async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
@@ -121,7 +136,7 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.person_id,
                 cyclotron_jobs.action_id,
                 cyclotron_jobs.lock_id`,
-            [this.config.queueName, this.batchMaxSize, lockId]
+            [this.config.queueName, limit, lockId]
         )
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
         // so re-sort to maintain priority ordering within the batch

@@ -1,5 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
+import { Counter } from 'prom-client'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
@@ -13,6 +15,59 @@ import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
+
+const sesThrottleResponsesTotal = new Counter({
+    name: 'cdp_ses_throttle_responses_total',
+    help: 'SES API responses classified as throttle/rate-limit. Sustained nonzero rate means the local bucket is set too high vs. the SES quota.',
+    labelNames: ['error_code'],
+})
+
+/**
+ * AWS SDK error names that SES returns when we're being rate-limited or our
+ * sending capacity is temporarily paused. These are retryable; everything else
+ * is treated as a hard failure. `SendingPausedException` is account-level (can
+ * mean a reputation issue) but is still expected to recover, so we retry.
+ */
+const SES_THROTTLE_ERROR_NAMES = new Set([
+    'ThrottlingException',
+    'TooManyRequestsException',
+    'Throttling',
+    'SendingPausedException',
+])
+
+/**
+ * Tagged error signalling that SES rejected the send for a transient,
+ * rate-limit-shaped reason. The caller schedules a retry instead of failing
+ * the job. Carries the SES error name for metrics and the retry delay we
+ * pick locally (SES doesn't return a Retry-After header).
+ */
+export class SESThrottleError extends Error {
+    public readonly errorCode: string
+    public readonly retryAfterMs: number
+
+    constructor(errorCode: string, retryAfterMs: number, message: string) {
+        super(message)
+        this.name = 'SESThrottleError'
+        this.errorCode = errorCode
+        this.retryAfterMs = retryAfterMs
+    }
+}
+
+function isSesThrottleError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const name = (error as { name?: string }).name
+    return typeof name === 'string' && SES_THROTTLE_ERROR_NAMES.has(name)
+}
+
+function pickThrottleRetryDelayMs(): number {
+    // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
+    // gates re-dequeue at the configured refill rate, so a quick retry will
+    // simply re-claim a token if SES capacity has refreshed. Exponential
+    // backoff isn't needed at this layer.
+    return 500 + Math.floor(Math.random() * 500)
+}
 
 export interface EmailServiceConfig {
     sesAccessKeyId: string
@@ -84,6 +139,7 @@ export class EmailService {
         const integration = await this.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
+        let throttled: boolean = false
 
         try {
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
@@ -115,9 +171,27 @@ export class EmailService {
             addLog('info', `Email sent to ${params.to.email}`)
             success = true
         } catch (error) {
-            addLog('error', error.message)
-            result.error = error.message
-            result.finished = true
+            if (error instanceof SESThrottleError) {
+                // Treat as a transient delivery delay — reschedule rather than fail
+                // the job. Our local bucket is the primary throttle; this path
+                // catches the cases where SES disagrees with our estimate.
+                throttled = true
+                result.finished = false
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
+                addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else {
+                addLog('error', error.message)
+                result.error = error.message
+                result.finished = true
+            }
+        }
+
+        if (throttled) {
+            // On throttle, skip both the VM-state push and the business-metric
+            // emit. The eventual successful retry will produce `email_sent` and
+            // push the success bit to the VM stack — pushing them now would
+            // double-count and lie about the send outcome.
+            return result
         }
 
         // Push the response to the VM stack if running inline (not from the email queue)
@@ -259,6 +333,15 @@ export class EmailService {
                 throw new Error('No messageId returned from SES')
             }
         } catch (error: unknown) {
+            if (isSesThrottleError(error)) {
+                const errorCode = (error as { name: string }).name
+                sesThrottleResponsesTotal.inc({ error_code: errorCode })
+                throw new SESThrottleError(
+                    errorCode,
+                    pickThrottleRetryDelayMs(),
+                    error instanceof Error ? error.message : String(error)
+                )
+            }
             const message = error instanceof Error ? error.message : String(error)
             throw new Error(`Failed to send email via SES: ${message}`)
         }

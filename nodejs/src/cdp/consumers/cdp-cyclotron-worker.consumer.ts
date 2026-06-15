@@ -3,7 +3,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { BatchLimitDecision, JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -172,10 +172,25 @@ export class CdpCyclotronWorker<
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
+    /**
+     * Optional per-poll hook for subclasses that need to gate dequeue behind a
+     * distributed rate limiter. Returning `{ limit: 0, sleepMs }` skips the
+     * poll; returning `{ limit: N }` clamps the dequeue batch to N; returning
+     * undefined uses the static batch size. See JobQueue.startAsConsumer.
+     *
+     * Default: undefined (no throttling). Override in subclasses like
+     * CdpCyclotronWorkerEmail to claim tokens before dequeue.
+     */
+    protected getBatchLimit(): Promise<BatchLimitDecision | undefined> {
+        return Promise.resolve(undefined)
+    }
+
     public override async start() {
         await super.start()
         await this.cyclotronJobQueue.startAsProducer()
-        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch))
+        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch), {
+            getBatchLimit: () => this.getBatchLimit(),
+        })
     }
 
     public override async stop() {

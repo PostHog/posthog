@@ -13,7 +13,7 @@ import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { JobQueue } from './job-queue.interface'
+import { JobQueue, StartAsConsumerOptions } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export class CyclotronJobQueueKafka implements JobQueue {
@@ -46,7 +46,11 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        // Kafka backend has no per-poll dynamic batch sizing (librdkafka pulls
+        // greedily). The hook is supported by the Postgres-V2 backend; Kafka
+        // callers should pause/resume at a higher layer if they need to throttle.
+        _options?: StartAsConsumerOptions
     ) {
         this.queue = queue
         this.consumeBatch = consumeBatch
