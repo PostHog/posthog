@@ -69,15 +69,31 @@ describe('accountsViewsLogic', () => {
     it('applyView hydrates columns, filters, sort, and tiles', async () => {
         useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 0, results: [] } } })
         mountAll()
-        await expectLogic(logic, () => logic.actions.applyView(buildView())).toFinishAllListeners()
+        const view = buildView({
+            filters: {
+                search: 'acme',
+                tags: ['enterprise'],
+                unassigned: false,
+                csm: [1],
+                accountExecutive: [2],
+                accountOwner: [3],
+                tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.applyView(view)).toFinishAllListeners()
 
         expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', 'csm'])
         expect(accountsLogic.values.searchQuery).toEqual('acme')
+        expect(accountsLogic.values.tagsFilter).toEqual(['enterprise'])
+        expect(accountsLogic.values.allRolesUnassigned).toBe(false)
         expect(accountsLogic.values.csmFilter).toEqual([1])
+        expect(accountsLogic.values.accountExecutiveFilter).toEqual([2])
+        expect(accountsLogic.values.accountOwnerFilter).toEqual([3])
         expect(accountsLogic.values.sortOrder).toEqual({ column: 'csm', direction: 'desc' })
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
             { id: 't1', label: 'Accounts', metric: { type: 'count' } },
         ])
+        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({ tileId: 't1', expression: 'mrr > 100' })
         expect(logic.values.currentViewId).toEqual('view-1')
     })
 

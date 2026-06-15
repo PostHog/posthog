@@ -229,10 +229,12 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             actions.setSelectColumns(state.columns)
             actions.setSearchQuery(state.filters.search)
             actions.setTagsFilter(state.filters.tags)
+            // accountsLogic cross-clears role filters vs "unassigned only", so set the
+            // unassigned flag first so the role filters below aren't wiped by that cross-listener.
+            actions.setAllRolesUnassigned(state.filters.unassigned)
             actions.setCsmFilter(state.filters.csm)
             actions.setAccountExecutiveFilter(state.filters.accountExecutive)
             actions.setAccountOwnerFilter(state.filters.accountOwner)
-            actions.setAllRolesUnassigned(state.filters.unassigned)
             actions.setSortOrder(state.sortOrder)
             actions.setTiles(state.tiles)
             actions.setTileFilter(state.filters.tileFilter)
@@ -262,6 +264,10 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         submitNewViewFormFailure: ({ error }) => {
             posthog.captureException(error)
             lemonToast.error('Failed to save view')
+        },
+        patchViewPropertiesFailure: ({ error }) => {
+            // Silent background migration — no toast, just capture the exception.
+            posthog.captureException(error as Error)
         },
         loadViewsSuccess: ({ views }) => {
             if (!objectsEqual(values.tiles, DEFAULT_TILES)) {
