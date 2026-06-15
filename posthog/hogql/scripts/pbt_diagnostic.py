@@ -103,11 +103,7 @@ from posthog.hogql.test.test_parser_grammar_pbt import (
 # Auto-shrinker
 # ---------------------------------------------------------------------------
 #
-# These queries already escaped a Hypothesis trial — by the time the
-# diagnostic sees one, Hypothesis has moved on and can't shrink it. We hand
-# each failure to shrinkray instead (`shrink_to_shape` in `_diagnostic_common`,
-# keeping the smallest variant that still triggers the same divergence shape)
-# so each printed failure is a tight repro a human can paste into a unit test.
+# Hypothesis has moved on by the time the diagnostic sees a failure, so we re-reduce via shrinkray (`shrink_to_shape`) to the smallest variant with the same divergence shape — a tight repro to paste into a unit test.
 
 
 # ---------------------------------------------------------------------------
@@ -228,12 +224,7 @@ def main() -> int:
             return 1
 
     counts: Counter[str] = Counter()
-    # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`. We
-    # shrink ONCE per failure (in `run()` below) and reuse the result
-    # both for the JSONL writer and the summary print loop — otherwise
-    # the two paths would shrink independently. shrinkray is deterministic
-    # (Random(0), parallelism=1) so they'd usually agree, but shrinking is
-    # the slow step and doing it twice per failure is pure waste.
+    # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`; we shrink ONCE per failure here and reuse it for both the JSONL writer and the summary print loop, since shrinking is the slow step and doing it twice is pure waste.
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
     reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
     # Two-sided contract: the oracle rejected but the candidate accepted —

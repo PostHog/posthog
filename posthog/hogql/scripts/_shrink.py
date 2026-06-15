@@ -61,9 +61,7 @@ def shrink(initial: str, is_interesting: Callable[[str], bool], *, parallelism: 
         return is_interesting(text)
 
     async def drive() -> bytes:
-        # Random(0) + parallelism=1 → deterministic reductions, so two runs
-        # over the same divergence land on the same minimal repro (the
-        # predicate is CPU-bound and synchronous; concurrency wouldn't help).
+        # Random(0) + parallelism=1 → deterministic repros; the predicate is CPU-bound and synchronous, so concurrency wouldn't help anyway.
         work = WorkContext(random=Random(0), parallelism=parallelism, volume=Volume.quiet)
         problem = BasicReductionProblem(initial=initial.encode("utf-8"), is_interesting=predicate, work=work)
         try:

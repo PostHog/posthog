@@ -599,9 +599,7 @@ class Failure:
     query: str
     detail: str  # rejection message, crash traceback, or formatted diff path
     n_occurrences: int
-    # Original char length when `query` has been reduced by `shrink_failures`;
-    # None when the query is recorded verbatim.
-    shrunk_from: int | None = None
+    shrunk_from: int | None = None  # original char length if `shrink_failures` reduced `query`, else None
 
 
 def shrink_failures(

@@ -35,12 +35,7 @@ import argparse
 
 import django
 
-# stdout is this tool's contract: ONLY the shrunk query lands there, so it
-# can be captured in `$(...)` or piped onward cleanly. django setup +
-# settings import emit chatter (the DEBUG-mode warning, structlog lines) to
-# stdout, so redirect stdout to stderr for the whole run and reserve the
-# saved real stdout for the final result. Swap BEFORE django.setup() so any
-# logging config that binds to sys.stdout picks up stderr too.
+# Keep stdout pristine (only the shrunk query, for `$(...)` capture): django setup/settings print chatter there, so point stdout at stderr before django.setup() — early enough that logging config binds to stderr too — and write the result to the saved real stdout.
 _REAL_STDOUT = sys.stdout
 sys.stdout = sys.stderr
 
@@ -106,9 +101,7 @@ def main() -> int:
 
     shrunk = shrink_to_shape(query, args.rule, args.oracle, args.candidate, shape)
     print(f"shrunk {len(query)} -> {len(shrunk)} chars ({shape.kind})", file=sys.stderr)
-    # The real stdout (saved before the setup redirect) carries *only* the
-    # minimal query — exact bytes, no trailing newline added (a load-bearing
-    # trailing newline survives in `shrunk` itself).
+    # Saved real stdout carries *only* the minimal query — exact bytes, no trailing newline added (a load-bearing one survives in `shrunk`).
     _REAL_STDOUT.write(shrunk)
     _REAL_STDOUT.flush()
     return 0
