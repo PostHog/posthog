@@ -6,8 +6,9 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 
 import { actionsModel } from '~/models/actionsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyDefinitionType, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { DataWarehousePopoverField, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
@@ -397,6 +398,18 @@ function bareKeyRecentEntries(): MenuFilterEntry[] {
 
 function BareKeyRecentsContainer(): JSX.Element {
     useMountedLogic(actionsModel)
+    // Pre-populate property definition cache so describeProperty resolves
+    // synchronously and the preview pane renders deterministically.
+    useMountedLogic(propertyDefinitionsModel)
+    propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions({
+        [`${PropertyDefinitionType.Event}/$browser`]: {
+            id: '$browser',
+            name: '$browser',
+            property_type: PropertyType.String,
+            is_numerical: false,
+            is_seen_on_filtered_events: true,
+        },
+    })
     return (
         <TaxonomicFilterHeadless.Root
             bindRootProps={false}
