@@ -15,6 +15,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AvailableFeature,
@@ -446,8 +447,8 @@ export const supportLogic = kea<supportLogicType>([
             ['billing'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
-            sidePanelStateLogic,
-            ['sidePanelAvailable'],
+            navigation3000Logic,
+            ['mode'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -571,7 +572,12 @@ export const supportLogic = kea<supportLogicType>([
                 actions.closeEmailForm()
             }
 
-            if (values.sidePanelAvailable) {
+            // Choose the modal only on scenes that never mount the side panel (login, signup,
+            // onboarding, zen mode, unavailable org). `mode` is the same condition that gates
+            // <SidePanel /> in Navigation and resolves synchronously from the scene/URL, so on a
+            // cold load straight into #panel=support we pick the side panel up front instead of
+            // briefly flashing the modal while the panel mounts.
+            if (values.mode === 'full') {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
                 actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
             } else {
