@@ -13,8 +13,9 @@ import { initKeaTests } from '~/test/init'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
-import { TaxonomicFilterGroupType } from '../types'
+import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
 import { MenuFilterCombobox, SEARCH_QUERY_DEBOUNCE_MS } from './Combobox'
+import { MenuFilterEntry } from './types'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
@@ -220,21 +221,25 @@ describe('MenuFilterCombobox', () => {
     // "Pageview"). `value` is whatever the call site threads through — the raw
     // event key `$pageview` or, when `filter.name` holds the label, `Pageview`.
     // getValue returns name-or-id just like the adapter.
-    function syntheticEventSelected(value: string): any {
+    function syntheticEventSelected(value: string): MenuFilterEntry {
         return {
-            item: { id: value, name: value },
+            item: { id: value, name: value } as TaxonomicDefinitionTypes,
+            // Deliberate partial — only the three fields the menu reads from a
+            // synthetic selection. Cast (as the production adapter does) rather
+            // than populate the full group shape. The `MenuFilterEntry` return
+            // type is what keeps the entry contract compiler-checked.
             group: {
                 type: TaxonomicFilterGroupType.Events,
-                getName: (t: any) => t?.name,
-                getValue: (t: any) => t?.name ?? t?.id,
-            },
+                getName: (t) => t?.name,
+                getValue: (t) => t?.name ?? t?.id,
+            } as TaxonomicFilterGroup,
             name: value,
         }
     }
 
     function renderEventsWithSelection(options: {
         searchQuery?: string
-        selectedEntry?: any
+        selectedEntry?: MenuFilterEntry
     }): ReturnType<typeof render> {
         return render(
             <Provider>
