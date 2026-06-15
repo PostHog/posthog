@@ -1,7 +1,7 @@
 # agent_platform — Django side of the v2 agent platform
 
 This product is the **authoring + control-plane half** of the agent
-platform. The runtime is in node services at `services/agent-{ingress,runner,janitor}`.
+platform. The runtime is in node services at `products/agent_platform/services/agent-{ingress,runner,janitor}`.
 You will almost always need both sides in your head — read the
 [local-dev guide](../../docs/agent-platform/docs/local-dev.md) before
 making non-trivial changes.
@@ -37,7 +37,7 @@ making non-trivial changes.
 
 3. **Spec edits must round-trip through the node-side schema.** The
    `revision.spec` JSONB is validated by
-   [`AgentSpecSchema`](../../services/agent-shared/src/spec/) on the
+   [`AgentSpecSchema`](../../products/agent_platform/services/agent-shared/src/spec/) on the
    node side; Django passes it through. If you tighten a constraint
    server-side, mirror it in the zod schema (or vice versa), otherwise
    the janitor's `/revisions/:id/validate` will start rejecting things
@@ -55,20 +55,18 @@ making non-trivial changes.
 
 ## When you change something here
 
-Vital changes need an e2e case in [services/agent-tests/](../../services/agent-tests/)
+Vital changes need an e2e case in [products/agent_platform/services/agent-tests/](../../products/agent_platform/services/agent-tests/)
 — the harness drives the full Django-shaped flow against in-process
 ingress + runner + janitor. A change to the authoring API that doesn't
 have a case will silently regress when the node side evolves. See
-[agent-tests/CLAUDE.md](../../services/agent-tests/CLAUDE.md) for the
+[agent-tests/CLAUDE.md](../../products/agent_platform/services/agent-tests/CLAUDE.md) for the
 pattern.
 
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —
   [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
-- **Prod env vars per service** —
-  [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md).
 - **Janitor HTTP surface** —
-  [services/agent-janitor/src/server.ts](../../services/agent-janitor/src/server.ts).
+  [products/agent_platform/services/agent-janitor/src/server.ts](../../products/agent_platform/services/agent-janitor/src/server.ts).
 - **Spec shape (source of truth)** —
-  [services/agent-shared/src/spec/](../../services/agent-shared/src/spec/).
+  [products/agent_platform/services/agent-shared/src/spec/](../../products/agent_platform/services/agent-shared/src/spec/).

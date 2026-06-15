@@ -1,9 +1,9 @@
 rules:
     - id: agent-ingress-no-process-env
       message: |
-          Direct `process.env.*` reads aren't allowed in `services/agent-ingress/src/`
+          Direct `process.env.*` reads aren't allowed in `products/agent_platform/services/agent-ingress/src/`
           (outside `config.ts` + tests). Add the env var to `AgentIngressConfigSchema`
-          in `services/agent-ingress/src/config.ts` and read it from the typed
+          in `products/agent_platform/services/agent-ingress/src/config.ts` and read it from the typed
           `Config` passed into `main()`.
 
           Why: the agent services share a typed-config-loader pattern (see
@@ -21,7 +21,7 @@ rules:
       pattern: process.env.$X
       paths:
           include:
-              - services/agent-ingress/src/**/*.ts
+              - products/agent_platform/services/agent-ingress/src/**/*.ts
           exclude:
-              - services/agent-ingress/src/config.ts
-              - services/agent-ingress/src/**/*.test.ts
+              - products/agent_platform/services/agent-ingress/src/config.ts
+              - products/agent_platform/services/agent-ingress/src/**/*.test.ts
