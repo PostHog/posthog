@@ -1300,7 +1300,11 @@ class ExperimentService:
         """
         # Lock the row so a concurrent enable can't slip in between the check and the save,
         # which would produce an archived flag that is still active.
-        feature_flag = FeatureFlag.objects.select_for_update().filter(pk=experiment.feature_flag_id).first()
+        feature_flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
         if feature_flag is None or feature_flag.deleted or feature_flag.archived:
             return
         if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
@@ -1368,7 +1372,11 @@ class ExperimentService:
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])
 
-        feature_flag = FeatureFlag.objects.select_for_update().filter(pk=experiment.feature_flag_id).first()
+        feature_flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
         if feature_flag is None or feature_flag.deleted or not feature_flag.archived:
             return
 

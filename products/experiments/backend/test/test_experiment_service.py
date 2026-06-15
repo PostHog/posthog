@@ -2142,9 +2142,10 @@ class TestExperimentService(APIBaseTest):
 
         self._service().archive_experiment(experiment, disable_feature_flag=True)
 
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.active is False
-        assert experiment.feature_flag.archived is True
+        experiment.refresh_from_db()
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is False
+        assert flag.archived is True
         assert experiment.feature_flag_auto_archived is True
 
     def test_archive_experiment_keeps_flag_shared_with_live_experiment(self):
@@ -2190,9 +2191,10 @@ class TestExperimentService(APIBaseTest):
 
         service.unarchive_experiment(experiment)
 
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.archived is False
-        assert experiment.feature_flag.active is False
+        experiment.refresh_from_db()
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert flag.active is False
         assert experiment.feature_flag_auto_archived is False
 
     def test_unarchive_experiment_unarchives_flag(self):
@@ -2207,11 +2209,12 @@ class TestExperimentService(APIBaseTest):
 
         service.unarchive_experiment(experiment)
 
-        experiment.feature_flag.refresh_from_db()
-        assert experiment.feature_flag.archived is False
-        assert experiment.feature_flag_auto_archived is False
+        refreshed = Experiment.objects.get(pk=experiment.id)
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert refreshed.feature_flag_auto_archived is False
         # The flag stays disabled — re-enabling is an explicit user decision
-        assert experiment.feature_flag.active is False
+        assert flag.active is False
 
     def test_unarchive_experiment_keeps_manually_archived_flag(self):
         # The user archived the flag themselves, so unarchiving the experiment must not undo it.
