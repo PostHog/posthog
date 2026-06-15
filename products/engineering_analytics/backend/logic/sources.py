@@ -9,10 +9,15 @@ This resolver walks the team's connected GitHub source(s) to their ``pull_reques
 ``workflow_runs`` schemas and returns the actual ``DataWarehouseTable`` names the curated
 builders should read. Names are resolved exactly once per request (in the logic layer)
 and threaded down into the builders, so a request hits the warehouse models a single time.
+
+A team can connect GitHub more than once (e.g. one source per repository). A caller may pass
+``source_id`` to read a specific source; otherwise the oldest connected source with both
+endpoints synced is used.
 """
 
 import re
 from dataclasses import dataclass
+from uuid import UUID
 
 from posthog.models.team import Team
 
@@ -42,27 +47,44 @@ class GitHubTables:
     workflow_runs: str
 
 
-def resolve_github_tables(*, team: Team) -> GitHubTables:
+def resolve_github_tables(*, team: Team, source_id: str | None = None) -> GitHubTables:
     """Resolve the team's curated GitHub table names from its warehouse models.
 
-    Picks the oldest connected GitHub source that has both endpoints synced — deterministic
-    when a team has more than one GitHub source (e.g. one per repository). Raises
-    ``GitHubSourceNotConnectedError`` when no such source exists; the presentation layer
-    maps that to a 400 so the UI prompts to connect a source and an agent gets an actionable
-    error instead of a misleading empty result.
+    With ``source_id``, reads that specific connected GitHub source; otherwise picks the
+    oldest source with both endpoints synced — deterministic when a team has more than one
+    GitHub source (e.g. one per repository). Raises ``GitHubSourceNotConnectedError`` when no
+    matching usable source exists (the presentation layer maps it to a 400, so the UI prompts
+    to connect a source and an agent gets an actionable error), or ``ValueError`` when
+    ``source_id`` is not a UUID.
     """
     sources = (
         ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
         .exclude(deleted=True)
         .order_by("created_at", "id")
     )
+    if source_id is not None:
+        sources = sources.filter(id=_as_source_uuid(source_id))
     for source in sources:
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
         workflow_runs = tables.get(WORKFLOW_RUNS_SCHEMA)
         if pull_requests and workflow_runs:
             return GitHubTables(pull_requests=pull_requests, workflow_runs=workflow_runs)
-    raise GitHubSourceNotConnectedError()
+    raise GitHubSourceNotConnectedError(
+        _NO_SELECTED_SOURCE if source_id is not None else GitHubSourceNotConnectedError.DEFAULT_MESSAGE
+    )
+
+
+# Distinct from the no-source message: the caller picked a source that isn't a usable GitHub
+# source for this team (wrong id, another team's source, or its endpoints aren't synced).
+_NO_SELECTED_SOURCE = "The selected GitHub source isn't connected or has no synced pull_requests/workflow_runs tables."
+
+
+def _as_source_uuid(source_id: str) -> UUID:
+    try:
+        return UUID(source_id)
+    except ValueError as err:
+        raise ValueError(f"source_id must be a UUID, got: {source_id!r}") from err
 
 
 def _synced_table_names(*, team: Team, source: ExternalDataSource) -> dict[str, str]:

@@ -40,8 +40,8 @@ class CuratedGitHubSource:
         self._tables = tables
 
     @classmethod
-    def for_team(cls, team: Team) -> "CuratedGitHubSource":
-        return cls(team=team, tables=resolve_github_tables(team=team))
+    def for_team(cls, team: Team, *, source_id: str | None = None) -> "CuratedGitHubSource":
+        return cls(team=team, tables=resolve_github_tables(team=team, source_id=source_id))
 
     def pr_source(self) -> str:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""

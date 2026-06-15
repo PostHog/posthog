@@ -14,6 +14,8 @@ from django.utils import timezone
 import pandas as pd
 from parameterized import parameterized
 
+from posthog.models.team import Team
+
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade import api
@@ -311,10 +313,12 @@ class TestResolveGitHubTables(BaseTest):
         prefix: str,
         schemas: list[tuple[str, bool, bool]],
         source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+        team: Team | None = None,
     ) -> ExternalDataSource:
         # schemas: (endpoint name, should_sync, has a backing table)
+        team = team or self.team
         source = ExternalDataSource.objects.create(
-            team=self.team,
+            team=team,
             source_id=f"src-{prefix}",
             connection_id=f"src-{prefix}",
             status=ExternalDataSource.Status.COMPLETED,
@@ -323,11 +327,9 @@ class TestResolveGitHubTables(BaseTest):
         )
         for name, should_sync, has_table in schemas:
             table = (
-                create_warehouse_table_row(self.team, name=f"{prefix}github_{name}", source=source)
-                if has_table
-                else None
+                create_warehouse_table_row(team, name=f"{prefix}github_{name}", source=source) if has_table else None
             )
-            link_schema(self.team, source, name=name, table=table, should_sync=should_sync)
+            link_schema(team, source, name=name, table=table, should_sync=should_sync)
         return source
 
     _BOTH_SYNCED = [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)]
@@ -386,6 +388,30 @@ class TestResolveGitHubTables(BaseTest):
         ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
         with self.assertRaises(GitHubSourceNotConnectedError):
             resolve_github_tables(team=self.team)
+
+    def test_source_id_selects_a_specific_source(self) -> None:
+        self._connect(prefix="older", schemas=self._BOTH_SYNCED)
+        newer = self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team, source_id=str(newer.id))
+        assert tables == GitHubTables(
+            pull_requests="newergithub_pull_requests", workflow_runs="newergithub_workflow_runs"
+        )
+
+    def test_unknown_source_id_raises(self) -> None:
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, source_id="0192f000-0000-7000-8000-000000000000")
+
+    def test_malformed_source_id_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_github_tables(team=self.team, source_id="not-a-uuid")
+
+    def test_source_id_is_scoped_to_the_team(self) -> None:
+        # Selecting another team's source id must not leak it — the team filter excludes it.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_source = self._connect(prefix="other", schemas=self._BOTH_SYNCED, team=other_team)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, source_id=str(other_source.id))
 
 
 class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):

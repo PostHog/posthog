@@ -50630,6 +50630,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -50639,6 +50646,10 @@ export namespace Schemas {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsPullRequestsParams = {
@@ -50646,6 +50657,10 @@ export namespace Schemas {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -50657,6 +50672,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EnvironmentsListParams = {

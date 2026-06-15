@@ -82,6 +82,20 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "GitHub" in response.json()["detail"]
 
+    def test_ci_cards_forwards_source_id(self) -> None:
+        source_id = "0192f000-0000-7000-8000-000000000000"
+        with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()) as get:
+            response = self.client.get(self._url("ci_cards"), {"source_id": source_id})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get.call_args.kwargs["source_id"] == source_id
+
+    def test_ci_cards_400_on_bad_source_id(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_ci_cards", side_effect=ValueError("source_id must be a UUID")):
+            response = self.client.get(self._url("ci_cards"), {"source_id": "nope"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_pull_requests_serializes(self) -> None:
         result = contracts.PullRequestList(items=[_pr_list_item()], truncated=False, limit=1000)
         with mock.patch(f"{_VIEWS}.list_pull_requests", return_value=result) as listing:

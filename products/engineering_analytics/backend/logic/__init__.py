@@ -36,19 +36,25 @@ _MAX_WINDOW_DAYS = 366
 # Inputs are validated before the GitHub source is resolved, so a bad date or malformed
 # repo fails with its own clear error rather than being masked by the no-source error.
 # CuratedGitHubSource.for_team resolves the warehouse tables exactly once per request.
-def build_pr_lifecycle(*, team: Team, pr_number: int, repo: str | None) -> PRLifecycle | None:
+def build_pr_lifecycle(
+    *, team: Team, pr_number: int, repo: str | None, source_id: str | None = None
+) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
-    curated = CuratedGitHubSource.for_team(team)
+    curated = CuratedGitHubSource.for_team(team, source_id=source_id)
     return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
-def build_ci_cards(*, team: Team) -> CICardSummary:
-    return query_ci_cards(curated=CuratedGitHubSource.for_team(team))
+def build_ci_cards(*, team: Team, source_id: str | None = None) -> CICardSummary:
+    return query_ci_cards(curated=CuratedGitHubSource.for_team(team, source_id=source_id))
 
 
-def build_pull_request_list(*, team: Team, date_from: str | None = None) -> PullRequestList:
+def build_pull_request_list(
+    *, team: Team, date_from: str | None = None, source_id: str | None = None
+) -> PullRequestList:
     parsed_from = _parse_date(team, date_from or _DEFAULT_WINDOW)
-    return query_pull_request_list(curated=CuratedGitHubSource.for_team(team), date_from=parsed_from)
+    return query_pull_request_list(
+        curated=CuratedGitHubSource.for_team(team, source_id=source_id), date_from=parsed_from
+    )
 
 
 def build_workflow_health(
@@ -56,13 +62,14 @@ def build_workflow_health(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
+    source_id: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from = _parse_date(team, date_from or _DEFAULT_WINDOW)
     parsed_to = _parse_date(team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
     if span_days > _MAX_WINDOW_DAYS:
         raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
-    curated = CuratedGitHubSource.for_team(team)
+    curated = CuratedGitHubSource.for_team(team, source_id=source_id)
     return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to)
 
 
