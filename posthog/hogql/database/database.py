@@ -1,4 +1,5 @@
 import copy
+import pickle
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -296,7 +297,29 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
+# The static catalog is identical for every team and request. Building it from scratch and
+# deep-copying the root tables on each call is the dominant CPU cost of the no-I/O build phase.
+# Instead we construct it once, pickle it, and reconstruct per-request copies via pickle.loads:
+# cheaper than rebuild + deep-copy, and each load is a fully independent tree (so per-request
+# mutation can't leak between teams). The blob lives in-process and is rebuilt on every fresh
+# import, so it always matches the current code — no cross-deploy staleness. Keyed by
+# include_posthog_tables. CAVEAT: every node in the catalog must stay picklable; the
+# test_build_database_root_node_* tests fail loudly if a future field breaks that.
+_DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
+
+
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
+    blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
+    if blob is None:
+        blob = pickle.dumps(
+            _construct_database_root_node(include_posthog_tables=include_posthog_tables),
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+        _DATABASE_ROOT_NODE_BLOBS[include_posthog_tables] = blob
+    return pickle.loads(blob)
+
+
+def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
     def clone_root_tables() -> dict[str, TableNode]:
         return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
 

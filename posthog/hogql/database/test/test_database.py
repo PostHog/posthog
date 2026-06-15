@@ -1,4 +1,5 @@
 import json
+import pickle
 from typing import Any, cast
 
 import pytest
@@ -23,6 +24,7 @@ from posthog.hogql.database.database import (
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
     _compute_system_table_access_decision,
+    _construct_database_root_node,
     _preload_active_external_data_schemas,
     build_database_root_node,
     get_data_warehouse_table_name,
@@ -280,6 +282,28 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         first_database.tables.children["events"].table = None
 
         assert second_database.tables.children["events"].table is not None
+
+    @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
+    def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
+        # build_database_root_node reconstructs the static catalog from a cached pickle blob; it must be
+        # byte-for-byte equivalent to constructing it from scratch, and each call must be independent.
+        cached = build_database_root_node(include_posthog_tables=include_posthog_tables)
+        fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
+
+        assert cached == fresh
+        assert cached is not fresh
+        if include_posthog_tables:
+            assert "events" in cached.children
+
+    def test_build_database_root_node_catalog_stays_picklable(self):
+        # The pickle-backed cache requires every node in the static catalog to be picklable. If a future
+        # field introduces an unpicklable value (a closure, lock, etc.), this fails loudly here rather
+        # than at request time.
+        fresh = _construct_database_root_node(include_posthog_tables=True)
+        restored = pickle.loads(pickle.dumps(fresh, protocol=pickle.HIGHEST_PROTOCOL))
+
+        assert restored == fresh
+        assert restored.children["events"].table is not fresh.children["events"].table
 
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(
