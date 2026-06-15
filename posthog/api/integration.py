@@ -75,6 +75,8 @@ from posthog.permissions import (
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -628,6 +630,16 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
+        flows_using_integration = get_active_hog_flows_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        if flows_using_integration:
+            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            raise ValidationError(
+                f"This integration is used by active workflows: {flow_names}. "
+                "Update those workflows to use a different integration before disconnecting it."
+            )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
