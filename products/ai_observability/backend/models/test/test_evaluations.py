@@ -279,6 +279,58 @@ class TestEvaluationModel(BaseTest):
         self.assertEqual(evaluation.conditions[0]["rollout_percentage"], 75)
 
 
+class TestEvaluationDeferredFields(BaseTest):
+    def _create(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[],
+        )
+
+    def test_loading_with_deferred_enabled_and_status_does_not_recurse(self):
+        """Loading a row with enabled/status deferred (as Django's cascade-delete collector does) must not
+        re-enter the deferred-field loader and overflow the stack."""
+        evaluation = self._create()
+
+        # .only() defers every column not listed — including enabled and status.
+        loaded = Evaluation.objects.only("id").get(id=evaluation.id)
+        self.assertIn("enabled", loaded.get_deferred_fields())
+        self.assertIn("status", loaded.get_deferred_fields())
+
+        # Accessing a deferred field triggers the lazy loader; previously this recursed infinitely.
+        self.assertTrue(loaded.enabled)
+        self.assertEqual(loaded.status, EvaluationStatus.ACTIVE)
+
+    def test_team_deletion_cascade_deletes_evaluations(self):
+        """The team-deletion cascade loads Evaluation rows with most columns deferred. This must complete
+        rather than crash with a RecursionError."""
+        evaluation = self._create()
+        evaluation_id = evaluation.id
+
+        self.team.delete()
+
+        self.assertFalse(Evaluation.objects.filter(id=evaluation_id).exists())
+
+    def test_saving_instance_loaded_with_deferred_fields(self):
+        """Saving an instance whose baseline fields were deferred at load time must not raise."""
+        evaluation = self._create()
+
+        loaded = Evaluation.objects.only("id", "name").get(id=evaluation.id)
+        loaded.name = "Renamed"
+        loaded.save()
+
+        loaded.refresh_from_db()
+        self.assertEqual(loaded.name, "Renamed")
+        self.assertEqual(loaded.status, EvaluationStatus.ACTIVE)
+        self.assertTrue(loaded.enabled)
+
+
 class TestEvaluationStatusCoercion(BaseTest):
     def _create(self, **overrides) -> Evaluation:
         defaults: dict = {

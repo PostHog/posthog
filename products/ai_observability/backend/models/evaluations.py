@@ -76,14 +76,12 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         super().__init__(*args, **kwargs)
         # Snapshot of the fields as last loaded / saved — used by _coerce_status_and_enabled to know which
         # field the caller actually moved when enabled and status disagree.
-        self._initial_enabled = self.enabled
-        self._initial_status = self.status
+        self._snapshot_initial_state()
 
     @classmethod
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
-        instance._initial_enabled = instance.enabled
-        instance._initial_status = instance.status
+        instance._snapshot_initial_state()
         return instance
 
     def refresh_from_db(self, *args, **kwargs) -> None:
@@ -91,8 +89,17 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # follow, otherwise a subsequent caller-side edit would be compared against stale initials and
         # the coerce step could misinterpret which field moved.
         super().refresh_from_db(*args, **kwargs)
-        self._initial_enabled = self.enabled
-        self._initial_status = self.status
+        self._snapshot_initial_state()
+
+    def _snapshot_initial_state(self) -> None:
+        # Skip deferred fields: reading one here would trigger Django's deferred-field loader, which calls
+        # refresh_from_db -> from_db and recurses back into this snapshot, overflowing the stack. Django's
+        # cascade-delete collector loads rows with most columns deferred, so this path is hit on team deletion.
+        deferred = self.get_deferred_fields()
+        if "enabled" not in deferred:
+            self._initial_enabled = self.enabled
+        if "status" not in deferred:
+            self._initial_status = self.status
 
     def __str__(self):
         return self.name
@@ -118,8 +125,10 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             elif self.status == EvaluationStatus.ACTIVE and not self.enabled:
                 self.status = EvaluationStatus.PAUSED
         else:
-            enabled_changed = self.enabled != self._initial_enabled
-            status_changed = self.status != self._initial_status
+            # If a field was deferred when the baseline was snapshotted, fall back to the current value so it
+            # reads as "unchanged" rather than raising AttributeError on a save of a partially-loaded instance.
+            enabled_changed = self.enabled != getattr(self, "_initial_enabled", self.enabled)
+            status_changed = self.status != getattr(self, "_initial_status", self.status)
             if status_changed and not enabled_changed:
                 self.enabled = self.status == EvaluationStatus.ACTIVE
             elif enabled_changed and not status_changed:
