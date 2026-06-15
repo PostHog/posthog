@@ -34,10 +34,12 @@ import {
     InternalPersonWithDistinctId,
     PersonReadRepository,
 } from '../../src/worker/ingestion/persons/repositories/person-repository'
+import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
+import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
@@ -45,7 +47,9 @@ import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-s
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
+import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
+import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
@@ -1667,5 +1671,91 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             expect(emailsSent()).toBe(2)
         }, 15000)
+    })
+
+    it('rate-limited variant processes emails end-to-end through the dedicated bucket', async () => {
+        // Verifies the inject-pattern wiring: CyclotronJobQueueRateLimitedPostgresV2
+        // gates dequeue via a Valkey bucket, then the email worker processes the
+        // job normally. Reuses the local test Redis as the bucket store (same
+        // approach as rate-limiter.service.test.ts).
+        await emailWorker.stop()
+
+        const limiterValkey = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        const bucketKey = '@posthog-test/ses-e2e/bucket'
+        await deleteKeysWithPrefix(limiterValkey, '@posthog-test/ses-e2e/')
+
+        const rateLimitedQueue = new CyclotronJobQueueRateLimitedPostgresV2(hub.CONSUMER_BATCH_SIZE, hub, {
+            limiter: new RateLimiterService(limiterValkey, { name: 'ses-e2e' }),
+            key: bucketKey,
+            capacity: 10,
+            refillPerSecond: 10,
+            throttledPollDelayMs: 50,
+        })
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, rateLimitedQueue)
+        await emailWorker.start()
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Rate-limited email',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // The email is sent — the rate-limited queue gated, dequeued, and processed the job.
+        await waitForExpect(() => {
+            const emailSentCount = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(emailSentCount).toBe(1)
+        }, 15000)
+
+        // The bucket has been touched — proves the rate limiter was actually consulted,
+        // not bypassed. `ts` and `pool` are written on every claim (cold start or refill).
+        const bucket = await limiterValkey.useClient({ name: 'read-bucket' }, (client) => client.hgetall(bucketKey))
+        expect(bucket?.ts).toBeTruthy()
+        expect(bucket?.pool).toBeTruthy()
     })
 })
