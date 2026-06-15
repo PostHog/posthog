@@ -5,14 +5,23 @@ allowed to import. Internal modules (query runners) stay behind this seam
 so import-linter's strict-mode contract holds.
 """
 
-import datetime as dt
 from typing import Any
 
 from posthog.models import Team
 
+from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryRequest, MetricSeries
+from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
+
+# MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
+# as later PRs teach the runner the remaining MetricAggregation values.
+_RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
+    MetricAggregation.SUM: "sum",
+    MetricAggregation.AVG: "avg",
+    MetricAggregation.COUNT: "count",
+}
 
 
 def team_has_metrics(team: Team) -> bool:
@@ -20,28 +29,44 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
-def query_metric(
-    *,
-    team: Team,
-    metric_name: str,
-    aggregation: str,
-    date_from: dt.datetime,
-    date_to: dt.datetime,
-) -> list[dict[str, Any]]:
-    """Run a single-metric time-series query and return the bucketed points.
+def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
+    """Execute a metric query and return one `MetricSeries` per
+    (clause, label-set) pair — a single ungrouped clause yields exactly one
+    series with empty labels, so consumers never branch on single-vs-multi.
 
-    Returns a list of `{"time": iso_string, "value": float}` dicts ordered by
-    time ascending. Raises `ValueError` for unsupported aggregations or an
-    inverted date range — the presentation layer surfaces these as 400s.
+    Current scope: one clause; filters, group_by, interval, formula and the
+    rate/histogram aggregations raise `ValueError` until their PRs land.
+    The presentation layer surfaces `ValueError` as a 400.
     """
+    if len(request.clauses) != 1:
+        raise ValueError("multi-clause queries are not supported yet")
+    if request.formula is not None:
+        raise ValueError("formulas are not supported yet")
+    if request.interval is not None:
+        raise ValueError("explicit intervals are not supported yet")
+
+    clause = request.clauses[0]
+    if clause.filters:
+        raise ValueError("filters are not supported yet")
+    if clause.group_by:
+        raise ValueError("group_by is not supported yet")
+
+    if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
+        runner_aggregation = "p95"
+    elif clause.aggregation in _RUNNER_AGGREGATIONS:
+        runner_aggregation = _RUNNER_AGGREGATIONS[clause.aggregation]
+    else:
+        raise ValueError(f"aggregation {clause.aggregation.value!r} is not supported yet")
+
     runner = MetricQueryRunner(
         team=team,
-        metric_name=metric_name,
-        aggregation=aggregation,
-        date_from=date_from,
-        date_to=date_to,
+        metric_name=clause.metric_name,
+        aggregation=runner_aggregation,
+        date_from=request.date_from,
+        date_to=request.date_to,
     )
-    return runner.run()
+    points = tuple(MetricPoint(time=row["time"], value=row["value"]) for row in runner.run())
+    return [MetricSeries(labels={}, points=points, metric_name=clause.metric_name, clause=clause.name)]
 
 
 def list_metric_names(

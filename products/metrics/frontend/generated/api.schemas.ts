@@ -69,9 +69,31 @@ export interface _MetricQueryPointApi {
     value: number
 }
 
-export interface _MetricQueryResponseApi {
+/**
+ * Label values identifying this series. Empty for an ungrouped query.
+ */
+export type _MetricSeriesApiLabels = { [key: string]: string }
+
+export interface _MetricSeriesApi {
+    /** Label values identifying this series. Empty for an ungrouped query. */
+    labels: _MetricSeriesApiLabels
     /** Time-bucketed points, ordered by time ascending. */
-    results: _MetricQueryPointApi[]
+    points: _MetricQueryPointApi[]
+    /**
+     * Metric the series was computed from. Null for formula results.
+     * @nullable
+     */
+    metric_name?: string | null
+    /**
+     * Name of the query clause that produced this series.
+     * @nullable
+     */
+    clause?: string | null
+}
+
+export interface _MetricQueryResponseApi {
+    /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
+    results: _MetricSeriesApi[]
 }
 
 export interface _MetricNameApi {

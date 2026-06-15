@@ -45547,9 +45547,31 @@ export namespace Schemas {
       query: _MetricQueryBody;
     }
 
-    export interface _MetricQueryResponse {
+    /**
+     * Label values identifying this series. Empty for an ungrouped query.
+     */
+    export type _MetricSeriesLabels = {[key: string]: string};
+
+    export interface _MetricSeries {
+      /** Label values identifying this series. Empty for an ungrouped query. */
+      labels: _MetricSeriesLabels;
       /** Time-bucketed points, ordered by time ascending. */
-      results: _MetricQueryPoint[];
+      points: _MetricQueryPoint[];
+      /**
+         * Metric the series was computed from. Null for formula results.
+         * @nullable
+         */
+      metric_name?: string | null;
+      /**
+         * Name of the query clause that produced this series.
+         * @nullable
+         */
+      clause?: string | null;
+    }
+
+    export interface _MetricQueryResponse {
+      /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
+      results: _MetricSeries[];
     }
 
     /**
