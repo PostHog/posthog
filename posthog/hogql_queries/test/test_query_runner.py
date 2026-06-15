@@ -1259,7 +1259,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
     RUNNER_BASES = [("analytics", AnalyticsQueryRunner), ("ctx", QueryRunnerWithHogQLContext)]
 
     def _runner(self, user, base=QueryRunnerWithHogQLContext):
-        class _Runner(base):
+        class _Runner(base):  # type: ignore[valid-type, misc]  # base is a runtime-parameterized class
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
