@@ -8,9 +8,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { DataTableNode, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
+import { ActivityEmptyStateDetail } from './ActivityEmptyState'
 import { eventsSceneLogic } from './eventsSceneLogic'
 
 export function EventsScene(): JSX.Element {
@@ -36,6 +37,14 @@ export function EventsScene(): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
+                    emptyStateHeading: 'No matching events',
+                    emptyStateDetail: (
+                        <ActivityEmptyStateDetail
+                            query={query as DataTableNode}
+                            setQuery={setQuery}
+                            noun="events"
+                        />
+                    ),
                 }}
             />
         </SceneContent>

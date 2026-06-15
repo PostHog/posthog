@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -111,6 +112,12 @@ export function LiveEventsTable(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {((filters.properties?.length ?? 0) > 0 || !!filters.eventType) && events.length === 0 && (
+                <LemonBanner type="info" className="mb-2">
+                    The live feed only shows new events matching your filter as they happen. To search events that
+                    already occurred, use the <Link to={urls.activity(ActivityTab.ExploreEvents)}>Explore</Link> tab.
+                </LemonBanner>
+            )}
             <LiveBotPanel events={events} className="mb-2" />
             <LiveEventsFeed events={events} streamPaused={streamPaused} />
         </SceneContent>
