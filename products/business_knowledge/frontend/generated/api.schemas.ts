@@ -8,9 +8,31 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * One chunk in a drill-down window over a single knowledge document.
+ *
+ * Output-only — the rows come from the `get_document_window` logic helper
+ * (a `KnowledgeSearchResult` dataclass), not the ORM, so this is a plain
+ * read serializer rather than a `ModelSerializer`.
+ */
+export interface KnowledgeDocumentWindowApi {
+    /** Stable identifier of this chunk. Same value used in search results. */
+    readonly chunk_id: string
+    /** Zero-based position of this chunk within its document. Use it as `around_ordinal` to recenter the window. */
+    readonly ordinal: number
+    /** The chunk's text content. */
+    readonly content: string
+    /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+    readonly heading_path: string
+    /** Human label of the knowledge source this chunk belongs to. */
+    readonly source_name: string
+    /** Title of the document this chunk belongs to. */
+    readonly document_title: string
+}
+
+/**
  * * `text` - Text
- * `url` - URL
- * `file` - File
+ * * `url` - URL
+ * * `file` - File
  */
 export type KnowledgeSourceSourceTypeEnumApi =
     (typeof KnowledgeSourceSourceTypeEnumApi)[keyof typeof KnowledgeSourceSourceTypeEnumApi]
@@ -23,9 +45,9 @@ export const KnowledgeSourceSourceTypeEnumApi = {
 
 /**
  * * `pending` - Pending
- * `processing` - Processing
- * `ready` - Ready
- * `error` - Error
+ * * `processing` - Processing
+ * * `ready` - Ready
+ * * `error` - Error
  */
 export type KnowledgeSourceStatusEnumApi =
     (typeof KnowledgeSourceStatusEnumApi)[keyof typeof KnowledgeSourceStatusEnumApi]
@@ -39,8 +61,8 @@ export const KnowledgeSourceStatusEnumApi = {
 
 /**
  * * `success` - Success
- * `not_modified` - Not modified
- * `error` - Error
+ * * `not_modified` - Not modified
+ * * `error` - Error
  */
 export type LastRefreshStatusEnumApi = (typeof LastRefreshStatusEnumApi)[keyof typeof LastRefreshStatusEnumApi]
 
@@ -52,10 +74,10 @@ export const LastRefreshStatusEnumApi = {
 
 /**
  * * `manual` - Manual only
- * `1h` - Every hour
- * `6h` - Every 6 hours
- * `24h` - Every day
- * `7d` - Every week
+ * * `1h` - Every hour
+ * * `6h` - Every 6 hours
+ * * `24h` - Every day
+ * * `7d` - Every week
  */
 export type RefreshIntervalEnumApi = (typeof RefreshIntervalEnumApi)[keyof typeof RefreshIntervalEnumApi]
 
@@ -69,9 +91,9 @@ export const RefreshIntervalEnumApi = {
 
 /**
  * * `single` - Single page
- * `sitemap` - Sitemap
- * `same_origin` - Same origin crawl
- * `github_repo` - GitHub repository
+ * * `sitemap` - Sitemap
+ * * `same_origin` - Same origin crawl
+ * * `github_repo` - GitHub repository
  */
 export type CrawlModeEnumApi = (typeof CrawlModeEnumApi)[keyof typeof CrawlModeEnumApi]
 
@@ -138,7 +160,7 @@ export interface CreateTextSourceApi {
 
 /**
  * PATCH payload for text sources. Both fields optional, at least one
-required. `text` triggers a re-chunk; `name` alone does not.
+ * required. `text` triggers a re-chunk; `name` alone does not.
  */
 export interface PatchedUpdateTextSourceApi {
     /**
@@ -148,6 +170,17 @@ export interface PatchedUpdateTextSourceApi {
     name?: string
     /** Replacement text. Omit to keep the existing content. */
     text?: string
+}
+
+export type BusinessKnowledgeDocumentsWindowListParams = {
+    /**
+     * Zero-based chunk ordinal to center the window on (from a search result).
+     */
+    around_ordinal: number
+    /**
+     * Number of chunks before and after the center to include. Defaults to 5, clamped to [0, 15].
+     */
+    radius?: number
 }
 
 export type BusinessKnowledgeSourcesListParams = {

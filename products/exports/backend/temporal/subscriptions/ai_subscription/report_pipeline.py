@@ -1,4 +1,3 @@
-import re
 import uuid
 import asyncio
 from datetime import UTC, datetime
@@ -9,7 +8,7 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -23,6 +22,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    render_prompt,
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -59,7 +59,7 @@ _MAX_QUERY_FIX_RETRIES = 2
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
 
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed_" placeholder without retrying,
+# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
 # since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
 _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     MaxToolRetryableError,
@@ -255,8 +255,14 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # don't forward internal error text to the LLM — it can echo cluster URLs/table names
-                    error_message=str(exc) if isinstance(exc, ExposedHogQLError) else type(exc).__name__,
+                    # Forward the message for exposed errors and ResolutionError. ResolutionError messages
+                    # describe query structure — usually the field/property the planner itself referenced
+                    # (e.g. "Unable to resolve field 'operaton'"), which is what the fixer needs. A few raise
+                    # sites wrap a nested exception, but those describe query shape, not cluster topology, so
+                    # the leak risk stays low. Other internal errors (parsing/impossible-AST) stay type-only.
+                    error_message=(
+                        str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else type(exc).__name__
+                    ),
                     step_description=safe_description,
                     team=team,
                     user=user,
@@ -276,7 +282,12 @@ async def _run_steps(
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
         # type only — ClickHouse errors can echo team-scoped identifiers
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        return (f"### {safe_description}\n\n_Query failed: {type_name}_", False)
+        # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
+        # metric as "could not be computed" instead of paraphrasing the failure into "no data".
+        return (
+            f"### {safe_description}\n\n_Query failed to run ({type_name}) — metric not computed, not empty data._",
+            False,
+        )
 
     step_results: list[tuple[str, bool]] = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
     rendered = [text for text, _ in step_results]
@@ -306,18 +317,12 @@ async def _arequest_hogql_fix(
         posthog_properties=posthog_properties,
     ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
 
-    substitutions = {
-        "description": step_description,
-        "error": error_message,
-        "original_hogql": original_hogql,
-    }
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
-    rendered = re.sub(
-        r"\{\{\{(\w+)\}\}\}",
-        lambda m: substitutions.get(m.group(1), m.group(0)),
+    rendered = render_prompt(
         fix_prompt,
+        {"description": step_description, "error": error_message, "original_hogql": original_hogql},
     )
 
     try:

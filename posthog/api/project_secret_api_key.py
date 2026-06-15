@@ -29,12 +29,20 @@ from posthog.scopes import (
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
 )
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 10
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
 
 class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
-    scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
+    scopes = serializers.ListField(
+        child=serializers.CharField(required=True),
+        allow_empty=False,
+        help_text=(
+            "Project-wide API scopes granted to this key. Project secret API keys do not honor object-level "
+            "access controls, so a scope can access resources of that type even when per-resource RBAC would "
+            "hide them from an individual user."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -139,6 +147,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 @extend_schema(extensions={"x-product": "core"})
 class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "roll"]
     lookup_field = "id"
     serializer_class = ProjectSecretAPIKeySerializer
     permission_classes = [TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]

@@ -182,7 +182,7 @@ function HomepageAiInput(): JSX.Element {
                     PostHog AI needs your approval to potentially process identifying user data with external AI
                     providers.
                 </p>
-                <p className="text-muted text-xs m-0">Your data won't be used for training models.</p>
+                <p className="text-muted text-xs m-0">Your data won't be used for training third-party models.</p>
                 {isAdmin ? (
                     <LemonButton
                         type="primary"

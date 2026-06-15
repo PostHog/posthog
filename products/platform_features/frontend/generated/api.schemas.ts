@@ -18,9 +18,9 @@ export const EffectiveMembershipLevelEnumApi = {
 
 /**
  * * `0` - none
- * `3` - config
- * `6` - install
- * `9` - root
+ * * `3` - config
+ * * `6` - install
+ * * `9` - root
  */
 export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
 
@@ -33,7 +33,7 @@ export const PluginsAccessLevelEnumApi = {
 
 /**
  * * `bayesian` - Bayesian
- * `frequentist` - Frequentist
+ * * `frequentist` - Frequentist
  */
 export type DefaultExperimentStatsMethodEnumApi =
     (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
@@ -108,9 +108,9 @@ export interface OrganizationApi {
     /** @nullable */
     readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
-
-  * `bayesian` - Bayesian
-  * `frequentist` - Frequentist */
+     *
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist */
     default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
@@ -204,9 +204,9 @@ export interface PatchedOrganizationApi {
     /** @nullable */
     readonly is_hipaa?: boolean | null
     /** Default statistical method for new experiments in this organization.
-
-  * `bayesian` - Bayesian
-  * `frequentist` - Frequentist */
+     *
+     * * `bayesian` - Bayesian
+     * * `frequentist` - Frequentist */
     default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
@@ -234,13 +234,13 @@ export interface PatchedOrganizationApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -283,8 +283,8 @@ export interface UserBasicApi {
 
 /**
  * * `1` - member
- * `8` - administrator
- * `15` - owner
+ * * `8` - administrator
+ * * `15` - owner
  */
 export type OrganizationMembershipLevelEnumApi =
     (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
@@ -293,6 +293,13 @@ export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
+} as const
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
 } as const
 
 export interface OrganizationMemberApi {
@@ -304,6 +311,8 @@ export interface OrganizationMemberApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly last_login: string
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedOrganizationMemberListApi {
@@ -324,6 +333,8 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface OrganizationPersonalAPIKeyOwnerApi {
@@ -437,9 +448,9 @@ export interface _WelcomeInviterApi {
 
 /**
  * * `today` - today
- * `this_week` - this_week
- * `inactive` - inactive
- * `never` - never
+ * * `this_week` - this_week
+ * * `inactive` - inactive
+ * * `never` - never
  */
 export type LastActiveEnumApi = (typeof LastActiveEnumApi)[keyof typeof LastActiveEnumApi]
 
@@ -620,9 +631,9 @@ export interface PatchedApprovalPolicyApi {
 
 /**
  * * `valid` - Valid
- * `invalid` - Invalid
- * `expired` - Expired
- * `stale` - Stale (resource changed)
+ * * `invalid` - Invalid
+ * * `expired` - Expired
+ * * `stale` - Stale (resource changed)
  */
 export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
 
@@ -635,11 +646,11 @@ export const ValidationStatusEnumApi = {
 
 /**
  * * `pending` - Pending
- * `approved` - Approved (awaiting application)
- * `applied` - Applied
- * `rejected` - Rejected
- * `expired` - Expired
- * `failed` - Failed to apply
+ * * `approved` - Approved (awaiting application)
+ * * `applied` - Applied
+ * * `rejected` - Rejected
+ * * `expired` - Expired
+ * * `failed` - Failed to apply
  */
 export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
 
@@ -856,7 +867,7 @@ export type MembersListParams = {
      */
     order?: string
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string
 }
@@ -912,72 +923,72 @@ export type ActivityLogListParams = {
      */
     page_size?: number
     /**
- * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
-
-* `Cohort` - Cohort
-* `FeatureFlag` - FeatureFlag
-* `Person` - Person
-* `Group` - Group
-* `Insight` - Insight
-* `Plugin` - Plugin
-* `PluginConfig` - PluginConfig
-* `HogFunction` - HogFunction
-* `HogFlow` - HogFlow
-* `DataManagement` - DataManagement
-* `EventDefinition` - EventDefinition
-* `PropertyDefinition` - PropertyDefinition
-* `Notebook` - Notebook
-* `Endpoint` - Endpoint
-* `EndpointVersion` - EndpointVersion
-* `Dashboard` - Dashboard
-* `Replay` - Replay
-* `Experiment` - Experiment
-* `ExperimentHoldout` - ExperimentHoldout
-* `ExperimentSavedMetric` - ExperimentSavedMetric
-* `Survey` - Survey
-* `EarlyAccessFeature` - EarlyAccessFeature
-* `SessionRecordingPlaylist` - SessionRecordingPlaylist
-* `Comment` - Comment
-* `Team` - Team
-* `Project` - Project
-* `ErrorTrackingIssue` - ErrorTrackingIssue
-* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
-* `LegalDocument` - LegalDocument
-* `Organization` - Organization
-* `OrganizationDomain` - OrganizationDomain
-* `OrganizationMembership` - OrganizationMembership
-* `Role` - Role
-* `UserGroup` - UserGroup
-* `BatchExport` - BatchExport
-* `BatchImport` - BatchImport
-* `Integration` - Integration
-* `Annotation` - Annotation
-* `Tag` - Tag
-* `TaggedItem` - TaggedItem
-* `Subscription` - Subscription
-* `PersonalAPIKey` - PersonalAPIKey
-* `ProjectSecretAPIKey` - ProjectSecretAPIKey
-* `User` - User
-* `Action` - Action
-* `AlertConfiguration` - AlertConfiguration
-* `Threshold` - Threshold
-* `AlertSubscription` - AlertSubscription
-* `ExternalDataSource` - ExternalDataSource
-* `ExternalDataSchema` - ExternalDataSchema
-* `Evaluation` - Evaluation
-* `LLMTrace` - LLMTrace
-* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
-* `CustomerProfileConfig` - CustomerProfileConfig
-* `Log` - Log
-* `LogsAlertConfiguration` - LogsAlertConfiguration
-* `LogsExclusionRule` - LogsExclusionRule
-* `DashboardWidget` - DashboardWidget
-* `ProductTour` - ProductTour
-* `Ticket` - Ticket
-* `InstanceSetting` - InstanceSetting
-* `SignalScoutConfig` - SignalScoutConfig
- * @minLength 1
- */
+     * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
+     *
+     * * `Cohort` - Cohort
+     * * `FeatureFlag` - FeatureFlag
+     * * `Person` - Person
+     * * `Group` - Group
+     * * `Insight` - Insight
+     * * `Plugin` - Plugin
+     * * `PluginConfig` - PluginConfig
+     * * `HogFunction` - HogFunction
+     * * `HogFlow` - HogFlow
+     * * `DataManagement` - DataManagement
+     * * `EventDefinition` - EventDefinition
+     * * `PropertyDefinition` - PropertyDefinition
+     * * `Notebook` - Notebook
+     * * `Endpoint` - Endpoint
+     * * `EndpointVersion` - EndpointVersion
+     * * `Dashboard` - Dashboard
+     * * `Replay` - Replay
+     * * `Experiment` - Experiment
+     * * `ExperimentHoldout` - ExperimentHoldout
+     * * `ExperimentSavedMetric` - ExperimentSavedMetric
+     * * `Survey` - Survey
+     * * `EarlyAccessFeature` - EarlyAccessFeature
+     * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `Comment` - Comment
+     * * `Team` - Team
+     * * `Project` - Project
+     * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+     * * `LegalDocument` - LegalDocument
+     * * `Organization` - Organization
+     * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationMembership` - OrganizationMembership
+     * * `Role` - Role
+     * * `UserGroup` - UserGroup
+     * * `BatchExport` - BatchExport
+     * * `BatchImport` - BatchImport
+     * * `Integration` - Integration
+     * * `Annotation` - Annotation
+     * * `Tag` - Tag
+     * * `TaggedItem` - TaggedItem
+     * * `Subscription` - Subscription
+     * * `PersonalAPIKey` - PersonalAPIKey
+     * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `User` - User
+     * * `Action` - Action
+     * * `AlertConfiguration` - AlertConfiguration
+     * * `Threshold` - Threshold
+     * * `AlertSubscription` - AlertSubscription
+     * * `ExternalDataSource` - ExternalDataSource
+     * * `ExternalDataSchema` - ExternalDataSchema
+     * * `Evaluation` - Evaluation
+     * * `LLMTrace` - LLMTrace
+     * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+     * * `CustomerProfileConfig` - CustomerProfileConfig
+     * * `Log` - Log
+     * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `LogsExclusionRule` - LogsExclusionRule
+     * * `DashboardWidget` - DashboardWidget
+     * * `ProductTour` - ProductTour
+     * * `Ticket` - Ticket
+     * * `InstanceSetting` - InstanceSetting
+     * * `SignalScoutConfig` - SignalScoutConfig
+     * @minLength 1
+     */
     scope?: ActivityLogListScope
     /**
      * Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".
@@ -1058,67 +1069,67 @@ export const ActivityLogListScope = {
 
 /**
  * * `Cohort` - Cohort
- * `FeatureFlag` - FeatureFlag
- * `Person` - Person
- * `Group` - Group
- * `Insight` - Insight
- * `Plugin` - Plugin
- * `PluginConfig` - PluginConfig
- * `HogFunction` - HogFunction
- * `HogFlow` - HogFlow
- * `DataManagement` - DataManagement
- * `EventDefinition` - EventDefinition
- * `PropertyDefinition` - PropertyDefinition
- * `Notebook` - Notebook
- * `Endpoint` - Endpoint
- * `EndpointVersion` - EndpointVersion
- * `Dashboard` - Dashboard
- * `Replay` - Replay
- * `Experiment` - Experiment
- * `ExperimentHoldout` - ExperimentHoldout
- * `ExperimentSavedMetric` - ExperimentSavedMetric
- * `Survey` - Survey
- * `EarlyAccessFeature` - EarlyAccessFeature
- * `SessionRecordingPlaylist` - SessionRecordingPlaylist
- * `Comment` - Comment
- * `Team` - Team
- * `Project` - Project
- * `ErrorTrackingIssue` - ErrorTrackingIssue
- * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
- * `LegalDocument` - LegalDocument
- * `Organization` - Organization
- * `OrganizationDomain` - OrganizationDomain
- * `OrganizationMembership` - OrganizationMembership
- * `Role` - Role
- * `UserGroup` - UserGroup
- * `BatchExport` - BatchExport
- * `BatchImport` - BatchImport
- * `Integration` - Integration
- * `Annotation` - Annotation
- * `Tag` - Tag
- * `TaggedItem` - TaggedItem
- * `Subscription` - Subscription
- * `PersonalAPIKey` - PersonalAPIKey
- * `ProjectSecretAPIKey` - ProjectSecretAPIKey
- * `User` - User
- * `Action` - Action
- * `AlertConfiguration` - AlertConfiguration
- * `Threshold` - Threshold
- * `AlertSubscription` - AlertSubscription
- * `ExternalDataSource` - ExternalDataSource
- * `ExternalDataSchema` - ExternalDataSchema
- * `Evaluation` - Evaluation
- * `LLMTrace` - LLMTrace
- * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
- * `CustomerProfileConfig` - CustomerProfileConfig
- * `Log` - Log
- * `LogsAlertConfiguration` - LogsAlertConfiguration
- * `LogsExclusionRule` - LogsExclusionRule
- * `DashboardWidget` - DashboardWidget
- * `ProductTour` - ProductTour
- * `Ticket` - Ticket
- * `InstanceSetting` - InstanceSetting
- * `SignalScoutConfig` - SignalScoutConfig
+ * * `FeatureFlag` - FeatureFlag
+ * * `Person` - Person
+ * * `Group` - Group
+ * * `Insight` - Insight
+ * * `Plugin` - Plugin
+ * * `PluginConfig` - PluginConfig
+ * * `HogFunction` - HogFunction
+ * * `HogFlow` - HogFlow
+ * * `DataManagement` - DataManagement
+ * * `EventDefinition` - EventDefinition
+ * * `PropertyDefinition` - PropertyDefinition
+ * * `Notebook` - Notebook
+ * * `Endpoint` - Endpoint
+ * * `EndpointVersion` - EndpointVersion
+ * * `Dashboard` - Dashboard
+ * * `Replay` - Replay
+ * * `Experiment` - Experiment
+ * * `ExperimentHoldout` - ExperimentHoldout
+ * * `ExperimentSavedMetric` - ExperimentSavedMetric
+ * * `Survey` - Survey
+ * * `EarlyAccessFeature` - EarlyAccessFeature
+ * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * * `Comment` - Comment
+ * * `Team` - Team
+ * * `Project` - Project
+ * * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+ * * `LegalDocument` - LegalDocument
+ * * `Organization` - Organization
+ * * `OrganizationDomain` - OrganizationDomain
+ * * `OrganizationMembership` - OrganizationMembership
+ * * `Role` - Role
+ * * `UserGroup` - UserGroup
+ * * `BatchExport` - BatchExport
+ * * `BatchImport` - BatchImport
+ * * `Integration` - Integration
+ * * `Annotation` - Annotation
+ * * `Tag` - Tag
+ * * `TaggedItem` - TaggedItem
+ * * `Subscription` - Subscription
+ * * `PersonalAPIKey` - PersonalAPIKey
+ * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+ * * `User` - User
+ * * `Action` - Action
+ * * `AlertConfiguration` - AlertConfiguration
+ * * `Threshold` - Threshold
+ * * `AlertSubscription` - AlertSubscription
+ * * `ExternalDataSource` - ExternalDataSource
+ * * `ExternalDataSchema` - ExternalDataSchema
+ * * `Evaluation` - Evaluation
+ * * `LLMTrace` - LLMTrace
+ * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+ * * `CustomerProfileConfig` - CustomerProfileConfig
+ * * `Log` - Log
+ * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `LogsExclusionRule` - LogsExclusionRule
+ * * `DashboardWidget` - DashboardWidget
+ * * `ProductTour` - ProductTour
+ * * `Ticket` - Ticket
+ * * `InstanceSetting` - InstanceSetting
+ * * `SignalScoutConfig` - SignalScoutConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1291,13 +1302,13 @@ export type ChangeRequestsListParams = {
 
 export type CommentsListParams = {
     /**
- * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
-
-* `any` - any
-* `open` - open
-* `completed` - completed
- * @minLength 1
- */
+     * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
+     *
+     * * `any` - any
+     * * `open` - open
+     * * `completed` - completed
+     * @minLength 1
+     */
     completed?: CommentsListCompleted
     /**
      * The pagination cursor value.
@@ -1309,13 +1320,13 @@ export type CommentsListParams = {
      */
     item_id?: string
     /**
- * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
-
-* `any` - any
-* `comment` - comment
-* `task` - task
- * @minLength 1
- */
+     * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
+     *
+     * * `any` - any
+     * * `comment` - comment
+     * * `task` - task
+     * @minLength 1
+     */
     kind?: CommentsListKind
     /**
      * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).

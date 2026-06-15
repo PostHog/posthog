@@ -9,9 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
+    KnowledgeDocumentWindowApi,
     KnowledgeSourceApi,
     PaginatedKnowledgeSourceListApi,
     PatchedUpdateTextSourceApi,
@@ -34,12 +36,49 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getBusinessKnowledgeDocumentsWindowListUrl = (
+    projectId: string,
+    id: string,
+    params: BusinessKnowledgeDocumentsWindowListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/documents/${id}/window/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/documents/${id}/window/`
+}
+
+/**
+ * Read-only access to parsed knowledge documents. Currently exposes only the
+ * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
+ * around a chunk it found via search.
+ */
+export const businessKnowledgeDocumentsWindowList = async (
+    projectId: string,
+    id: string,
+    params: BusinessKnowledgeDocumentsWindowListParams,
+    options?: RequestInit
+): Promise<KnowledgeDocumentWindowApi[]> => {
+    return apiMutator<KnowledgeDocumentWindowApi[]>(getBusinessKnowledgeDocumentsWindowListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getBusinessKnowledgeSourcesListUrl = (projectId: string, params?: BusinessKnowledgeSourcesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

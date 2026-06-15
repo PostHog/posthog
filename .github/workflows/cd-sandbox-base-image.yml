@@ -234,6 +234,19 @@ jobs:
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
 
+            - name: Build and push container image (vm)
+              id: build-vm
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: . # use local checkout (includes downloaded artifact)
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-vm:master,ghcr.io/posthog/posthog-sandbox-vm:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-vm:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
     sandbox_base_image_check:

@@ -582,8 +582,8 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
+ *
+ * POST /api/environments/:id/logs/explainLogWithAI/
  */
 export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
 

@@ -1691,9 +1691,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Duplicate a survey to multiple projects in a single transaction.
-
-Accepts a list of target team IDs and creates a copy of the survey in each project.
-Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
+ *
+ * Accepts a list of target team IDs and creates a copy of the survey in each project.
+ * Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
  */
 export const surveysDuplicateToProjectsCreateBodyNameMax = 400
 

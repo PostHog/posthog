@@ -558,6 +558,24 @@ def _all_known_webhook_events() -> list[str]:
     return [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
 
 
+def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
+    """Detect Stripe's account-access/account-mismatch rejection (code ``account_invalid``).
+
+    A restricted key sent with a ``stripe_account`` header that doesn't match the key's own
+    account makes Stripe reject the request for the account rather than the webhook scope, so it
+    never matches the permission/403/forbidden branch. Surfacing the raw message strands the user;
+    classifying it lets us point them at the manual-setup fallback instead.
+    """
+    if getattr(error, "code", None) == "account_invalid":
+        return True
+    lowered = error_str.lower()
+    return (
+        "does not have access to account" in lowered
+        or "application access may have been revoked" in lowered
+        or "no such account" in lowered
+    )
+
+
 def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
@@ -593,11 +611,24 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
 
         return WebhookCreationResult(success=True, extra_inputs=extra_inputs)
     except Exception as e:
-        error_str = str(e)
+        error_str = _clean_stripe_error_message(str(e))
         logger.warning(
             "Failed to create Stripe webhook",
             error=error_str,
         )
+
+        # Check account access before the permission branch — an account-access rejection can carry a
+        # 403 and would otherwise be misclassified as a missing webhook scope.
+        if _is_stripe_account_access_error(e, error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Stripe rejected the request because your API key isn't authorized for the configured "
+                    "Stripe account. The 'Account id' in your source settings only applies to Stripe Connect "
+                    "platform accounts — remove or correct it if your key belongs directly to the account, "
+                    "then retry. Otherwise, set up the webhook manually below."
+                ),
+            )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
             return WebhookCreationResult(

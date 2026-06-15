@@ -12,12 +12,10 @@ import { formatDuration } from '../../TraceFlameChart'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { ExpandedSpanContent } from './ExpandedSpanContent'
+import { SpanRowActions } from './SpanRowActions'
 
 const ROW_HEIGHT = 36
 const HEADER_HEIGHT = 32
-// Minimum content width so the fixed columns keep a sensible size and the row scrolls
-// horizontally (rather than collapsing the name column) on narrow viewports.
-const MIN_ROW_WIDTH = 932
 // Trigger the next page once the bottom of the rendered window is within this many rows of the end.
 const LOAD_MORE_THRESHOLD = 10
 
@@ -30,7 +28,14 @@ const COL_WIDTH = {
     duration: 90,
     status: 80,
     traceId: 140,
+    actions: 130,
 } as const
+
+// Minimum width the flexing name column keeps before the row scrolls horizontally on narrow viewports.
+const NAME_MIN_WIDTH = 160
+// Minimum content width: every fixed column at full width plus a sensible name column. Derived so it
+// can't drift when columns are added or removed.
+const MIN_ROW_WIDTH = Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH
 
 function isRootSpan(span: Span): boolean {
     return !span.parent_span_id
@@ -83,6 +88,7 @@ function SpanRowHeader(): JSX.Element {
             <Cell width={COL_WIDTH.duration}>Duration</Cell>
             <Cell width={COL_WIDTH.status}>Status</Cell>
             <Cell width={COL_WIDTH.traceId}>Trace ID</Cell>
+            <Cell width={COL_WIDTH.actions}> </Cell>
         </div>
     )
 }
@@ -147,6 +153,9 @@ function SpanRow({
             </Cell>
             <Cell width={COL_WIDTH.traceId}>
                 <span className="font-mono">{span.trace_id.substring(0, 16)}...</span>
+            </Cell>
+            <Cell width={COL_WIDTH.actions}>
+                <SpanRowActions span={span} onViewTrace={onClick} />
             </Cell>
         </div>
     )

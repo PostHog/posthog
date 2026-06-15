@@ -48,17 +48,17 @@ export function VisionMetrics(): JSX.Element {
     }
 
     return (
-        <div className="flex gap-4 h-96">
+        <div className="flex flex-col lg:flex-row gap-4 h-72">
             <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
                 <div className="flex items-start justify-between gap-2 mb-1">
-                    <h3 className="text-lg font-semibold m-0">Observations over time</h3>
+                    <h3 className="text-base font-semibold m-0">Observations over time</h3>
                     <DateFilter
                         dateFrom={chartDateFrom}
                         dateTo={chartDateTo}
                         onChange={(from, to) => setChartDateRange(from ?? null, to ?? null)}
                     />
                 </div>
-                <p className="text-muted text-sm mb-4">Total scanner observations across all scanners</p>
+                <p className="text-muted text-xs mb-3">Across all scanners</p>
                 <div className="flex-1 flex flex-col min-h-0">
                     <Query
                         query={{ kind: NodeKind.InsightVizNode, source: chartSource } as InsightVizNode}
@@ -139,12 +139,28 @@ export function VisionMetrics(): JSX.Element {
                                     />
                                 </div>
                             </Tooltip>
-                            <div className="text-muted text-sm mt-1">
-                                {quota.exhausted ? (
-                                    <span className="text-danger">Quota exhausted</span>
-                                ) : (
-                                    `${quota.remaining.toLocaleString()} observations remaining.`
-                                )}
+                            <div className="flex items-center gap-3 text-xs text-muted mt-1.5">
+                                <div className="flex items-center gap-1">
+                                    <span className="inline-block w-2 h-2 rounded-sm bg-muted" />
+                                    Used
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <span
+                                        className={`inline-block w-2 h-2 rounded-sm ${projectedBarColor}`}
+                                        style={{
+                                            backgroundImage:
+                                                'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 2px, transparent 2px, transparent 4px)',
+                                        }}
+                                    />
+                                    Projected
+                                </div>
+                                <span className="ml-auto text-muted">
+                                    {quota.exhausted ? (
+                                        <span className="text-danger">Quota exhausted</span>
+                                    ) : (
+                                        `${quota.remaining.toLocaleString()} remaining`
+                                    )}
+                                </span>
                             </div>
                         </>
                     ) : (

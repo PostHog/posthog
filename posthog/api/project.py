@@ -92,8 +92,8 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at"]
-        read_only_fields = ["id", "organization_id", "created_at"]
+        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion"]
+        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
 
 
 class ProjectBackwardCompatSerializer(
@@ -201,11 +201,13 @@ class ProjectBackwardCompatSerializer(
             "logs_settings",  # Compat with TeamSerializer
             "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
+            "is_pending_deletion",
         )
         read_only_fields = (
             "id",
             "uuid",
             "organization",
+            "is_pending_deletion",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -829,6 +831,9 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
 
+        if project.is_pending_deletion:
+            raise exceptions.ValidationError("This project is already being deleted.")
+
         # Block deletion of the last project in an org with an active subscription (cloud only).
         # Fail open if the billing service is unreachable — a 500 here would create a worse stuck state.
         is_last_project = project.organization.projects.count() == 1
@@ -858,6 +863,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         teams = list(project.teams.only("id", "uuid", "name", "organization_id").all())
         team_ids = [team.id for team in teams]
+
+        # Mark as pending deletion so the UI locks this project out until the async task removes it.
+        project.is_pending_deletion = True
+        project.save(update_fields=["is_pending_deletion"])
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, project/team records, ClickHouse, email

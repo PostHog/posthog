@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -85,21 +85,15 @@ export interface ScatterDataset {
         | 'triangle'
 }
 
-export interface ClustersLogicProps {
-    tabId?: string
-}
+export type ClustersLogicProps = Record<string, never>
 
 export const clustersLogic = kea<clustersLogicType>([
     path(['products', 'ai_observability', 'frontend', 'clusters', 'clustersLogic']),
     props({} as ClustersLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: ClustersLogicProps) => ({
-        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['propertyFilters', 'shouldFilterTestAccounts']],
-        actions: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
-            ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
-        ],
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['propertyFilters', 'shouldFilterTestAccounts']],
+        actions: [aiObservabilitySharedLogic, ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState']],
     })),
 
     actions({
@@ -328,8 +322,8 @@ export const clustersLogic = kea<clustersLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractString(properties, '$ai_window_end') as window_end,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_window_end as window_end,
                                 timestamp
                             FROM events
                             WHERE event = ${eventName}
@@ -366,19 +360,19 @@ export const clustersLogic = kea<clustersLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractString(properties, '$ai_window_start') as window_start,
-                                JSONExtractString(properties, '$ai_window_end') as window_end,
-                                JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
-                                JSONExtractRaw(properties, '$ai_clusters') as clusters,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_window_start as window_start,
+                                properties.$ai_window_end as window_end,
+                                toInt(properties.$ai_total_items_analyzed) as total_items,
+                                properties.$ai_clusters as clusters,
                                 timestamp,
-                                JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params,
-                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
+                                properties.$ai_clustering_params as clustering_params,
+                                properties.$ai_clustering_level as clustering_level
                             FROM events
                             WHERE event = ${eventName}
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
-                                AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
+                                AND properties.$ai_clustering_run_id = ${runId}
                             LIMIT 1
                         `,
                         { productKey: 'llm_analytics', scene: 'AIObservabilityClusters' },

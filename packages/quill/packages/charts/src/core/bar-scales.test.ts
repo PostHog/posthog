@@ -211,11 +211,36 @@ describe('hog-charts bar scales', () => {
         })
     })
 
+    describe('createBarScales — fitToHeight value domain', () => {
+        // minBandSize == plotHeight forces maxBands = 1, so only the leading row survives.
+        const dropToFirst = {
+            axisOrientation: 'horizontal' as const,
+            fitToHeight: true,
+            minBandSize: dimensions.plotHeight,
+        }
+
+        it('scales the value axis to only the rows fitToHeight keeps', () => {
+            const series = [makeSeries({ key: 's1', data: [5, 10, 999] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, dropToFirst)
+            // 999 sits in a dropped row, so it must not stretch the domain past the kept value.
+            expect(value.domain()[1]).toBeLessThan(999)
+        })
+
+        it('keeps a large value in the domain when its row survives', () => {
+            const series = [makeSeries({ key: 's1', data: [999, 5, 10] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, dropToFirst)
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(999)
+        })
+
+        it('leaves the domain spanning every row when no rows are dropped', () => {
+            const series = [makeSeries({ key: 's1', data: [5, 10, 999] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: 'horizontal' })
+            expect(value.domain()[1]).toBeGreaterThanOrEqual(999)
+        })
+    })
+
     describe('groupedBandSlot', () => {
-        const series = [
-            makeSeries({ key: 's1', data: [1, 2] }),
-            makeSeries({ key: 's2', data: [3, 4] }),
-        ]
+        const series = [makeSeries({ key: 's1', data: [1, 2] }), makeSeries({ key: 's2', data: [3, 4] })]
         const grouped = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'grouped' })
 
         it("returns the series' band-axis slot within the band", () => {
@@ -233,6 +258,59 @@ describe('hog-charts bar scales', () => {
         it('returns undefined for non-grouped layouts (no group scale)', () => {
             const stacked = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'stacked' })
             expect(groupedBandSlot(stacked, 'a', 's1')).toBeUndefined()
+        })
+    })
+
+    describe('createBarScales — multiple y-axes (grouped)', () => {
+        const smallSeries = makeSeries({ key: 's1', data: [10, 20, 30] })
+        const largeSeries = makeSeries({ key: 's2', data: [1000, 2000, 3000], yAxisId: 'y1' })
+
+        it('builds a per-axis scale for each axis id, with the default axis on the left', () => {
+            const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+            })
+            expect(yAxes).not.toBeUndefined()
+            expect(Object.keys(yAxes!).sort()).toEqual(['left', 'y1'])
+            expect(yAxes!.left.position).toBe('left')
+            expect(yAxes!.y1.position).toBe('right')
+        })
+
+        it('alternates sides for three axes (left, right, left)', () => {
+            const third = makeSeries({ key: 's3', data: [50000, 60000, 70000], yAxisId: 'y2' })
+            const { yAxes } = createBarScales([smallSeries, largeSeries, third], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+            })
+            expect(yAxes!.left.position).toBe('left')
+            expect(yAxes!.y1.position).toBe('right')
+            expect(yAxes!.y2.position).toBe('left')
+        })
+
+        it('scales each series against its own domain so both fill the plot height', () => {
+            const { value, yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+            })
+            // The small series' max (30) and the large series' max (3000) both map near the plot top
+            // because each axis covers only its own series' range.
+            expect(yAxes!.left.scale(30)).toBeCloseTo(yAxes!.y1.scale(3000), 0)
+            // `value` is the primary (left) axis scale.
+            expect(value(30)).toBeCloseTo(yAxes!.left.scale(30), 5)
+        })
+
+        it('keeps a single shared scale when only one axis id is present', () => {
+            const { yAxes } = createBarScales(
+                [smallSeries, makeSeries({ key: 's2', data: [40, 50, 60] })],
+                ['a', 'b', 'c'],
+                dimensions,
+                { barLayout: 'grouped' }
+            )
+            expect(yAxes).toBeUndefined()
+        })
+
+        it('ignores per-series axes for stacked layouts (shared axis only)', () => {
+            const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+            })
+            expect(yAxes).toBeUndefined()
         })
     })
 })

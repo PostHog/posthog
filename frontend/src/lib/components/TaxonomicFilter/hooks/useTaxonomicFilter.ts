@@ -30,8 +30,10 @@ import {
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
+    SelectingKeyOnly,
     SimpleOption,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -88,6 +90,8 @@ export interface UseTaxonomicFilterOptions {
     enableKeywordShortcuts?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    selectingKeyOnly?: SelectingKeyOnly
+    excludedOperators?: ExcludedOperators
 }
 
 export interface TaxonomicFilterApi {
@@ -129,6 +133,8 @@ export interface TaxonomicFilterApi {
 
     // value passthroughs
     value?: TaxonomicFilterValue
+    selectingKeyOnly?: SelectingKeyOnly
+    excludedOperators?: ExcludedOperators
 
     // headless-component prop bags
     rootProps: { onKeyDown: (e: React.KeyboardEvent<any>) => void }
@@ -253,6 +259,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         enableKeywordShortcuts,
         selectFirstItem,
         autoSelectItem,
+        selectingKeyOnly,
+        excludedOperators,
     } = opts
 
     const ctx = useTaxonomicGroupsContext({
@@ -273,12 +281,17 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
 
     const allGroups = useMemo(() => buildTaxonomicGroups(ctx), [ctx])
     const allGroupTypes = useMemo(() => new Set(allGroups.map((g) => g.type)), [allGroups])
-    const getLocalOverride = useTaxonomicLocalOverrides()
 
     const groupTypes = useMemo(
         () => resolveTaxonomicGroupTypes(taxonomicGroupTypes, allGroupTypes, eventNames ?? []),
         [taxonomicGroupTypes, allGroupTypes, eventNames]
     )
+
+    const getLocalOverride = useTaxonomicLocalOverrides({
+        taxonomicGroupTypes: groupTypes,
+        excludedOperators,
+        selectingKeyOnly,
+    })
 
     const groups = useMemo(() => {
         const byType = new Map(allGroups.map((g) => [g.type, g]))
@@ -518,6 +531,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         registerActiveList,
         getGroupListInput,
         value,
+        selectingKeyOnly,
+        excludedOperators,
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,

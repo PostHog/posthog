@@ -78,8 +78,10 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
         axisColor: readCssVar(style, '--color-graph-axis-label'),
         gridColor: readCssVar(style, '--color-graph-axis-line'),
         crosshairColor: readCssVar(style, '--color-graph-crosshair'),
-        tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-tooltip'),
-        tooltipColor: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary-inverse'),
+        // quill's tooltip is an inverse panel (`.quill-tooltip__content`):
+        // foreground-colored surface, background-colored text.
+        tooltipBackground: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-bg-surface-tooltip'),
+        tooltipColor: readCssVar(style, '--background') ?? readCssVar(style, '--color-text-primary-inverse'),
     }
 }
 

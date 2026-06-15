@@ -55,7 +55,7 @@ describe('aiObservabilityReviewsLogic.copyReviewsToClipboard', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        logic = aiObservabilityReviewsLogic({ tabId: 'test-tab' })
+        logic = aiObservabilityReviewsLogic()
         // Stub the initial mount load so afterMount doesn't interfere with our test mocks.
         mockTraceReviewsList.mockResolvedValue({ results: [], count: 0 })
         logic.mount()

@@ -64,6 +64,7 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
+from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -149,6 +150,9 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_email(self, value: str) -> str:
+        return value.lower()
 
 
 class GitHubRepoSerializer(serializers.Serializer):
@@ -630,6 +634,37 @@ class IntegrationViewSet(
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
+        elif instance.kind == "email" and instance.config.get("provider") == "ses":
+            domain = instance.config.get("domain")
+            if (
+                domain
+                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
+            ):
+                try:
+                    EmailIntegration(instance).ses_provider.delete_identity(domain)
+                except Exception as e:
+                    capture_exception(e)
+
+        if instance.kind == "github" and instance.integration_id:
+            # Team integrations own the installation; personal ones are subordinate. When the
+            # last team integration for an installation is removed, tear it down everywhere:
+            # uninstall the App on GitHub and delete the now-orphaned personal integrations.
+            # Other teams still sharing the same GitHub account keep it installed.
+            is_last_team_reference = (
+                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
+                .exclude(id=instance.id)
+                .exists()
+            )
+            if is_last_team_reference:
+                try:
+                    GitHubIntegration.uninstall_app_installation(instance.integration_id)
+                except Exception as e:
+                    capture_exception(e)
+                # Separate try so a DB error deleting personal rows isn't masked by the GitHub call.
+                try:
+                    UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id).delete()
+                except Exception as e:
+                    capture_exception(e)
 
         super().perform_destroy(instance)
 

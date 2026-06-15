@@ -93,13 +93,13 @@ export interface CohortFiltersApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -148,10 +148,10 @@ export interface UserBasicApi {
 
 /**
  * * `static` - static
- * `person_property` - person_property
- * `behavioral` - behavioral
- * `realtime` - realtime
- * `analytical` - analytical
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
  */
 export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
@@ -195,12 +195,12 @@ export interface CohortApi {
     readonly count: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-  * `static` - static
-  * `person_property` - person_property
-  * `behavioral` - behavioral
-  * `realtime` - realtime
-  * `analytical` - analytical */
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
@@ -248,12 +248,12 @@ export interface PatchedCohortApi {
     readonly count?: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-  * `static` - static
-  * `person_property` - person_property
-  * `behavioral` - behavioral
-  * `realtime` - realtime
-  * `analytical` - analytical */
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string

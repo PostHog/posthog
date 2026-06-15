@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from urllib.parse import urlparse
 
 import nh3
@@ -202,6 +203,38 @@ def send_email_ai_subscription_report(
             "rendered_html": html,
             "subscription_url": f"{subscription_url}?{utm_tags}",
             "unsubscribe_url": unsubscribe_url,
+        },
+    )
+    message.add_recipient(email=email)
+    message.send(send_async=False)
+
+
+def send_email_ai_subscription_credit_limited(
+    *,
+    email: str,
+    subscription: Subscription,
+    resume_date: datetime,
+    billing_period_key: str,
+) -> None:
+    """Notify the owner that a scheduled AI report was skipped for lack of AI credits.
+    `billing_period_key` keys the campaign so MessagingRecord dedups to one notice per
+    credit-reset cycle even if the skip path runs more than once."""
+    utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
+    title = subscription.title or "Your PostHog AI report"
+    subscription_url = subscription.url or absolute_uri(
+        f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
+    )
+    billing_url = absolute_uri("/organization/billing")
+
+    message = EmailMessage(
+        campaign_key=f"ai_subscription_credit_limited_{subscription.id}_{billing_period_key}",
+        subject=f"PostHog AI report skipped - {title}",
+        template_name="ai_subscription_credit_limited",
+        template_context={
+            "title": title,
+            "resume_date": resume_date,
+            "subscription_url": f"{subscription_url}?{utm_tags}",
+            "billing_url": f"{billing_url}?{utm_tags}",
         },
     )
     message.add_recipient(email=email)

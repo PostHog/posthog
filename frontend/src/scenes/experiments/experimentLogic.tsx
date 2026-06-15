@@ -2459,7 +2459,11 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
-                return experiment?.parameters?.feature_flag_variants || []
+                return (
+                    experiment?.parameters?.feature_flag_variants ??
+                    experiment?.feature_flag?.filters?.multivariate?.variants ??
+                    []
+                )
             },
         ],
         excludedVariants: [
@@ -2595,6 +2599,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
+                // A deleted flag distributes no traffic, so flag-state warnings don't apply.
+                if (experiment.feature_flag?.deleted) {
+                    return null
+                }
+
                 const filters = experiment.feature_flag?.filters
 
                 if (isExperimentRunning) {

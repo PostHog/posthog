@@ -301,6 +301,32 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+export interface DrawAxesOptions {
+    axisColor?: string
+}
+
+/** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
+ *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
+export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+    const { ctx, dimensions } = drawCtx
+    ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    // +0.5 / -0.5 pixel snapping keeps the 1px strokes crisp and inside the plot rect (see drawGrid).
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
+    // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
+    // even when plotLeft/plotHeight are fractional.
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, axisY)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(axisX, axisY)
+    ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+    ctx.stroke()
+}
+
 export interface DrawGridOptions {
     gridColor?: string
     orientation?: 'vertical' | 'horizontal'

@@ -259,7 +259,7 @@ def _iter_simple_pagination(
     params: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
     On resume, the saved ``next_url`` is re-issued with a fresh ``access_token``
@@ -297,7 +297,7 @@ def _iter_time_range_pagination(
     time_range: dict,
     resume_config: MetaAdsResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Iterate an insights-style request by chunked date ranges.
 
     The outer loop walks adaptive date chunks (30/7/1 days). The inner loop
@@ -424,7 +424,7 @@ def _make_paginated_api_request(
     access_token: str,
     time_range: dict | None,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
-) -> collections.abc.Generator[list[dict], None, None]:
+) -> collections.abc.Generator[list[dict]]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
     1. Standard pagination: Uses Meta's paging.next URLs to fetch all pages of results

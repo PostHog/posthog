@@ -234,9 +234,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const DesktopFileSystemListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -254,9 +254,9 @@ export const DesktopFileSystemListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const DesktopFileSystemCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -281,9 +281,9 @@ export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
-
-Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this file system.'),

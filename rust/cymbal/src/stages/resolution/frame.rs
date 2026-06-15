@@ -89,7 +89,7 @@ impl FrameResolver {
             .iter_mut()
             .enumerate()
             .for_each(|(index, resolved_frame)| {
-                resolved_frame.frame_id = frame.frame_id(team_id, index);
+                resolved_frame.frame_id = frame.frame_id(team_id, index, debug_images);
             });
 
         Ok(resolved_frames)

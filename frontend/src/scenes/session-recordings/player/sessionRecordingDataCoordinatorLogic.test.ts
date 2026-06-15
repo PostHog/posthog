@@ -244,6 +244,27 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 ])
                 .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
         })
+
+        it('sends `recording loaded` event when full event data is the last to load', async () => {
+            // loadFullEventData shares the sessionEventsData loader, so a slow full-event-data
+            // response used to leave fullyLoaded false with nothing left to re-trigger the report
+            overrideSessionRecordingMocks({
+                postMocks: {
+                    '/api/environments/:team_id/query/:kind': async (req) => {
+                        const body = await req.json()
+                        const query = body.query?.query || ''
+                        if (query.includes('uuid in')) {
+                            await new Promise((resolve) => setTimeout(resolve, 100))
+                        }
+                        return [200, recordingEventsJson]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshots()
+            }).toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
+        })
     })
 
     // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1

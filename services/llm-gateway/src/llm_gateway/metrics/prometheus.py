@@ -243,6 +243,14 @@ BEDROCK_FALLBACK_FAILURE = Counter(
     labelnames=["model", "product"],
 )
 
+BEDROCK_PARAM_STRIPPED = Counter(
+    "llm_gateway_bedrock_param_stripped_total",
+    "Top-level request params dropped before sending to Bedrock because they aren't in the "
+    "Bedrock-supported allowlist. A rising rate for a new param means Anthropic shipped a feature "
+    "Bedrock doesn't accept yet — alert on it instead of waiting for a 100% fallback failure.",
+    labelnames=["param", "product"],
+)
+
 ANTHROPIC_CIRCUIT_BREAKER_BYPASSED = Counter(
     "llm_gateway_anthropic_circuit_breaker_bypassed_total",
     "Anthropic requests routed straight to Bedrock because the breaker was open",

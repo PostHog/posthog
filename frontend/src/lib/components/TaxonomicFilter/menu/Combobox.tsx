@@ -54,7 +54,7 @@ import { VerificationBadge } from './VerificationBadge'
 // `ignoreLocation` switch so a typo near the end of the string still
 // matches).
 const FUSE_OPTIONS = {
-    keys: ['name', 'friendlyLabel'],
+    keys: ['name', 'friendlyLabel', 'recentLabel'],
     ignoreLocation: true,
 }
 
@@ -88,14 +88,18 @@ export const SEARCH_QUERY_DEBOUNCE_MS = 500
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
-    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}`
+    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
+        entry.recentPropertyFilter ? '::full' : ''
+    }`
 }
 
 /** Stable DOM id for a menu row — used for scroll-into-view, checkmark
  *  lookups, and `aria-activedescendant`. The format must be identical
  *  everywhere it is constructed. */
 function rowDomId(entry: MenuFilterEntry): string {
-    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}`
+    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
+        entry.recentPropertyFilter ? '-full' : ''
+    }`
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
@@ -885,6 +889,9 @@ interface RowProps {
  * the value cell.
  */
 function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+    if (entry.recentLabel) {
+        return { name: entry.recentLabel, category: entry.group.name }
+    }
     const friendly = entry.friendlyLabel
     const url = parseUrl(entry.name)
     if (url) {

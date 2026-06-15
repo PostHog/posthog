@@ -410,11 +410,23 @@ impl RawAppleFrame {
         frame
     }
 
-    pub fn frame_id(&self) -> String {
+    pub fn frame_id(&self, debug_images: &[AppleDebugImage]) -> String {
         let mut hasher = Sha512::new();
 
-        if let Some(instruction_addr) = &self.instruction_addr {
-            hasher.update(instruction_addr.as_bytes());
+        // Absolute instruction addresses are ASLR-slid per process launch, so hashing
+        // them directly gives the same logical frame a different id every launch and
+        // the frame record cache never hits. Hash the launch-invariant
+        // (debug image, relative offset) identity instead whenever we can compute it.
+        match self.launch_invariant_addr(debug_images) {
+            Some((debug_id, relative_addr)) => {
+                hasher.update(debug_id.as_bytes());
+                hasher.update(format!("rel:0x{relative_addr:x}").as_bytes());
+            }
+            None => {
+                if let Some(instruction_addr) = &self.instruction_addr {
+                    hasher.update(instruction_addr.as_bytes());
+                }
+            }
         }
 
         if let Some(module) = &self.module {
@@ -430,6 +442,15 @@ impl RawAppleFrame {
         }
 
         format!("{:x}", hasher.finalize())
+    }
+
+    fn launch_invariant_addr(&self, debug_images: &[AppleDebugImage]) -> Option<(String, u64)> {
+        let instruction_addr = parse_hex_address(self.instruction_addr.as_ref()?).ok()?;
+        let debug_image = self.find_debug_image(instruction_addr, debug_images).ok()?;
+        let relative_addr = self
+            .calculate_relative_addr(instruction_addr, debug_image)
+            .ok()?;
+        Some((debug_image.debug_id.clone(), relative_addr))
     }
 }
 
@@ -982,5 +1003,74 @@ mod test {
             all_lines.iter().any(|l| l.contains("volatile int x = 99")),
             "expected 'volatile int x = 99' in inlined_leaf context, got: {all_lines:?}"
         );
+    }
+
+    fn frame_at(instruction_addr: u64, image_addr: u64) -> RawAppleFrame {
+        RawAppleFrame {
+            instruction_addr: Some(format!("0x{instruction_addr:x}")),
+            symbol_addr: None,
+            image_addr: Some(format!("0x{image_addr:x}")),
+            image_uuid: None,
+            module: Some("MyApp".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        }
+    }
+
+    fn image_at(debug_id: &str, image_addr: u64) -> AppleDebugImage {
+        AppleDebugImage {
+            debug_id: debug_id.to_string(),
+            image_addr: format!("0x{image_addr:x}"),
+            image_vmaddr: None,
+            image_size: Some(0x10000),
+            code_file: None,
+            image_type: None,
+            arch: None,
+        }
+    }
+
+    #[test]
+    fn test_frame_id_stable_across_aslr_slides() {
+        // Same logical frame (same image, same relative offset) from two launches
+        // with different ASLR slides must produce the same frame id.
+        let launch_a = frame_at(0x100004000, 0x100000000);
+        let launch_b = frame_at(0x104f04000, 0x104f00000);
+
+        let id_a = launch_a.frame_id(&[image_at("uuid-build-1", 0x100000000)]);
+        let id_b = launch_b.frame_id(&[image_at("uuid-build-1", 0x104f00000)]);
+
+        assert_eq!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_frame_id_distinguishes_builds() {
+        let launch_a = frame_at(0x100004000, 0x100000000);
+        let launch_b = frame_at(0x100004000, 0x100000000);
+
+        let id_a = launch_a.frame_id(&[image_at("uuid-build-1", 0x100000000)]);
+        let id_b = launch_b.frame_id(&[image_at("uuid-build-2", 0x100000000)]);
+
+        assert_ne!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_frame_id_distinguishes_call_sites_within_image() {
+        let images = [image_at("uuid-build-1", 0x100000000)];
+
+        let id_a = frame_at(0x100004000, 0x100000000).frame_id(&images);
+        let id_b = frame_at(0x100004004, 0x100000000).frame_id(&images);
+
+        assert_ne!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_frame_id_falls_back_to_absolute_addr_without_debug_image() {
+        let launch_a = frame_at(0x100004000, 0x100000000);
+        let launch_b = frame_at(0x104f04000, 0x104f00000);
+
+        assert_ne!(launch_a.frame_id(&[]), launch_b.frame_id(&[]));
     }
 }

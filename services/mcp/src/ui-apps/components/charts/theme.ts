@@ -1,5 +1,7 @@
 import { type ChartTheme } from '@posthog/quill-charts'
 
+import type { LifecycleStatus } from '../types'
+
 // PostHog brand palette. Canvas can't read CSS custom properties, so we hand the
 // chart concrete hexes. The chart picks one per series by index; legends use the
 // same array to stay in sync.
@@ -11,6 +13,24 @@ export const CHART_COLORS = [
     '#f7a501', // PostHog yellow
     '#dc2626', // red
 ]
+
+// Picks a palette color by index, wrapping when there are more series than colors.
+export const colorAt = (index: number): string => CHART_COLORS[index % CHART_COLORS.length]!
+
+// Single brand blue for every funnel step's converted bar — the bar height already encodes
+// conversion, so distinct per-step colors would only add noise.
+export const FUNNEL_COLOR = '#1d4aff'
+
+// Conventional lifecycle bucket colors — mirrors --color-lifecycle-* in frontend/src/styles/base.scss.
+export const LIFECYCLE_COLORS: Record<LifecycleStatus, string> = {
+    new: '#1d4aff',
+    returning: '#388600',
+    resurrecting: '#a56eff',
+    dormant: '#db3707',
+}
+
+export const lifecycleColor = (status: string | undefined): string =>
+    LIFECYCLE_COLORS[(status ?? 'new') as LifecycleStatus] ?? LIFECYCLE_COLORS.new
 
 // Single mid-gray for axis labels — readable on both light and dark hosts. Claude
 // Desktop's iframe doesn't set `prefers-color-scheme`, so we can't detect the host

@@ -159,11 +159,13 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -196,7 +198,7 @@ class HogQLDatabaseSources:
     build phase runs without any queries."""
 
     team: "Team"
-    user: Optional["User"]
+    user: Optional["User | SyntheticUser"]
     connection_id: str | None
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
@@ -375,19 +377,22 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _compute_system_table_access_decision(
-    team: "Team", user: Optional["User"]
+    team: "Team", user: Optional["User | SyntheticUser"]
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
     access-control caches make later reads query-free) and the system-node table names to remove."""
     system_children = SystemTables().children
 
-    # No user: remove every access-controlled system table.
-    if user is None:
+    # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
+    if user is None or isinstance(user, SyntheticUser):
+        readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, {
             name
             for name, table_node in system_children.items()
-            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+            if isinstance(table_node.table, PostgresTable)
+            and table_node.table.access_scope is not None
+            and table_node.table.access_scope not in readable_scopes
         }
 
     user_access_control = UserAccessControl(user=user, team=team)
@@ -926,7 +931,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User"] = None,
+        user: Optional["User | SyntheticUser"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -949,7 +954,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
-        user: Optional["User"] = None,
+        user: Optional["User | SyntheticUser"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -1048,7 +1053,8 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .exclude(deleted=True)
                         .order_by("name")
-                        .select_related("table", "table__credential", "managed_viewset")
+                        # credential attached in bulk below, not joined per row
+                        .select_related("table", "managed_viewset")
                     )
                     if not is_managed_viewset_enabled:
                         queryset = queryset.filter(managed_viewset__isnull=True)
@@ -1062,7 +1068,8 @@ class Database(BaseModel):
                         DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
                         .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
                         .exclude(deleted=True)
-                        .select_related("table", "table__credential")
+                        # credential attached in bulk below, not joined per row
+                        .select_related("table")
                     )
                 except Exception as e:
                     capture_exception(e)
@@ -1083,7 +1090,8 @@ class Database(BaseModel):
                     # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .queryable()
-                    .select_related("credential", "external_data_source")
+                    # credential/external_data_source attached in bulk below, not joined per row; the
+                    # access_method filter still joins the source for its WHERE without hydrating it.
                     # Deterministic tiebreak when two live tables share a name: newest wins, since
                     # name collisions resolve first-come-first-served when added to the table tree.
                     .order_by("-created_at")
@@ -1096,6 +1104,9 @@ class Database(BaseModel):
                     )
 
                 warehouse_tables: list[DataWarehouseTable] = list(tables_query)
+                # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
+                # keep it hydrated there instead of lazily reloading it per table.
+                _attach_external_data_sources(warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query)
                 _preload_active_external_data_schemas(warehouse_tables)
                 if is_direct_query:
                     warehouse_tables = [
@@ -1109,6 +1120,17 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+
+        with timings.measure("attach_credentials", emit_span=True):
+            # Tables and view-backing tables share the credential pool; attach across all of them.
+            credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
+            credentialed_tables.extend(
+                sq.table for sq in saved_queries if sq.table_id is not None and sq.table is not None
+            )
+            credentialed_tables.extend(
+                sq.table for sq in endpoint_saved_queries if sq.table_id is not None and sq.table is not None
+            )
+            _attach_decrypted_credentials(credentialed_tables, team_id=team.pk)
 
         # Prefetch the saved query each modifier may resolve against; the table models come from the
         # warehouse_tables fetch.
@@ -1863,21 +1885,74 @@ HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
+def _attach_external_data_sources(
+    warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int, defer_job_inputs: bool = True
+) -> None:
+    """Prime each table's `external_data_source` FK from one bulk fetch of the distinct sources.
+
+    Tables outnumber their sources by ~100x, and `job_inputs` is an `EncryptedJSONField` whose every
+    leaf is Fernet-decrypted on hydration — so joining the source per row would decrypt the same few
+    sources thousands of times, for data only the direct-postgres branch reads. `job_inputs` is
+    deferred by default; callers that build that branch (direct-query mode) pass defer_job_inputs=False
+    so the few sources they hydrate keep it loaded rather than lazily reloading it per table.
+    """
+    source_ids = {
+        table.external_data_source_id for table in warehouse_tables if table.external_data_source_id is not None
+    }
+    sources_by_id: dict[Any, ExternalDataSource] = {}
+    if source_ids:
+        query = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
+        if defer_job_inputs:
+            query = query.defer("job_inputs")
+        sources_by_id = {source.pk: source for source in query}
+    for table in warehouse_tables:
+        if table.external_data_source_id is None:
+            continue
+        # queryable() guarantees a live source row for any set source_id, so the lookup hits; we still
+        # guard so a hard-delete race leaves the FK to lazy-load rather than caching a wrong object.
+        source = sources_by_id.get(table.external_data_source_id)
+        if source is not None:
+            table.external_data_source = source
+
+
 def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
-    table_ids = [
-        str(warehouse_table.id) for warehouse_table in warehouse_tables if warehouse_table.external_data_source_id
-    ]
-    if not table_ids:
+    tables_by_id = {
+        str(warehouse_table.id): warehouse_table
+        for warehouse_table in warehouse_tables
+        if warehouse_table.external_data_source_id
+    }
+    if not tables_by_id:
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    # select_related("source"): warning rendering reads schema.source.source_type, so avoid a
-    # per-schema lazy fetch when any of these tables turns out to be unhealthy.
-    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids).select_related("source"):
+    # Reuse the owning table's already-hydrated source instead of joining it per schema, which would
+    # re-decrypt job_inputs on the same few sources thousands of times.
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=list(tables_by_id.keys())):
+        owning_table = tables_by_id.get(str(schema.table_id))
+        owning_source = owning_table.external_data_source if owning_table is not None else None
+        if owning_source is not None and schema.source_id == owning_source.pk:
+            schema.source = owning_source
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:
         warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
+
+
+def _attach_decrypted_credentials(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
+    """Prime each table's `credential` FK from one bulk fetch of the distinct credentials.
+
+    Tables and views share a handful of credentials, so a bulk fetch keeps Fernet decryption to
+    O(credentials) instead of the O(tables) a per-row join would cost.
+    """
+    credential_ids = {table.credential_id for table in warehouse_tables if table.credential_id is not None}
+    credentials_by_id: dict[Any, DataWarehouseCredential] = {}
+    if credential_ids:
+        credentials_by_id = {
+            credential.pk: credential
+            for credential in DataWarehouseCredential.objects.filter(team_id=team_id, id__in=credential_ids)
+        }
+    for table in warehouse_tables:
+        table.credential = credentials_by_id.get(table.credential_id) if table.credential_id is not None else None
 
 
 def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:

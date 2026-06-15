@@ -602,6 +602,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
     return undefined
 }
 
+export const getShowPercentagesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showPercentagesOnSeries
+    }
+    return undefined
+}
+
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType

@@ -1,0 +1,45 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Business knowledge
+feature: business_knowledge
+url_prefix: /business_knowledge
+ui_apps: {}
+tools:
+    business-knowledge-document-window-retrieve:
+        operation: business_knowledge_documents_window_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read business knowledge document context
+        description: >
+            Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
+            Use after searching knowledge to get more surrounding context for a specific result.
+    business-knowledge-sources-create:
+        operation: business_knowledge_sources_create
+        enabled: false
+    business-knowledge-sources-destroy:
+        operation: business_knowledge_sources_destroy
+        enabled: false
+    business-knowledge-sources-list:
+        operation: business_knowledge_sources_list
+        enabled: false
+    business-knowledge-sources-partial-update:
+        operation: business_knowledge_sources_partial_update
+        enabled: false
+    business-knowledge-sources-refresh-create:
+        operation: business_knowledge_sources_refresh_create
+        enabled: false
+    business-knowledge-sources-retrieve:
+        operation: business_knowledge_sources_retrieve
+        enabled: false
+    business-knowledge-sources-text-retrieve:
+        operation: business_knowledge_sources_text_retrieve
+        enabled: false

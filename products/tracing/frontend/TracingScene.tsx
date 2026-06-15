@@ -48,7 +48,7 @@ function TracingSceneContents(): JSX.Element {
     const {
         rootSpans,
         spansLoading,
-        isTraceModalOpen,
+        isTraceOpen,
         selectedTraceId,
         sparklineData,
         sparklineLoading,
@@ -68,8 +68,8 @@ function TracingSceneContents(): JSX.Element {
         expandedSpanIds,
     } = useValues(tracingSceneLogic())
     const {
-        openTraceModal,
-        closeTraceModal,
+        openTrace,
+        closeTrace,
         setDateRange,
         setOverlayWindows,
         openCompareFlame,
@@ -192,15 +192,16 @@ function TracingSceneContents(): JSX.Element {
                             // element; react-modal then scrolls it back into view when restoring focus
                             // on close. Blur so the restore target is <body>, which doesn't scroll.
                             ;(document.activeElement as HTMLElement | null)?.blur?.()
-                            openTraceModal(span.trace_id)
+                            openTrace(span.trace_id)
                         }}
                     />
                 )}
             </TracingSetupPrompt>
             <LemonModal
-                title={`Trace ${selectedTraceId}`}
-                isOpen={isTraceModalOpen}
-                onClose={closeTraceModal}
+                title="Trace waterfall"
+                description={selectedTraceId ? `Trace ${selectedTraceId}` : undefined}
+                isOpen={isTraceOpen}
+                onClose={closeTrace}
                 width="90vw"
             >
                 <div className="relative min-h-32">

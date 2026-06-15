@@ -29,6 +29,7 @@ import { PersonRepository } from '../../src/worker/ingestion/persons/repositorie
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
+import { ensureKafkaTopics } from './kafka'
 import { createUserTeamAndOrganization } from './sql'
 
 export const DEFAULT_TEAM: Team = {
@@ -162,12 +163,18 @@ export const waitForKafkaMessages = async (kafkaProducer: KafkaProducerWrapper) 
 }
 
 /**
- * After `resetKafka()` recreates topics, ClickHouse's Kafka engine consumers need to
- * reconnect. With the default auto.offset.reset=latest, any messages produced before
- * reconnection are permanently missed. We repeatedly produce probe messages until
- * ClickHouse consumes one, which guarantees at least one lands after reconnection.
+ * Waits until ClickHouse's Kafka engine is consuming, by producing probe messages until one
+ * lands in the ingestion_warnings table.
+ *
+ * Before probing we create every topic ClickHouse's Kafka engine tables subscribe to. Otherwise
+ * any table whose topic is missing keeps retrying "Can't get assignment", which saturates
+ * ClickHouse's background scheduler and intermittently starves the consumers we depend on — the
+ * root cause of this suite's flakiness. We repeatedly produce probe messages because, with the
+ * default auto.offset.reset=latest, messages produced before assignment are missed.
  */
 export async function waitForClickHouseKafkaConsumer(clickhouse: Clickhouse): Promise<void> {
+    await ensureKafkaTopics(await clickhouse.getKafkaEngineTopics())
+
     const producer = await KafkaProducerWrapper.create(undefined)
     const probeTeamId = -1
 

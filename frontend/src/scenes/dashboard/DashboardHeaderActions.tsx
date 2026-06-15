@@ -6,6 +6,7 @@ import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -71,16 +72,19 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
                             'data-attr': 'dashboard-add-button-tile',
                         },
-                        ...(dashboardWidgetsEnabled
-                            ? [
-                                  {
-                                      label: 'Widget',
-                                      tag: 'new' as const,
-                                      onClick: () => setAddWidgetModalOpen(true),
-                                      'data-attr': 'dashboard-add-widget',
-                                  },
-                              ]
-                            : []),
+                        dashboardWidgetsEnabled
+                            ? {
+                                  label: 'Widget',
+                                  tag: 'new' as const,
+                                  onClick: () => setAddWidgetModalOpen(true),
+                                  'data-attr': 'dashboard-add-widget',
+                              }
+                            : {
+                                  label: 'Widget',
+                                  tag: 'beta' as const,
+                                  onClick: () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS)),
+                                  'data-attr': 'dashboard-add-widget-preview',
+                              },
                     ]}
                 >
                     <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>

@@ -662,14 +662,28 @@ class UserSerializer(serializers.ModelSerializer):
             and is_email_available()
         ):
             new_email = validated_data["email"]
+            # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
+            # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
+            current_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email)
+            new_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email)
+            current_domain = OrganizationDomain.objects.get_verified_for_email_address(instance.email)
+            new_domain = OrganizationDomain.objects.get_verified_for_email_address(new_email)
+            is_same_org_migration = (
+                bool(current_sso_enforced)
+                and bool(new_sso_enforced)
+                and current_domain is not None
+                and new_domain is not None
+                and current_domain.organization_id == new_domain.organization_id
+            )
+
             # Block bypass: a user on an SSO-enforced domain can't move off of it.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+            if current_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email because SSO is enforced on your current email's domain.",
                     code="sso_enforced_current_email",
                 )
             # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+            if new_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
@@ -919,6 +933,11 @@ class UserViewSet(
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
         if default_device(user) or passkeys_enabled_for_2fa:
             return Response({"success": True, "token": token, "requires_2fa": True})
+
+        # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
+        # must not become a password-backend login path around the IdP. The user logs in via SSO.
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return Response({"success": True, "token": token, "requires_sso": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)

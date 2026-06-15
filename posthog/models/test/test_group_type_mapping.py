@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -9,6 +9,7 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
+    _fetch_group_types_for_projects_via_personhog,
     _record_group_types_fetch_failure,
     clear_dashboard_from_group_type_mapping,
     count_group_type_mappings_per_team,
@@ -318,6 +319,23 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
 
     def tearDown(self):
         self._client_patcher.stop()
+
+    @override_settings(PERSONHOG_BATCH_SIZE=2)
+    def test_fetch_via_personhog_chunks_project_ids(self):
+        # 5 project_ids with batch size 2 → 3 chunks (2 + 2 + 1)
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_ids.side_effect = [
+            MagicMock(results=[MagicMock(key=1, mappings=[]), MagicMock(key=2, mappings=[])]),
+            MagicMock(results=[MagicMock(key=3, mappings=[]), MagicMock(key=4, mappings=[])]),
+            MagicMock(results=[MagicMock(key=5, mappings=[])]),
+        ]
+
+        result = _fetch_group_types_for_projects_via_personhog(mock_client, [1, 2, 3, 4, 5])
+
+        assert mock_client.get_group_type_mappings_by_project_ids.call_count == 3
+        assert set(result.keys()) == {1, 2, 3, 4, 5}
+        for c in mock_client.get_group_type_mappings_by_project_ids.call_args_list:
+            assert len(c[0][0].project_ids) <= 2
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")

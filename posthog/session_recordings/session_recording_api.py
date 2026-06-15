@@ -112,6 +112,8 @@ from posthog.temporal.session_replay.session_summary.workflow import (
     execute_summarize_session_video_stream,
 )
 
+from products.replay.backend.models.team_session_summaries_config import TeamSessionSummariesConfig
+
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.tracking import (
@@ -120,7 +122,6 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -330,7 +331,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             return False
 
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             return False
 
@@ -581,7 +582,7 @@ def ensure_not_weak(etag: str) -> str:
 
 
 @contextmanager
-def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response, None, None]:
+def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response]:
     """
     Stream data from a URL using optional headers.
 
@@ -1269,7 +1270,7 @@ class SessionRecordingViewSet(
         if include_outcomes:
             outcomes: dict[str, dict] = {}
             try:
-                from ee.models.session_summaries import SingleSessionSummary
+                from products.replay.backend.models.session_summaries import SingleSessionSummary
             except ImportError:
                 # Distinguishes OSS deploys (expected) from EE refactors that break the import (silent feature
                 # degradation otherwise).
@@ -1534,7 +1535,7 @@ class SessionRecordingViewSet(
         product_context: str | None = None,
         custom_tags: dict[str, str] | None = None,
         force_restart: bool = False,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """Stream video-based summarization progress events and final summary to the client.
 
         Progress events (``session-summary-progress``) carry the workflow's
@@ -2093,7 +2094,7 @@ def list_recordings_from_query(
     summary_outcomes: dict[str, dict] = {}
     if recording_ids_in_list:
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             default_summary_session_ids = set()
         else:

@@ -61,6 +61,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 height?: number
                 css_selector?: string
                 filename?: string
+                skip_inactivity?: boolean
             }
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
         startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
@@ -174,7 +175,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
-                    skip_inactivity: false,
+                    skip_inactivity: options?.skip_inactivity ?? true,
                 },
             }
 

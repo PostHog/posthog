@@ -8,6 +8,7 @@ protobuf descriptors. Nothing here imports the SDK — that import is deferred t
 run path in ``source.py``. See ``google_ads.py`` for the SDK-backed functions.
 """
 
+import re
 import dataclasses
 
 from posthog.temporal.data_imports.sources.common import config
@@ -26,14 +27,17 @@ class GoogleAdsResumeConfig:
 
 
 def clean_customer_id(s: str | None) -> str | None:
-    """Clean customer IDs from Google Ads.
+    """Normalize a Google Ads customer ID to its bare digits.
 
-    Customer IDs can contain dashes, but we need the ID without them.
+    The Google Ads UI shows customer IDs as ``123-456-7890`` but the API wants the
+    bare ``1234567890``. Users paste them with dashes, spaces, or surrounding
+    whitespace, so strip everything that isn't a digit — any of those forms then
+    works rather than getting rejected at setup time.
     """
     if not s:
         return s
 
-    return s.strip().replace("-", "")
+    return re.sub(r"\D", "", s)
 
 
 @config.config

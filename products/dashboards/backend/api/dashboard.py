@@ -11,12 +11,11 @@ from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -41,7 +40,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
@@ -50,13 +49,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
@@ -83,6 +76,8 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
     DashboardWidgetConfigField,
+    PatchedDashboardOpenApiSerializer,
+    WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
@@ -100,6 +95,7 @@ from products.dashboards.backend.widget_layouts import (
     collect_dashboard_sm_layouts_for_dashboard,
     stack_widget_layout_at_bottom,
 )
+from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -160,7 +156,7 @@ RUN_WIDGETS_QUERY_CONCURRENCY = 4
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
-    + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
+    + ". Use dashboard-widget-catalog-list for per-type config_schema documentation."
 )
 
 
@@ -197,7 +193,13 @@ def _run_widget_query(
         },
     ) as slo:
         try:
-            result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
+            query_fn = work_item["query_fn"]
+            result = query_fn(
+                team,
+                work_item["config"],
+                user=work_item["user"],
+                include_total_count=False,
+            )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
@@ -504,7 +506,7 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for config_schema_hints. "
+            "see dashboard-widget-catalog-list for per-type config_schema documentation. "
             f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
@@ -526,7 +528,7 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
     config = DashboardWidgetConfigField(
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for config_schema_hints. "
+            "see dashboard-widget-catalog-list for per-type config_schema documentation. "
             f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
@@ -571,29 +573,6 @@ class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
         min_length=1,
         max_length=MAX_WIDGETS_BATCH_SIZE,
         help_text=f"{WIDGET_BATCH_ADD_OPENAPI_HELP} (1–{MAX_WIDGETS_BATCH_SIZE} per request).",
-    )
-
-
-class WidgetCatalogEntrySerializer(serializers.Serializer):
-    widget_type = serializers.CharField(help_text="Stable widget type identifier used in API requests.")
-    group_id = serializers.CharField(help_text="Product area key for grouping related widget variants.")
-    group_label = serializers.CharField(help_text="Human-readable product area label.")
-    label = serializers.CharField(help_text="Widget variant label within the product area.")  # type: ignore[assignment]
-    description = serializers.CharField(help_text="Short description of what the widget shows.")
-    config_schema_hints = serializers.JSONField(
-        help_text="JSON schema hints for config fields (types, choices, bounds). Not a strict validator.",
-    )
-    required_product_access = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Product access resource required to view or run this widget, if any.",
-    )
-
-
-class WidgetCatalogResponseSerializer(serializers.Serializer):
-    results = WidgetCatalogEntrySerializer(
-        many=True,
-        help_text="Registered dashboard widget types available when dashboard-widgets is enabled.",
     )
 
 
@@ -804,7 +783,12 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     )
     result = serializers.JSONField(
         allow_null=True,
-        help_text="Live widget query result payload.",
+        help_text=(
+            "Live widget query result payload. List widgets return results (array), limit (configured page size), "
+            "hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount "
+            "hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are "
+            "issue summaries; session_replay_list results are recording metadata."
+        ),
     )
     error = serializers.CharField(
         allow_null=True,
@@ -827,6 +811,7 @@ class AddDashboardWidgetsBatchResponseSerializer(serializers.Serializer):
 
 
 class DashboardBasicSerializer(
+    SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
@@ -861,6 +846,7 @@ class DashboardBasicSerializer(
             "access_control_version",
             "last_refresh",
             "team_id",
+            "search_match_type",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1424,7 +1410,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
         if "config" in widget_data:
-            widget.config = validate_widget_config(widget.widget_type, widget_data["config"], team_id=widget.team_id)
+            widget.config = validate_widget_config(
+                widget.widget_type,
+                widget_data["config"],
+            )
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:
@@ -1793,15 +1782,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
-                    "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
-                    "rank above `description` matches. Results are ordered by relevance, then pinned status, "
-                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name. "
-                    "Capped at 200 characters; longer queries return a 400 error."
+                    "Optional. Match against dashboard `name`, `description`, and tag names. Returns "
+                    "case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, "
+                    "prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each "
+                    "result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered "
+                    "by pinned status then alphabetical name. Capped at 200 characters; longer queries return a "
+                    "400 error."
                 ),
             ),
         ],
     ),
+    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
 )
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -1863,39 +1854,13 @@ class DashboardsViewSet(
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("dashboard.search.length", len(search))
-        if not search:
-            return queryset
-
-        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
-        # prefix-as-you-type and substring matches. Full-string similarity is added as a
-        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
-        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
-        # matched only on description doesn't end up with a NULL `_search_score` (which
-        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "-pinned", "name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="dashboard.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            include_tag_search=True,
+            tiebreakers=("-pinned", "name"),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
@@ -2046,7 +2011,7 @@ class DashboardsViewSet(
         )
 
         # Async generator that handles progressive tile serialization and streaming
-        async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:
+        async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
 
             try:
@@ -2564,14 +2529,24 @@ class DashboardsViewSet(
                 }
                 continue
 
+            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
+            if widget_throttle_error:
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": widget_throttle_error,
+                }
+                continue
+
             if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
-                throttle_error = get_replay_listing_throttle_error(request, self)
-                if throttle_error:
+                replay_throttle_error = get_replay_listing_throttle_error(request, self)
+                if replay_throttle_error:
                     results_by_id[tile_id] = {
                         "tile_id": tile_id,
                         "widget_type": widget.widget_type,
                         "result": None,
-                        "error": throttle_error,
+                        "error": replay_throttle_error,
                     }
                     continue
 
@@ -2609,7 +2584,7 @@ class DashboardsViewSet(
     @extend_schema(responses={200: WidgetCatalogResponseSerializer})
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List registered dashboard widget types and config hints for agents."""
+        """List registered dashboard widget types and per-type config_schema documentation for agents."""
         return Response({"results": get_widget_catalog_entries()})
 
     @extend_schema(

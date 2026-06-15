@@ -104,8 +104,8 @@ class SimplifyFilterMixin:
 
     def _simplify_property(self, team: "Team", property: "Property", **kwargs) -> "PropertyGroup":
         if property.type == "cohort":
-            from posthog.models import Cohort
-            from posthog.models.cohort.util import simplified_cohort_filter_properties
+            from products.cohorts.backend.models.cohort import Cohort
+            from products.cohorts.backend.models.util import simplified_cohort_filter_properties
 
             try:
                 cohort = Cohort.objects.get(pk=cast(str | int, property.value), team__project_id=team.project_id)

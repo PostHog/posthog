@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import DatabaseError
 from django.db.models import Q
 from django.utils.timezone import now
@@ -233,12 +234,18 @@ def get_groups_by_identifiers(team_id: int, group_type_index: int, group_keys: l
     client = get_personhog_client()
     if client is not None:
         try:
-            identifiers = [GroupIdentifier(group_type_index=group_type_index, group_key=key) for key in group_keys]
-            resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+            groups: list[Group] = []
+            for i in range(0, len(group_keys), settings.PERSONHOG_BATCH_SIZE):
+                identifiers = [
+                    GroupIdentifier(group_type_index=group_type_index, group_key=key)
+                    for key in group_keys[i : i + settings.PERSONHOG_BATCH_SIZE]
+                ]
+                resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+                groups.extend(proto_group_to_model(g) for g in resp.groups if g.id)
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_groups_by_identifiers", source="personhog", client_name=get_client_name()
             ).inc()
-            return [proto_group_to_model(g) for g in resp.groups if g.id]
+            return groups
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
                 operation="get_groups_by_identifiers",
@@ -290,11 +297,18 @@ def get_groups_by_type_indices(team_id: int, group_type_indices: set[int], group
             identifiers = [
                 GroupIdentifier(group_type_index=gti, group_key=key) for gti in group_type_indices for key in group_keys
             ]
-            resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+            groups: list[Group] = []
+            for i in range(0, len(identifiers), settings.PERSONHOG_BATCH_SIZE):
+                resp = client.get_groups(
+                    GetGroupsRequest(
+                        team_id=team_id, group_identifiers=identifiers[i : i + settings.PERSONHOG_BATCH_SIZE]
+                    )
+                )
+                groups.extend(proto_group_to_model(g) for g in resp.groups if g.id)
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_groups_by_type_indices", source="personhog", client_name=get_client_name()
             ).inc()
-            return [proto_group_to_model(g) for g in resp.groups if g.id]
+            return groups
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
                 operation="get_groups_by_type_indices",

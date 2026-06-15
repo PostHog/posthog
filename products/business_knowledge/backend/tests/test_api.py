@@ -5,7 +5,8 @@ from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
+from products.business_knowledge.backend import logic
+from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -108,3 +109,127 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         response = self.client.post(self.url, {"name": "Docs", "text": "hello"}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["source_type"] == "text"
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeDocumentWindowAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.base = f"/api/projects/{self.team.id}/business_knowledge/documents"
+
+    def _ready_safe_document(self, *, paragraphs: int = 10, team=None) -> KnowledgeDocument:
+        """Create a READY text source with exactly `paragraphs` chunks, all SAFE."""
+        team = team or self.team
+        # Each paragraph is padded past CHUNK_TARGET_CHARS (1200) but under
+        # CHUNK_HARD_MAX_CHARS (1600) so the chunker emits one chunk per
+        # paragraph — giving deterministic ordinals to window around.
+        filler = "lorem ipsum dolor sit amet " * 50
+        text = "\n\n".join(f"Paragraph {i}: {filler}" for i in range(paragraphs))
+        source = logic.create_text_source(team_id=team.id, created_by_id=self.user.id, name="Docs", text=text)
+        # create_text_source leaves the doc UNKNOWN (excluded from search/drill-down)
+        # until the classifier clears it — mark SAFE so the window returns chunks.
+        KnowledgeDocument.objects.unscoped().filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
+        return KnowledgeDocument.objects.unscoped().get(source_id=source.id)
+
+    def test_window_returns_contiguous_span(self, _ff) -> None:
+        doc = self._ready_safe_document(paragraphs=10)
+        response = self.client.get(f"{self.base}/{doc.id}/window/?around_ordinal=5&radius=2")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        ordinals = [row["ordinal"] for row in body]
+        assert ordinals == [3, 4, 5, 6, 7]
+        first = body[0]
+        assert set(first.keys()) == {
+            "chunk_id",
+            "ordinal",
+            "content",
+            "heading_path",
+            "source_name",
+            "document_title",
+        }
+        assert first["source_name"] == "Docs"
+
+    def test_window_defaults_radius(self, _ff) -> None:
+        doc = self._ready_safe_document(paragraphs=20)
+        response = self.client.get(f"{self.base}/{doc.id}/window/?around_ordinal=10")
+        assert response.status_code == status.HTTP_200_OK
+        # Default radius is 5 -> ordinals 5..15.
+        ordinals = [row["ordinal"] for row in response.json()]
+        assert ordinals == list(range(5, 16))
+
+    def test_window_requires_around_ordinal(self, _ff) -> None:
+        doc = self._ready_safe_document()
+        response = self.client.get(f"{self.base}/{doc.id}/window/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "around_ordinal"
+
+    def test_window_rejects_non_integer_params(self, _ff) -> None:
+        doc = self._ready_safe_document()
+        response = self.client.get(f"{self.base}/{doc.id}/window/?around_ordinal=abc")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "around_ordinal"
+
+    def test_window_unknown_document_is_404(self, _ff) -> None:
+        import uuid
+
+        response = self.client.get(f"{self.base}/{uuid.uuid4()}/window/?around_ordinal=0")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_window_invalid_uuid_is_404(self, _ff) -> None:
+        response = self.client.get(f"{self.base}/not-a-uuid/window/?around_ordinal=0")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_window_cross_team_document_is_404(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        theirs = self._ready_safe_document(team=other_team)
+        response = self.client.get(f"{self.base}/{theirs.id}/window/?around_ordinal=0")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_window_excludes_unsafe_document(self, _ff) -> None:
+        # A document that exists in the team but is not SAFE has no readable
+        # chunks, so the window comes back empty (200, []), never leaking content.
+        doc = self._ready_safe_document(paragraphs=5)
+        KnowledgeDocument.objects.unscoped().filter(id=doc.id).update(safety_verdict=SafetyVerdict.UNSAFE)
+        response = self.client.get(f"{self.base}/{doc.id}/window/?around_ordinal=2")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_window_feature_flag_gated(self, _ff) -> None:
+        doc = self._ready_safe_document()
+        _ff.return_value = False
+        response = self.client.get(f"{self.base}/{doc.id}/window/?around_ordinal=0")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeDocumentWindowScopes(APIBaseTest):
+    """The window endpoint is the BK MCP surface; MCP authenticates with a
+    personal API key / OAuth token, so the custom action must enforce
+    `business_knowledge:read` (not silently 403 every programmatic caller)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        text = "\n\n".join(f"Paragraph {i}: {'lorem ipsum dolor sit amet ' * 50}" for i in range(5))
+        source = logic.create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="Docs", text=text)
+        KnowledgeDocument.objects.unscoped().filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
+        self.doc = KnowledgeDocument.objects.unscoped().get(source_id=source.id)
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/documents/{self.doc.id}/window/?around_ordinal=2"
+
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def test_read_scope_allows_window(self, _ff) -> None:
+        self._auth_with_pak(["business_knowledge:read"])
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_wrong_scope_is_forbidden(self, _ff) -> None:
+        self._auth_with_pak(["insight:read"])
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN

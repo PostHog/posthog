@@ -167,6 +167,10 @@ class TestPromptBuilder(BaseTest):
         # agent-feedback tool so the scout system improves over time.
         assert "Report operational friction" in prompt
         assert "agent-feedback" in prompt
+        # The base prompt teaches scouts to format the description for the inbox
+        # surface (markdown, front-loaded into the ~300-char collapsed preview),
+        # while leaving a skill body free to impose its own structure.
+        assert "Writing the description (how it renders in the inbox)" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

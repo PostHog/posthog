@@ -64,6 +64,7 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
+import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
@@ -609,7 +610,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        let response = await performQuery({
+                        let response = await performWideEventsQueryInTwoPhases({
                             ...values.lastEventQuery,
                             properties: eventId
                                 ? [
@@ -621,7 +622,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 : undefined,
                         })
                         if (!response?.results?.[0] && values.lastEventSecondQuery) {
-                            response = await performQuery({
+                            response = await performWideEventsQueryInTwoPhases({
                                 ...values.lastEventSecondQuery,
                                 properties: eventId
                                     ? [

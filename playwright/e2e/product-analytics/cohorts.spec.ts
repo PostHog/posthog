@@ -7,7 +7,7 @@ test.describe('Cohorts', () => {
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         // Dedicated empty workspace per test — no shared demo team, so the cohorts list
-        // only ever contains what this test creates (see playwright-test-base deprecation).
+        // only ever contains what this test creates.
         workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
         await playwrightSetup.login(page, workspace)
 

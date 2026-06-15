@@ -1,7 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -1730,12 +1729,7 @@ describe('llmPlaygroundLogic', () => {
             expect(window.history.length).toBe(initialHistoryLength)
         })
 
-        it('urlToAction skips setup for non-active-tab instances (regression for default-instance fall-through)', async () => {
-            // Before the fix, the guard `if (props.tabId && ...)` short-circuited to false
-            // when `props.tabId` was undefined, so the unkeyed `'default'` instance also
-            // ran URL-driven setup alongside the active tab. Multiple instances each
-            // dispatching `setupPlaygroundFromEvent` + `finishSourceSetup` writing back
-            // to the URL is what turned a missed dedup into a runaway pageview loop.
+        it('urlToAction runs setup for the single playground instance from source params', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/evaluations/:id/': {
@@ -1747,31 +1741,19 @@ describe('llmPlaygroundLogic', () => {
                 },
             })
 
-            const findMountedSpy = jest.spyOn(sceneLogic, 'findMounted').mockReturnValue({
-                values: { activeTabId: 'tab-A', tabs: [] },
-            } as any)
-
-            const activeInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-A' })
-            activeInstance.mount()
-            const inactiveInstance = llmPlaygroundPromptsLogic({ tabId: 'tab-B' })
-            inactiveInstance.mount()
+            const instance = llmPlaygroundPromptsLogic()
+            instance.mount()
 
             try {
                 router.actions.push(`${urls.aiObservabilityPlayground()}?source_evaluation_id=eval-2&_=${Date.now()}`)
-                await expectLogic(activeInstance).toFinishAllListeners()
-                await expectLogic(inactiveInstance).toFinishAllListeners()
-                await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+                await expectLogic(instance).toFinishAllListeners()
 
-                expect(activeInstance.values.linkedSource).toMatchObject({
+                expect(instance.values.linkedSource).toMatchObject({
                     type: 'evaluation',
                     evaluationId: 'eval-2',
                 })
-                expect(inactiveInstance.values.linkedSource.type).toBeNull()
-                expect(llmPlaygroundPromptsLogic.values.linkedSource.type).toBeNull()
             } finally {
-                activeInstance.unmount()
-                inactiveInstance.unmount()
-                findMountedSpy.mockRestore()
+                instance.unmount()
             }
         })
     })

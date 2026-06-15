@@ -1,4 +1,9 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .code_workstreams.activities.list_active_teams import list_active_code_teams
+from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
+from .code_workstreams.activities.poll_pull_requests import poll_team_pull_requests
+from .code_workstreams.activities.rebuild_workstreams import rebuild_team_workstreams
+from .code_workstreams.workflow import EvaluateCodeWorkstreamsWorkflow, EvaluateTeamCodeWorkstreamsWorkflow
 from .create_snapshot.activities import (
     cleanup_sandbox as snapshot_cleanup_sandbox,
     clone_repository as snapshot_clone_repository,
@@ -39,6 +44,8 @@ WORKFLOWS = [
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
     RunTaskAutomationWorkflow,
+    EvaluateCodeWorkstreamsWorkflow,
+    EvaluateTeamCodeWorkstreamsWorkflow,
 ]
 
 ACTIVITIES = [
@@ -73,4 +80,8 @@ ACTIVITIES = [
     snapshot_setup_repository,
     snapshot_create_snapshot,
     snapshot_cleanup_sandbox,
+    list_active_code_teams,
+    load_team_pr_urls,
+    poll_team_pull_requests,
+    rebuild_team_workstreams,
 ]

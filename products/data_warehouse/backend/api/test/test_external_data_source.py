@@ -3381,6 +3381,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -3450,6 +3451,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -4081,6 +4083,57 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
+
+    @parameterized.expand([("with_password", {"password": "new_password"}, 200), ("without_password", {}, 400)])
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_host_change_with_stored_connection_string(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # A stored `connection_string` (never re-suppliable via the edit form) must not block a host
+        # change, while `password` stays gated: re-entering it succeeds, omitting it is still rejected.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_host_conn_string",
+            job_inputs={
+                "source_type": "Postgres",
+                "connection_string": "postgresql://dbuser:original_password@db.example.com:5432/mydb",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"host": "new-host.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        # Preserved by the merge regardless of outcome — connection-string-based sources rely on this.
+        assert (
+            source.job_inputs["connection_string"] == "postgresql://dbuser:original_password@db.example.com:5432/mydb"
+        )
+        if expected_status == 200:
+            assert source.job_inputs["host"] == "new-host.example.com"
+            assert source.job_inputs["password"] == "new_password"
+            mock_validate_credentials.assert_called_once()
+        else:
+            assert source.job_inputs["host"] == "db.example.com"
+            assert source.job_inputs["password"] == "original_password"
+            mock_validate_credentials.assert_not_called()
 
     @patch(
         "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",

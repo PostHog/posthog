@@ -74,3 +74,23 @@ export function projectQuota(
         combinedDailyRate,
     }
 }
+
+/**
+ * Disabled-reason / tooltip for scan triggers based on the monthly observation quota.
+ * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
+ */
+export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
+    if (!quota || quota.monthly_quota <= 0) {
+        return {}
+    }
+    const resetsOn = dayjs(quota.period_end).format('MMMM D')
+    if (quota.exhausted) {
+        return { disabledReason: `Monthly observation quota reached. Resets ${resetsOn}.` }
+    }
+    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
+        return {
+            tooltip: `${quota.remaining.toLocaleString()} observations left this month (resets ${resetsOn})`,
+        }
+    }
+    return {}
+}

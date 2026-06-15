@@ -90,7 +90,10 @@ async def test_degraded_report_still_synthesizes(
 ) -> None:
     # One step failed (failed_count=1) but the report still ships — graceful degradation.
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\n_Query failed: ExposedHogQLError_"], 1)
+    mock_run.return_value = (
+        ["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
+        1,
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
@@ -168,7 +171,7 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
     rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
-    assert "_Query failed:" in rendered[0]
+    assert "Query failed to run" in rendered[0]
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -196,7 +199,7 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
     rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
-    assert "_Query failed:" in rendered[0]
+    assert "Query failed to run" in rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
     assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
     mock_fix.assert_awaited_once()

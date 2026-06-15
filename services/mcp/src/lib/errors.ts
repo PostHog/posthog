@@ -120,6 +120,21 @@ export class PostHogValidationError extends Error {
     }
 }
 
+/**
+ * Thrown when MCP-side schema validation rejects a tool call's input before
+ * any handler runs (the exec `call` path). The message is pre-formatted by
+ * `formatInputValidationError` and already names the offending field(s), so
+ * `handleToolError` returns it verbatim — capturing it as an exception would
+ * mint a per-tool error tracking issue for every agent slip-up, the same
+ * noise problem the 4xx short-circuit exists to prevent.
+ */
+export class ToolInputValidationError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ToolInputValidationError'
+    }
+}
+
 export interface PostHogApiErrorOptions {
     status: number
     statusText: string
@@ -342,6 +357,21 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // exception capture (this is expected user state, not a bug) and return the
     // typed error's pre-formatted multi-line message verbatim.
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `Error: [${toolName}]: ${error.message}`,
+                },
+            ],
+            isError: true,
+        }
+    }
+
+    // Recoverable: input rejected by the tool's schema before any handler ran —
+    // an agent slip-up, not a bug. The message already names the offending
+    // field(s); skip exception capture like the API 4xx branch below.
+    if (error instanceof ToolInputValidationError) {
         return {
             content: [
                 {

@@ -4,6 +4,15 @@ A scout is a single `SKILL.md` (its body is loaded verbatim as the agent's syste
 plus optional `references/` files read on demand. Keep the body lean and push depth into
 references — every line of the body is a recurring token cost on **every** run.
 
+## Contents
+
+- Naming
+- Frontmatter
+- Body structure (the ten canonical sections)
+- References
+- Skeleton — specialist scout
+- Skeleton — broad / cross-product scout
+
 ## Naming
 
 The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by
@@ -87,7 +96,7 @@ share this shape:
 
 7. **Decide.** Emit / remember / skip, calibrated against the emit contract (see
    [`emit-contract.md`](emit-contract.md)). State the surface-specific "strong finding"
-   thresholds (e.g. "weight ≥ 0.7, confidence ≥ 0.85, with concrete entity ids and counts
+   thresholds (e.g. "confidence ≥ 0.85, with concrete entity ids and counts
    in the evidence"). Tell it to cross-check `inbox-reports-list` before emitting.
 
 8. **Disqualifiers.** The known noise for this surface that should be skipped (single-user
@@ -189,7 +198,7 @@ category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`.
 
 ### Decide
 
-- **Emit** via `signals-scout-emit-signal` above the bar (weight ≥ 0.7, confidence ≥ 0.85,
+- **Emit** via `signals-scout-emit-signal` above the bar (confidence ≥ 0.85,
   concrete entity ids + counts in evidence). Cross-check `inbox-reports-list` first.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
