@@ -22879,6 +22879,10 @@
                     "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
                     "type": "boolean"
                 },
+                "useRetentionPreAggregation": {
+                    "description": "Serve covered retention queries from the pre-aggregated retention_actor table (off by default) *",
+                    "type": "boolean"
+                },
                 "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
                 }

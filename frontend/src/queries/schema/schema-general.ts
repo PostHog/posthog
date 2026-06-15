@@ -449,6 +449,8 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
+    /** Serve covered retention queries from the pre-aggregated retention_actor table (off by default) **/
+    useRetentionPreAggregation?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
