@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -70,6 +72,10 @@ function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioni
                     {psqlCmd}
                 </CodeSnippet>
             </div>
+            <p className="text-muted text-xs mb-0">
+                The password is shown only once, when you provision the warehouse. If you didn't save it, use "Reset
+                password" below to generate a new one.
+            </p>
         </div>
     )
 }
@@ -92,6 +98,10 @@ export function SettingsTab(): JSX.Element {
     } = useValues(warehouseProvisioningLogic)
     const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
         useActions(warehouseProvisioningLogic)
+    const deprovisionRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
@@ -102,10 +112,11 @@ export function SettingsTab(): JSX.Element {
     return (
         <div className="mt-4 space-y-4 max-w-160">
             <div>
-                <h2 className="mb-2">Managed Warehouse</h2>
+                <h2 className="mb-2">Managed warehouse</h2>
                 {!isReady && (
                     <p className="text-muted mb-4">
-                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your team.
+                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your
+                        organization. It's shared by every project in the organization.
                     </p>
                 )}
             </div>
@@ -196,7 +207,7 @@ export function SettingsTab(): JSX.Element {
                                     ? 'Retry managed warehouse provisioning?'
                                     : 'Provision managed warehouse?',
                                 description:
-                                    'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your team. This typically takes 5-15 minutes.',
+                                    'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your organization, shared by every project in it. This typically takes 5-15 minutes.',
                                 primaryButton: {
                                     children: isFailed ? 'Retry provisioning' : 'Provision',
                                     onClick: () => provisionWarehouse({ databaseName: retryDatabaseName }),
@@ -274,11 +285,12 @@ export function SettingsTab(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 loading={isDeprovisioning}
+                                disabledReason={deprovisionRestrictionReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',
                                         description:
-                                            'This will delete all AWS resources (Aurora database, S3 bucket, IAM roles) for your team. This action cannot be undone.',
+                                            'This will delete all AWS resources (Aurora database, S3 bucket, IAM roles) for your organization and every project in it. This action cannot be undone.',
                                         primaryButton: {
                                             children: 'Deprovision',
                                             status: 'danger',

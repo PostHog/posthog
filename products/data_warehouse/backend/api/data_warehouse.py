@@ -27,6 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
@@ -835,17 +836,21 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
 
         if not base_url:
-            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", team_id=self.team_id)
+            logger.warning(
+                "Provisioning request rejected: DUCKGRES_API_URL not configured",
+                org_id=str(self.team.organization_id),
+            )
             return Response(
                 {"error": "Managed warehouse provisioning is not configured"},
                 status=status.HTTP_501_NOT_IMPLEMENTED,
             )
 
-        # Use the PostHog team_id as the duckgres org identifier.
+        # Use the PostHog organization_id as the duckgres org identifier, so a single
+        # managed warehouse is shared by every team in the organization.
         # Paths starting with / are org-scoped, otherwise treated as absolute API paths.
-        team_id = str(self.team_id)
+        org_id = str(self.team.organization_id)
         if path.startswith("/"):
-            url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
         else:
             url = f"{base_url.rstrip('/')}/api/v1/{path}"
         headers = {}
@@ -857,13 +862,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 method, url, json=json_body, params=params, headers=headers, timeout=timeout
             )
         except http_requests.Timeout:
-            logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
+            logger.warning("Provisioning API timeout", method=method, path=path, org_id=org_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
         except http_requests.ConnectionError:
-            logger.warning("Provisioning API connection refused", method=method, path=path, team_id=team_id)
+            logger.warning("Provisioning API connection refused", method=method, path=path, org_id=org_id)
             return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
-            logger.exception("Provisioning API unexpected error", method=method, path=path, team_id=team_id)
+            logger.exception("Provisioning API unexpected error", method=method, path=path, org_id=org_id)
             return Response(
                 {"error": "An error occurred contacting the provisioning service"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -874,12 +879,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "Provisioning API returned error",
                 method=method,
                 path=path,
-                team_id=team_id,
+                org_id=org_id,
                 status_code=resp.status_code,
                 response_body=resp.text[:500],
             )
         else:
-            logger.info("Provisioning API request succeeded", method=method, path=path, team_id=team_id)
+            logger.info("Provisioning API request succeeded", method=method, path=path, org_id=org_id)
 
         try:
             body = resp.json()
@@ -904,7 +909,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def provision(self, request: Request, **kwargs) -> Response:
-        """Start provisioning a managed warehouse for this team."""
+        """Start provisioning a managed warehouse for this organization (shared by all its teams)."""
         database_name = request.data.get("database_name")
         if not database_name:
             return Response({"error": "database_name is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -930,7 +935,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def deprovision(self, request: Request, **kwargs) -> Response:
-        """Start deprovisioning the managed warehouse for this team."""
+        """Start deprovisioning the organization's managed warehouse. Restricted to organization admins."""
+        membership = OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user=request.user
+        ).first()
+        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+            return Response(
+                {"error": "Only organization admins can deprovision the managed warehouse"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         return self._provisioning_request("POST", "/deprovision")
 
     @extend_schema(

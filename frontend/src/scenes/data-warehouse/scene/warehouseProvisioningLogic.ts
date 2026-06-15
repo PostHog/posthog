@@ -188,7 +188,14 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
                 } catch (e: any) {
-                    lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
+                    if (e.status === 409) {
+                        // Another project in this organization already provisioned the shared warehouse.
+                        lemonToast.info('This organization already has a managed warehouse')
+                        actions.loadWarehouseStatus()
+                        actions.pollStatus()
+                    } else {
+                        lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
+                    }
                 }
                 actions.provisionWarehouseComplete()
             },
