@@ -847,8 +847,8 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            # Boundary between network-dependent setup (can flake) and the pure
-            # static checks below — the cancel step at the end uses it to avoid
+            # Boundary between network-dependent setup and the deterministic
+            # checks below. The cancellation job uses this output to avoid
             # canceling the whole run on a transient setup failure.
             - name: Mark setup complete
               id: setup-complete
@@ -2690,7 +2690,13 @@ jobs:
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
-                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
+
+                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
+                    echo "::error::Snapshot commit job failed."
+                    failure_count=$((failure_count + 1))
+                  elif [[ "$deterministic_failure" == "true" && "${{ needs.handle-snapshots.result }}" == "cancelled" ]]; then
+                    echo "::notice::Snapshot commit job was cancelled after a deterministic failure."
+                  fi
 
                   if [[ "$deterministic_failure" == "true" || "$failure_count" -gt 0 ]]; then
                     exit 1
