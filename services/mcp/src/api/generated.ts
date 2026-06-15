@@ -18972,7 +18972,7 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagStatusResponse {
-      /** Flag status: active, stale, deleted, or unknown */
+      /** Flag status: active, stale, archived, deleted, or unknown */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
