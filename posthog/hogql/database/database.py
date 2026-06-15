@@ -8,7 +8,6 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from functools import cache
-from pickle import Unpickler, UnpicklingError
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -316,11 +315,12 @@ _CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
 _CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
 
 
-class _CatalogUnpickler(Unpickler):
+class _CatalogUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         if module.startswith(_CATALOG_PICKLE_MODULE_PREFIXES) or module in _CATALOG_PICKLE_MODULES:
             return super().find_class(module, name)
-        raise UnpicklingError(f"refusing to unpickle disallowed catalog global {module}.{name}")
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (allowlist guard rejecting a class, not deserialising untrusted data)
+        raise pickle.UnpicklingError(f"refusing to unpickle disallowed catalog global {module}.{name}")
 
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
