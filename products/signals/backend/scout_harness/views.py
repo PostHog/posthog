@@ -41,7 +41,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import (
+    SignalProjectProfile,
+    SignalReport,
+    SignalScoutConfig,
+    SignalScoutEmission,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
@@ -54,6 +60,7 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RememberRequestSerializer,
+    ScoutEmissionReportLinkSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -72,6 +79,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     remember,
     search_scratchpad,
 )
+from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
 
 # Hard cap on the per-run emissions response. Far above any realistic run (a scout emits a
@@ -273,6 +281,73 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "-emitted_at", "-id"
         )[:MAX_EMISSIONS_PER_RUN]
         return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
+
+    @extend_schema(
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=ScoutEmissionReportLinkSerializer(many=True),
+                description="Per-finding inbox report links for this run, newest finding first.",
+            ),
+            404: OpenApiResponse(description="Run not found or not visible to this project."),
+        },
+        summary="List the inbox reports a run's findings linked to",
+        description=(
+            "Best-effort reverse of the report -> signals link. For each finding the run emitted, resolve "
+            "the inbox `SignalReport` (if any) its underlying signal grouped into by walking the deterministic "
+            "`source_id` back through the signal store. `report` is null when the finding hasn't grouped into a "
+            "report yet, was de-duplicated away, or its signal was deleted. Lets the scout UI surface which "
+            "inbox report a finding contributed to — the reverse of the report's evidence list. Strictly "
+            "team-scoped — a run UUID belonging to another team returns 404."
+        ),
+        operation_id="signals_scout_runs_emission_reports",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="emissions/reports",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def emission_reports(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        team_id = _canonical_team_id(self)
+        # Team-scope the run lookup first so a foreign-team UUID is a clean 404, not an empty list.
+        if not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
+            raise exceptions.NotFound()
+
+        emissions = list(
+            SignalScoutEmission.objects.filter(scout_run_id=run_id, team_id=team_id).order_by("-emitted_at", "-id")[
+                :MAX_EMISSIONS_PER_RUN
+            ]
+        )
+        # One ClickHouse round-trip for the whole run: map every finding's source_id to the
+        # report_id its signal grouped into (best effort — unmatched/deleted findings drop out).
+        source_ids = [e.source_id for e in emissions if e.source_id]
+        source_id_to_report_id = fetch_report_ids_for_source_ids(self.team, source_ids) if source_ids else {}
+
+        # Hydrate the resolved report ids into minimal projections. Exclude DELETED reports —
+        # ClickHouse soft-delete and Postgres status can drift, so a finding could resolve to a
+        # report that's since been deleted; treat that as "no link" rather than a dangling chip.
+        report_ids = {rid for rid in source_id_to_report_id.values() if rid}
+        reports_by_id = {
+            str(row["id"]): row
+            for row in SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
+            .exclude(status=SignalReport.Status.DELETED)
+            .values("id", "title", "status")
+        }
+
+        links = []
+        for emission in emissions:
+            report_id = source_id_to_report_id.get(emission.source_id)
+            links.append(
+                {
+                    "finding_id": emission.finding_id,
+                    "source_id": emission.source_id,
+                    "report": reports_by_id.get(report_id) if report_id else None,
+                }
+            )
+        return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,
