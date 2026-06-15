@@ -1,11 +1,10 @@
 from django.db import models
 from django.db.models import Q
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UpdatedMetaFields, UUIDModel
 
 
-class Reminder(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class Reminder(RootTeamMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
         COMPLETED = "completed", "Completed"
@@ -17,7 +16,8 @@ class Reminder(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDMo
         MONTHLY = "monthly", "Monthly"
         YEARLY = "yearly", "Yearly"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True)
 
     title = models.CharField(max_length=255)
     message = models.TextField(blank=True, default="")
@@ -59,4 +59,4 @@ class Reminder(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDMo
         ]
 
     def __str__(self) -> str:
-        return f"{self.title} (Team: {self.team_id}, User: {self.created_by_id})"
+        return f"{self.title} (org={self.organization_id}, team={self.team_id}, user={self.created_by_id})"

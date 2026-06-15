@@ -192,7 +192,6 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
-                              |Reminder
                               |ReplayObservation
                               |ReplayScanner
                               |Repo
@@ -437,7 +436,6 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
-                        |Reminder
                         |ReplayObservation
                         |ReplayScanner
                         |Repo
@@ -895,6 +893,7 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
@@ -966,6 +965,7 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList
