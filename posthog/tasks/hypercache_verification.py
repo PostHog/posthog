@@ -20,14 +20,15 @@ import structlog
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.feature_flag.local_evaluation import (
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.storage.hypercache_verifier import _run_verification_for_cache
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
+
+from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     verify_team_flag_definitions,
 )
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig
-from posthog.storage.hypercache_verifier import _run_verification_for_cache
-from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = structlog.get_logger(__name__)
 
@@ -118,7 +119,7 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
 
         # Import cache-specific config and verify function
         if cache_type == "flags":
-            from posthog.models.feature_flag.flags_cache import (
+            from products.feature_flags.backend.flags_cache import (
                 FLAGS_HYPERCACHE_MANAGEMENT_CONFIG as config,
                 verify_team_flags as verify_fn,
             )

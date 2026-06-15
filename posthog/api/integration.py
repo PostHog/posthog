@@ -10,9 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import stripe
 import structlog
-from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
@@ -32,6 +30,7 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
@@ -65,6 +64,7 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
+from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -74,6 +74,8 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -105,6 +107,9 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     """
     if not install_signature or not settings.STRIPE_SIGNING_SECRET:
         return False
+
+    import stripe  # noqa: PLC0415
+
     payload = json.dumps(
         {"state": state, "user_id": user_id, "account_id": account_id},
         separators=(",", ":"),
@@ -147,6 +152,9 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_email(self, value: str) -> str:
+        return value.lower()
 
 
 class GitHubRepoSerializer(serializers.Serializer):
@@ -301,6 +309,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         model = Integration
         fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
         read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+
+    def validate_kind(self, value: str) -> str:
+        if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
+            raise ValidationError("This integration kind is deprecated and can no longer be created.")
+        return value
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
@@ -563,7 +576,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -617,12 +630,53 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
+        flows_using_integration = get_active_hog_flows_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        if flows_using_integration:
+            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            raise ValidationError(
+                f"This integration is used by active workflows: {flow_names}. "
+                "Update those workflows to use a different integration before disconnecting it."
+            )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
+        elif instance.kind == "email" and instance.config.get("provider") == "ses":
+            domain = instance.config.get("domain")
+            if (
+                domain
+                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
+            ):
+                try:
+                    EmailIntegration(instance).ses_provider.delete_identity(domain)
+                except Exception as e:
+                    capture_exception(e)
+
+        if instance.kind == "github" and instance.integration_id:
+            # Team integrations own the installation; personal ones are subordinate. When the
+            # last team integration for an installation is removed, tear it down everywhere:
+            # uninstall the App on GitHub and delete the now-orphaned personal integrations.
+            # Other teams still sharing the same GitHub account keep it installed.
+            is_last_team_reference = (
+                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
+                .exclude(id=instance.id)
+                .exists()
+            )
+            if is_last_team_reference:
+                try:
+                    GitHubIntegration.uninstall_app_installation(instance.integration_id)
+                except Exception as e:
+                    capture_exception(e)
+                # Separate try so a DB error deleting personal rows isn't masked by the GitHub call.
+                try:
+                    UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id).delete()
+                except Exception as e:
+                    capture_exception(e)
 
         super().perform_destroy(instance)
 
@@ -672,10 +726,16 @@ class IntegrationViewSet(
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
-        query = search.strip().lower()
+        query = search.strip()
         if not query:
             return visible
-        return [channel for channel in visible if query in channel["name"].lower() or query in channel["id"].lower()]
+        # Fuzzy-rank by name, then union in any channel whose id contains the query so pasting an id still resolves.
+        ranked = fuzzy_filter(query, visible, key=lambda channel: channel["name"])
+        ranked_ids = {channel["id"] for channel in ranked}
+        id_matches = [
+            channel for channel in visible if query.lower() in channel["id"].lower() and channel["id"] not in ranked_ids
+        ]
+        return ranked + id_matches
 
     @extend_schema(
         parameters=[SlackChannelsQuerySerializer],
@@ -933,6 +993,13 @@ class IntegrationViewSet(
         return self._anthropic_managed_list_response(request, resource="vaults")
 
     def _anthropic_managed_list_response(self, request: Request, *, resource: str) -> Response:
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         instance = self._get_anthropic_integration_or_400()
 
         try:

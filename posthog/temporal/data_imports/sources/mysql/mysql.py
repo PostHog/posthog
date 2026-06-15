@@ -48,6 +48,8 @@ from posthog.temporal.data_imports.sources.common.sql import (
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    compute_projected_columns,
+    project_arrow_columns,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -158,6 +160,8 @@ def _build_query(
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
     force_index_name: str | None = None,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     hint: str | None = None
     if force_index_name is not None:
@@ -169,6 +173,8 @@ def _build_query(
             schema=schema,
             table_name=table_name,
             extra_table_hint=hint,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
         )
         params = result.params if isinstance(result.params, dict) else {}
         return result.sql, params
@@ -183,6 +189,8 @@ def _build_query(
         incremental_field_type=incremental_field_type,
         incremental_last_value=db_incremental_field_last_value,
         extra_table_hint=hint,
+        enabled_columns=enabled_columns,
+        primary_keys=primary_keys,
     )
     params = result.params if isinstance(result.params, dict) else {}
     return result.sql, params
@@ -196,6 +204,26 @@ def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
     """
     code = e.args[0] if e.args else None
     return code == _LOST_CONNECTION_DURING_QUERY_CODE
+
+
+def _release_streaming_cursor(cursor: SSCursor) -> None:
+    """Detach an unbuffered cursor from its connection without draining it.
+
+    PyMySQL's `SSCursor.close()` (and its `__del__`) finishes the unbuffered
+    query by reading every outstanding row packet from the server via
+    `_finish_unbuffered_query`. When we abandon a stream early — a cancelled
+    Temporal activity injects `GeneratorExit`, or the FORCE INDEX fallback
+    restarts the query — that drain runs against a connection that is already
+    going away and raises `OperationalError(2013, 'Lost connection to MySQL
+    server during query')` from inside the teardown path, masking the real
+    reason iteration stopped. Clearing the connection reference is exactly what
+    PyMySQL does once a query is fully consumed, so the cursor's later
+    `close`/`__del__` becomes a no-op and the owning `with self.connect(...)`
+    block closes the socket cleanly.
+    """
+    # PyMySQL clears this same attribute once a query is fully consumed; the
+    # stub types it non-optional, so we mirror that runtime behaviour here.
+    cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 class MySQLColumn(Column):
@@ -722,9 +750,22 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
+                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
+                full_table = self.get_table_metadata(cursor, schema, table_name)
+
+                # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
+                if primary_keys is None and "id" in full_table:
+                    primary_keys = ["id"]
+
+                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                table = project_arrow_columns(full_table, projected)
+                arrow_schema = table.to_arrow_schema()
+                logger.debug(f"Source schema: {arrow_schema}")
+
                 inner_query, inner_query_args = _build_query(
                     schema,
                     table_name,
@@ -732,12 +773,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
                 )
 
-                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
-                table = self.get_table_metadata(cursor, schema, table_name)
-                arrow_schema = table.to_arrow_schema()
-                logger.debug(f"Source schema: {arrow_schema}")
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
                 partition_settings = (
@@ -745,10 +784,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     if should_use_incremental_field
                     else None
                 )
-
-                # Fallback on checking for an `id` field on the table
-                if primary_keys is None and "id" in table:
-                    primary_keys = ["id"]
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -771,7 +806,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
-                with streaming_connection.cursor(SSCursor) as ss_cursor:
+                ss_cursor = streaming_connection.cursor(SSCursor)
+                try:
                     query, args = _build_query(
                         schema,
                         table_name,
@@ -780,6 +816,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         incremental_field_type,
                         db_incremental_field_last_value,
                         force_index_name=force_index_name,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
 
@@ -802,6 +840,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             break
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                finally:
+                    # Tear the streaming cursor down without draining the rest of
+                    # the unbuffered result set — see `_release_streaming_cursor`.
+                    # Closing it normally here would reissue the lost-connection
+                    # error over a cancellation or the FORCE INDEX restart.
+                    _release_streaming_cursor(ss_cursor)
 
         def get_rows() -> Iterator[Any]:
             # Track whether any batch reached the pipeline. If one did,

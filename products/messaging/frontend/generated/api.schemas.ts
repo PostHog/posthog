@@ -9,7 +9,7 @@
  */
 /**
  * * `marketing` - Marketing
- * `transactional` - Transactional
+ * * `transactional` - Transactional
  */
 export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
 
@@ -43,6 +43,22 @@ export interface PaginatedMessageCategoryListApi {
     results: MessageCategoryApi[]
 }
 
+export interface PatchedMessageCategoryApi {
+    readonly id?: string
+    /** @maxLength 64 */
+    key?: string
+    /** @maxLength 128 */
+    name?: string
+    description?: string
+    public_description?: string
+    category_type?: CategoryTypeEnumApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    deleted?: boolean
+}
+
 export interface AddOptOutRequestApi {
     /**
      * The recipient identifier to opt out (e.g. email address).
@@ -64,38 +80,82 @@ export interface MessagePreferencesApi {
 }
 
 /**
- * * `hog` - hog
- * `liquid` - liquid
+ * * `liquid` - liquid
  */
-export type HogFunctionTemplatingEnumApi =
-    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
+export type MessageTemplateContentTemplatingEnumApi =
+    (typeof MessageTemplateContentTemplatingEnumApi)[keyof typeof MessageTemplateContentTemplatingEnumApi]
 
-export const HogFunctionTemplatingEnumApi = {
-    Hog: 'hog',
+export const MessageTemplateContentTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
+/**
+ * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+ */
+export type EmailTemplateApiDesignCounters = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyRowsItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyHeadersItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyFootersItem = { [key: string]: unknown }
+
+/**
+ * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+ */
+export type EmailTemplateApiDesignBodyValues = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBody = {
+    /** Any unique string. */
+    id?: string
+    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+    rows: EmailTemplateApiDesignBodyRowsItem[]
+    headers?: EmailTemplateApiDesignBodyHeadersItem[]
+    footers?: EmailTemplateApiDesignBodyFootersItem[]
+    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+    values?: EmailTemplateApiDesignBodyValues
+}
+
+/**
+ * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+ */
+export type EmailTemplateApiDesign = {
+    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+    counters?: EmailTemplateApiDesignCounters
+    /** Design schema version, e.g. 16. */
+    schemaVersion: number
+    body: EmailTemplateApiDesignBody
+}
+
 export interface EmailTemplateApi {
+    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
+    /** Plain-text fallback body for clients that can't render the email. */
     text?: string
+    /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
-    design?: unknown
+    /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+    design?: EmailTemplateApiDesign
 }
 
 export interface MessageTemplateContentApi {
-    templating?: HogFunctionTemplatingEnumApi
+    /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+     *
+     * * `liquid` - liquid */
+    templating?: MessageTemplateContentTemplatingEnumApi
+    /** Email message content. Replaced as a whole on update — send the complete object. */
     email?: EmailTemplateApi | null
 }
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -144,17 +204,29 @@ export interface UserBasicApi {
 
 export interface MessageTemplateApi {
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Human-readable template name shown in the library.
+     * @maxLength 400
+     */
     name: string
+    /** What the template is for and when to use it. */
     description?: string
     readonly created_at: string
     readonly updated_at: string
+    /** Template content keyed by channel. Replaced as a whole on update, not merged. */
     content?: MessageTemplateContentApi
     readonly created_by: UserBasicApi
-    /** @maxLength 24 */
+    /**
+     * Message channel of the template. Currently 'email'.
+     * @maxLength 24
+     */
     type?: string
-    /** @nullable */
+    /**
+     * Message category ID to file the template under. Must belong to the same project.
+     * @nullable
+     */
     message_category?: string | null
+    /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
 }
 
@@ -165,6 +237,34 @@ export interface PaginatedMessageTemplateListApi {
     /** @nullable */
     previous?: string | null
     results: MessageTemplateApi[]
+}
+
+export interface PatchedMessageTemplateApi {
+    readonly id?: string
+    /**
+     * Human-readable template name shown in the library.
+     * @maxLength 400
+     */
+    name?: string
+    /** What the template is for and when to use it. */
+    description?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** Template content keyed by channel. Replaced as a whole on update, not merged. */
+    content?: MessageTemplateContentApi
+    readonly created_by?: UserBasicApi
+    /**
+     * Message channel of the template. Currently 'email'.
+     * @maxLength 24
+     */
+    type?: string
+    /**
+     * Message category ID to file the template under. Must belong to the same project.
+     * @nullable
+     */
+    message_category?: string | null
+    /** Soft-delete flag. Set true to remove the template from the library. */
+    deleted?: boolean
 }
 
 export type MessagingCategoriesListParams = {

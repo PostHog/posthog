@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+from collections import defaultdict
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -10,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Now
+from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
 import pydantic
@@ -20,13 +21,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
-from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -34,6 +29,10 @@ from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -41,10 +40,14 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -189,6 +192,44 @@ class ExperimentService:
                     f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
                     "'key' to 'control'."
                 )
+
+        excluded_variants = parameters.get("excluded_variants")
+        if excluded_variants is None:
+            return
+
+        if not isinstance(excluded_variants, list) or not all(isinstance(v, str) for v in excluded_variants):
+            raise ValidationError("excluded_variants must be a list of strings")
+
+        if not excluded_variants:
+            return
+
+        # `parameters` is replaced wholesale on update (see update_experiment:
+        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
+        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
+        # otherwise the stored object would have no variants at all. Surface that
+        # explicitly rather than letting every key fall through to "unknown variants".
+        if not variants:
+            raise ValidationError(
+                "excluded_variants requires feature_flag_variants in the same request — "
+                "parameters are replaced as a whole on update, so send the full parameters object"
+            )
+
+        variant_keys = {v["key"] for v in variants}
+        baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
+
+        holdout_excluded = {k for k in excluded_variants if k.startswith("holdout-")}
+        if holdout_excluded:
+            raise ValidationError(f"cannot exclude holdout pseudo-variants: {sorted(holdout_excluded)}")
+
+        if baseline_key in excluded_variants:
+            raise ValidationError(f"baseline variant cannot be excluded ('{baseline_key}')")
+
+        unknown = set(excluded_variants) - variant_keys
+        if unknown:
+            raise ValidationError(f"unknown variants for this experiment: {sorted(unknown)}")
+
+        if not variant_keys - set(excluded_variants) - {baseline_key}:
+            raise ValidationError("at least one test variant must remain in analysis")
 
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
@@ -378,6 +419,8 @@ class ExperimentService:
     EXPERIMENT_ORDER_ALLOWLIST = {
         "created_at",
         "-created_at",
+        "created_by",
+        "-created_by",
         "updated_at",
         "-updated_at",
         "name",
@@ -402,8 +445,14 @@ class ExperimentService:
     }
 
     @classmethod
-    def validate_stats_config(cls, stats_config: dict | None) -> None:
-        """Validate stats_config shape and method value."""
+    def validate_stats_config(cls, stats_config: dict | None, variant_keys: list[str] | None = None) -> None:
+        """Validate stats_config shape, method value, and baseline variant key.
+
+        When ``variant_keys`` is provided, a ``baseline_variant_key`` set in
+        ``stats_config`` must be one of them. When ``variant_keys`` is None/empty,
+        baseline validation is skipped (the caller couldn't supply the keys).
+        Absence of ``baseline_variant_key`` is always valid (defaults to control downstream).
+        """
         if not stats_config:
             return
         method = stats_config.get("method")
@@ -411,6 +460,33 @@ class ExperimentService:
             raise ValidationError(
                 f"Invalid stats method: '{method}'. Must be one of: {', '.join(sorted(cls.VALID_STATS_METHODS))}"
             )
+        baseline_variant_key = stats_config.get("baseline_variant_key")
+        if baseline_variant_key is not None and variant_keys and baseline_variant_key not in variant_keys:
+            raise ValidationError(
+                f"Invalid baseline_variant_key: '{baseline_variant_key}'. "
+                f"Must be one of: {', '.join(sorted(variant_keys))}"
+            )
+
+    @staticmethod
+    def _variant_keys(variants: list | None) -> list[str]:
+        """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
+        return [variant["key"] for variant in (variants or []) if isinstance(variant, dict)]
+
+    @classmethod
+    def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
+        """Variant keys the experiment will have after this update.
+
+        Prefer the variants the PATCH sets; otherwise fall back to the experiment's
+        current variants (its parameters first, then the linked flag's multivariate set).
+        """
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if update_variants is None:
+            update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
+                experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
+                if experiment.feature_flag
+                else []
+            )
+        return cls._variant_keys(update_variants)
 
     @staticmethod
     def validate_no_duplicate_metric_uuids(*metric_lists: list | None) -> None:
@@ -640,7 +716,6 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        self.validate_stats_config(stats_config)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -653,6 +728,13 @@ class ExperimentService:
             create_in_folder=create_in_folder,
             serializer_context=serializer_context,
         )
+
+        # Validate the baseline against the variants the flag actually ends up with.
+        # used_variants reflects DEFAULT_VARIANTS / an existing linked flag, which the
+        # raw parameters payload may omit. This runs inside the @transaction.atomic
+        # create, so a raise rolls back the just-created flag.
+        used_variant_keys = self._variant_keys(used_variants)
+        self.validate_stats_config(stats_config, used_variant_keys)
 
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
@@ -670,6 +752,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=(parameters or {}).get("excluded_variants"),
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
@@ -679,6 +762,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=(parameters or {}).get("excluded_variants"),
                 )
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
@@ -874,6 +958,11 @@ class ExperimentService:
         if "control" not in [variant["key"] for variant in variants]:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
+    def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
+        """A deleted flag distributes no traffic, so an experiment can never go live on it."""
+        if feature_flag.deleted:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+
     @staticmethod
     def _assign_uuids_to_metrics(
         metrics: list[dict] | None,
@@ -962,6 +1051,7 @@ class ExperimentService:
         stats_config: dict | None,
         exposure_criteria: dict | None,
         only_count_matured_users: bool = False,
+        excluded_variants: list[str] | None = None,
     ) -> list[dict]:
         """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
@@ -974,6 +1064,7 @@ class ExperimentService:
                 stats_method,
                 exposure_criteria,
                 only_count_matured_users=only_count_matured_users,
+                excluded_variants=excluded_variants,
             )
             updated.append(metric_copy)
         return updated
@@ -1138,8 +1229,7 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        if feature_flag.deleted:
-            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+        self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
 
         # Set start_date
@@ -1153,7 +1243,11 @@ class ExperimentService:
                     experiment,
                     metric_field,
                     self._recompute_fingerprints(
-                        metrics, experiment.start_date, experiment.stats_config, experiment.exposure_criteria
+                        metrics,
+                        experiment.start_date,
+                        experiment.stats_config,
+                        experiment.exposure_criteria,
+                        excluded_variants=(experiment.parameters or {}).get("excluded_variants"),
                     ),
                 )
 
@@ -1844,8 +1938,15 @@ class ExperimentService:
                 existing_flag_serializer.save()
 
         # --- validate updated fields ------------------------------------------
-        if "stats_config" in update_data:
-            self.validate_stats_config(update_data["stats_config"])
+        # Revalidate the baseline whenever either side of the constraint changes:
+        # the stats_config itself, or the variant set it references. A variants-only
+        # PATCH (e.g. updateDistribution) that renames/removes the current baseline
+        # must not leave a dangling baseline_variant_key behind.
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if "stats_config" in update_data or update_variants is not None:
+            variant_keys = self._resolved_variant_keys(experiment, update_data)
+            effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+            self.validate_stats_config(effective_stats_config, variant_keys)
 
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
@@ -1859,6 +1960,8 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
+        new_parameters = update_data.get("parameters", experiment.parameters)
+        excluded_variants = (new_parameters or {}).get("excluded_variants")
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -1869,6 +1972,7 @@ class ExperimentService:
                     stats_config,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=excluded_variants,
                 )
 
         # --- metric ordering sync + validation -----------------------------
@@ -1902,6 +2006,13 @@ class ExperimentService:
                 "Cannot restore experiment: the linked feature flag has been deleted. "
                 "Restore the feature flag first, then restore the experiment."
             )
+
+        # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
+        # run the same flag guards as the dedicated launch_experiment action: flag not
+        # deleted, and a valid control/variant configuration.
+        if experiment.is_draft and update_data.get("start_date") is not None:
+            self._assert_flag_not_deleted_for_launch(feature_flag)
+            self._validate_existing_flag(feature_flag)
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):
@@ -2200,6 +2311,46 @@ class ExperimentService:
     # Experiment list/querying
     # ------------------------------------------------------------------
 
+    def _experiments_matching_event(self, queryset: QuerySet[Experiment], event: str) -> list[int]:
+        """Return PKs of experiments whose metrics reference the given event.
+
+        Reads only the metric columns — no model hydration or prefetches, so the
+        caller's prefetch-heavy queryset isn't materialized twice — and resolves
+        every referenced action in a single batched query to avoid an N+1.
+        """
+        inline_metrics = list(queryset.values_list("pk", "metrics", "metrics_secondary"))
+        pks = [pk for pk, _, _ in inline_metrics]
+
+        saved_queries_by_experiment: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for experiment_id, query in ExperimentToSavedMetric.objects.filter(experiment_id__in=pks).values_list(
+            "experiment_id", "saved_metric__query"
+        ):
+            if query:
+                saved_queries_by_experiment[experiment_id].append(query)
+
+        per_experiment: list[tuple[int, set[str], set[int]]] = []
+        all_action_ids: set[int] = set()
+        for pk, metrics, metrics_secondary in inline_metrics:
+            combined: list[dict[str, Any]] = [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *saved_queries_by_experiment.get(pk, []),
+            ]
+            events, action_ids = collect_metric_events_and_action_ids(combined)
+            per_experiment.append((pk, events, action_ids))
+            all_action_ids |= action_ids
+
+        action_events = resolve_action_events(all_action_ids, self.team)
+
+        matching_ids: list[int] = []
+        for pk, events, action_ids in per_experiment:
+            resolved = set(events)
+            for action_id in action_ids:
+                resolved |= action_events.get(action_id, set())
+            if event in resolved:
+                matching_ids.append(pk)
+        return matching_ids
+
     def filter_experiments_queryset(
         self,
         queryset: QuerySet[Experiment],
@@ -2281,6 +2432,12 @@ class ExperimentService:
             if prompt_name:
                 queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
 
+            event = query_params.get("event")
+            if event:
+                # Event references live deep in the metrics JSON, so filter in Python and
+                # narrow the queryset by primary key to preserve ordering and pagination.
+                queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
+
         search = query_params.get("search")
         if search:
             queryset = queryset.filter(Q(name__icontains=search))
@@ -2311,6 +2468,17 @@ class ExperimentService:
                     queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
+            elif order_value in ["created_by", "-created_by"]:
+                # Match the frontend column's `first_name || email` sorter — treat an
+                # empty `first_name` as missing and fall back to `email`, so users with
+                # a blank first name aren't bunched at one end of the list.
+                prefix = "-" if order_value.startswith("-") else ""
+                queryset = queryset.annotate(
+                    created_by_display=Coalesce(
+                        NullIf(F("created_by__first_name"), Value("")),
+                        F("created_by__email"),
+                    )
+                ).order_by(f"{prefix}created_by_display")
             else:
                 queryset = queryset.order_by(order_value)
         else:

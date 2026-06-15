@@ -348,11 +348,22 @@ export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex?: number,
-    itemLabel?: string
+    itemLabel?: string,
+    truncateLabel: boolean = true
 ): string {
     if (Array.isArray(breakdown_value)) {
         return breakdown_value
-            .map((v, index) => formatBreakdownLabel(v, breakdownFilter, cohorts, formatPropertyValueForDisplay, index))
+            .map((v, index) =>
+                formatBreakdownLabel(
+                    v,
+                    breakdownFilter,
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    index,
+                    undefined,
+                    truncateLabel
+                )
+            )
             .join('::')
     }
 
@@ -365,14 +376,18 @@ export function formatBreakdownLabel(
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         const formattedBucketEnd = formatBreakdownLabel(
             bucketEnd,
             breakdownFilter,
             cohorts,
             formatPropertyValueForDisplay,
-            multipleBreakdownIndex
+            multipleBreakdownIndex,
+            undefined,
+            truncateLabel
         )
         if (formattedBucketStart === formattedBucketEnd) {
             return formattedBucketStart
@@ -437,7 +452,7 @@ export function formatBreakdownLabel(
                   ? BREAKDOWN_NULL_DISPLAY
                   : breakdown_value
 
-        if (label.length > 200) {
+        if (truncateLabel && label.length > 200) {
             return label.slice(0, 200) + '…'
         }
         return label

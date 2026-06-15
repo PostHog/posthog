@@ -93,6 +93,18 @@ class PendingBatch:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class FailedRunRef:
+    """Identity of a run with a ``failed`` queue batch, used by the reconcile sweep to fail its ExternalDataJob."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    workflow_run_id: str | None
+    reason: str | None
+
+
 class BatchQueue:
     """
     Async interface to the Postgres batch queue tables. Each method runs
@@ -173,6 +185,7 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         limit: int = 50,
+        retry_backoff_base_seconds: int = 0,
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) advisory lock is acquirable.
 
@@ -181,6 +194,25 @@ class BatchQueue:
         Postgres is free to evaluate pg_try_advisory_lock on rows that are
         later discarded by other predicates or by LIMIT, creating phantom
         locks that unlock_for_batches never releases.
+
+        ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
+        the age of the latest status row: a batch is only eligible when
+        ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
+        (attempt is floored at 1 so that a zero-attempt row still waits at least one
+        base period).
+
+        Head-of-line gating per run: a batch is excluded if any earlier
+        ``batch_index`` in the same ``run_uuid`` is currently ``executing`` or
+        in ``waiting_retry`` whose backoff window has not yet elapsed. Earlier
+        batches that are unprocessed (NULL status) or ``waiting_retry`` with
+        backoff met are treated as siblings that will be returned alongside
+        in the same poll and processed sequentially by the consumer.
+
+        In-flight schema gating: a batch is also excluded if its
+        ``(team_id, schema_id)`` already has an ``executing`` batch (i.e. the
+        per-schema advisory lock is held by the pod processing it). This keeps a
+        schema's other queued runs from consuming the ``LIMIT`` window ahead of
+        the advisory-lock filter and starving other schemas' claimable work.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -198,13 +230,47 @@ class BatchQueue:
                     LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (s.batch_id IS NULL OR s.job_state = 'waiting_retry')
+                        AND (
+                            s.batch_id IS NULL
+                            OR (
+                                s.job_state = 'waiting_retry'
+                                AND s.created_at <= now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(COALESCE(s.attempt, 1), 1)
+                                )
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_prev
+                            LEFT JOIN {STATUS_VIEW} s_prev ON b_prev.id = s_prev.batch_id
+                            WHERE b_prev.run_uuid = b.run_uuid
+                                AND b_prev.batch_index < b.batch_index
+                                AND b_prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND (
+                                    s_prev.job_state = 'executing'
+                                    OR (
+                                        s_prev.job_state = 'waiting_retry'
+                                        AND s_prev.created_at > now() - make_interval(
+                                            secs => %(backoff)s * GREATEST(COALESCE(s_prev.attempt, 1), 1)
+                                        )
+                                    )
+                                )
+                        )
                         AND b.run_uuid NOT IN (
                             SELECT DISTINCT b2.run_uuid
                             FROM {BATCH_TABLE} b2
                             JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
                             WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s2.job_state = 'failed'
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM {BATCH_TABLE} b_busy
+                            JOIN {STATUS_VIEW} s_busy ON b_busy.id = s_busy.batch_id
+                            WHERE b_busy.team_id = b.team_id
+                                AND b_busy.schema_id = b.schema_id
+                                AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s_busy.job_state = 'executing'
                         )
                     ORDER BY b.created_at ASC, b.batch_index ASC
                     LIMIT %(limit)s
@@ -214,7 +280,7 @@ class BatchQueue:
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {"limit": limit},
+                {"limit": limit, "backoff": retry_backoff_base_seconds},
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -245,11 +311,16 @@ class BatchQueue:
     @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int = 0,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
 
         Uses a MATERIALIZED CTE for the same reason as get_unprocessed_and_lock:
         candidate rows are fully resolved before any advisory lock is probed.
+
+        ``grace_seconds`` requires the 'executing' status row to be older than
+        this threshold before the batch is considered orphaned.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -268,6 +339,7 @@ class BatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND s.job_state = 'executing'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
                     ORDER BY b.created_at ASC, b.batch_index ASC
                 )
                 SELECT c.*
@@ -275,6 +347,7 @@ class BatchQueue:
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
+                {"grace": grace_seconds},
             )
             rows = await cur.fetchall()
 
@@ -310,6 +383,55 @@ class BatchQueue:
             },
         )
         return cursor.rowcount or 0
+
+    @staticmethod
+    async def get_failed_runs(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+        lookback_seconds: int,
+        limit: int,
+    ) -> list[FailedRunRef]:
+        """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
+
+        Ordered by latest failure first so fresh failures still land in the window when
+        already-reconciled runs outnumber ``limit`` within the lookback.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
+                FROM (
+                    SELECT DISTINCT ON (b.run_uuid)
+                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
+                        s.created_at AS failed_at
+                    FROM {BATCH_TABLE} b
+                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND s.job_state = 'failed'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                    ORDER BY b.run_uuid, s.created_at DESC
+                ) failed_runs
+                ORDER BY failed_at DESC
+                LIMIT %(limit)s
+                """,
+                {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},
+            )
+            rows = await cur.fetchall()
+
+        return [
+            FailedRunRef(
+                run_uuid=row["run_uuid"],
+                job_id=row["job_id"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                workflow_run_id=(row["metadata"] or {}).get("workflow_run_id"),
+                reason=(row["error_response"] or {}).get("error"),
+            )
+            for row in rows
+        ]
 
     @staticmethod
     async def unlock_for_batches(

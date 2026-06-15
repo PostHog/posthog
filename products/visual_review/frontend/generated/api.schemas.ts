@@ -309,15 +309,20 @@ export interface ApproveSnapshotInputApi {
 }
 
 export interface ApproveRunRequestInputApi {
-    /** Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true. */
-    snapshots?: ApproveSnapshotInputApi[]
-    /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
-    approve_all?: boolean
-    /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
-    commit_to_github?: boolean
+    /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+    snapshots: ApproveSnapshotInputApi[]
 }
 
-export interface AutoApproveResultApi {
+export interface FinalizeRunRequestInputApi {
+    /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
+    approve_all?: boolean
+    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
+    commit_to_github?: boolean
+    /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+    add_images_to_comment_on_pr?: boolean
+}
+
+export interface FinalizeResultApi {
     run: RunApi
     baseline_content: string
 }
@@ -385,6 +390,8 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+    /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    quarantined_count?: number
 }
 
 export interface MarkToleratedInputApi {
@@ -512,6 +519,10 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean
     /**
      * Number of results to return per page.
      */

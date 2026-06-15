@@ -3,10 +3,26 @@ import pytest
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
+    _strip_leading_whitespace,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key, get_object_key
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+
+@pytest.mark.parametrize(
+    "conn_str,expected",
+    [
+        # No changes without leading whitespace
+        ("AccountName=name;AccountKey=key;SomeKey=value", "AccountName=name;AccountKey=key;SomeKey=value"),
+        # Stripped leading whitespace one time
+        ("AccountName=name; AccountKey=key;SomeKey=value", "AccountName=name;AccountKey=key;SomeKey=value"),
+        # Stripped leading whitespace two times
+        ("AccountName=name; AccountKey=key; SomeKey=value", "AccountName=name;AccountKey=key;SomeKey=value"),
+    ],
+)
+def test_strip_leading_whitespace(conn_str: str, expected: str) -> None:
+    assert _strip_leading_whitespace(conn_str) == expected
 
 
 @pytest.mark.parametrize(

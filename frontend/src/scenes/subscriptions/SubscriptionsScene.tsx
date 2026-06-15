@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
+import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { EditSubscription } from 'lib/components/Subscriptions/views/EditSubscription'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -15,14 +17,11 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature } from '~/types'
 
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
-import { SubscriptionsLoadingSkeleton } from './components/SubscriptionsLoadingSkeleton'
 import {
     SubscriptionsTable,
     isSubscriptionEnabled,
@@ -104,8 +103,10 @@ export function SubscriptionsScene(): JSX.Element {
         currentTab,
         subscriptionsSorting,
         targetTypeFilter,
+        subscriptionModalId,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const isFiltered =
         Boolean(search.trim()) ||
@@ -118,6 +119,7 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Mine, label: 'My subscriptions' },
         { key: SubscriptionsTab.Dashboard, label: 'Dashboard' },
         { key: SubscriptionsTab.Insight, label: 'Insight' },
+        ...(aiSubscriptionsEnabled ? [{ key: SubscriptionsTab.AI, label: 'Prompt' }] : []),
     ]
     const showProductIntroduction =
         subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
@@ -128,6 +130,17 @@ export function SubscriptionsScene(): JSX.Element {
                 name={sceneConfigurations[Scene.Subscriptions].name}
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
+                actions={
+                    aiSubscriptionsEnabled ? (
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-subscription-button"
+                            onClick={() => router.actions.push(urls.subscriptionNew())}
+                        >
+                            New prompt subscription
+                        </LemonButton>
+                    ) : undefined
+                }
             />
             <LemonTabs
                 activeKey={currentTab}
@@ -135,54 +148,50 @@ export function SubscriptionsScene(): JSX.Element {
                 tabs={subscriptionTabs}
                 sceneInset
             />
-            <PayGateMini
-                feature={AvailableFeature.SUBSCRIPTIONS}
-                handleSubmit={() => undefined}
-                background={false}
-                className="py-8 flex-1 min-h-0 flex flex-col"
-                docsLink="https://posthog.com/docs/user-guides/subscriptions"
-                loadingSkeleton={
-                    <div className="py-8 flex-1 min-h-0 flex flex-col w-full">
-                        <SubscriptionsLoadingSkeleton />
-                    </div>
-                }
-            >
-                <div className="flex flex-col gap-4 max-w-full">
-                    {showProductIntroduction ? (
-                        <ProductIntroduction
-                            productName="Subscriptions"
-                            productKey={ProductKey.SUBSCRIPTIONS}
-                            thingName="subscription"
-                            titleOverride="No subscriptions yet"
-                            description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
-                            isEmpty
-                            customHog={DetectiveHog}
-                            hogLayout="responsive"
-                            useMainContentContainerQueries
-                            docsURL="https://posthog.com/docs/user-guides/subscriptions"
-                            actionElementOverride={
-                                <span className="italic">
-                                    Open a <Link to={urls.dashboards()}>dashboard</Link> or{' '}
-                                    <Link to={urls.insights()}>saved insight</Link>, open the side panel, and click{' '}
-                                    &quot;Subscribe&quot; to configure the options.
-                                </span>
-                            }
+            <div className="py-8 flex-1 min-h-0 flex flex-col gap-4 max-w-full">
+                {showProductIntroduction ? (
+                    <ProductIntroduction
+                        productName="Subscriptions"
+                        productKey={ProductKey.SUBSCRIPTIONS}
+                        thingName="subscription"
+                        titleOverride="No subscriptions yet"
+                        description="Get recurring email or Slack digests, or scheduled exports from insights and dashboards. Use them for weekly rollups, stakeholder updates, or wiring metrics into your own systems."
+                        isEmpty
+                        customHog={DetectiveHog}
+                        hogLayout="responsive"
+                        useMainContentContainerQueries
+                        docsURL="https://posthog.com/docs/user-guides/subscriptions"
+                        actionElementOverride={
+                            <span className="italic">
+                                Open a <Link to={urls.dashboards()}>dashboard</Link> or{' '}
+                                <Link to={urls.insights()}>saved insight</Link>, open the side panel, and click{' '}
+                                &quot;Subscribe&quot; to configure the options.
+                            </span>
+                        }
+                    />
+                ) : (
+                    <>
+                        <SubscriptionsFiltersBar />
+                        <SubscriptionsTable
+                            dataSource={subscriptions}
+                            loading={subscriptionsLoading}
+                            pagination={pagination}
+                            sorting={subscriptionsSorting}
+                            onSort={setSubscriptionsSorting}
+                            renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
                         />
-                    ) : (
-                        <>
-                            <SubscriptionsFiltersBar />
-                            <SubscriptionsTable
-                                dataSource={subscriptions}
-                                loading={subscriptionsLoading}
-                                pagination={pagination}
-                                sorting={subscriptionsSorting}
-                                onSort={setSubscriptionsSorting}
-                                renderRowActions={(sub) => <SubscriptionsRowActions sub={sub} />}
-                            />
-                        </>
-                    )}
-                </div>
-            </PayGateMini>
+                    </>
+                )}
+            </div>
+            {subscriptionModalId !== null && (
+                <LemonModal isOpen onClose={() => router.actions.push(urls.subscriptions())} simple={false} width={650}>
+                    <EditSubscription
+                        id={subscriptionModalId}
+                        onCancel={() => router.actions.push(urls.subscriptions())}
+                        onDelete={() => router.actions.push(urls.subscriptions())}
+                    />
+                </LemonModal>
+            )}
         </SceneContent>
     )
 }

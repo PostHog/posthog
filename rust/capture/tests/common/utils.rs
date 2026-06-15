@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
@@ -25,7 +26,7 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
-use capture::config::{CaptureMode, Config, KafkaConfig};
+use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
 use capture::server::serve;
 use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -128,6 +129,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metrics_producer_max_retries: None,
         kafka_metrics_topic_metadata_refresh_interval_ms: None,
         kafka_metrics_metadata_max_age_ms: None,
+        kafka_replay_envelope_compression: EnvelopeCompression::None,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -147,7 +149,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_region: "us-east-1".to_string(),
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
-    request_timeout_seconds: Some(10),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -161,6 +162,29 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
 });
+
+/// Build the per-sink env snapshot the v1 sink loader expects, with every
+/// topic pointing at a single (ephemeral) topic. Mirrors the env layout from
+/// `v1::sinks::load_sink_config`: keys are `CAPTURE_V1_SINK_<NAME>_KAFKA_*`.
+pub fn v1_sink_env_for_topic(sink: &str, topic: &str) -> HashMap<String, String> {
+    let prefix = format!("CAPTURE_V1_SINK_{}_", sink.to_uppercase());
+    [
+        ("KAFKA_HOSTS", DEFAULT_CONFIG.kafka.kafka_hosts.as_str()),
+        ("KAFKA_TOPIC_MAIN", topic),
+        ("KAFKA_TOPIC_HISTORICAL", topic),
+        ("KAFKA_TOPIC_OVERFLOW", topic),
+        ("KAFKA_TOPIC_DLQ", topic),
+        ("KAFKA_TOPIC_EXCEPTION", topic),
+        ("KAFKA_TOPIC_HEATMAP", topic),
+        ("KAFKA_TOPIC_CLIENT_INGESTION_WARNING", topic),
+        ("KAFKA_LINGER_MS", "0"),
+        ("KAFKA_COMPRESSION_CODEC", "none"),
+        ("KAFKA_MESSAGE_TIMEOUT_MS", "10000"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (format!("{prefix}{k}"), v.to_string()))
+    .collect()
+}
 
 static TRACING_INIT: Once = Once::new();
 pub fn setup_tracing() {
@@ -189,7 +213,27 @@ impl ServerHandle {
         config.capture_mode = CaptureMode::Recordings;
         Self::for_config(config).await
     }
+
+    /// Boots a server with the v1 analytics pipeline enabled: a single `msk`
+    /// sink whose topics all point at `topic`, injected via a deterministic env
+    /// snapshot (no global `std::env` mutation, so parallel tests don't race on
+    /// distinct ephemeral topics). The v1 route is merged because
+    /// `v1_sink_router` ends up `Some`.
+    pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.capture_v1_sinks = "msk".to_string();
+        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
+        Self::for_config_with_sink_env(config, sink_env).await
+    }
+
     pub async fn for_config(config: Config) -> Self {
+        Self::for_config_with_sink_env(config, std::env::vars().collect()).await
+    }
+
+    pub async fn for_config_with_sink_env(
+        config: Config,
+        sink_env: HashMap<String, String>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -203,7 +247,7 @@ impl ServerHandle {
 
         let handles = setup::register_components(&mut manager, &config);
         let _monitor = manager.monitor_background();
-        let components = setup::build_components(config, handles).await;
+        let components = setup::build_components(config, sink_env, handles).await;
 
         tokio::spawn(async move { serve(listener, components).await });
 
@@ -231,6 +275,28 @@ impl ServerHandle {
     pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
         self.client
             .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    /// POST a v1 analytics batch to `/i/v1/analytics/events` with the full set
+    /// of headers `Context::new` requires (auth + the custom PostHog-* headers).
+    pub async fn capture_v1<T: Into<reqwest::Body>>(
+        &self,
+        token: &str,
+        body: T,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
+            .header("authorization", format!("Bearer {token}"))
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+            .header("PostHog-Attempt", "1")
+            .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+            .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
+            .header("content-type", "application/json")
+            .header("user-agent", "test-client/1.0")
             .body(body)
             .send()
             .await

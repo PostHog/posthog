@@ -100,9 +100,29 @@ const MOCK_BACKFILLS: RawBatchExportBackfill[] = [
     },
 ]
 
+const MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID = '0196b144-1f82-0000-0d0d-a01de54d6750'
+
+// A destination whose `identifier` input is authored without braces, so the value would be
+// sent literally instead of evaluated — this is what surfaces the templating-mismatch warning.
+const MOCK_HOG_FUNCTION_TEMPLATING_WARNING = {
+    ...MOCK_HOG_FUNCTION,
+    id: MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID,
+    batch_export_id: null,
+    inputs_schema: [
+        { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+        { key: 'identifier', type: 'string', label: 'Identifier', secret: false, required: false },
+    ],
+    inputs: {
+        url: { value: 'https://example.com/webhook' },
+        identifier: { value: 'person.properties.email' },
+    },
+}
+
 const commonMocks = {
     get: {
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: MOCK_HOG_FUNCTION,
+        [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID}/`]:
+            MOCK_HOG_FUNCTION_TEMPLATING_WARNING,
         '/api/environments/:team_id/hog_functions/': { count: 1, results: [MOCK_HOG_FUNCTION], next: null },
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT,
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: { results: [], next: null },
@@ -221,6 +241,12 @@ export const RunsEmpty: Story = {
 export const Configuration: Story = {
     parameters: {
         pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_ID),
+    },
+}
+
+export const ConfigurationWithTemplatingWarning: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID),
     },
 }
 

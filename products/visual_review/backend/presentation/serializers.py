@@ -13,7 +13,6 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
-    AutoApproveResult,
     BaselineEntry,
     BaselineOverview,
     BaselineQuarantineSummary,
@@ -23,6 +22,8 @@ from ..facade.contracts import (
     CreateRunInput,
     CreateRunResult,
     DiffCluster,
+    FinalizeResult,
+    FinalizeRunRequestInput,
     QuarantinedIdentifierEntry,
     QuarantineInput,
     QuarantineSourceRun,
@@ -110,14 +111,14 @@ class CreateRunResultSerializer(DataclassSerializer):
         dataclass = CreateRunResult
 
 
-class AutoApproveResultSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = AutoApproveResult
-
-
 class RecomputeResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = RecomputeResult
+
+
+class FinalizeResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = FinalizeResult
 
 
 # --- Input Serializers ---
@@ -163,41 +164,52 @@ class ApproveSnapshotInputSerializer(DataclassSerializer):
 class ApproveRunInputSerializer(DataclassSerializer):
     snapshots = ApproveSnapshotInputSerializer(
         many=True,
-        required=False,
+        required=True,
+        allow_empty=False,
         help_text=(
-            "Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true."
-        ),
-    )
-    approve_all = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Approve every changed and new snapshot in the run. "
-            "Mutually exclusive with `snapshots` — pass one or the other."
-        ),
-    )
-    commit_to_github = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text=(
-            "Whether to commit the updated baseline YAML to the PR branch on GitHub. "
-            "Set to false to record the approval without pushing a commit."
+            "Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the "
+            'review in the database (the per-snapshot "Accept change" action) — it does not change the '
+            "baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint."
         ),
     )
 
     class Meta:
         dataclass = ApproveRunRequestInput
 
-    def validate(self, attrs: ApproveRunRequestInput) -> ApproveRunRequestInput:
-        if attrs.approve_all and attrs.snapshots:
-            raise serializers.ValidationError(
-                {"approve_all": "`approve_all` and `snapshots` are mutually exclusive — pass one or the other."}
-            )
-        if not attrs.approve_all and not attrs.snapshots:
-            raise serializers.ValidationError(
-                {"snapshots": "Provide a non-empty `snapshots` list or set `approve_all: true`."}
-            )
-        return attrs
+
+class FinalizeRunInputSerializer(DataclassSerializer):
+    approve_all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are "
+            "left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any "
+            "changed/new snapshot is still unreviewed."
+        ),
+    )
+    commit_to_github = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal "
+            "path — leave true). Set false only for tooling that commits the baseline itself: the server skips "
+            "the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT "
+            "greened and `metadata.baseline_commit_sha` is absent."
+        ),
+    )
+    add_images_to_comment_on_pr = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment "
+            "itself is always posted (when the run was initiated from a GitHub review prompt and the repo has "
+            "PR comments enabled); this flag only controls the images. Defaults false — the comment stays a "
+            "text summary unless the reviewer opts in to attach the snapshots."
+        ),
+    )
+
+    class Meta:
+        dataclass = FinalizeRunRequestInput
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):

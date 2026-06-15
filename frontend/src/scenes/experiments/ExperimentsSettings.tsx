@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
@@ -9,6 +8,8 @@ import { DefaultCupedLookbackDays } from 'scenes/settings/environment/DefaultCup
 import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from 'scenes/settings/environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from 'scenes/settings/environment/DefaultOnlyCountMaturedUsers'
+import { DefaultSequentialTestingEnabled } from 'scenes/settings/environment/DefaultSequentialTestingEnabled'
+import { DefaultSequentialTuningParameter } from 'scenes/settings/environment/DefaultSequentialTuningParameter'
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 
@@ -20,7 +21,6 @@ import { DefaultMinimumDetectableEffect } from './DefaultMinimumDetectableEffect
  */
 export function ExperimentsSettings(): JSX.Element {
     const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
-    const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
     if (experimentsConfigLoading && !experimentsConfig) {
         return <SpinnerOverlay sceneLevel />
@@ -68,26 +68,40 @@ export function ExperimentsSettings(): JSX.Element {
                 </p>
                 <DefaultOnlyCountMaturedUsers />
             </div>
-            {showCupedOption && (
-                <>
-                    <div>
-                        <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
-                        <p className="text-secondary mt-2">
-                            When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data
-                            to detect significant effects faster on supported metrics. Can be overridden per experiment.
-                        </p>
-                        <DefaultCupedEnabled />
-                    </div>
-                    <div>
-                        <LemonLabel className="text-base">Default CUPED lookback window</LemonLabel>
-                        <p className="text-secondary mt-2">
-                            Number of days before the experiment start to use as the pre-experiment window. Must be
-                            between {MIN_LOOKBACK_DAYS} and {MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.
-                        </p>
-                        <DefaultCupedLookbackDays />
-                    </div>
-                </>
-            )}
+            <div>
+                <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
+                <p className="text-secondary mt-2">
+                    When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to
+                    detect significant effects faster on supported metrics. Can be overridden per experiment.
+                </p>
+                <DefaultCupedEnabled />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Default CUPED lookback window</LemonLabel>
+                <p className="text-secondary mt-2">
+                    Number of days before the experiment start to use as the pre-experiment window. Must be between{' '}
+                    {MIN_LOOKBACK_DAYS} and {MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.
+                </p>
+                <DefaultCupedLookbackDays />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Default sequential testing</LemonLabel>
+                <p className="text-secondary mt-2">
+                    When enabled, frequentist experiments will use sequential testing by default, producing always-valid
+                    p-values that are robust to peeking. Confidence intervals are wider in exchange. Only applies to the
+                    frequentist statistical method. Can be overridden per experiment.
+                </p>
+                <DefaultSequentialTestingEnabled />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Default sequential testing tuning parameter</LemonLabel>
+                <p className="text-secondary mt-2">
+                    Roughly the sample size at which the always-valid confidence sequence is tightest. Set close to the
+                    expected total sample size of new experiments to minimize the width penalty. Can be overridden per
+                    experiment.
+                </p>
+                <DefaultSequentialTuningParameter />
+            </div>
         </div>
     )
 }

@@ -1,3 +1,4 @@
+import re
 import json
 import hashlib
 import logging
@@ -25,11 +26,12 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     apply_activity_visibility_restrictions,
 )
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager
@@ -143,7 +145,7 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["activity_logs", "platform_features"])
+@extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
@@ -210,6 +212,30 @@ class JSONStringFilterField(serializers.JSONField):
     pass
 
 
+_IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
+_IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def _validate_ip_or_wildcard(value: str) -> None:
+    v = (value or "").strip()
+    if not v or not _IP_FILTER_RE.match(v):
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+    if "*" in v:
+        return  # wildcard patterns are accepted as-is
+    if _IPV4_RE.match(v):
+        if not all(int(octet) <= 255 for octet in v.split(".")):
+            raise serializers.ValidationError(
+                "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+            )
+        return
+    if ":" not in v:
+        raise serializers.ValidationError(
+            "Invalid IP address format. Use a valid IPv4/IPv6 address or a wildcard like `203.0.113.*`."
+        )
+
+
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(
         required=False,
@@ -242,6 +268,15 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         required=False,
         default=[],
         help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+    )
+    ip_addresses = serializers.ListField(
+        child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
+        required=False,
+        default=[],
+        help_text=(
+            "Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns "
+            "using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined."
+        ),
     )
     team_ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -319,6 +354,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "item_id",
             "detail",
             "client",
+            "ip_address",
             "created_at",
         ]
 
@@ -341,7 +377,7 @@ class AvailableFiltersResponseSerializer(serializers.Serializer):
     detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
 
 
-@extend_schema(tags=["platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
@@ -537,7 +573,7 @@ class OrganizationActivityLogPermission(BasePermission):
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
-@extend_schema(tags=["activity_logs", "platform_features"])
+@extend_schema(tags=["activity_logs"], extensions={"x-product": "platform_features"})
 class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
     """
     Organization-wide view of activity logs across every project in the organization.

@@ -33,7 +33,7 @@ These components rely on a few external services:
 
 - ClickHouse – for storing big data (events, persons – analytics queries)
 - Kafka – for queuing events for ingestion
-- MinIO – for storing files (session recordings, file exports)
+- SeaweedFS – S3-compatible object storage for files (session recordings, file exports)
 - PostgreSQL – for storing ordinary data (users, projects, saved insights)
 - Redis – for caching and inter-service communication
 - Zookeeper – for coordinating Kafka and ClickHouse clusters
@@ -253,6 +253,8 @@ When running `uv sync`, you may see a `Failed to parse` warning related to `pypr
 ## Option 2: Developing with Coder workspaces (PostHog employees only)
 
 If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md).
+
+If you drive your workflow with a coding agent (Claude Code, Cursor, etc.), the `setting-up-devbox` skill walks the agent through the whole flow — the tailnet prerequisite, `hogli devbox:setup`, starting a box, storing auth as Coder user secrets, and running commands on the box with `hogli devbox:exec`. Just ask it to set up your devbox.
 
 ## Testing
 

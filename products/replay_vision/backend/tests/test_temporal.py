@@ -11,26 +11,37 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
+from google.genai.errors import APIError
+from parameterized import parameterized
+from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.models import Organization, Team
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
-from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _extract_segments,
+    _resolve_citations,
+    call_scanner_provider_activity,
+)
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
-from products.replay_vision.backend.temporal.activities.embed_indexer_observation import (
-    embed_indexer_observation_activity,
+from products.replay_vision.backend.temporal.activities.embed_observation import (
+    embed_observation_activity,
+    embed_summarizer_observation_activity,
 )
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
@@ -51,9 +62,15 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
+    REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
+    REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
+)
+from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, TextSegment
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, SummarizerScanner
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -62,9 +79,11 @@ from products.replay_vision.backend.temporal.state import (
 )
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
+    CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
-    EmbedIndexerObservationInputs,
+    EmbedObservationInputs,
+    EmbedSummarizerObservationInputs,
     EmitClassifierTagsInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
@@ -124,6 +143,7 @@ class TestCreateObservationActivity:
         )
 
         assert result.was_created is True
+        assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.status == ObservationStatus.PENDING
         assert observation.workflow_id == "wf-xyz"
@@ -156,6 +176,7 @@ class TestCreateObservationActivity:
         scanner.scanner_config = {"prompt": "completely different prompt"}
         scanner.save()
 
+        assert result.observation_id is not None
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["scanner_config"] == original_config
 
@@ -174,7 +195,9 @@ class TestCreateObservationActivity:
             )
         )
 
-        assert result == CreateObservationOutput(observation_id=existing.id, was_created=False)
+        assert result == CreateObservationOutput(
+            observation_id=existing.id, was_created=False, scanner_type=ScannerType.MONITOR
+        )
         # The original row wasn't touched.
         existing.refresh_from_db()
         assert existing.workflow_id != "wf-second"
@@ -257,6 +280,33 @@ class TestCreateObservationActivity:
         )
         assert result.was_created is True
 
+    def test_skips_insert_when_monthly_quota_exhausted(self) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.create_observation.compute_quota_snapshot"
+        ) as mock_snapshot:
+            mock_snapshot.return_value = QuotaSnapshot(
+                monthly_quota=1,
+                usage_this_month=1,
+                period_start=dt.datetime.now(dt.UTC),
+                period_end=dt.datetime.now(dt.UTC),
+                projected_monthly_observations=0,
+            )
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-quota",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-quota",
+                )
+            )
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
+
 
 @pytest.mark.django_db(transaction=True)
 class TestObservationStateActivities:
@@ -280,7 +330,9 @@ class TestObservationStateActivities:
         observation.save(update_fields=["status", "started_at"])
 
         mark_observation_failed_activity(
-            MarkObservationFailedInputs(observation_id=observation.id, error_reason="bad output")
+            MarkObservationFailedInputs(
+                observation_id=observation.id, error_reason="bad output", scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
@@ -293,7 +345,11 @@ class TestObservationStateActivities:
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
 
         mark_observation_ineligible_activity(
-            MarkObservationIneligibleInputs(observation_id=observation.id, error_reason="too_short:only 5s long")
+            MarkObservationIneligibleInputs(
+                observation_id=observation.id,
+                error_reason="too_short:only 5s long",
+                scanner_type=ScannerType.MONITOR,
+            )
         )
 
         observation.refresh_from_db()
@@ -316,7 +372,9 @@ class TestObservationStateActivities:
 
         mark_observation_running_activity(MarkObservationRunningInputs(observation_id=observation.id))
         mark_observation_failed_activity(
-            MarkObservationFailedInputs(observation_id=observation.id, error_reason="late failure")
+            MarkObservationFailedInputs(
+                observation_id=observation.id, error_reason="late failure", scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
@@ -339,10 +397,12 @@ class TestObservationStateActivities:
     def test_mark_succeeded_stamps_lifecycle_metadata_and_persists_result(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9))
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
 
         mark_observation_succeeded_activity(
-            MarkObservationSucceededInputs(observation_id=observation.id, scanner_result=result)
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
@@ -356,16 +416,246 @@ class TestObservationStateActivities:
         observation = _make_observation(
             scanner, status=ObservationStatus.FAILED, error_reason="prior", completed_at=timezone.now()
         )
-        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.9))
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="late", confidence=0.9))
 
         mark_observation_succeeded_activity(
-            MarkObservationSucceededInputs(observation_id=observation.id, scanner_result=result)
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
         )
 
         observation.refresh_from_db()
         assert observation.status == ObservationStatus.FAILED
         assert observation.completed_at is not None
         assert observation.scanner_result == {}  # not overwritten
+
+
+def _counter_value(metric_name: str, **labels: str) -> float:
+    return REGISTRY.get_sample_value(metric_name, labels) or 0.0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestObservationStateMetricsAndLogs:
+    def test_mark_succeeded_increments_observations_counter_and_logs(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.8))
+        before = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
+
+        with capture_logs() as logs:
+            mark_observation_succeeded_activity(
+                MarkObservationSucceededInputs(
+                    observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+                )
+            )
+
+        after = _counter_value("replay_vision_observations_total", status="succeeded", scanner_type="monitor")
+        assert after == before + 1
+        events = [r for r in logs if r.get("event") == "replay_vision.observation.succeeded"]
+        assert len(events) == 1
+        assert events[0]["scanner_type"] == "monitor"
+        assert events[0]["observation_id"] == str(observation.id)
+
+    def test_mark_failed_increments_observations_and_failure_kinds(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before_obs = _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor")
+        before_kind = _counter_value(
+            "replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor"
+        )
+
+        with capture_logs() as logs:
+            mark_observation_failed_activity(
+                MarkObservationFailedInputs(
+                    observation_id=observation.id,
+                    error_reason="provider_rejected:Gemini said no",
+                    scanner_type=ScannerType.MONITOR,
+                )
+            )
+
+        assert _counter_value("replay_vision_observations_total", status="failed", scanner_type="monitor") == (
+            before_obs + 1
+        )
+        assert _counter_value(
+            "replay_vision_failure_kinds_total", kind="provider_rejected", scanner_type="monitor"
+        ) == (before_kind + 1)
+        events = [r for r in logs if r.get("event") == "replay_vision.observation.failed"]
+        assert len(events) == 1
+        assert events[0]["kind"] == "provider_rejected"
+        assert events[0]["scanner_type"] == "monitor"
+
+    def test_mark_failed_with_unparseable_error_reason_labels_kind_unknown(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before = _counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor")
+
+        mark_observation_failed_activity(
+            MarkObservationFailedInputs(
+                observation_id=observation.id,
+                error_reason="no colon here",
+                scanner_type=ScannerType.MONITOR,
+            )
+        )
+
+        assert _counter_value("replay_vision_failure_kinds_total", kind="unknown", scanner_type="monitor") == (
+            before + 1
+        )
+
+    def test_mark_ineligible_increments_observations_and_ineligible_kinds(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before_obs = _counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor")
+        before_kind = _counter_value("replay_vision_ineligible_kinds_total", kind="too_short")
+
+        with capture_logs() as logs:
+            mark_observation_ineligible_activity(
+                MarkObservationIneligibleInputs(
+                    observation_id=observation.id,
+                    error_reason="too_short:only 5s long",
+                    scanner_type=ScannerType.MONITOR,
+                )
+            )
+
+        assert _counter_value("replay_vision_observations_total", status="ineligible", scanner_type="monitor") == (
+            before_obs + 1
+        )
+        assert _counter_value("replay_vision_ineligible_kinds_total", kind="too_short") == before_kind + 1
+        events = [r for r in logs if r.get("event") == "replay_vision.observation.ineligible"]
+        assert len(events) == 1
+        assert events[0]["kind"] == "too_short"
+
+    def test_activity_duration_histogram_records_success_observation(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.8))
+        labels = {"activity": "mark_observation_succeeded_activity", "status": "succeeded"}
+        before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
+
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
+
+    @pytest.mark.parametrize(
+        "error_reason, expected_kind",
+        [
+            ("provider_rejected:bad video", "provider_rejected"),
+            ("internal_error:", "internal_error"),  # empty message still parses kind
+            ("not a kind:something", "unknown"),  # leading text isn't an enum value
+            ("no colon here", "unknown"),
+            (":message", "unknown"),  # leading colon
+            ("", "unknown"),
+            ("provider_rejected:has:more:colons", "provider_rejected"),  # only first colon splits
+        ],
+    )
+    def test_failure_kind_parser_validates_against_enum(self, error_reason: str, expected_kind: str) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        before = _counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor")
+
+        mark_observation_failed_activity(
+            MarkObservationFailedInputs(
+                observation_id=observation.id, error_reason=error_reason, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        assert _counter_value("replay_vision_failure_kinds_total", kind=expected_kind, scanner_type="monitor") == (
+            before + 1
+        )
+
+    @pytest.mark.parametrize(
+        "observation_status, metric_status, log_event, run_activity",
+        [
+            (
+                ObservationStatus.FAILED,
+                "failed",
+                "replay_vision.observation.failed",
+                lambda obs_id: mark_observation_failed_activity(
+                    MarkObservationFailedInputs(
+                        observation_id=obs_id,
+                        error_reason="internal_error:late retry",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+            (
+                ObservationStatus.INELIGIBLE,
+                "ineligible",
+                "replay_vision.observation.ineligible",
+                lambda obs_id: mark_observation_ineligible_activity(
+                    MarkObservationIneligibleInputs(
+                        observation_id=obs_id,
+                        error_reason="too_short:late retry",
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+            (
+                ObservationStatus.SUCCEEDED,
+                "succeeded",
+                "replay_vision.observation.succeeded",
+                lambda obs_id: mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=obs_id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict="yes", reasoning="late", confidence=0.8)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                ),
+            ),
+        ],
+        ids=["failed", "ineligible", "succeeded"],
+    )
+    def test_no_counter_or_log_when_update_affects_zero_rows(
+        self,
+        observation_status: ObservationStatus,
+        metric_status: str,
+        log_event: str,
+        run_activity,
+    ) -> None:
+        # Idempotent retry against an already-terminal row must not double-count or re-log.
+        scanner = _make_scanner()
+        observation = _make_observation(
+            scanner, status=observation_status, completed_at=timezone.now(), error_reason="original"
+        )
+        before_obs = _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+
+        with capture_logs() as logs:
+            run_activity(observation.id)
+
+        assert (
+            _counter_value("replay_vision_observations_total", status=metric_status, scanner_type="monitor")
+            == before_obs
+        )
+        assert [r for r in logs if r.get("event") == log_event] == []
+
+    def test_activity_duration_histogram_records_failure_observation(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.PENDING)
+        labels = {"activity": "mark_observation_succeeded_activity", "status": "failed"}
+        before = _counter_value("replay_vision_activity_duration_seconds_count", **labels)
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.observation_state.ReplayObservation.objects",
+            new_callable=MagicMock,
+        ) as mock_objects:
+            mock_objects.filter.return_value.update.side_effect = RuntimeError("db blew up")
+            with pytest.raises(RuntimeError):
+                mark_observation_succeeded_activity(
+                    MarkObservationSucceededInputs(
+                        observation_id=observation.id,
+                        scanner_result=ScannerResult(
+                            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.8)
+                        ),
+                        scanner_type=ScannerType.MONITOR,
+                    )
+                )
+
+        assert _counter_value("replay_vision_activity_duration_seconds_count", **labels) == before + 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -413,7 +703,7 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert stored.session_id == "sess-1"
         assert stored.team_id == scanner.team_id
-        assert stored.events.columns == ["event_id", "event", "timestamp", "$session_id"]
+        assert stored.events.columns == ["event_uuid", "event", "timestamp", "$session_id"]
         assert stored.metadata.start_time == start
         assert stored.metadata.end_time == end
         assert stored.metadata.duration_seconds == 300.0
@@ -421,22 +711,14 @@ class TestFetchSessionEventsActivity:
         assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
 
     @pytest.mark.asyncio
-    async def test_paginates_through_get_events_until_short_page(self) -> None:
+    async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        page_size = 3000
-
-        full_page_rows = [("$pageview", start, f"sess-{i}") for i in range(page_size)]
-        last_page_rows = [("$pageview", start, "sess-last")]
+        page_rows = [("$pageview", start, f"sess-{i}") for i in range(50)]
         mock_obj = self._make_session_replay_events_mock(
-            metadata,
-            [
-                # First page reports more available; second page (short) reports no more, ending the loop.
-                (["event", "timestamp", "$session_id"], full_page_rows, True),
-                (["event", "timestamp", "$session_id"], last_page_rows, False),
-            ],
+            metadata, [(["event", "timestamp", "$session_id"], page_rows, False)]
         )
 
         with patch(
@@ -444,23 +726,18 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(
-                    observation_id=observation_id,
-                    team_id=scanner.team_id,
-                    session_id="sess-1",
-                )
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
-        assert mock_obj.get_events.call_count == 2
+        assert mock_obj.get_events.call_count == 1
         assert mock_obj.get_events.call_args_list[0].kwargs["page"] == 0
-        assert mock_obj.get_events.call_args_list[1].kwargs["page"] == 1
-        assert mock_obj.get_events.call_args_list[0].kwargs["limit"] == page_size
+        assert mock_obj.get_events.call_args_list[0].kwargs["limit"] == 2000
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
         stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
-        assert len(stored.events.rows) == page_size + 1
+        assert len(stored.events.rows) == 50
 
     @pytest.mark.asyncio
     async def test_is_idempotent_when_redis_already_has_payload(self) -> None:
@@ -509,7 +786,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5,
                 },
                 "too_short",
-                "is only 5",
+                "Only 5",
             ),
             (
                 {
@@ -519,7 +796,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 3,  # under 10s floor
                 },
                 "too_inactive",
-                "has only 3",
+                "Only 3s of active",
             ),
             (
                 {
@@ -529,7 +806,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5000,  # over 3600 cap
                 },
                 "too_long",
-                "has 5000",
+                "5000s of active",
             ),
         ],
     )
@@ -722,12 +999,12 @@ class TestFetchSessionEventsActivity:
         stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert len(stored.events.rows) == 2  # rageclick collapsed, $pageview kept
-        assert "uuid" not in stored.events.columns  # not surfaced to the LLM
-        # The mapping records the FIRST uuid seen for each unique event_id.
-        assert len(stored.event_id_mapping) == 2
-        uuids = {c.uuid for c in stored.event_id_mapping.values()}
-        assert "00000000-0000-0000-0000-000000000001" in uuids
-        assert "00000000-0000-0000-0000-000000000004" in uuids
+        assert "event_uuid" in stored.events.columns
+        assert "uuid" not in stored.events.columns
+        assert set(stored.event_timestamps.keys()) == {
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000004",
+        }
 
     @pytest.mark.asyncio
     async def test_session_metadata_round_trips_to_payload(self) -> None:
@@ -769,15 +1046,15 @@ class TestFetchSessionEventsActivity:
         assert m.events_truncated is False
 
     @pytest.mark.asyncio
-    async def test_marks_events_truncated_when_last_page_has_more(self) -> None:
+    async def test_marks_events_truncated_when_first_page_has_more(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        # All 5 pages report has_more=True — we've used the page budget but more events exist.
-        full_page = [("$pageview", start, f"sess-{i}") for i in range(3000)]
-        pages = [(["event", "timestamp", "$session_id"], full_page, True)] * 5
-        mock_obj = self._make_session_replay_events_mock(metadata, pages)
+        full_page = [("$pageview", start, f"sess-{i}") for i in range(2000)]
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(["event", "timestamp", "$session_id"], full_page, True)]
+        )
 
         with patch(
             "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
@@ -794,16 +1071,15 @@ class TestFetchSessionEventsActivity:
         assert stored.metadata.events_truncated is True
 
     @pytest.mark.asyncio
-    async def test_does_not_mark_truncated_when_last_page_exactly_fills_budget(self) -> None:
+    async def test_does_not_mark_truncated_when_first_page_exactly_fills_budget(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
-        # Four full pages with more available, then the fifth full page reports no more.
-        full_page = [("$pageview", start, f"sess-{i}") for i in range(3000)]
-        pages: list[tuple] = [(["event", "timestamp", "$session_id"], full_page, True)] * 4
-        pages.append((["event", "timestamp", "$session_id"], full_page, False))
-        mock_obj = self._make_session_replay_events_mock(metadata, pages)
+        full_page = [("$pageview", start, f"sess-{i}") for i in range(2000)]
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(["event", "timestamp", "$session_id"], full_page, False)]
+        )
 
         with patch(
             "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
@@ -932,6 +1208,53 @@ class TestEnsureSessionAssetActivity:
         assert ctx["content_location"] == "s3://prior/video.mp4"
 
 
+class TestCleanupGeminiFileActivity:
+    @pytest.mark.asyncio
+    async def test_deletes_file_and_clears_tracking(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-ok": 0.0})
+        fake_client = MagicMock()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
+        fake_client.files.delete.assert_called_once_with(name="files/rv-ok")
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-ok") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-ok") is None
+
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_on_transient_failure(self, gemini_redis) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-transient": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = RuntimeError("gemini down")
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-transient") == 1
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-transient") is not None
+
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_clears_tracking_when_file_already_gone(self, gemini_redis, code: int) -> None:
+        # Gemini reports missing files as 403 PERMISSION_DENIED ("...or it may not exist") or 404;
+        # either way the file can't be deleted, so the tracking key must be dropped.
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-gone": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(code=code, response_json={})
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
+        assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
+
+
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
     defaults: dict[str, Any] = {
         "scanner_id": uuid.uuid4(),
@@ -983,10 +1306,12 @@ async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workf
 @pytest.mark.asyncio
 async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1005,6 +1330,7 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert activity_order[4:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
+        embed_observation_activity,
         emit_observation_event_activity,
         mark_observation_succeeded_activity,
         cleanup_gemini_file_activity,
@@ -1024,7 +1350,9 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     fetch_error = ApplicationError("no events", non_retryable=True)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
         },
         activity_errors={fetch_session_events_activity: fetch_error},
@@ -1050,7 +1378,9 @@ async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_f
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1077,13 +1407,15 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
             call_scanner_provider_activity: ScannerCallOutput(
-                model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9),
+                model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
             ),
         },
         activity_errors={cleanup_gemini_file_activity: RuntimeError("cleanup failed")},
@@ -1102,7 +1434,9 @@ async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None
 async def test_apply_scanner_workflow_exits_when_create_returns_was_created_false() -> None:
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=False, scanner_type=ScannerType.MONITOR
+            ),
         },
     )
 
@@ -1112,11 +1446,43 @@ async def test_apply_scanner_workflow_exits_when_create_returns_was_created_fals
     assert mocks.child_calls == []
 
 
+def test_workflow_get_progress_advances_through_phases() -> None:
+    workflow = ApplyScannerWorkflow()
+    assert workflow.get_progress() == {
+        "phase": "queued",
+        "step": 0,
+        "total_steps": 6,
+        "rasterizer_workflow_id": None,
+    }
+
+    workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
+    progress = workflow.get_progress()
+    assert progress["phase"] == "rendering"
+    assert progress["step"] == 2
+    assert progress["rasterizer_workflow_id"] == "rast-1"
+
+    # A later phase without an id keeps the previously recorded rasterizer id.
+    workflow._advance_phase("analyzing")
+    assert workflow.get_progress()["phase"] == "analyzing"
+    assert workflow.get_progress()["rasterizer_workflow_id"] == "rast-1"
+
+
+async def test_progress_stream_completes_immediately_for_terminal_observation() -> None:
+    # Fast path: opening the stream for a settled observation emits a single complete event and closes.
+    observation = ReplayObservation(id=uuid.uuid4(), status=ObservationStatus.SUCCEEDED)
+    events = [event async for event in stream_observation_progress(observation)]
+    assert len(events) == 1
+    assert "event: observation-complete" in events[0]
+    assert '"status": "succeeded"' in events[0]
+
+
 @pytest.mark.asyncio
 async def test_apply_scanner_workflow_propagates_workflow_id_to_create() -> None:
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=False, scanner_type=ScannerType.MONITOR
+            ),
         },
     )
     inputs = _build_inputs(
@@ -1138,15 +1504,20 @@ async def test_apply_scanner_workflow_propagates_workflow_id_to_create() -> None
     assert create_input.workflow_id == "wf-from-info"
 
 
-def _indexer_output() -> IndexerOutput:
-    return IndexerOutput(
-        intent="Log in to the dashboard",
+def _summarizer_output_with_facets() -> SummarizerOutput:
+    return SummarizerOutput(
+        title="Login attempt",
         summary="User tried to authenticate but the form failed twice.",
+        intent="Log in to the dashboard",
         outcome="Reached the password reset page after failed attempts.",
         friction_points=["invalid password error"],
         keywords=["login", "authentication", "reset"],
         confidence=0.9,
     )
+
+
+def _summarizer_output_without_facets() -> SummarizerOutput:
+    return SummarizerOutput(title="Onboarding", summary="User walked through the demo.", confidence=0.9)
 
 
 def _classifier_output() -> ClassifierOutput:
@@ -1159,22 +1530,24 @@ def _classifier_output() -> ClassifierOutput:
 
 
 @pytest.mark.asyncio
-async def test_embed_indexer_observation_emits_one_request_per_nonempty_facet() -> None:
-    out = IndexerOutput(
-        intent="Investigate slow query response",
+async def test_embed_observation_emits_one_request_per_nonempty_facet() -> None:
+    out = SummarizerOutput(
+        title="Investigation",
         summary="User browsed dashboards and clicked through several insights.",
+        intent="Investigate slow query response",
         outcome="No issue reproduced — user closed the tab.",
         friction_points=[],
         keywords=["dashboard", "insight"],
         confidence=0.8,
     )
-    inputs = EmbedIndexerObservationInputs(
-        team_id=99, session_id="sess-abc", observation_id=uuid.uuid4(), indexer_output=out
+    scanner_id = uuid.uuid4()
+    inputs = EmbedObservationInputs(
+        team_id=99, session_id="sess-abc", observation_id=uuid.uuid4(), scanner_id=scanner_id, model_output=out
     )
     with patch(
-        "products.replay_vision.backend.temporal.activities.embed_indexer_observation.emit_embedding_request"
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
     ) as mock_emit:
-        await embed_indexer_observation_activity(inputs)
+        await embed_observation_activity(inputs)
 
     renderings = [call.kwargs["rendering"] for call in mock_emit.call_args_list]
     assert renderings == ["intent", "outcome", "keywords"]
@@ -1184,23 +1557,91 @@ async def test_embed_indexer_observation_emits_one_request_per_nonempty_facet() 
         assert call.kwargs["document_type"] == "replay-observation"
         assert call.kwargs["document_id"] == str(inputs.observation_id)
         assert call.kwargs["models"] == ["text-embedding-3-large-3072"]
-        # session_id is carried in metadata so search results can map embeddings → sessions.
+        # session_id + scanner_id are carried in metadata so search results map embeddings → sessions, scoped to a scanner.
         assert call.kwargs["metadata"]["session_id"] == "sess-abc"
         assert call.kwargs["metadata"]["team_id"] == 99
         assert call.kwargs["metadata"]["observation_id"] == str(inputs.observation_id)
+        assert call.kwargs["metadata"]["scanner_id"] == str(scanner_id)
+
+
+@parameterized.expand(
+    [
+        (
+            "monitor",
+            MonitorOutput(verdict="no", reasoning="checkout button never rendered", confidence=0.9),
+            {"verdict": "no"},
+        ),
+        (
+            "scorer",
+            ScorerOutput(score=0.0, reasoning="user rage-clicked a broken button", confidence=0.7),
+            {"score": 0.0},
+        ),
+        ("classifier", _classifier_output(), {"tags": ["support", "billing"]}),
+    ]
+)
+@pytest.mark.asyncio
+async def test_embed_observation_emits_reasoning_for_non_summarizer(_name, model_output, expected_metadata) -> None:
+    scanner_id = uuid.uuid4()
+    inputs = EmbedObservationInputs(
+        team_id=99, session_id="sess-r", observation_id=uuid.uuid4(), scanner_id=scanner_id, model_output=model_output
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
+    ) as mock_emit:
+        await embed_observation_activity(inputs)
+
+    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["reasoning"]
+    call = mock_emit.call_args_list[0]
+    assert call.kwargs["content"] == model_output.reasoning
+    assert call.kwargs["document_id"] == str(inputs.observation_id)
+    metadata = call.kwargs["metadata"]
+    assert metadata["scanner_id"] == str(scanner_id)
+    # The exact outcome is stamped into metadata so search can filter on it inside ClickHouse.
+    for key, value in expected_metadata.items():
+        assert metadata[key] == value
 
 
 @pytest.mark.asyncio
-async def test_embed_indexer_observation_raises_propagates_failure() -> None:
-    inputs = EmbedIndexerObservationInputs(
-        team_id=99, session_id="sess-x", observation_id=uuid.uuid4(), indexer_output=_indexer_output()
+async def test_embed_summarizer_observation_alias_still_emits_facets() -> None:
+    # Back-compat: the renamed activity keeps the old name registered so summarizer workflows already in flight
+    # at deploy time resolve. It takes the old input shape and emits facets with the old (scanner-less) metadata.
+    out = SummarizerOutput(
+        title="Investigation",
+        summary="User browsed dashboards.",
+        intent="Investigate slow query response",
+        outcome="No issue reproduced.",
+        keywords=["dashboard"],
+        confidence=0.8,
+    )
+    inputs = EmbedSummarizerObservationInputs(
+        team_id=99, session_id="sess-legacy", observation_id=uuid.uuid4(), summarizer_output=out
     )
     with patch(
-        "products.replay_vision.backend.temporal.activities.embed_indexer_observation.emit_embedding_request",
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
+    ) as mock_emit:
+        await embed_summarizer_observation_activity(inputs)
+
+    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["intent", "outcome", "keywords"]
+    metadata = mock_emit.call_args_list[0].kwargs["metadata"]
+    assert metadata["session_id"] == "sess-legacy"
+    assert "scanner_id" not in metadata  # old metadata shape, pre-rename
+
+
+@pytest.mark.asyncio
+async def test_embed_observation_raises_propagates_failure() -> None:
+    inputs = EmbedObservationInputs(
+        team_id=99,
+        session_id="sess-x",
+        observation_id=uuid.uuid4(),
+        scanner_id=uuid.uuid4(),
+        model_output=_summarizer_output_with_facets(),
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
         side_effect=RuntimeError("kafka down"),
     ):
         with pytest.raises(RuntimeError, match="kafka down"):
-            await embed_indexer_observation_activity(inputs)
+            await embed_observation_activity(inputs)
 
 
 @pytest.mark.asyncio
@@ -1252,18 +1693,22 @@ async def test_emit_classifier_tags_raises_when_metadata_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_embed_indexer_observation_raises_when_kafka_delivery_fails() -> None:
-    inputs = EmbedIndexerObservationInputs(
-        team_id=99, session_id="sess-x", observation_id=uuid.uuid4(), indexer_output=_indexer_output()
+async def test_embed_observation_raises_when_kafka_delivery_fails() -> None:
+    inputs = EmbedObservationInputs(
+        team_id=99,
+        session_id="sess-x",
+        observation_id=uuid.uuid4(),
+        scanner_id=uuid.uuid4(),
+        model_output=_summarizer_output_with_facets(),
     )
     failed_result = MagicMock()
     failed_result.get.side_effect = RuntimeError("broker timeout")
     with patch(
-        "products.replay_vision.backend.temporal.activities.embed_indexer_observation.emit_embedding_request",
+        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request",
         return_value=failed_result,
     ):
         with pytest.raises(RuntimeError, match="broker timeout"):
-            await embed_indexer_observation_activity(inputs)
+            await embed_observation_activity(inputs)
 
 
 @pytest.mark.asyncio
@@ -1293,12 +1738,16 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_dispatches_indexer_side_effect() -> None:
+async def test_apply_scanner_workflow_dispatches_summarizer_embedding_when_facets_present() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = _indexer_output()
+    model_output = _summarizer_output_with_facets()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id,
+                was_created=True,
+                scanner_type=ScannerType.SUMMARIZER,
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1307,19 +1756,43 @@ async def test_apply_scanner_workflow_dispatches_indexer_side_effect() -> None:
         },
     )
 
-    await _run_workflow(_build_inputs(session_id="sess-idx", team_id=99), mocks, workflow_id="wf-idx")
+    await _run_workflow(_build_inputs(session_id="sess-sum", team_id=99), mocks, workflow_id="wf-sum")
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == embed_indexer_observation_activity
+    assert activity_order[call_idx + 1] == embed_observation_activity
     assert activity_order[call_idx + 2] == emit_observation_event_activity
     assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
     assert emit_classifier_tags_activity not in activity_order
 
-    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_indexer_observation_activity)
-    assert embed_input.session_id == "sess-idx"
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
+    assert embed_input.session_id == "sess-sum"
     assert embed_input.team_id == 99
-    assert embed_input.indexer_output == model_output
+    assert embed_input.model_output == model_output
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_skips_summarizer_embedding_when_no_facets() -> None:
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id,
+                was_created=True,
+                scanner_type=ScannerType.SUMMARIZER,
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_without_facets()),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-nofacets"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert embed_observation_activity not in called
 
 
 @pytest.mark.asyncio
@@ -1328,7 +1801,9 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
     model_output = _classifier_output()
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1339,24 +1814,29 @@ async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> Non
 
     await _run_workflow(_build_inputs(session_id="sess-cls", team_id=99), mocks, workflow_id="wf-cls")
 
+    # Classifiers embed their reasoning AND fan out tags; embedding runs first.
     activity_order = [fn for fn, _ in mocks.activity_calls]
     call_idx = activity_order.index(call_scanner_provider_activity)
-    assert activity_order[call_idx + 1] == emit_classifier_tags_activity
-    assert activity_order[call_idx + 2] == emit_observation_event_activity
-    assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
-    assert embed_indexer_observation_activity not in activity_order
+    assert activity_order[call_idx + 1] == embed_observation_activity
+    assert activity_order[call_idx + 2] == emit_classifier_tags_activity
+    assert activity_order[call_idx + 3] == emit_observation_event_activity
+    assert activity_order[call_idx + 4] == mark_observation_succeeded_activity
 
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
+    assert embed_input.model_output == model_output
     tag_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_classifier_tags_activity)
     assert tag_input.classifier_output == model_output
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
+async def test_apply_scanner_workflow_embeds_monitor_reasoning_without_classifier_tags() -> None:
     new_observation_id = uuid.uuid4()
-    model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
@@ -1368,8 +1848,12 @@ async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
     await _run_workflow(_build_inputs(session_id="sess-mon", team_id=99), mocks, workflow_id="wf-mon")
 
     called = {fn for fn, _ in mocks.activity_calls}
-    assert embed_indexer_observation_activity not in called
+    # Monitors carry a `reasoning` paragraph, so the embedding side-effect runs; only classifiers fan out tags.
+    assert embed_observation_activity in called
     assert emit_classifier_tags_activity not in called
+
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_observation_activity)
+    assert embed_input.model_output == model_output
 
 
 @pytest.mark.asyncio
@@ -1378,18 +1862,22 @@ async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> 
     side_effect_error = ApplicationError("embedding kafka down", non_retryable=True)
     mocks = _WorkflowMocks(
         activity_results={
-            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id,
+                was_created=True,
+                scanner_type=ScannerType.SUMMARIZER,
+            ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_scanner_provider_activity: ScannerCallOutput(model_output=_indexer_output()),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=_summarizer_output_with_facets()),
         },
-        activity_errors={embed_indexer_observation_activity: side_effect_error},
+        activity_errors={embed_observation_activity: side_effect_error},
     )
 
     with pytest.raises(ApplicationError, match="embedding kafka down"):
-        await _run_workflow(_build_inputs(session_id="sess-idx-fail"), mocks)
+        await _run_workflow(_build_inputs(session_id="sess-sum-fail"), mocks)
 
     called = [fn for fn, _ in mocks.activity_calls]
     assert emit_observation_event_activity not in called
@@ -1441,3 +1929,137 @@ class TestWorkflowErrorHelpers:
 
     def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
         assert _root_cause_message(ValueError("bad arg")) == "bad arg"
+
+
+_UUID_A = "0193abcd-1234-7e89-9abc-deadbeefcafe"
+_UUID_B = "0193abcd-1234-7e89-9abc-feedface0000"
+_UUID_HALLUCINATED = "0193abcd-1234-7e89-9abc-aaaaaaaaaaaa"
+
+
+def _monitor_scanner() -> MonitorScanner:
+    return MonitorScanner(prompt="p")
+
+
+def _summarizer_scanner() -> SummarizerScanner:
+    return SummarizerScanner(prompt="p")
+
+
+class TestExtractSegments:
+    @pytest.mark.parametrize(
+        "text,event_timestamps,expected_plain,expected_segments",
+        [
+            pytest.param(
+                f"Foo (event_uuid {_UUID_A}) bar",
+                {_UUID_A: 1234},
+                "Foo bar",
+                [
+                    TextSegment(value="Foo"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
+                    TextSegment(value=" bar"),
+                ],
+                id="inline",
+            ),
+            pytest.param(
+                f"A (event_uuid {_UUID_A}) then B (event_uuid {_UUID_B}) then C.",
+                {_UUID_A: 100, _UUID_B: 200},
+                "A then B then C.",
+                [
+                    TextSegment(value="A"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=100),
+                    TextSegment(value=" then B"),
+                    ChipSegment(uuid=_UUID_B, timestamp_ms=200),
+                    TextSegment(value=" then C."),
+                ],
+                id="multiple",
+            ),
+            pytest.param(
+                f"X (event_uuid {_UUID_A}) Y (event_uuid {_UUID_HALLUCINATED}) Z.",
+                {_UUID_A: 50},
+                "X Y Z.",
+                [
+                    TextSegment(value="X"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=50),
+                    TextSegment(value=" Y"),
+                    TextSegment(value=" Z."),
+                ],
+                id="hallucinated_uuid_dropped",
+            ),
+            pytest.param(
+                f"(event_uuid {_UUID_A}) was the cause.",
+                {_UUID_A: 0},
+                " was the cause.",
+                [
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=0),
+                    TextSegment(value=" was the cause."),
+                ],
+                id="citation_at_start",
+            ),
+            pytest.param(
+                f"It ended (event_uuid {_UUID_A})",
+                {_UUID_A: 999},
+                "It ended",
+                [
+                    TextSegment(value="It ended"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=999),
+                ],
+                id="citation_at_end",
+            ),
+            pytest.param(
+                "Nothing to strip.",
+                {_UUID_A: 0},
+                "Nothing to strip.",
+                [TextSegment(value="Nothing to strip.")],
+                id="no_citations",
+            ),
+            pytest.param(
+                f"Saw (event_uuid {_UUID_A.upper()}).",
+                {_UUID_A: 42},
+                "Saw.",
+                [
+                    TextSegment(value="Saw"),
+                    ChipSegment(uuid=_UUID_A, timestamp_ms=42),
+                    TextSegment(value="."),
+                ],
+                id="uppercase_uuid_normalized",
+            ),
+        ],
+    )
+    def test_extract_segments(
+        self,
+        text: str,
+        event_timestamps: dict[str, int],
+        expected_plain: str,
+        expected_segments: list[Segment],
+    ) -> None:
+        plain, segments = _extract_segments(text, event_timestamps)
+        assert plain == expected_plain
+        assert segments == expected_segments
+
+
+class TestResolveCitations:
+    def test_populates_field_and_segments(self) -> None:
+        finalized = MonitorOutput(
+            verdict="yes", reasoning=f"User retried (event_uuid {_UUID_A}) twice.", confidence=0.9
+        )
+        resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 1234})
+        assert isinstance(resolved, MonitorOutput)
+        assert resolved.reasoning == "User retried twice."
+        assert resolved.reasoning_segments == [
+            TextSegment(value="User retried"),
+            ChipSegment(uuid=_UUID_A, timestamp_ms=1234),
+            TextSegment(value=" twice."),
+        ]
+
+    def test_summarizer_uses_summary_field(self) -> None:
+        finalized = SummarizerOutput(title="t", summary=f"They tried X (event_uuid {_UUID_A}).", confidence=0.9)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), {_UUID_A: 7})
+        assert isinstance(resolved, SummarizerOutput)
+        assert resolved.summary == "They tried X."
+        assert any(isinstance(s, ChipSegment) and s.uuid == _UUID_A for s in resolved.summary_segments)
+
+    def test_no_citations_in_text_yields_single_text_segment(self) -> None:
+        finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), {_UUID_A: 0})
+        assert isinstance(resolved, MonitorOutput)
+        assert resolved.reasoning == "No citations here."
+        assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]

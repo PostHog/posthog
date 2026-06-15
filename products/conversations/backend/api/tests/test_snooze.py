@@ -300,7 +300,7 @@ class TestWakeSnoozedTickets(BaseTest):
         ticket.refresh_from_db()
         self.assertEqual(ticket.status, Status.OPEN)
         self.assertIsNone(ticket.snoozed_until)
-        mock_capture.assert_called_once_with(ticket, Status.ON_HOLD, Status.OPEN)
+        mock_capture.assert_called_once_with(ticket, Status.ON_HOLD, Status.OPEN, actor_type="system")
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
     def test_clears_snooze_but_preserves_resolved_status(self, mock_capture):

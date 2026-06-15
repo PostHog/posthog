@@ -7,8 +7,7 @@ import {
     buildAutocaptureSeriesShortcuts,
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
     DataWarehousePopoverField,
     SimpleOption,
@@ -180,6 +179,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
+    // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
+    // filters/query/groups JSON the picker never reads). Gated by a flag so the
+    // smaller response shape can be rolled out and rolled back independently.
+    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
             name: 'Events',
@@ -470,7 +473,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 .filter(
                     (o) => !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(o.value)
                 ),
-            getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+            getIcon: getRevenueAnalyticsDefinitionIcon,
             getName: (option: PropertyDefinition) => {
                 const coreDefinition = getCoreFilterDefinition(
                     option.id,
@@ -655,8 +658,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
             value: 'cohorts',
+            // See taxonomicFilterLogic — cohort populations comfortably fit
+            // in one page; cache the first 100 and fuse-filter typed
+            // queries locally to avoid per-keystroke round-trips.
+            clientFilterFirstPage: true,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
             getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
@@ -675,7 +682,8 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, cohortsEndpointParams).url,
+            clientFilterFirstPage: true,
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
@@ -899,6 +907,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             categoryLabel: () => 'SQL expression',
             type: TaxonomicFilterGroupType.HogQLExpression,
             render: InlineHogQLEditor,
+            // The headless menu derives the committed value via group.getValue(item);
+            // without this the SQL expression resolves to null and the selection is
+            // silently dropped on save.
+            getValue: (option) => (option as { value?: TaxonomicFilterValue }).value ?? option.name,
             getPopoverHeader: () => 'SQL expression',
             componentProps: { metadataSource, ...hogQLExpressionComponentProps },
         },
@@ -955,6 +967,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 type: 'filters',
                 order: '-last_modified_at',
             }).url,
+            // Recording playlists are tiny per team — cache the first page
+            // and let fuse handle keystrokes locally.
+            clientFilterFirstPage: true,
             render: SavedFiltersTaxonomicGroup,
             getName: (filter: SessionRecordingPlaylistType) => filter.name || filter.derived_name || 'Unnamed',
             getValue: (filter: SessionRecordingPlaylistType) => filter.short_id,
@@ -1001,32 +1016,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 'name' in item ? (item.name ?? null) : null,
             getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
         },
-        {
-            name: 'Recent',
-            searchPlaceholder: 'recent',
-            type: TaxonomicFilterGroupType.RecentFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: recentTaxonomicFiltersLogic,
-            value: 'recentFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Recent',
-        } as TaxonomicFilterGroup,
-        {
-            name: 'Pinned',
-            searchPlaceholder: 'pinned',
-            type: TaxonomicFilterGroupType.PinnedFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: taxonomicFilterPinnedPropertiesLogic,
-            value: 'pinnedFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Pinned',
-        } as TaxonomicFilterGroup,
+        ...RECENT_PINNED_TAB_DEFINITIONS,
         ...groupAnalyticsTaxonomicGroups,
         ...groupAnalyticsTaxonomicGroupNames,
     ]

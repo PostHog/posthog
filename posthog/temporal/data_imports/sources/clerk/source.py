@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -34,7 +35,7 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLERK,
             label="Clerk",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Clerk secret key to automatically pull your Clerk data into the PostHog Data warehouse.
 
 You can find your secret key in your [Clerk Dashboard](https://dashboard.clerk.com/) under **API Keys**.

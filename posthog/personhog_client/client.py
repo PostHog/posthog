@@ -10,12 +10,19 @@ import grpc
 import structlog
 from prometheus_client import Counter, Enum, Histogram
 
-from posthog.personhog_client.interceptor import ClientNameInterceptor, ConsistencyHeaderInterceptor, MetricsInterceptor
+from posthog.personhog_client.interceptor import (
+    ClientNameInterceptor,
+    ConsistencyHeaderInterceptor,
+    MetricsInterceptor,
+    RetryInterceptor,
+)
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
     CountCohortMembersRequest,
     CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest,
+    CountGroupTypeMappingsResponse,
     CreateGroupRequest,
     CreateGroupResponse,
     DeleteCohortMemberRequest,
@@ -153,7 +160,9 @@ class PersonHogClient:
         max_send_message_length: int = 4 * 1024 * 1024,
         max_recv_message_length: int = 128 * 1024 * 1024,
         client_idle_timeout_ms: int = 0,
-        compression_enabled: bool = True,
+        max_retries: int = 1,
+        initial_backoff_ms: int = 50,
+        max_backoff_ms: int = 1000,
     ):
         options = [
             ("grpc.keepalive_time_ms", keepalive_time_ms),
@@ -167,12 +176,17 @@ class PersonHogClient:
             # Prevent the channel from transitioning to IDLE between requests.
             ("grpc.client_idle_timeout_ms", client_idle_timeout_ms),
         ]
-        compression = grpc.Compression.Gzip if compression_enabled else grpc.Compression.NoCompression
-        channel = grpc.insecure_channel(addr, options=options, compression=compression)
+        channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
             channel,
             ClientNameInterceptor(client_name),
             ConsistencyHeaderInterceptor(),
+            RetryInterceptor(
+                client_name,
+                max_retries=max_retries,
+                initial_backoff_ms=initial_backoff_ms,
+                max_backoff_ms=max_backoff_ms,
+            ),
             MetricsInterceptor(client_name),
         )
         self._state_monitor = _ChannelStateMonitor(channel, client_name)
@@ -305,6 +319,9 @@ class PersonHogClient:
     ) -> GetGroupTypeMappingByDashboardIdResponse:
         return self._stub.GetGroupTypeMappingByDashboardId(request, timeout=self._timeout)
 
+    def count_group_type_mappings(self, request: CountGroupTypeMappingsRequest) -> CountGroupTypeMappingsResponse:
+        return self._stub.CountGroupTypeMappings(request, timeout=self._timeout)
+
     def update_group_type_mapping(self, request: UpdateGroupTypeMappingRequest) -> UpdateGroupTypeMappingResponse:
         return self._stub.UpdateGroupTypeMapping(request, timeout=self._timeout)
 
@@ -345,7 +362,9 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     max_send_message_length=getattr(settings, "PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024),
                     max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024),
                     client_idle_timeout_ms=getattr(settings, "PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0),
-                    compression_enabled=getattr(settings, "PERSONHOG_COMPRESSION_ENABLED", True),
+                    max_retries=getattr(settings, "PERSONHOG_MAX_RETRIES", 1),
+                    initial_backoff_ms=getattr(settings, "PERSONHOG_INITIAL_BACKOFF_MS", 50),
+                    max_backoff_ms=getattr(settings, "PERSONHOG_MAX_BACKOFF_MS", 1000),
                 )
                 logger.info("personhog_client_initialized", addr=addr, timeout_ms=timeout_ms)
 

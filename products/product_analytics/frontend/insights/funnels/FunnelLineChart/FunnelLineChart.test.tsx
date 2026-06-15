@@ -1,15 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+
+import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ensureJsdom, waitForHogChartTooltip } from 'lib/hog-charts/testing'
 
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
 
 import { FUNNEL_CONVERSION_SERIES_LABEL } from '../shared/funnelSeriesMeta'
+
+configure({ asyncUtilTimeout: 3000 })
 
 ensureJsdom()
 
@@ -117,12 +120,18 @@ describe('FunnelLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const lines = getHogChart().referenceLines()
-            // value→pixel isn't recoverable from the DOM; assert the line is labelled,
-            // drawn horizontally (across the value axis), and actually positioned.
-            expect(lines).toEqual([
-                expect.objectContaining({ label: 'Target', orientation: 'horizontal', position: expect.any(Number) }),
-            ])
+            await waitFor(() => {
+                const lines = getHogChart().referenceLines()
+                // value→pixel isn't recoverable from the DOM; assert the line is labelled,
+                // drawn horizontally (across the value axis), and actually positioned.
+                expect(lines).toEqual([
+                    expect.objectContaining({
+                        label: 'Target',
+                        orientation: 'horizontal',
+                        position: expect.any(Number),
+                    }),
+                ])
+            })
         })
     })
 
@@ -143,6 +152,66 @@ describe('FunnelLineChart', () => {
             await waitFor(() => {
                 expect(getHogChart().valueLabels()).toHaveLength(5)
             })
+        })
+    })
+
+    describe('legend', () => {
+        it('shows a legend item per breakdown series when showLegend is enabled', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(['Spike', 'Bramble'])
+        })
+
+        it.each([
+            {
+                desc: 'showLegend is unset (off by default)',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            },
+            {
+                desc: 'showLegend is false',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: false },
+                }),
+            },
+            {
+                desc: 'there is only a single series, even when showLegend is true',
+                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
+            },
+        ])('omits the legend when $desc', async ({ query }) => {
+            renderInsight({ query, featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
+        })
+
+        it('assigns a distinct color to each breakdown series', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]')).map(
+                (el) => el.style.backgroundColor
+            )
+            expect(swatchColors).toHaveLength(2)
+            expect(new Set(swatchColors).size).toBe(2)
         })
     })
 

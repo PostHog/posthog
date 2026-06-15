@@ -8,9 +8,13 @@ session-pad / UTC-day helpers. Keeping a single source of truth avoids
 the two paths drifting apart.
 """
 
+import json
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+
+from django.conf import settings
 
 import structlog
 import posthoganalytics
@@ -24,6 +28,24 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
+
+# Fields stripped from the query payload before hashing.
+# These don't influence which precompute job_id a query would map to —
+# `useWebAnalyticsPrecompute` is just the opt-in toggle, `modifiers` is
+# HogQL execution hints applied after the fact, and the rest are
+# metadata / pagination knobs applied at read time.
+_FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
+    {
+        "useWebAnalyticsPrecompute",
+        "modifiers",
+        "version",
+        "tags",
+        "response",
+        "limit",
+        "offset",
+        "limitBy",
+    }
+)
 
 # Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
 # fresh; older buckets get longer TTLs so we don't keep recomputing them.
@@ -139,6 +161,21 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
     )
 
 
+def is_precompute_enabled_for_team(team: Team) -> bool:
+    """Whether a team should take the lazy precompute path.
+
+    Short-circuits on the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+    setting before evaluating the org rollout flag. The list is the shared
+    source of truth with the eager warmer, and — unlike the flag — does not rely
+    on local flag-definition evaluation, which isn't reliably available outside
+    the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
+    returned falsy and silently dropped the warmer onto the raw path).
+    """
+    if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    return is_org_feature_flag_enabled(team)
+
+
 def check_common_eligibility(
     *,
     team: Team,
@@ -159,7 +196,7 @@ def check_common_eligibility(
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
     """
-    if not is_org_feature_flag_enabled(team):
+    if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
     if use_web_analytics_precompute is not True:
@@ -210,6 +247,29 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
         )
     else:
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
+
+
+def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
+    """Stable hash over the user-facing inputs that would fragment a precompute cache key.
+
+    Emitted on the `web_analytics_query` and `lazy_computation.executed` structured
+    log lines so the two can be joined and queries-per-distinct-cache-key (`q/key`)
+    can be measured over multi-day windows — including for queries that didn't
+    go through the lazy precompute path (different eligibility gating, different
+    runner) but would have shared a job_id if they had.
+
+    Same hashing mechanic as `compute_query_hash` in lazy_computation_executor
+    (SHA-256 over canonical JSON). It is **not** numerically identical to the
+    precompute job's `query_hash` — that one hashes the post-build INSERT AST —
+    but it fragments along the same logical dimensions: query kind, property
+    filters (with values), date range, breakdown, conversion goal, sampling,
+    interval, compare filter, test-accounts toggle, and team timezone.
+    """
+    dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
+    for key in _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS:
+        dumped.pop(key, None)
+    payload = {"query": dumped, "timezone": team_timezone}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def host_filter_expr(properties: list) -> ast.Expr:

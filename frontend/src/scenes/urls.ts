@@ -138,6 +138,7 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
@@ -284,18 +285,25 @@ export const urls = {
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
+    projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
+    healthAlerts: (presetKinds?: string[]): string =>
+        presetKinds && presetKinds.length > 0
+            ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
+            : '/health/alerts',
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
-    sdkDoctor: (): string => '/health/sdk-doctor',
+    sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

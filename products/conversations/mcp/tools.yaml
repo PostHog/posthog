@@ -42,6 +42,9 @@ tools:
     conversations-retrieve:
         operation: conversations_retrieve
         enabled: false
+    conversations-tickets-bulk-update-status-create:
+        operation: conversations_tickets_bulk_update_status_create
+        enabled: false
     conversations-tickets-bulk-update-tags-create:
         operation: conversations_tickets_bulk_update_tags_create
         enabled: false
@@ -86,6 +89,36 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
+    conversations-tickets-messages-retrieve:
+        operation: conversations_tickets_messages_list
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read support ticket messages
+        description: >
+            Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50,
+            max 200 per page) — use the limit and offset query params to page through long threads, and read count/next
+            from the response envelope. Includes all messages from the customer, team members, and AI, as well as
+            private internal notes. Each message contains author_type, author_name, content, and an is_private flag
+            indicating internal notes.
+    conversations-tickets-reply-create:
+        operation: conversations_tickets_reply_create
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Reply to support ticket
+        description: >
+            Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply
+            IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true
+            to store an internal note visible only to team members.
     conversations-tickets-retrieve:
         operation: conversations_tickets_retrieve
         enabled: true

@@ -24,7 +24,7 @@ class ConvexResumeConfig:
     snapshot: int | None = None
 
 
-_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.convex\.cloud$")
+_CONVEX_CLOUD_HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)?\.convex\.cloud$")
 
 
 class InvalidDeployUrlError(Exception):
@@ -39,7 +39,13 @@ def validate_deploy_url(deploy_url: str) -> str:
     Enforces https scheme, host matching *.convex.cloud, no query/fragment.
     Returns the validated base URL (scheme + host, no trailing slash).
     """
-    parsed = urlparse(deploy_url.strip())
+    deploy_url = deploy_url.strip()
+    # Tolerate a missing scheme — users routinely paste the bare host. We only add
+    # https when no scheme is present; an explicit http:// is still rejected below.
+    if deploy_url and "://" not in deploy_url:
+        deploy_url = f"https://{deploy_url}"
+
+    parsed = urlparse(deploy_url)
 
     if parsed.scheme != "https":
         raise InvalidDeployUrlError(
@@ -48,7 +54,10 @@ def validate_deploy_url(deploy_url: str) -> str:
 
     host = (parsed.hostname or "").lower()
     if not host or not _CONVEX_CLOUD_HOST_RE.match(host):
-        raise InvalidDeployUrlError(f"Deployment URL host must match <deployment-name>.convex.cloud, got: {host!r}.")
+        raise InvalidDeployUrlError(
+            f"Deployment URL host must match <deployment-name>.convex.cloud or "
+            f"<deployment-name>.<region>.convex.cloud, got: {host!r}."
+        )
 
     if parsed.query:
         raise InvalidDeployUrlError("Deployment URL must not contain query parameters.")

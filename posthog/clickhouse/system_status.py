@@ -23,7 +23,7 @@ FLAMEGRAPH_PL = abspath(join(dirname(__file__), "bin", "flamegraph.pl"))
 SystemStatusRow = dict
 
 
-def system_status() -> Generator[SystemStatusRow, None, None]:
+def system_status() -> Generator[SystemStatusRow]:
     alive = is_alive()
     yield {
         "key": "clickhouse_alive",

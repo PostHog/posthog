@@ -5,8 +5,9 @@ from collections.abc import Sequence
 
 from unittest.mock import patch
 
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
@@ -17,7 +18,7 @@ from products.tasks.backend.services.connection_token import (
     SANDBOX_EVENT_INGEST_TOKEN_TTL,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
-    get_sandbox_jwt_public_key,
+    reset_sandbox_jwt_key_cache,
 )
 from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 from products.tasks.backend.stream.event_ingest import (
@@ -37,11 +38,11 @@ from products.tasks.backend.stream.redis_stream import (
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 
-class TestTaskRunEventIngest(TransactionTestCase):
+class TestTaskRunEventIngest(TestCase):
     def setUp(self) -> None:
         super().setUp()
         TEST_clear_clients()
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.task = Task.objects.create(
@@ -56,7 +57,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
     def tearDown(self) -> None:
         self._delete_run_stream()
         TEST_clear_clients()
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         super().tearDown()
 
     def _delete_run_stream(self) -> None:
@@ -129,7 +130,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
             body = json.loads(sent[1]["body"])
             return status, body
 
-        return asyncio.run(_call())
+        # async_to_sync (not asyncio.run) so the handler's thread_sensitive DB
+        # access runs on the test thread's connection and sees uncommitted rows.
+        return async_to_sync(_call)()
 
     def _read_stream_events(self) -> list[dict]:
         async def _read() -> list[dict]:
@@ -252,7 +255,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
             return sent[0]["status"], json.loads(sent[1]["body"])
 
         with patch("products.tasks.backend.stream.event_ingest._heartbeat_workflow", side_effect=blocking_heartbeat):
-            status, body = asyncio.run(_call())
+            status, body = async_to_sync(_call)()
 
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)

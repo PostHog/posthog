@@ -32,8 +32,8 @@ export interface _CompareFilterApi {
 
 /**
  * * `span` - span
- * `span_attribute` - span_attribute
- * `span_resource_attribute` - span_resource_attribute
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
  */
 export type _SpanPropertyFilterTypeEnumApi =
     (typeof _SpanPropertyFilterTypeEnumApi)[keyof typeof _SpanPropertyFilterTypeEnumApi]
@@ -46,15 +46,15 @@ export const _SpanPropertyFilterTypeEnumApi = {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `is_set` - is_set
- * `is_not_set` - is_not_set
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
  */
 export type _SpanPropertyFilterOperatorEnumApi =
     (typeof _SpanPropertyFilterOperatorEnumApi)[keyof typeof _SpanPropertyFilterOperatorEnumApi]
@@ -73,26 +73,26 @@ export const _SpanPropertyFilterOperatorEnumApi = {
 } as const
 
 export interface _SpanPropertyFilterApi {
-    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
     key: string
     /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
-
-  * `span` - span
-  * `span_attribute` - span_attribute
-  * `span_resource_attribute` - span_resource_attribute */
+     *
+     * * `span` - span
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute */
     type: _SpanPropertyFilterTypeEnumApi
     /** Comparison operator.
-
-  * `exact` - exact
-  * `is_not` - is_not
-  * `icontains` - icontains
-  * `not_icontains` - not_icontains
-  * `regex` - regex
-  * `not_regex` - not_regex
-  * `gt` - gt
-  * `lt` - lt
-  * `is_set` - is_set
-  * `is_not_set` - is_not_set */
+     *
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `lt` - lt
+     * * `is_set` - is_set
+     * * `is_not_set` - is_not_set */
     operator: _SpanPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
     value?: unknown
@@ -114,15 +114,48 @@ export interface _TracingAggregationRequestApi {
     query: _TracingAggregationQueryBodyApi
 }
 
-/**
- * * `latest` - latest
- * `earliest` - earliest
- */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+export interface _TracingCountBodyApi {
+    /** Date range for the count. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by HTTP status codes. */
+    statusCodes?: number[]
+    /** Property filters for the count. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
 
-export const OrderByEnumApi = {
-    Latest: 'latest',
-    Earliest: 'earliest',
+export interface _TracingCountRequestApi {
+    /** The span count query to execute. */
+    query: _TracingCountBodyApi
+}
+
+export interface _TracingCountResponseApi {
+    /** Number of spans matching the filters. */
+    count: number
+}
+
+/**
+ * * `timestamp` - timestamp
+ * * `duration` - duration
+ */
+export type _TracingQueryBodyOrderByEnumApi =
+    (typeof _TracingQueryBodyOrderByEnumApi)[keyof typeof _TracingQueryBodyOrderByEnumApi]
+
+export const _TracingQueryBodyOrderByEnumApi = {
+    Timestamp: 'timestamp',
+    Duration: 'duration',
+} as const
+
+/**
+ * * `ASC` - ASC
+ * * `DESC` - DESC
+ */
+export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
+
+export const OrderDirectionEnumApi = {
+    Asc: 'ASC',
+    Desc: 'DESC',
 } as const
 
 export interface _TracingQueryBodyApi {
@@ -132,23 +165,35 @@ export interface _TracingQueryBodyApi {
     serviceNames?: string[]
     /** Filter by HTTP status codes. */
     statusCodes?: number[]
-    /** Order results by timestamp. Defaults to latest.
-
-  * `latest` - latest
-  * `earliest` - earliest */
-    orderBy?: OrderByEnumApi
+    /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
+     *
+     * * `timestamp` - timestamp
+     * * `duration` - duration */
+    orderBy?: _TracingQueryBodyOrderByEnumApi
+    /** Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).
+     *
+     * * `ASC` - ASC
+     * * `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
     /** Filter to a specific trace ID (hex string). */
     traceId?: string
     /** Max results (1-1000). Defaults to 100. */
     limit?: number
-    /** Pagination cursor from previous response. */
+    /** Keyset pagination cursor from a previous timestamp-ordered response. */
     after?: string
+    /**
+     * Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
     /** Filter to root spans only. Defaults to true. */
     rootSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+    excludeAttributes?: boolean
 }
 
 export interface _TracingQueryRequestApi {
@@ -156,9 +201,16 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _HasSpansResponseApi {
+    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+    hasSpans: boolean
+}
+
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+    excludeAttributes?: boolean
 }
 
 export interface _TracingTreeQueryBodyApi {
@@ -183,12 +235,12 @@ export interface _TracingTreeRequestApi {
 
 export type TracingSpansAttributesRetrieveParams = {
     /**
- * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
-
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
- * @minLength 1
- */
+     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+     *
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute
+     * @minLength 1
+     */
     attribute_type?: TracingSpansAttributesRetrieveAttributeType
     /**
      * Max results (default: 100).
@@ -231,13 +283,13 @@ export type TracingSpansServiceNamesRetrieveParams = {
 
 export type TracingSpansValuesRetrieveParams = {
     /**
- * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
-
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute
- * @minLength 1
- */
+     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+     *
+     * * `span` - span
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute
+     * @minLength 1
+     */
     attribute_type?: TracingSpansValuesRetrieveAttributeType
     /**
      * The attribute key to get values for.

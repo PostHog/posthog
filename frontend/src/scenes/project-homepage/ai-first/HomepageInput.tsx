@@ -3,16 +3,18 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconLock, IconPin, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
+import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -27,8 +29,13 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat } = useActions(aiFirstHomepageLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
+    const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
+
+    const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
 
     useEffect(() => {
         const timer = setTimeout(() => inputRef.current?.focus(), 100)
@@ -49,9 +56,9 @@ function IdleInput(): JSX.Element {
                 htmlFor="homepage-input"
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
-                <div className="flex w-full py-1 px-2">
+                <div className="flex w-full py-1 px-1 max-h-[300px]">
                     {!query && (
-                        <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
+                        <span className="text-tertiary pointer-events-none absolute left-2.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">What can I help you with?</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
                                 / for commands
@@ -80,7 +87,7 @@ function IdleInput(): JSX.Element {
                                 posthog.capture('homepage query submitted', { mode: 'search' })
                                 submitQuery('search')
                             }
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                                 if (e.shiftKey) {
                                     // Allow default behavior to insert newline
                                     return
@@ -110,7 +117,7 @@ function IdleInput(): JSX.Element {
                         className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
                         autoFocus
                     />
-                    <div className="flex items-end shrink-0">
+                    <div className="flex items-end shrink-0 absolute right-[0.5rem] bottom-[0.2rem]">
                         <div className="flex items-center gap-1 ">
                             <ButtonPrimitive
                                 size="xs"
@@ -122,6 +129,18 @@ function IdleInput(): JSX.Element {
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
+                            {handsFreeAvailable && (
+                                <Tooltip title="Start a new chat in hands-free">
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        data-attr="homepage-hands-free"
+                                        className="shrink-0"
+                                        onClick={startHandsFreeChat}
+                                    >
+                                        <IconMicrophone className="size-4" />
+                                    </ButtonPrimitive>
+                                </Tooltip>
+                            )}
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
                                     onClick={() => {
@@ -150,7 +169,7 @@ function HomepageAiInput(): JSX.Element {
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
-        tabId: HOMEPAGE_TAB_ID,
+        panelId: HOMEPAGE_TAB_ID,
         conversationId: threadLogicKey || fallbackConversationId,
         conversation,
     }
@@ -163,7 +182,7 @@ function HomepageAiInput(): JSX.Element {
                     PostHog AI needs your approval to potentially process identifying user data with external AI
                     providers.
                 </p>
-                <p className="text-muted text-xs m-0">Your data won't be used for training models.</p>
+                <p className="text-muted text-xs m-0">Your data won't be used for training third-party models.</p>
                 {isAdmin ? (
                     <LemonButton
                         type="primary"
@@ -455,6 +474,7 @@ function IdleGrid(): JSX.Element {
                                         <Link
                                             to={item.href}
                                             role="gridcell"
+                                            title={item.label}
                                             buttonProps={{
                                                 menuItem: true,
                                                 fullWidth: true,

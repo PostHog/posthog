@@ -8,18 +8,26 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { AppMetricsResponseApi, AppMetricsTotalsResponseApi } from './api.schemas'
+import type {
+    AppMetricsResponseApi,
+    AppMetricsTotalsResponseApi,
+    MetricsHasMetricsRetrieve200,
+    MetricsValuesRetrieveParams,
+    _MetricNamesResponseApi,
+    _MetricQueryRequestApi,
+    _MetricQueryResponseApi,
+} from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/`
+    return `/api/projects/${projectId}/event_filter/metrics/`
 }
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
 export const eventFilterMetricsRetrieve = async (
     projectId: string,
@@ -32,21 +40,82 @@ export const eventFilterMetricsRetrieve = async (
 }
 
 export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/totals/`
+    return `/api/projects/${projectId}/event_filter/metrics/totals/`
 }
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
 export const eventFilterMetricsTotalsRetrieve = async (
     projectId: string,
     options?: RequestInit
 ): Promise<AppMetricsTotalsResponseApi> => {
     return apiMutator<AppMetricsTotalsResponseApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/has_metrics/`
+}
+
+export const metricsHasMetricsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MetricsHasMetricsRetrieve200> => {
+    return apiMutator<MetricsHasMetricsRetrieve200>(getMetricsHasMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/query/`
+}
+
+export const metricsQueryCreate = async (
+    projectId: string,
+    _metricQueryRequestApi: _MetricQueryRequestApi,
+    options?: RequestInit
+): Promise<_MetricQueryResponseApi> => {
+    return apiMutator<_MetricQueryResponseApi>(getMetricsQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricQueryRequestApi),
+    })
+}
+
+export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/values/`
+}
+
+/**
+ * Distinct metric names for the team. Backs the picker UI.
+ */
+export const metricsValuesRetrieve = async (
+    projectId: string,
+    params?: MetricsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricNamesResponseApi> => {
+    return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

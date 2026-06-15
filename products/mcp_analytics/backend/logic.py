@@ -16,8 +16,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import generate_cache_key
 
+from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.facade import contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 
@@ -37,6 +38,7 @@ SELECT
     toString(properties.$mcp_duration_ms) AS duration_ms_raw
 FROM events
 WHERE event = {event}
+    AND timestamp >= {date_from}
     AND properties.$mcp_session_id = {session_id}
 ORDER BY timestamp ASC
 LIMIT 500
@@ -65,6 +67,10 @@ DEFAULT_SESSION_SORT_COLUMN = "session_start"
 # products/mcp_analytics/docs/sessions-overview.md for why this replaced the
 # disabled Temporal backfill.
 MCP_SESSIONS_LOOKBACK = timedelta(hours=24)
+
+assert intent_generation.SESSION_EVENTS_LOOKBACK >= MCP_SESSIONS_LOOKBACK, (
+    "SESSION_EVENTS_LOOKBACK must be >= MCP_SESSIONS_LOOKBACK or detail views will silently truncate for listed sessions"
+)
 
 # Short TTL so concurrent dashboard tabs / auto-refreshes share one ClickHouse
 # aggregation instead of each re-running it — long enough to absorb a burst,
@@ -229,12 +235,37 @@ def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:
 def _attach_intents(team: Team, session_ids: list[str]) -> dict[str, str]:
     """Look up persisted session intents keyed by session_id.
 
-    Inert for now: the ad-hoc summary endpoint (separate PR) will persist intents
-    in a dedicated MCPSessionIntent table, and this becomes a single indexed
-    lookup over the page's session_ids. Kept as a seam so wiring intent in later
-    is a pure addition rather than a listing rewrite.
+    A single indexed read over the page's session_ids against MCPSession; sessions
+    whose intent hasn't been generated yet are simply absent. Intents are produced
+    on demand via ``generate_session_intent``.
     """
-    return {}
+    if not session_ids:
+        return {}
+    rows = MCPSession.objects.filter(team=team, session_id__in=session_ids).values_list("session_id", "intent")
+    return {session_id: intent for session_id, intent in rows if intent}
+
+
+def generate_session_intent(team: Team, session_id: str) -> str:
+    """Return the session's intent summary, generating and persisting it on first request.
+
+    Cache-on-empty: an existing non-empty ``MCPSession.intent`` is returned as-is. Otherwise the
+    session's recorded ``$mcp_intent``s are summarised by an LLM and persisted (one row per
+    ``(team, session_id)``). A session with no recorded intents returns ``NO_INTENT_MESSAGE``
+    without an LLM call and without persisting anything, so it stays retryable and the listing
+    doesn't surface a non-intent as an intent.
+    Raises ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
+    """
+    existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
+    if existing:
+        return existing
+
+    intents = intent_generation.fetch_session_intents(team, session_id)
+    if not intents:
+        return intent_generation.NO_INTENT_MESSAGE
+
+    summary = intent_generation.summarize_intents(intents, team)
+    MCPSession.objects.update_or_create(team=team, session_id=session_id, defaults={"intent": summary})
+    return summary
 
 
 def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]:
@@ -280,6 +311,7 @@ def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCa
         _MCP_TOOL_CALLS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK),
             "session_id": ast.Constant(value=session_id),
         },
     )

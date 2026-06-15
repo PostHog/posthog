@@ -1,5 +1,3 @@
-import 'chartjs-adapter-dayjs-3'
-
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
@@ -8,6 +6,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef } from 'react'
+
+import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import {
     ActiveElement,
@@ -32,7 +32,6 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'

@@ -24,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
@@ -419,6 +420,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 return stmt
 
     def _calculate(self) -> EventsQueryResponse:
+        # Tag here (not in `to_query()`) so platform code that calls `to_query()` as a
+        # sub-query helper — e.g. `hogql_cohort_query.py` — doesn't false-positive when
+        # the `select` / `where` strings it builds are platform constants. User-facing
+        # `EventsQuery` execution always lands in `_calculate()` via the runner.
+        tag_contains_user_hogql()
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,

@@ -9,6 +9,7 @@ from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+import jwt
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
@@ -23,9 +24,6 @@ from rest_framework.request import Request
 from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
-from posthog.api.exports import ExportedAssetSerializer
-from posthog.api.insight import InsightSerializer
-from posthog.api.insight_variable import InsightVariable
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -35,10 +33,8 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import Cohort, InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
+from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
-from posthog.models.insight import Insight
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
@@ -48,11 +44,23 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.api.exports import ExportedAssetSerializer
+from products.exports.backend.models.exported_asset import (
+    EXPORTED_ASSET_PURPOSE_RENDER,
+    EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
+    ExportedAsset,
+    asset_for_token,
+    get_content_response,
+)
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
+from products.product_analytics.backend.api.insight import InsightSerializer
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
 
@@ -282,7 +290,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         return SharePasswordSerializer(obj.share_passwords.filter(is_active=True), many=True).data
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [
@@ -335,9 +343,14 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return context
 
-    def _get_sharing_configuration(self, context: dict[str, Any]):
+    def _get_sharing_configuration(self, context: dict[str, Any], dedupe: bool = False):
         """
-        Gets but does not create a SharingConfiguration. Only once enabled do we actually store it
+        Gets but does not create a SharingConfiguration. Only once enabled do we actually store it.
+
+        ``dedupe`` expires duplicate active rows, which is a mutation — only pass it from a write
+        path that has already authorized the caller via ``check_can_edit_sharing_configuration``.
+        The read path (``list``) must leave it ``False`` so that merely viewing the sharing config
+        never invalidates public share tokens.
         """
         context = context or self.get_serializer_context()
         dashboard = context.get("dashboard")
@@ -354,17 +367,36 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "expires_at": None,
         }
 
-        try:
-            instance = SharingConfiguration.objects.get(**config_kwargs)
-        except SharingConfiguration.DoesNotExist:
+        instance = SharingConfiguration.get_active_for_resource(
+            dedupe=dedupe,
+            team_id=self.team_id,
+            insight=insight,
+            dashboard=dashboard,
+            recording=recording,
+            notebook=notebook,
+        )
+        if instance is None:
             instance = SharingConfiguration(**config_kwargs)
 
         if dashboard:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
             if dashboard.share_token and dashboard.share_token != instance.access_token:
-                instance.enabled = dashboard.is_shared
-                instance.access_token = dashboard.share_token
-                instance.save()
+                if (
+                    SharingConfiguration.objects.filter(access_token=dashboard.share_token)
+                    .exclude(pk=instance.pk)
+                    .exists()
+                ):
+                    if instance.pk:
+                        dashboard.share_token = instance.access_token
+                        dashboard.is_shared = instance.enabled
+                    else:
+                        dashboard.share_token = None
+                        dashboard.is_shared = False
+                    dashboard.save(update_fields=["share_token", "is_shared"])
+                else:
+                    instance.enabled = dashboard.is_shared
+                    instance.access_token = dashboard.share_token
+                    instance.save()
 
         return instance
 
@@ -382,6 +414,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         instance = self._get_sharing_configuration(context)
 
         check_can_edit_sharing_configuration(self, request, instance)
+
+        # Now that the caller is authorized to edit, collapse any duplicate active rows.
+        instance = self._get_sharing_configuration(context, dedupe=True)
 
         if request.data.get("password_required", False):
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -542,6 +577,8 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
 
+        sharing_config = self._get_sharing_configuration(context, dedupe=True)
+
         if not sharing_config.password_required:
             return response.Response(
                 {"error": "Password protection must be enabled before creating passwords"},
@@ -587,6 +624,8 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         sharing_config = self._get_sharing_configuration(context)
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
+
+        sharing_config = self._get_sharing_configuration(context, dedupe=True)
 
         if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
@@ -697,6 +736,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     permission_classes = []
     serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
 
+    # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
+    _token_purpose: str | None = None
+
     def initial(self, request, *args, **kwargs):
         """Override to ensure we don't apply any session authentication."""
         # Save and clear any existing user to ensure we start fresh
@@ -718,10 +760,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         token = self.request.query_params.get("token")
         if token:
             try:
-                asset = asset_for_token(token)
+                asset, self._token_purpose = asset_for_token(token)
                 if asset:
                     return asset
-            except ExportedAsset.DoesNotExist:
+            except (ExportedAsset.DoesNotExist, jwt.InvalidTokenError):
                 raise NotFound()
 
         # Path based access (SharingConfiguration only)
@@ -771,6 +813,35 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         return self.retrieve(request, *args, **kwargs)
 
+    def _is_blocked_by_exported_asset_token_surface(
+        self, resource: SharingConfiguration | ExportedAsset, request: Request, token_purpose: str | None
+    ) -> bool:
+        if not isinstance(resource, ExportedAsset):
+            return False
+
+        if token_purpose == EXPORTED_ASSET_PURPOSE_RENDER:
+            return request.path != "/exporter"
+        if token_purpose == EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY:
+            return not request.path.endswith(f".{resource.file_ext}")
+        return False
+
+    def _is_blocked_by_public_sharing_setting(
+        self, resource: SharingConfiguration | ExportedAsset, request: Request, token_purpose: str | None
+    ) -> bool:
+        organization = resource.team.organization
+        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+            return False
+        if organization.allow_publicly_shared_resources:
+            return False
+
+        if token_purpose in (
+            EXPORTED_ASSET_PURPOSE_RENDER,
+            EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
+        ):
+            return False
+
+        return True
+
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         try:
@@ -781,10 +852,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not resource:
             return custom_404_response(self.request)
 
-        if (
-            resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
-            and not resource.team.organization.allow_publicly_shared_resources
-        ):
+        if self._is_blocked_by_exported_asset_token_surface(resource, request, self._token_purpose):
+            return custom_404_response(self.request)
+
+        if self._is_blocked_by_public_sharing_setting(resource, request, self._token_purpose):
             return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path

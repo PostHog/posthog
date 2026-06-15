@@ -33,6 +33,9 @@ LIST_ISSUE_FIELDS = [
     "aggregations",
 ]
 
+# Keep in sync with ERROR_TRACKING_LISTING_RESOLUTION in products/error_tracking/frontend/utils.ts
+ERROR_TRACKING_LISTING_VOLUME_RESOLUTION = 20
+
 CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
 EVENT_PROPERTY_SELECTS = [
     "properties.$exception_types",
@@ -423,13 +426,19 @@ def build_sparkline(issue: dict[str, object]) -> list[float] | None:
     return None
 
 
-def build_issue_where(issue_id: str) -> list[str]:
-    escaped_issue_id = escape_hogql_string(issue_id)
-    return [f"(issue_id = {escaped_issue_id} OR properties.$exception_issue_id = {escaped_issue_id})"]
+def build_fingerprint_where(fingerprints: list[str]) -> list[str]:
+    if not fingerprints:
+        return ["1 = 0"]
+    escaped_fingerprints = ", ".join(escape_hogql_string(fingerprint) for fingerprint in fingerprints)
+    return [f"properties.$exception_fingerprint IN ({escaped_fingerprints})"]
 
 
-def build_event_where(issue_id: str, search_query: str | None) -> list[str]:
-    where = build_issue_where(issue_id)
+def build_fingerprint_event_where(fingerprints: list[str], search_query: str | None) -> list[str]:
+    where = build_fingerprint_where(fingerprints)
+    return add_event_search_where(where, search_query)
+
+
+def add_event_search_where(where: list[str], search_query: str | None) -> list[str]:
     if search_query:
         search = escape_hogql_like_pattern(search_query)
         chunks = [f"ilike(toString({prop}), {search})" for prop in EVENT_SEARCH_PROPERTIES]

@@ -5,12 +5,13 @@ from datetime import UTC, datetime
 import structlog
 from temporalio import activity
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
 
@@ -21,6 +22,7 @@ _EVENT_SOURCE = "replay_vision"
 
 
 @activity.defn
+@track_activity()
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
     """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
@@ -63,7 +65,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         else replay_vision_distinct_id(observation.team_id)
     )
 
-    response = capture_internal(
+    result = capture_internal_routed(
         token=team.api_token,
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,
@@ -71,5 +73,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         timestamp=datetime.now(UTC),
         properties=properties,
         process_person_profile=False,
+        # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
+        event_uuid=str(observation.id),
     )
-    response.raise_for_status()
+    result.raise_for_status()

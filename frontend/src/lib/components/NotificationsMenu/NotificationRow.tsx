@@ -41,6 +41,14 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Experiments concluded',
         description: 'When an experiment you created ends',
     },
+    project_created: {
+        label: 'Projects created',
+        description: 'When a member creates a new project in your organization',
+    },
+    usage_spike: {
+        label: 'Usage spikes',
+        description: 'When billing detects a usage spike for one of your accounts',
+    },
 }
 
 export function NotificationRow({

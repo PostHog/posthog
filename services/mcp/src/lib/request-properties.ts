@@ -1,7 +1,7 @@
 // Shared request-properties extraction. Both runtimes parse the same headers
 // and query params into the same shape, so the logic lives here.
 
-import { hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
 
@@ -12,7 +12,6 @@ export type RequestProperties = {
     features?: string[] | undefined
     tools?: string[] | undefined
     region?: string | undefined
-    version?: number | undefined
     organizationId?: string | undefined
     projectId?: string | undefined
     clientUserAgent?: string | undefined
@@ -20,6 +19,7 @@ export type RequestProperties = {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
     transport?: Transport | undefined
@@ -27,6 +27,10 @@ export type RequestProperties = {
     mcpConversationId?: string | undefined
     viaSseRedirect?: boolean | undefined
     requestStartTime?: number | undefined
+    // Dev/test-only per-request feature-flag overrides — a JSON object string from
+    // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
+    // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
+    featureFlagOverrides?: string | undefined
 }
 
 export type ClientInfo = {
@@ -55,7 +59,7 @@ export function parseRequestProperties(
     const url = new URL(request.url)
     const params = url.searchParams
 
-    const token = request.headers.get('Authorization')?.split(' ')[1] ?? ''
+    const token = extractBearerToken(request) ?? ''
     const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
 
     return {
@@ -67,7 +71,6 @@ export function parseRequestProperties(
         features: splitCsv(params.get('features')),
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
-        version: Number(header(request, 'x-posthog-mcp-version') || params.get('v')) || 1,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
         mcpConsumer: sanitizeHeaderValue(
@@ -76,8 +79,10 @@ export function parseRequestProperties(
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient: sanitizeHeaderValue(header(request, 'x-anthropic-client')),
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         transport,
         requestStartTime: Date.now(),
+        featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,
     }
 }
