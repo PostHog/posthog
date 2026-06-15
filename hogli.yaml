@@ -353,6 +353,9 @@ start:
         cmd: phrocs stop
         description: Alias for `hogli stop`
         preserve_exit_code: true
+    killall:
+        click: hogli_commands.doctor:doctor_killall
+        description: Force-kill all native dev processes across worktrees (keeps Docker running)
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload

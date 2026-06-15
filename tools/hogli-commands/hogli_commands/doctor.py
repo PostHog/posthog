@@ -985,6 +985,7 @@ class DevProcess:
     is_orphan: bool
     category: str
     manager: str = ""  # e.g. "phrocs (PID 1234)" for managed processes
+    worktree: str = ""  # absolute path of the owning worktree root (from cwd)
 
 
 @click.command(
@@ -1070,6 +1071,252 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
         click.echo(f"   {failed} process(es) could not be killed")
 
     _record()
+
+
+# ---------------------------------------------------------------------------
+# killall — force-kill every native PostHog dev process, across all worktrees
+# ---------------------------------------------------------------------------
+
+# Runtimes that mark a dev process. Bare shells are excluded so an interactive
+# terminal sitting in the repo is never killed; wrapper shells match structurally.
+_DEV_RUNTIMES: frozenset[str] = frozenset(
+    {
+        "python",
+        "python3",
+        "granian",
+        "uvicorn",
+        "celery",
+        "gunicorn",
+        "dagster",
+        "node",
+        "pnpm",
+        "tsx",
+        "cargo",
+        "air",
+        "phrocs",
+        "mprocs",
+    }
+)
+
+# Markers that flag a dev process when argv[0] isn't a runtime: compiled binaries
+# (cargo's target dir is often shared, outside the worktree), wrapper scripts, manage.py.
+_DEV_STRUCTURAL_MARKERS: tuple[str, ...] = (
+    "/target/debug/",
+    "/target/release/",
+    "bin/start-",
+    "bin/posthog-node",
+    "manage.py",
+)
+
+# Runs out of a worktree but isn't part of the stack (agent tooling).
+_DEV_TOOLING_EXCLUDED: tuple[str, ...] = ("tools/phrocs/mcp_server.py",)
+
+
+def _looks_like_dev_process(args: str) -> bool:
+    """Cheap first-pass check, before the cwd lookup."""
+
+    if not args:
+        return False
+    first = args.split()[0].rsplit("/", 1)[-1]
+    if first in _DEV_RUNTIMES:
+        return True
+    return any(marker in args for marker in _DEV_STRUCTURAL_MARKERS)
+
+
+def _is_posthog_worktree(root: str, cache: dict[str, bool]) -> bool:
+    """True if ``root`` is a PostHog checkout (identified by a top-level hogli.yaml)."""
+
+    if not root:
+        return False
+    if root not in cache:
+        cache[root] = (Path(root) / "hogli.yaml").is_file()
+    return cache[root]
+
+
+def _worktree_root_for_cwd(cwd: str | None, cache: dict[str, str]) -> str:
+    """Map a cwd to its worktree root, or "" if unknown. Sibling worktrees share a
+    base dir (REPO_ROOT.parent), so a cwd under it resolves without spawning git."""
+
+    if not cwd:
+        return ""
+    if cwd in cache:
+        return cache[cwd]
+
+    base = str(REPO_ROOT.parent)
+    root = ""
+    if cwd == base or cwd.startswith(base + "/"):
+        segment = cwd[len(base) + 1 :].split("/", 1)[0]
+        root = f"{base}/{segment}" if segment else base
+    else:
+        result = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            root = result.stdout.strip()
+
+    cache[cwd] = root
+    return root
+
+
+def _worktree_for_process(cwd: str | None, args: str, cache: dict[str, str]) -> str:
+    """Worktree root from cwd, falling back to a worktree path in the command line
+    (for processes whose cwd lsof can't read)."""
+
+    root = _worktree_root_for_cwd(cwd, cache)
+    if root:
+        return root
+
+    base = str(REPO_ROOT.parent)
+    idx = args.find(base + "/")
+    if idx != -1:
+        segment = args[idx + len(base) + 1 :].split("/", 1)[0]
+        if segment:
+            return f"{base}/{segment}"
+    return ""
+
+
+def _scan_posthog_processes_global() -> list[DevProcess]:
+    """Find dev processes across all worktrees: a dev runtime/convention whose cwd
+    belongs to a PostHog checkout. Reaps a stale stack in any worktree."""
+
+    result = subprocess.run(
+        ["ps", "-eo", "pid=,ppid=,pcpu=,rss=,lstart=,args="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        click.echo("Failed to run ps command.")
+        return []
+
+    parsed = [p for line in result.stdout.strip().splitlines() if (p := _parse_ps_line(line)) is not None]
+    all_procs: dict[int, tuple[int, str]] = {pid: (ppid, args) for pid, ppid, _, _, _, args in parsed}
+    own_tree = _get_own_process_tree()
+
+    # First pass (no lsof): keep plausible dev processes for the batched cwd lookup below.
+    candidates: list[_PsLine] = []
+    for entry in parsed:
+        pid, _, _, _, _, args = entry
+        if pid in own_tree or _is_excluded(args):
+            continue
+        if any(excluded in args for excluded in _DEV_TOOLING_EXCLUDED):
+            continue
+        if _looks_like_dev_process(args):
+            candidates.append(entry)
+
+    # Second pass: keep candidates whose cwd resolves to a PostHog worktree.
+    cwd_by_pid = _get_process_cwds([entry[0] for entry in candidates])
+    root_cache: dict[str, str] = {}
+    worktree_cache: dict[str, bool] = {}
+
+    processes: list[DevProcess] = []
+    for pid, ppid, cpu, rss, start_time, args in candidates:
+        root = _worktree_for_process(cwd_by_pid.get(pid), args, root_cache)
+        if not _is_posthog_worktree(root, worktree_cache):
+            continue
+        is_orphan, manager = _resolve_orphan_status(pid, all_procs)
+        processes.append(
+            DevProcess(
+                pid=pid,
+                ppid=ppid,
+                name=_extract_process_name(args),
+                cmdline=args,
+                cpu_percent=cpu,
+                memory_rss_kb=rss,
+                start_time=start_time,
+                is_orphan=is_orphan,
+                category=_categorize_process(args),
+                manager=manager,
+                worktree=root,
+            )
+        )
+
+    return processes
+
+
+@click.command(
+    name="killall",
+    help="Force-kill all native PostHog dev processes (any worktree); leaves Docker running",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be killed without killing")
+@click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt")
+def doctor_killall(dry_run: bool, yes: bool) -> None:
+    """Force-kill every native PostHog dev process on this machine, across all worktrees.
+
+    Docker containers (postgres, kafka, clickhouse, redis, temporal, …) are left
+    untouched — this only stops the native stack so you serve the right code after
+    switching worktrees.
+    """
+
+    click.echo("Scanning for native PostHog dev processes (all worktrees)...\n")
+
+    processes = _scan_posthog_processes_global()
+    if not processes:
+        click.echo("No native PostHog dev processes found. Nothing to kill.")
+        click.echo("Docker containers (if any) were left running.")
+        return
+
+    # Group the table by worktree, current worktree first, then others by name.
+    current_root = str(REPO_ROOT)
+    groups: dict[str, list[DevProcess]] = {}
+    for proc in processes:
+        groups.setdefault(proc.worktree, []).append(proc)
+
+    def _group_sort_key(root: str) -> tuple[int, str]:
+        if root == current_root:
+            return (0, "")
+        if not root:
+            return (2, "")  # unknown worktree last
+        return (1, Path(root).name.lower())
+
+    offset = 0
+    for root in sorted(groups, key=_group_sort_key):
+        procs = groups[root]
+        if root == current_root:
+            heading = f"Worktree: {Path(root).name} (current)"
+        elif root:
+            heading = f"Worktree: {Path(root).name}"
+        else:
+            heading = "Worktree: unknown"
+        _display_process_table(procs, heading, Path(root) if root else REPO_ROOT, number_offset=offset)
+        offset += len(procs)
+
+    total_rss = sum(p.memory_rss_kb for p in processes)
+    click.echo(f"   Total: {len(processes)} process(es) across {len(groups)} worktree(s), ~{_format_rss(total_rss)}\n")
+
+    if dry_run:
+        click.echo("[DRY-RUN] No processes were killed.")
+        return
+
+    if not yes and sys.stdin.isatty():
+        click.echo("This force-kills PostHog dev processes from ALL worktrees on this machine.")
+        click.echo("Docker containers are left running.")
+        if not click.confirm("   Proceed?", default=False):
+            click.echo("Aborted. Nothing was killed.")
+            return
+
+    # Kill the process managers first so they can't restart a child mid-sweep.
+    managers = [p for p in processes if _identify_manager(p.cmdline) in ("phrocs", "mprocs")]
+    for proc in managers:
+        try:
+            os.kill(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    killed_pids, failed = _kill_processes(processes)
+
+    click.echo(f"\nSummary: killed {len(killed_pids)} process(es)")
+    freed_rss = sum(p.memory_rss_kb for p in processes if p.pid in killed_pids)
+    if freed_rss > 0:
+        click.echo(f"   Freed ~{_format_rss(freed_rss)} RSS")
+    if failed > 0:
+        click.echo(f"   {failed} process(es) could not be killed")
+    click.echo("Docker containers were left running. Run 'hogli start' to relaunch the native stack.")
+
+    hints.record_check_run("killall")
 
 
 def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
