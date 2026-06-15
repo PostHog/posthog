@@ -64,6 +64,11 @@ CURRENT_USER_VIEWED_CHUNK_SIZE = 5000
 # building the cross-playlist watched lookup. Prevents a single oversized cached
 # entry from dominating memory.
 MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST = 1000
+# Cap on how many of a synthetic playlist's session_ids we materialize for the
+# watched-status intersection. The displayed count comes from count_session_ids
+# (accurate); only watched_count is approximate beyond this cap, bounding the
+# memory a single very large synthetic can consume during the batched lookup.
+SYNTHETIC_WATCHED_SAMPLE_LIMIT = 10000
 
 
 class SessionRecordingPlaylistPagination(LimitOffsetPagination):
@@ -144,31 +149,9 @@ def count_saved_filters(playlist: SessionRecordingPlaylist, user: User, team: Te
     }
 
 
-def count_synthetic_playlist(
-    playlist: SessionRecordingPlaylist, user: User, team: Team
-) -> dict[str, int | bool | None]:
-    """Count recordings in a synthetic playlist using efficient database-level counting"""
-    synthetic_def = get_synthetic_playlist(playlist.short_id)
-    if not synthetic_def:
-        return {
-            "count": None,
-            "has_more": None,
-            "watched_count": None,
-            "increased": None,
-            "last_refreshed_at": None,
-        }
-
-    # Use the count function for efficient database-level counting
-    count = synthetic_def.count_session_ids(team, user)
-
-    # For watched_count, we still need to load session IDs since we're checking user-specific viewed status
-    # But only if count > 0
-    if count > 0:
-        session_ids = synthetic_def.get_session_ids(team, user)
-        watched_count = len(current_user_viewed(session_ids, user, team))
-    else:
-        watched_count = 0
-
+def _synthetic_counts(count: int, watched_count: int) -> dict[str, int | bool | None]:
+    """Shared shape for a synthetic playlist's counts, used by both the batched
+    precompute and the per-playlist fallback so the two can't drift."""
     return {
         "count": count if count > 0 else None,
         "has_more": False,  # We don't paginate synthetic playlists (yet)
@@ -178,7 +161,29 @@ def count_synthetic_playlist(
     }
 
 
-def _empty_saved_filters_counts() -> dict[str, int | bool | None]:
+def count_synthetic_playlist(
+    playlist: SessionRecordingPlaylist, user: User, team: Team
+) -> dict[str, int | bool | None]:
+    """Count recordings in a synthetic playlist using efficient database-level counting"""
+    synthetic_def = get_synthetic_playlist(playlist.short_id)
+    if not synthetic_def:
+        return _empty_recordings_counts()
+
+    count = synthetic_def.count_session_ids(team, user)
+
+    # For watched_count we need the session ids, but only when there are any. Bound the
+    # read so a very large synthetic can't dominate memory — watched_count is then a
+    # lower bound, the same trade the batched precompute path makes.
+    if count > 0:
+        session_ids = synthetic_def.get_session_ids(team, user, limit=SYNTHETIC_WATCHED_SAMPLE_LIMIT)
+        watched_count = len(current_user_viewed(session_ids, user, team))
+    else:
+        watched_count = 0
+
+    return _synthetic_counts(count, watched_count)
+
+
+def _empty_recordings_counts() -> dict[str, int | bool | None]:
     return {
         "count": None,
         "has_more": None,
@@ -232,7 +237,7 @@ def _attach_empty_recordings_counts(playlists: list[SessionRecordingPlaylist]) -
                 "watched_count": None,
             }
         if not hasattr(playlist, "_prefetched_saved_filters_count"):
-            playlist._prefetched_saved_filters_count = _empty_saved_filters_counts()  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+            playlist._prefetched_saved_filters_count = _empty_recordings_counts()  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
 
 
 def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user: User, team: Team) -> None:
@@ -337,8 +342,54 @@ def precompute_recordings_counts(playlists: list[SessionRecordingPlaylist], user
         playlist._prefetched_saved_filters_count = (  # type: ignore[attr-defined]
             _saved_filters_counts_from_data(data, viewed_session_ids)
             if data is not None
-            else _empty_saved_filters_counts()
+            else _empty_recordings_counts()
         )
+
+
+def precompute_synthetic_recordings_counts(playlists: list[SessionRecordingPlaylist], user: User, team: Team) -> None:
+    """Batch the watched-count lookups for a page of synthetic playlists.
+
+    The per-playlist path (count_synthetic_playlist) issues one current_user_viewed
+    query per synthetic collection, which is O(N) Postgres round-trips for a list
+    response. Here we collapse those viewed-status lookups into a single chunked
+    query and attach the results as `_prefetched_synthetic_count` for the serializer.
+
+    Counts come from count_session_ids (accurate); the ids materialized for the
+    watched-status intersection are bounded by SYNTHETIC_WATCHED_SAMPLE_LIMIT so a
+    very large synthetic can't dominate memory.
+
+    Non-synthetic playlists are skipped — they use precompute_recordings_counts.
+    """
+    synthetic_playlists = [p for p in playlists if getattr(p, "_is_synthetic", False)]
+    if not synthetic_playlists:
+        return
+
+    # short_id -> count; None marks a short_id with no synthetic definition.
+    counts_by_short_id: dict[str, int | None] = {}
+    sample_ids_by_short_id: dict[str, list[str]] = {}
+    all_session_ids: set[str] = set()
+    for playlist in synthetic_playlists:
+        synthetic_def = get_synthetic_playlist(playlist.short_id)
+        if synthetic_def is None:
+            counts_by_short_id[playlist.short_id] = None
+            continue
+        count = synthetic_def.count_session_ids(team, user)
+        counts_by_short_id[playlist.short_id] = count
+        if count > 0:
+            sample_ids = synthetic_def.get_session_ids(team, user, limit=SYNTHETIC_WATCHED_SAMPLE_LIMIT)
+            sample_ids_by_short_id[playlist.short_id] = sample_ids
+            all_session_ids.update(sample_ids)
+
+    viewed_session_ids = _batch_current_user_viewed(all_session_ids, user, team)
+
+    for playlist in synthetic_playlists:
+        count = counts_by_short_id[playlist.short_id]
+        if count is None:
+            playlist._prefetched_synthetic_count = _empty_recordings_counts()  # type: ignore[attr-defined]
+            continue
+        sample_ids = sample_ids_by_short_id.get(playlist.short_id, [])
+        watched_count = len(set(sample_ids) & viewed_session_ids)
+        playlist._prefetched_synthetic_count = _synthetic_counts(count, watched_count)  # type: ignore[attr-defined]
 
 
 def log_playlist_activity(
@@ -448,7 +499,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
     def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, dict[str, int | bool | None]]:
         recordings_counts: dict[str, dict[str, int | bool | None]] = {
-            "saved_filters": _empty_saved_filters_counts(),
+            "saved_filters": _empty_recordings_counts(),
             "collection": {
                 "count": None,
                 "watched_count": None,
@@ -461,7 +512,11 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
             # Handle synthetic playlists differently
             if getattr(playlist, "_is_synthetic", False):
-                recordings_counts["collection"] = count_synthetic_playlist(playlist, user, team)
+                prefetched_synthetic = getattr(playlist, "_prefetched_synthetic_count", None)
+                if prefetched_synthetic is not None:
+                    recordings_counts["collection"] = prefetched_synthetic
+                else:
+                    recordings_counts["collection"] = count_synthetic_playlist(playlist, user, team)
             else:
                 prefetched_collection = getattr(playlist, "_prefetched_collection_count", None)
                 if prefetched_collection is not None:
@@ -647,6 +702,18 @@ class SessionRecordingPlaylistViewSet(
             )
             posthoganalytics.capture_exception(e)
             _attach_empty_recordings_counts(combined)
+
+        # Batch the synthetic playlists' watched-count lookups. On failure the
+        # serializer falls back to the per-playlist count_synthetic_playlist path.
+        try:
+            precompute_synthetic_recordings_counts(combined, cast(User, request.user), self.team)
+        except Exception as e:
+            logger.exception(
+                "playlist_synthetic_recordings_counts_precompute_failed",
+                team_id=self.team.id,
+                page_size=len(combined),
+            )
+            posthoganalytics.capture_exception(e)
 
         serializer = self.get_serializer(combined, many=True)
 

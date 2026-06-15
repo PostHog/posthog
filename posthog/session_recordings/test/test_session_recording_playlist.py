@@ -32,7 +32,7 @@ from posthog.session_recordings.session_recording_playlist_api import (
     PLAYLIST_COUNT_REDIS_PREFIX,
     PLAYLIST_LIST_MAX_LIMIT,
     _attach_empty_recordings_counts,
-    _empty_saved_filters_counts,
+    _empty_recordings_counts,
     precompute_recordings_counts,
 )
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
@@ -1379,7 +1379,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         precompute_recordings_counts([playlist], self.user, self.team)
 
-        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == _empty_recordings_counts()  # type: ignore[attr-defined]
 
     def test_redis_mget_failure_degrades_without_raising(self) -> None:
         playlist = self._make_playlist("redis down")
@@ -1392,7 +1392,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
             precompute_recordings_counts([playlist], self.user, self.team)
 
         assert playlist._prefetched_collection_count == {"count": None, "watched_count": 0}  # type: ignore[attr-defined]
-        assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+        assert playlist._prefetched_saved_filters_count == _empty_recordings_counts()  # type: ignore[attr-defined]
 
     def test_does_not_read_items_from_other_team(self) -> None:
         # Defense-in-depth: even if a caller misuses the helper by passing a
@@ -1440,7 +1440,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
             assert playlist._prefetched_collection_count == expected_collection_count  # type: ignore[attr-defined]
 
         if expect_saved_filters_default:
-            assert playlist._prefetched_saved_filters_count == _empty_saved_filters_counts()  # type: ignore[attr-defined]
+            assert playlist._prefetched_saved_filters_count == _empty_recordings_counts()  # type: ignore[attr-defined]
 
     def test_list_clamps_limit_query_param_to_max(self) -> None:
         # Sanity-check the pagination cap — requesting limit=99999 must cap at the configured max.

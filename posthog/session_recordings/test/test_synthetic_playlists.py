@@ -14,6 +14,7 @@ from posthog.models import Comment, SessionRecordingPlaylist
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.session_recording_api import current_user_viewed
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -87,6 +88,30 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert session_ids == ["expiring-soon"]
         # count + get_session_ids + recount share a single cached scan
         assert mock_query.call_count == 1
+
+    def test_synthetic_watched_counts_are_batched(self) -> None:
+        cache.clear()
+
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="watched-1")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="watched-2")
+        Comment.objects.create(team=self.team, created_by=self.user, content="c", scope="Replay", item_id="commented-1")
+
+        with patch(
+            "posthog.session_recordings.session_recording_playlist_api.current_user_viewed",
+            wraps=current_user_viewed,
+        ) as mock_viewed:
+            response_data = self._get_playlists_response()
+
+        # multiple non-empty synthetics share a single batched watched-status lookup
+        assert mock_viewed.call_count == 1
+
+        by_short_id = {p["short_id"]: p["recordings_counts"]["collection"] for p in response_data["results"]}
+        # watch-history's two sessions are both viewed
+        assert by_short_id["synthetic-watch-history"]["count"] == 2
+        assert by_short_id["synthetic-watch-history"]["watched_count"] == 2
+        # the commented session was not viewed — proves ids don't leak across synthetics
+        assert by_short_id["synthetic-commented"]["count"] == 1
+        assert by_short_id["synthetic-commented"]["watched_count"] == 0
 
     def test_retrieve_synthetic_playlist(self) -> None:
         playlist = self._get_synthetic_playlist("synthetic-watch-history")
