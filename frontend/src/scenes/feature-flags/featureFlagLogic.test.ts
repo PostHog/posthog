@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -375,6 +375,59 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                 })
+        })
+    })
+
+    describe('default release conditions for new flags', () => {
+        const DEFAULT_GROUPS = [
+            {
+                properties: [
+                    {
+                        key: 'email',
+                        type: PropertyFilterType.Person,
+                        value: 'is_set',
+                        operator: PropertyOperator.IsSet,
+                    },
+                ],
+                rollout_percentage: 42,
+                variant: null,
+            },
+        ]
+        const conditionsUrl = `/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`
+
+        it('applies the project default release conditions to a new flag', async () => {
+            // Regression: defaultReleaseConditionsLogic loads asynchronously on mount, so the
+            // connected value was still null when the new flag initialized and the defaults
+            // were silently dropped.
+            useMocks({
+                get: {
+                    [conditionsUrl]: () => [200, { enabled: true, default_groups: DEFAULT_GROUPS }],
+                },
+            })
+            router.actions.push('/')
+
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual(DEFAULT_GROUPS)
+            newLogic.unmount()
+        })
+
+        it('keeps the default catch-all group when defaults are disabled', async () => {
+            useMocks({
+                get: {
+                    [conditionsUrl]: () => [200, { enabled: false, default_groups: DEFAULT_GROUPS }],
+                },
+            })
+            router.actions.push('/')
+
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual(NEW_FLAG.filters.groups)
+            newLogic.unmount()
         })
     })
 

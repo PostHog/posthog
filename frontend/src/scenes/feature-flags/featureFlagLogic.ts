@@ -83,7 +83,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { DefaultReleaseConditionsResponse, defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1287,7 +1287,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        const conditionsConfig = values.defaultReleaseConditions
+                        // defaultReleaseConditionsLogic loads these asynchronously on mount, so the
+                        // connected value is usually still null when a new flag initializes here.
+                        // Fetch directly when missing so the project's configured defaults are applied.
+                        let conditionsConfig = values.defaultReleaseConditions
+                        if (!conditionsConfig && values.currentTeam?.id) {
+                            try {
+                                conditionsConfig = (await api.get(
+                                    `api/environments/${values.currentTeam.id}/default_release_conditions/`
+                                )) as DefaultReleaseConditionsResponse
+                            } catch (error) {
+                                console.warn('Failed to load default release conditions:', error)
+                            }
+                        }
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,
