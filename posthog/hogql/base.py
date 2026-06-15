@@ -73,10 +73,7 @@ class AST:
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "AST":
-        # Faster than stdlib deepcopy's __reduce_ex__/pickle path: clone via a per-class
-        # function from _build_clone_fn. It (and _clone_value per container) registers each
-        # node in memo before recursing, so reference cycles (e.g. the resolved
-        # FieldType <-> SelectQueryType graph) and shared subtrees survive, like stock deepcopy.
+        # Faster than stdlib's pickle/__reduce_ex__ path: a cached per-class clone fn; it and _clone_value register each node in memo before recursing, so reference cycles and shared subtrees survive.
         cls = self.__class__
         clone = _clone_fn_cache.get(cls)
         if clone is None:
@@ -116,8 +113,7 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
     cls = type(value)
     if cls in _CLONE_ATOMIC_TYPES:
         return value
-    # Dedup so shared subobjects clone once and cycles terminate; containers register
-    # before recursing so a self-referential one resolves to the in-progress copy.
+    # Dedup so shared subobjects clone once and cycles terminate; containers register before recursing so a self-referential one resolves to the in-progress copy.
     existing = memo.get(id(value), _NOT_CLONED)
     if existing is not _NOT_CLONED:
         return existing
@@ -136,8 +132,7 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
             new_dict[_clone_value(key, memo)] = _clone_value(item, memo)  # keys too, like stdlib
         return new_dict
     if cls is tuple:
-        # Registered after building: a cycle through a tuple must pass a mutable that
-        # already broke the loop, so recursion still terminates.
+        # Registered after building: any cycle through a tuple must pass a mutable that already broke the loop, so recursion still terminates.
         new_tuple = tuple(_clone_value(item, memo) for item in value)
         memo[id(value)] = new_tuple
         return new_tuple
@@ -148,8 +143,7 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
 
 
 def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
-    # Reads each field directly (all are set on a dataclass-constructed node); start/end
-    # are Optional[int], copied by reference rather than dispatched through _clone_value.
+    # Reads each field directly (all set on a dataclass-constructed node); start/end are Optional[int], copied by reference instead of via _clone_value.
     body = ["def _clone(self, memo):", "    new = _cls.__new__(_cls)", "    memo[id(self)] = new"]
     for f in fields(cls):
         if f.name in ("start", "end"):
