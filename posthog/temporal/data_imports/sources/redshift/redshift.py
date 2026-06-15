@@ -940,6 +940,11 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
+            # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
+            # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
+            # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
+            # raises `InFailedSqlTransaction` until a rollback. Mirrors the postgres source.
+            connection.autocommit = True
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 full_table = self.get_table_metadata(cursor, schema, table_name, logger)
