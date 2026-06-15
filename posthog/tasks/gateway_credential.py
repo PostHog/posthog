@@ -15,6 +15,7 @@ from django.db.models import Q
 import structlog
 from celery import shared_task
 
+from posthog.celery_queues import CeleryQueue
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
@@ -25,7 +26,6 @@ from posthog.storage.gateway_credential_cache import (
     refresh_all_gateway_credentials,
 )
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
-from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 

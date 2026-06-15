@@ -142,6 +142,20 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
+    def test_secret_key_in_child_env_attributes_to_parent(self):
+        # An environment is a child of its project; a key minted there bills the
+        # parent (canonical) project, carrying the parent's id and api_token.
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        token = generate_random_token_secret()
+        key = ProjectSecretAPIKey.objects.create(
+            label="child key", team=child, secure_value=hash_key_value(token), scopes=[GATEWAY_SCOPE]
+        )
+        project_gateway_credential(key)
+        blob = self._read_blob(credential_hash(key))
+        assert blob is not None
+        self.assertEqual(blob["team_id"], self.team.id)
+        self.assertEqual(blob["project_token"], self.team.api_token)
+
 
 class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
     @parameterized.expand(
@@ -330,7 +344,7 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
 class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.update_gateway_credential_cache_task.delay")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
     def test_secret_key_save_enqueues_update(self, mock_delay, mock_settings, mock_transaction):
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -340,7 +354,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         mock_delay.assert_called_with(SECRET_KEY_KIND, str(secret_key.pk))
 
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.update_gateway_credential_cache_task.delay")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
     def test_secret_key_save_noop_without_redis_url(self, mock_delay, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = None
         self._make_secret_key([GATEWAY_SCOPE])
@@ -348,7 +362,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.update_gateway_credential_cache_task.delay")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
     def test_non_gateway_credential_save_does_not_enqueue(self, mock_delay, mock_settings, mock_transaction):
         # The hot path: ordinary credentials without the gateway scope must not
         # enqueue work, even when the gateway Redis is configured.
@@ -361,7 +375,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.update_gateway_credential_cache_task.delay")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
     def test_secret_key_rotation_clears_old_hash(self, mock_delay, mock_settings, mock_transaction):
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -380,7 +394,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_user_team_change_does_not_reproject(self, mock_delay, mock_settings, mock_transaction):
         # team_id comes from the bound gateway now, so a current-team switch
         # doesn't affect any blob — no reprojection.
@@ -407,7 +421,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_user_deactivation_reprojects(self, mock_delay, mock_settings, mock_transaction):
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -429,9 +443,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         with (
             patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
             patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
-            patch(
-                "posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay"
-            ) as mock_delay,
+            patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay") as mock_delay,
         ):
             mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
             mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -444,7 +456,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_membership_delete_reprojects(self, mock_delay, mock_settings, mock_transaction):
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -455,7 +467,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_membership_level_change_reprojects_user(self, mock_delay, mock_settings, mock_transaction):
         # A level change flips the OAuth RBAC admin-bypass without touching the credential.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
@@ -484,7 +496,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.update_gateway_credential_cache_task.delay")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
     def test_deferred_load_rotation_clears_old_hash(self, mock_delay, mock_settings, mock_transaction):
         # Secret key loaded with secure_value/scopes deferred: the post_init snapshot
         # is skipped, so the pre_save fallback must re-read the old hash to clear it.
@@ -506,7 +518,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @pytest.mark.ee
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_team_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
     def test_project_access_control_change_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
         from ee.models.rbac.access_control import AccessControl
 
@@ -522,7 +534,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @pytest.mark.ee
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_role_membership_change_reprojects_user(self, mock_delay, mock_settings, mock_transaction):
         from ee.models.rbac.role import Role, RoleMembership
 
@@ -537,7 +549,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @pytest.mark.ee
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_user_gateway_credentials_task")
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task")
     def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
         # Role membership is per-user, so it reprojects synchronously (then queues the
         # retry/warm task), unlike the team-wide access-control handler.
@@ -554,7 +566,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_team_gateway_credentials_task.delay")
+    @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
     def test_team_api_token_rotation_reprojects(self, mock_delay, mock_settings, mock_transaction):
         # project_token in the blob is the team's api_token; rotation makes it stale.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"

@@ -34,11 +34,11 @@ from posthog.storage.gateway_credential_cache import (
     credential_has_gateway_scope,
 )
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
-from posthog.tasks.gateway_credential import (
-    reproject_team_gateway_credentials_task,
-    reproject_user_gateway_credentials_task,
-    update_gateway_credential_cache_task,
-)
+
+# The gateway-credential task functions are imported lazily inside the handlers
+# below: this module is wired at django.setup(), and importing posthog.tasks.*
+# eagerly loads every task module (celery autoimport), dragging posthog.schema /
+# posthog.hogql onto the startup path of every process. See django-startup-time.
 
 logger = structlog.get_logger(__name__)
 
@@ -136,6 +136,8 @@ def _on_credential_save(
         return
 
     def enqueue() -> None:
+        from posthog.tasks.gateway_credential import update_gateway_credential_cache_task  # noqa: PLC0415
+
         try:
             # A rotated/changed hash leaves the old key live for the full TTL —
             # clear it synchronously so the stale secret stops authenticating now.
@@ -196,6 +198,8 @@ def _reproject_user_sync_then_async(user_id: int) -> None:
     # credential's own revocation already does. Reproject (not a blind clear) so any
     # blobs still valid for the user's other orgs survive. Celery is the retry/warm path.
     def _invalidate() -> None:
+        from posthog.tasks.gateway_credential import reproject_user_gateway_credentials_task  # noqa: PLC0415
+
         try:
             reproject_user_gateway_credentials_task(user_id)
         except Exception as e:
@@ -255,6 +259,8 @@ def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, crea
     if not old_token or old_token == instance.api_token:
         return
 
+    from posthog.tasks.gateway_credential import reproject_team_gateway_credentials_task  # noqa: PLC0415
+
     team_id = instance.pk
     transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
@@ -290,6 +296,8 @@ def _reproject_on_membership_save(
     if old_level is None or old_level == instance.level:
         return
 
+    from posthog.tasks.gateway_credential import reproject_user_gateway_credentials_task  # noqa: PLC0415
+
     user_id = instance.user_id
     transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
 
@@ -299,6 +307,8 @@ def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: A
     # reproject the team's credentials and a revocation clears promptly.
     if not settings.AI_GATEWAY_REDIS_URL or instance.resource != "project" or instance.team_id is None:
         return
+    from posthog.tasks.gateway_credential import reproject_team_gateway_credentials_task  # noqa: PLC0415
+
     team_id = instance.team_id
     transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
