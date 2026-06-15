@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import abc
 import time
 import logging
@@ -565,6 +566,23 @@ def get_cluster(
     )
 
 
+# Masks inline credentials (e.g. dictionary `SOURCE(CLICKHOUSE(... PASSWORD '…'))` or
+# `CREATE USER … IDENTIFIED BY '…'`) so they never reach logs. ClickHouse needs the password in
+# the source SQL for dictionary reloads to authenticate, so we redact at the logging boundary
+# rather than dropping it from the query.
+_SQL_SECRET_RE = re.compile(r"(?i)\b(PASSWORD|IDENTIFIED\s+WITH\s+\S+\s+BY|IDENTIFIED\s+BY)\s+'(?:[^']|'')*'")
+
+
+def redact_sql_secrets(sql: str) -> str:
+    return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
+
+
+def _redact_parameters(parameters: Any) -> Any:
+    if isinstance(parameters, Mapping):
+        return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
+    return parameters
+
+
 @dataclass
 class Query:
     query: str
@@ -575,11 +593,12 @@ class Query:
         return client.execute(self.query, self.parameters, settings=self.settings)
 
     def __repr__(self) -> str:
+        query = redact_sql_secrets(self.query)
         if self.parameters and isinstance(self.parameters, list):
             params_repr = f"{self.parameters[:50]!r} (showing first 50 out of {len(self.parameters)} parameters)"
         else:
-            params_repr = f"{self.parameters!r}"
-        return f"Query(query={self.query!r}, parameters={params_repr}, settings={self.settings!r})"
+            params_repr = f"{_redact_parameters(self.parameters)!r}"
+        return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
 
 
 @dataclass
