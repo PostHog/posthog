@@ -7,7 +7,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.http import HttpResponse
-from django.test import override_settings
+from django.test import (
+    Client as DjangoTestClient,
+    override_settings,
+)
 from django.urls import get_resolver
 from django.urls.resolvers import URLPattern, URLResolver
 
@@ -23,9 +26,9 @@ from posthog.middleware import EnvironmentsRedirectMiddleware
 # redirect lets clients downgrade writes to GET and drop the body. The redirect is gated
 # by the `api-environments-redirect` feature flag, so tests patch the flag evaluation.
 #
-# The classes asserting raw 307 semantics override client_class with a bare APIClient —
-# APIBaseTest's default client (EnvironmentsRedirectFollowingAPIClient) follows the
-# redirect like a real HTTP client and returns the end response instead.
+# Test clients follow the env→projects 307 like real HTTP clients and return the end
+# response (see _follow_environments_redirect in posthog/test/base.py) — the classes
+# asserting raw 307 semantics opt out via `client.follow_environments_redirect = False`.
 
 ENVIRONMENTS_PREFIX = "api/environments"
 PROJECTS_PREFIX = "api/projects"
@@ -103,10 +106,9 @@ class TestEveryEnvironmentsRouteHasAProjectsCounterpart(APIBaseTest):
 
 
 class TestEnvironmentsRedirect(APIBaseTest):
-    client_class = APIClient  # raw 307 assertions — must not auto-follow
-
     def setUp(self):
         super().setUp()
+        self.client.follow_environments_redirect = False  # type: ignore[attr-defined] # raw 307 assertions
         flag_patcher = patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True)
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
@@ -196,8 +198,8 @@ class TestEnvironmentsRedirect(APIBaseTest):
 
 
 class TestDefaultTestClientFollowsRedirect(APIBaseTest):
-    # Uses APIBaseTest's default client (EnvironmentsRedirectFollowingAPIClient): when the
-    # redirect is on, tests across the repo must receive the end response, not the 307.
+    # Uses the default (following) client: when the redirect is on, tests across the
+    # repo must receive the end response, not the 307.
 
     def test_read_through_redirect_returns_end_response(self):
         with patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True):
@@ -219,9 +221,24 @@ class TestDefaultTestClientFollowsRedirect(APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_hand_built_clients_also_follow(self):
+        # Product suites instantiate APIClient()/Client() directly instead of using
+        # APIBaseTest's client — the follow behavior is patched onto the classes, so
+        # those clients must follow too.
+        drf_client = APIClient()
+        drf_client.force_login(self.user)
+        django_client = DjangoTestClient()
+        django_client.force_login(self.user)
+        with patch.object(EnvironmentsRedirectMiddleware, "_redirect_enabled", return_value=True):
+            for client in (drf_client, django_client):
+                response = client.get(f"/api/environments/{self.team.id}/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
 
 class TestEnvironmentsRedirectKillSwitch(APIBaseTest):
-    client_class = APIClient  # raw 307 assertions — must not auto-follow
+    def setUp(self):
+        super().setUp()
+        self.client.follow_environments_redirect = False  # type: ignore[attr-defined] # raw 307 assertions
 
     def test_redirect_is_off_by_default_but_deprecation_headers_are_present(self):
         # No patch: the analytics SDK is disabled under TEST, so the flag evaluates to

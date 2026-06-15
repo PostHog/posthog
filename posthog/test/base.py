@@ -5,6 +5,7 @@ import uuid
 import inspect
 import datetime as dt
 import resource
+import functools
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
@@ -22,7 +23,13 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.test import (
+    Client as DjangoTestClient,
+    SimpleTestCase,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.test.utils import CaptureQueriesContext
 
 # we have to import pendulum for the side effect of importing it
@@ -938,34 +945,47 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
-class EnvironmentsRedirectFollowingAPIClient(APIClient):
-    """Follows the /api/environments → /api/projects 307 like a real HTTP client would.
+def _follow_environments_redirect(original_generic):
+    """Make a test client's `generic` follow the /api/environments → /api/projects 307.
 
     EnvironmentsRedirectMiddleware 307-redirects /api/environments/* requests when the
     `api-environments-redirect` flag evaluates true — which in tests happens whenever a
     test mocks posthoganalytics.feature_enabled for its own flag. Real clients re-send
-    the same method and body to the projects path, so the default test client does too:
-    tests receive the end response, not the redirect hop. Instantiate a bare APIClient
-    to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
+    the same method and body to the projects path, so test clients do too: tests receive
+    the end response, not the redirect hop. Set `client.follow_environments_redirect =
+    False` to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
     """
 
+    @functools.wraps(original_generic)
     def generic(self, method, path, data="", content_type="application/octet-stream", secure=False, **extra):
-        response = super().generic(method, path, data, content_type, secure, **extra)
+        response = original_generic(self, method, path, data, content_type, secure, **extra)
         if (
-            response.status_code in (307, 308)
+            getattr(self, "follow_environments_redirect", True)
+            # RequestFactory shares this method but returns requests, not responses
+            and getattr(response, "status_code", None) in (307, 308)
+            and isinstance(path, str)
             and path.startswith("/api/environments")
             and response.headers.get("Location", "").startswith("/api/projects")
         ):
-            response = super().generic(method, response.headers["Location"], data, content_type, secure, **extra)
+            response = original_generic(self, method, response.headers["Location"], data, content_type, secure, **extra)
         return response
+
+    generic._follows_environments_redirect = True  # type: ignore[attr-defined]
+    return generic
+
+
+# Cover every test client, including ones instantiated by hand in product suites —
+# Django's Client inherits `generic` from RequestFactory, so shadow it on the class.
+if not getattr(APIClient.generic, "_follows_environments_redirect", False):
+    APIClient.generic = _follow_environments_redirect(APIClient.generic)  # type: ignore[method-assign]
+if not getattr(DjangoTestClient.generic, "_follows_environments_redirect", False):
+    DjangoTestClient.generic = _follow_environments_redirect(DjangoTestClient.generic)  # type: ignore[method-assign]
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
     """
-
-    client_class: type[APIClient] = EnvironmentsRedirectFollowingAPIClient
 
     def setUp(self):
         super().setUp()
