@@ -67,7 +67,13 @@ def export_asset(
     ).get(pk=exported_asset_id)
 
     # Retries are handled by Temporal at the activity level.
-    # The Celery path is a legacy fallback until one-off exports are fully migrated.
+    # The Celery path is a legacy fallback that is effectively dead in prod. As of 2026-06 every
+    # export runs through the Temporal export_asset_activity on the analytics-platform task queue —
+    # both regular exports (`export-asset` workflow) and subscription images (`process-subscription`
+    # workflow). Verified in prod-us logs: the EXPORTS Celery queue (the posthog-worker-django
+    # "longrunning" worker) renders zero images and only rarely receives a stray CSV. In particular
+    # the headless-browser path (image_exporter._export_to_png, gated on BROWSERLESS_CDP_URL) is
+    # never exercised here — so the browser env/infra on that worker can go once this task is retired.
     try:
         export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
     except Exception:
