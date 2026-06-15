@@ -38,7 +38,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { HarnessPill } from './dashboard/harness'
+import { HARNESS_LOGOS, HarnessPill } from './dashboard/harness'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -123,6 +123,44 @@ function renderPersonCell(value: unknown): JSX.Element {
     }
     return (
         <PersonDisplay person={{ distinct_id: distinctId, properties: properties ?? {} }} withIcon noPopover={false} />
+    )
+}
+
+// Renders a comma-joined list of raw client names as compact, deduped harness logos
+// so the secondary "which harnesses" columns stay one line tall instead of wrapping.
+function HarnessLogos({ value }: { value: string }): JSX.Element {
+    const categories = Array.from(
+        new Set(
+            value
+                .split(',')
+                .map((raw) => categorizeHarness(raw.trim()))
+                .filter(Boolean)
+        )
+    )
+    if (categories.length === 0) {
+        return <span className="text-muted">—</span>
+    }
+    return (
+        <div className="flex items-center gap-1">
+            {categories.map((category) => {
+                const logo = HARNESS_LOGOS[category]
+                return logo ? (
+                    <img
+                        key={category}
+                        src={logo.src}
+                        alt={category}
+                        title={category}
+                        className="h-4 w-4 shrink-0 object-contain"
+                    />
+                ) : (
+                    <span
+                        key={category}
+                        title={category}
+                        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary"
+                    />
+                )
+            })}
+        </div>
     )
 }
 
@@ -657,14 +695,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Harnesses',
-                                render: (r) => {
-                                    const harnesses = String(r[4] ?? '')
-                                    return (
-                                        <span className="text-secondary line-clamp-1" title={harnesses}>
-                                            {harnesses}
-                                        </span>
-                                    )
-                                },
+                                render: (r) => <HarnessLogos value={String(r[4] ?? '')} />,
                             },
                             { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
                         ]}
@@ -695,7 +726,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                         { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
                         {
                             header: 'Harnesses',
-                            render: (r) => <span className="text-secondary">{String(r[3] ?? '')}</span>,
+                            render: (r) => <HarnessLogos value={String(r[3] ?? '')} />,
                         },
                     ]}
                 />
