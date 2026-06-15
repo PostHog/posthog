@@ -154,3 +154,17 @@ def test_validate_credentials_succeeds_for_verified_site():
 
     assert ok is True
     assert message is None
+
+
+def test_validate_credentials_handles_missing_integration():
+    # A disconnected/deleted OAuth integration makes the credentials lookup raise
+    # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+    # actionable reconnect message instead of the raw ORM error.
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
+        side_effect=Exception("Integration matching query does not exist"),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google Search Console account" in (message or "")

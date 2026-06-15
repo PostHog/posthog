@@ -926,6 +926,21 @@
             "readOnlyHint": false
         }
     },
+    "apm-attribute-breakdown": {
+        "description": "Group spans by one attribute's value — the \"what is different about the bad spans?\" tool.\n\nReturns one row per distinct value of the chosen attribute, across the spans matching the filters:\n\n- `value` — the attribute's value (`''` for spans that don't carry the attribute)\n- `count` — spans with that value\n- `error_count` — of those, spans with OTel status `Error` (status_code = 2)\n- `p50_duration_nano`, `p95_duration_nano` — duration quantiles in nanoseconds\n\nRows are ordered by `count` DESC (or `error_count` DESC via `orderBy`) and capped at 5000.\n\nUse to answer:\n\n- \"Which attribute values are over-represented among the errored/slow spans?\"\n- \"Which downstream destination (`server.address`) is failing?\"\n- \"What `http.response.status_code` values are we getting back, and how often?\"\n- \"Which pod / version / region is the bad traffic concentrated on?\" (resource attributes)\n\nFor aggregates grouped by operation, use `apm-spans-aggregate`. For trends over time, use `apm-spans-sparkline`.\n\nAll parameters must be nested inside a `query` object.\n\n# \"What's different\" workflow\n\n1. Scope to the bad spans with `filterGroup` (e.g. `status_code = Error`) or `serviceNames`.\n2. Discover candidate keys with `apm-attributes-list` (don't guess — keys vary per project).\n3. Run `apm-attribute-breakdown` per candidate key. A value owning most of the `count` is your signature.\n4. To confirm over-representation, re-run without the bad-spans filter (or check `error_count / count` per row): a value at 95% of errors but 10% of all traffic is the smoking gun.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.breakdownKey (required)\n\nThe attribute key to group by (e.g. `server.address`, `http.response.status_code`, `k8s.pod.name`). Discover keys with `apm-attributes-list`.\n\n## query.breakdownType (required)\n\n- `span_attribute` — span-level attributes (e.g. `server.address`, `db.statement`)\n- `span_resource_attribute` — resource-level attributes (e.g. `k8s.pod.name`, `service.version`)\n\n## query.orderBy\n\n`count` (default) or `error_count` — rows are sorted by the chosen column, descending.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Set `compare: true` to also get the breakdown for a previous window under `compare` — useful for \"did this value's share change vs last week?\" (`compare_to: \"-7d\"`).\n\n## query.serviceNames\n\nList of service names to restrict the breakdown to. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters scoping the spans the breakdown runs over. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Which destinations do the errored spans hit?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"server.address\",\n    \"breakdownType\": \"span_attribute\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"Error\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which values drive the most errors overall?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"http.response.status_code\",\n    \"breakdownType\": \"span_attribute\",\n    \"orderBy\": \"error_count\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Is the bad pod's share new? (compare vs last week)\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"k8s.pod.name\",\n    \"breakdownType\": \"span_resource_attribute\",\n    \"serviceNames\": [\"cdp-worker\"],\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n# Reminders\n\n- `value: ''` groups the spans that don't carry the attribute at all — often itself a signal.\n- Duration values are in nanoseconds (1s = 1,000,000,000).\n- Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys before guessing.\n- `error_count / count` per row is the error rate for that value — compute it when judging over-representation.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Break down spans by attribute value",
+        "title": "Break down spans by attribute value",
+        "required_scopes": ["tracing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "apm-attribute-values-list": {
         "description": "List values for a specific span or resource attribute key. Use to discover what values exist for a given attribute before building filters.",
         "category": "Tracing",
@@ -1032,7 +1047,7 @@
         "feature_flag": "tracing"
     },
     "apm-spans-tree": {
-        "description": "Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` — the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` — the child span identity\n- `count` — number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds\n- `error_count` — child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` — DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
+        "description": "Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` — the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` — the child span identity\n- `count` — number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds\n- `error_count` — child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start\n- `calls_per_parent_invocation` — how many times this child runs per parent invocation (null for root edges). A child can top `total_duration_nano` purely by fan-out volume; divide by this to compare per-call cost\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` — DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Aggregate span call tree",
@@ -1047,7 +1062,7 @@
         "feature_flag": "tracing"
     },
     "apm-trace-get": {
-        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
+        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Each span carries self_time_nano — its duration not covered by child spans — so \"where did the wall-clock go\" is answered by sorting on it: a large self_time_nano on a parent span is an uninstrumented gap, not time in any child. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Retrieve trace spans",
@@ -1952,7 +1967,7 @@
         }
     },
     "desktop-file-system-create": {
-        "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the update-instructions tool to fill it in.",
+        "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
         "category": "Core",
         "feature": "core",
         "summary": "Create desktop channel",
@@ -2554,7 +2569,7 @@
         }
     },
     "evaluations-get": {
-        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List AI observability evaluations.",
@@ -2666,7 +2681,7 @@
         }
     },
     "experiment-end": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "End experiment",
@@ -2918,7 +2933,7 @@
         }
     },
     "experiment-update": {
-        "description": "RULES (follow before calling):\n1. If changing rollout or variants on a RUNNING\n   experiment, you MUST warn the user about user\n   experience AND statistical implications BEFORE\n   making the change and get explicit confirmation.\n   Load the configuring-experiment-rollout skill for\n   the full warning. Do NOT silently apply the change\n   — even if the user asked directly.\n\n2. If the user mentions a percentage, clarify whether\n   they mean variant split or overall rollout BEFORE\n   calling.\n\n3. If adding or changing metrics, load the\n   configuring-experiment-analytics skill first. Call\n   read-data-schema to discover available events BEFORE\n   suggesting or using any event name. Never suggest\n   event names you haven't confirmed exist.\n\n4. For running experiments, set\n   update_feature_flag_params=true when changing\n   parameters — without it, changes save but do NOT\n   sync to the feature flag.\n\n5. Setting allow_unknown_events=true REQUIRES EXPLICIT\n   USER CONFIRMATION. When the API returns\n   \"Event(s) '...' not found\", do NOT silently retry\n   with allow_unknown_events=true. Default to\n   course-correcting: surface the missing event names\n   and ask whether the user meant a different (existing)\n   event. Only set allow_unknown_events=true when the\n   user explicitly confirms the event is intentional\n   (e.g. about to be instrumented). Course-correcting\n   to a known event is the expected default; flipping\n   the flag is the exception.\n\n\nUpdate an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Metrics can be changed at any time including while running. Cannot add/remove variants on non-draft experiments (changing percentages between existing variants is allowed). Cannot change holdout on non-draft experiments.\n\nDo NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or ship_variant tools instead.",
+        "description": "RULES (follow before calling):\n1. If changing rollout or variants on a RUNNING\n   experiment, you MUST warn the user about user\n   experience AND statistical implications BEFORE\n   making the change and get explicit confirmation.\n   Load the configuring-experiment-rollout skill for\n   the full warning. Do NOT silently apply the change\n   — even if the user asked directly.\n\n2. If the user mentions a percentage, clarify whether\n   they mean variant split or overall rollout BEFORE\n   calling.\n\n3. If adding or changing metrics, load the\n   configuring-experiment-analytics skill first. Call\n   read-data-schema to discover available events BEFORE\n   suggesting or using any event name. Never suggest\n   event names you haven't confirmed exist.\n\n4. For running experiments, set\n   update_feature_flag_params=true when changing\n   parameters — without it, changes save but do NOT\n   sync to the feature flag.\n\n5. Setting allow_unknown_events=true REQUIRES EXPLICIT\n   USER CONFIRMATION. When the API returns\n   \"Event(s) '...' not found\", do NOT silently retry\n   with allow_unknown_events=true. Default to\n   course-correcting: surface the missing event names\n   and ask whether the user meant a different (existing)\n   event. Only set allow_unknown_events=true when the\n   user explicitly confirms the event is intentional\n   (e.g. about to be instrumented). Course-correcting\n   to a known event is the expected default; flipping\n   the flag is the exception.\n\n\nUpdate an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Metrics can be changed at any time including while running. Cannot add/remove variants on non-draft experiments (changing percentages between existing variants is allowed). Cannot change holdout on non-draft experiments.\n\nDo NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or experiment-ship-variant tools instead.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Update experiment",
@@ -3726,7 +3741,7 @@
         "feature_flag": "heatmaps-mcp"
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -4609,11 +4624,11 @@
         }
     },
     "llma-skill-archive": {
-        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.",
+        "description": "DEPRECATED: renamed to skill-archive. This alias forwards to skill-archive and will be removed. Call skill-archive directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Archive skill",
-        "title": "Archive skill",
+        "summary": "Deprecated alias for skill-archive.",
+        "title": "Archive skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": true,
@@ -4623,11 +4638,11 @@
         }
     },
     "llma-skill-create": {
-        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "description": "DEPRECATED: renamed to skill-create. This alias forwards to skill-create and will be removed. Call skill-create directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Create skill",
-        "title": "Create skill",
+        "summary": "Deprecated alias for skill-create.",
+        "title": "Create skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4637,11 +4652,11 @@
         }
     },
     "llma-skill-duplicate": {
-        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "description": "DEPRECATED: renamed to skill-duplicate. This alias forwards to skill-duplicate and will be removed. Call skill-duplicate directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Duplicate skill",
-        "title": "Duplicate skill",
+        "summary": "Deprecated alias for skill-duplicate.",
+        "title": "Duplicate skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4651,11 +4666,11 @@
         }
     },
     "llma-skill-file-create": {
-        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use llma-skill-update with files to replace, or llma-skill-file-delete followed by llma-skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "description": "DEPRECATED: renamed to skill-file-create. This alias forwards to skill-file-create and will be removed. Call skill-file-create directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Create skill file",
-        "title": "Create skill file",
+        "summary": "Deprecated alias for skill-file-create.",
+        "title": "Create skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4665,11 +4680,11 @@
         }
     },
     "llma-skill-file-delete": {
-        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "description": "DEPRECATED: renamed to skill-file-delete. This alias forwards to skill-file-delete and will be removed. Call skill-file-delete directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Delete skill file",
-        "title": "Delete skill file",
+        "summary": "Deprecated alias for skill-file-delete.",
+        "title": "Delete skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": true,
@@ -4679,11 +4694,11 @@
         }
     },
     "llma-skill-file-get": {
-        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from llma-skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "description": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Get skill file",
-        "title": "Get skill file",
+        "summary": "Deprecated alias for skill-file-get.",
+        "title": "Get skill file (deprecated)",
         "required_scopes": ["llm_skill:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4693,11 +4708,11 @@
         }
     },
     "llma-skill-file-rename": {
-        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "description": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Rename skill file",
-        "title": "Rename skill file",
+        "summary": "Deprecated alias for skill-file-rename.",
+        "title": "Rename skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4707,11 +4722,11 @@
         }
     },
     "llma-skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "DEPRECATED: renamed to skill-get. This alias forwards to skill-get and will be removed. Call skill-get directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Get skill",
-        "title": "Get skill",
+        "summary": "Deprecated alias for skill-get.",
+        "title": "Get skill (deprecated)",
         "required_scopes": ["llm_skill:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4721,11 +4736,11 @@
         }
     },
     "llma-skill-list": {
-        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "DEPRECATED: renamed to skill-list. This alias forwards to skill-list and will be removed. Call skill-list directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "List skills",
-        "title": "List skills",
+        "summary": "Deprecated alias for skill-list.",
+        "title": "List skills (deprecated)",
         "required_scopes": ["llm_skill:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4735,11 +4750,11 @@
         }
     },
     "llma-skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nllma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
+        "description": "DEPRECATED: renamed to skill-update. This alias forwards to skill-update and will be removed. Call skill-update directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Update skill",
-        "title": "Update skill",
+        "summary": "Deprecated alias for skill-update.",
+        "title": "Update skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -6176,7 +6191,7 @@
         }
     },
     "signals-scout-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get the project profile",
@@ -6271,6 +6286,146 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "skill-archive": {
+        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use skill-get first if you need to inspect the skill before archiving it.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Archive skill",
+        "title": "Archive skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-create": {
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill",
+        "title": "Create skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-duplicate": {
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Duplicate skill",
+        "title": "Duplicate skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-create": {
+        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill file",
+        "title": "Create skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-delete": {
+        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Delete skill file",
+        "title": "Delete skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-get": {
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill file",
+        "title": "Get skill file",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-file-rename": {
+        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Rename skill file",
+        "title": "Rename skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-get": {
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill",
+        "title": "Get skill",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-list": {
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "List skills",
+        "title": "List skills",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-update": {
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Update skill",
+        "title": "Update skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "sql-variables-create": {
@@ -7640,7 +7795,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
+        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",

@@ -647,6 +647,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -844,7 +845,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

@@ -4,6 +4,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError,
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -60,6 +61,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            category=DataWarehouseSourceCategory.DATABASES,
             releaseStatus="beta",
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",

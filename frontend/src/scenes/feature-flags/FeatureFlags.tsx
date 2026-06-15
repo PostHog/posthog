@@ -711,7 +711,6 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
-    const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 
     return (
         <SceneContent className="feature_flags">
@@ -767,15 +766,11 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                     },
-                    ...(showProjectsTab
-                        ? [
-                              {
-                                  key: FeatureFlagsTab.PROJECTS,
-                                  label: 'Projects',
-                                  content: <ProjectsGrid />,
-                              },
-                          ]
-                        : []),
+                    {
+                        key: FeatureFlagsTab.PROJECTS,
+                        label: 'Projects',
+                        content: <ProjectsGrid />,
+                    },
                     {
                         key: FeatureFlagsTab.HISTORY,
                         label: 'History',

@@ -20,6 +20,7 @@ token is already pinned to the team.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -42,6 +43,7 @@ from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
@@ -592,20 +594,52 @@ def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
         )
 
 
-def _skill_descriptions_for(team_id: int, skill_names: list[str]) -> dict[str, str]:
-    """Map each scout `skill_name` to the latest `LLMSkill.description` on the team.
+@dataclass(frozen=True)
+class _ScoutSkillInfo:
+    """Per-skill metadata the config serializer needs but doesn't store on the config row.
 
-    One query for the whole config list — feeds the serializer's `description` field so
-    callers get a quick steer on each scout without loading the full skill body. Skills the
-    team no longer has simply drop out of the map (serializer falls back to "").
+    Both fields come from the team's latest `LLMSkill` row for the scout, resolved by the
+    view in one query so the list endpoint stays a single lookup rather than one per config.
+    """
+
+    description: str
+    origin: str  # "canonical" | "custom" — see `_scout_origin`.
+
+
+def _scout_origin(skill_name: str, metadata: dict | None) -> str:
+    """Classify a scout by who owns its skill row.
+
+    A scout is `canonical` when the harness seeded its skill row (tagged
+    `metadata.seeded_by=HARNESS_SEEDED_BY`) **and** its name is one the harness actually ships
+    on disk (`products/signals/skills/`); otherwise it's a team's hand-authored `custom` scout.
+    Both halves matter: `duplicate_skill()` copies a source row's metadata verbatim — including
+    `seeded_by` — so a team fork of a bundled scout inherits the seed tag, but a fork can never
+    take a canonical name (the canonical row already owns it), so the name guard reclassifies it
+    as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
+    list would.
+    """
+    is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
+    return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
+
+
+def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSkillInfo]:
+    """Map each scout `skill_name` to its latest `LLMSkill` description + origin on the team.
+
+    One query for the whole config list — feeds the serializer's `description` and `origin`
+    fields so callers get a quick steer on each scout (and whether it's a canonical or
+    hand-authored scout) without loading the full skill body. Skills the team no longer has
+    simply drop out of the map (serializer falls back to "" / "custom").
     """
     names = list(set(skill_names))
     if not names:
         return {}
     rows = LLMSkill.objects.filter(team_id=team_id, name__in=names, is_latest=True, deleted=False).values_list(
-        "name", "description"
+        "name", "description", "metadata"
     )
-    return dict(rows)
+    return {
+        name: _ScoutSkillInfo(description=description or "", origin=_scout_origin(name, metadata))
+        for name, description, metadata in rows
+    }
 
 
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -647,8 +681,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
         configs = list(SignalScoutConfig.objects.unscoped().filter(team_id=team_id).order_by("skill_name"))
-        descriptions = _skill_descriptions_for(team_id, [c.skill_name for c in configs])
-        serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_descriptions": descriptions})
+        skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
+        serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
         return Response(serializer.data)
 
     @extend_schema(
@@ -718,9 +752,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if not config.enabled and update.validated_data.get("enabled"):
                 save_kwargs["enabled_by"] = request.user
             config = update.save(**save_kwargs)
-        descriptions = _skill_descriptions_for(team_id, [config.skill_name])
+        skill_info = _skill_info_for(team_id, [config.skill_name])
         return Response(
-            SignalScoutConfigSerializer(config, context={"skill_descriptions": descriptions}).data,
+            SignalScoutConfigSerializer(config, context={"skill_info": skill_info}).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
@@ -757,5 +791,5 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
-        descriptions = _skill_descriptions_for(team_id, [instance.skill_name])
-        return Response(SignalScoutConfigSerializer(instance, context={"skill_descriptions": descriptions}).data)
+        skill_info = _skill_info_for(team_id, [instance.skill_name])
+        return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
