@@ -648,7 +648,10 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'app_mention' event to create a support ticket.
 
-    The mention message becomes the first message of the ticket.
+    For a top-level mention, the mention message becomes the ticket's first message.
+    For a mention posted as a thread reply on an untracked thread, the ticket is
+    seeded from the message that started the thread (not the mention itself), then
+    the in-between replies are backfilled.
     """
     channel = event.get("channel")
     slack_user_id = event.get("user")
@@ -659,8 +662,9 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         return
 
     message_ts = event.get("ts")
+    event_thread_ts = event.get("thread_ts")
     # Use thread_ts if in a thread, otherwise the message ts
-    thread_ts = event.get("thread_ts") or message_ts
+    thread_ts = event_thread_ts or message_ts
     if not thread_ts:
         return
 
@@ -681,7 +685,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     # the thread — not the @mention reply — should seed the ticket. Fetch the parent
     # message and create the ticket from it, then backfill the in-between replies
     # (including the mention itself).
-    is_thread_reply_mention = bool(event.get("thread_ts")) and event.get("thread_ts") != message_ts
+    is_thread_reply_mention = bool(event_thread_ts) and event_thread_ts != message_ts
     if not existing and is_thread_reply_mention:
         client = get_slack_client(team)
         try:
