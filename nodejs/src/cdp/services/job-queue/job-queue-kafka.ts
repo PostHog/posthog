@@ -14,7 +14,13 @@ import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
+import {
+    cdpCyclotronMessagesByEncoding,
+    cdpJobSizeCompressedKb,
+    cdpJobSizeKb,
+    createInvocationSanitizer,
+    observeConsumedBatch,
+} from './shared'
 
 const lz4: {
     encodeBound(size: number): number
@@ -234,10 +240,21 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
             // LZ4 payloads are tagged with a content-encoding header; everything else is either
             // snappy-compressed or raw JSON, so fall back to snappy-or-raw for those.
-            const decompressedValue =
-                getContentEncoding(message.headers) === 'lz4'
-                    ? lz4DecompressEnvelope(rawValue)
-                    : await uncompress(rawValue).catch(() => rawValue)
+            let decompressedValue: Buffer
+            let encoding: string
+            if (getContentEncoding(message.headers) === 'lz4') {
+                decompressedValue = lz4DecompressEnvelope(rawValue)
+                encoding = 'lz4'
+            } else {
+                try {
+                    decompressedValue = await uncompress(rawValue)
+                    encoding = 'snappy'
+                } catch {
+                    decompressedValue = rawValue
+                    encoding = 'none'
+                }
+            }
+            cdpCyclotronMessagesByEncoding.labels(encoding).inc()
             const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
                 parseJSON(decompressedValue.toString())
             )

@@ -36,6 +36,12 @@ const cdpCyclotronJobsProcessed = new Counter({
     labelNames: ['queue', 'source'],
 })
 
+export const cdpCyclotronMessagesByEncoding = new Counter({
+    name: 'cdp_cyclotron_messages_by_encoding',
+    help: 'The number of kafka messages consumed broken down by envelope content-encoding',
+    labelNames: ['encoding'],
+})
+
 /**
  * Records throughput and batch utilization for a consumed batch.
  * `cdp_cyclotron_batch_utilization` is consumed by KEDA to autoscale the cyclotron workers, so this
