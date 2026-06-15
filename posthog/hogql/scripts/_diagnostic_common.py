@@ -644,9 +644,14 @@ def shrink_failures(
         except KeyboardInterrupt:
             # Ctrl-C during the (slow) shrink phase must not discard the
             # completed grind's failures — emit the current and remaining
-            # ones un-shrunk so the caller still writes a full dump.
+            # ones un-shrunk so the caller still writes a full dump. Each
+            # iteration appends exactly once, so `len(out) == i` iff this
+            # failure hasn't been appended yet; that guards against a double
+            # entry when the interrupt lands after the append but before the
+            # `continue`, wherever in the iteration it strikes.
             sys.stderr.write(f"\r  [shrink] interrupted at {done}/{shrinkable_total} — keeping the rest un-shrunk\n")
-            out.append(fa)
+            if len(out) == i:
+                out.append(fa)
             out.extend(failures[i + 1 :])
             return out
     sys.stderr.write("\r" + " " * 40 + "\r")
