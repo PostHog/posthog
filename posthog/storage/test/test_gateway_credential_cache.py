@@ -12,7 +12,6 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -44,10 +43,6 @@ class GatewayCredentialTestMixin(BaseTest):
         super().setUp()
         # LocMemCache persists across tests in-process; isolate each test.
         hypercache.cache_client.clear()
-        # One gateway per team is the source of truth for slug; credentials resolve to it by
-        # team. Drop any auto-provisioned default so the team has exactly this one.
-        Gateway.all_teams.filter(team=self.team).delete()
-        self.gateway = Gateway.all_teams.create(team=self.team, slug="posthog_code")
 
     def _make_secret_key(self, scopes: list[str], token: str | None = None) -> tuple[ProjectSecretAPIKey, str]:
         token = token or generate_random_token_secret()
@@ -125,33 +120,27 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         self.assertGreater(blob["team_id"], 0)
         self.assertEqual(blob["project_token"], self.team.api_token)
         self.assertEqual(blob["scopes"], [GATEWAY_SCOPE])
-        self.assertEqual(blob["gateway_slug"], "posthog_code")
         self.assertEqual(blob["billing_mode"], "internal")
         self.assertIsNone(blob["revoked_at"])
 
         # Raw token never appears in the key (only its hash).
         self.assertNotIn(token, hypercache.get_cache_key(cache_hash))
 
-    @parameterized.expand(["Posthog_Code", "slack app", "wizard/v2", "", "_leading"])
-    def test_malformed_gateway_slug_fails_closed(self, slug: str):
-        # Gateway.save() and the DB CheckConstraint both reject these, so a malformed
-        # slug can't reach the DB. Hand the projection an in-memory gateway with a bad
-        # slug to exercise its backstop directly: a slug the gateway can't route (or
-        # that escapes its cache-key path) must not be projected.
+    def test_team_without_api_token_fails_closed(self):
+        # team_id resolves but the team has no phc_ token to stamp — fail closed.
         key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        fresh = ProjectSecretAPIKey.objects.get(pk=key.pk)
-        bad_gateway = Gateway(team=self.team, slug=slug)
-        with patch("posthog.storage.gateway_credential_cache._gateway_for_credential", return_value=bad_gateway):
-            project_gateway_credential(fresh)
-        self.assertIsNone(self._read_blob(credential_hash(fresh)))
-
-    def test_team_without_gateway_fails_closed(self):
-        # A scoped credential whose team has no gateway can't resolve a slug — fail closed.
-        key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        Gateway.all_teams.filter(team=self.team).delete()
+        Team.objects.filter(pk=self.team.pk).update(api_token="")
         fresh = ProjectSecretAPIKey.objects.get(pk=key.pk)
         project_gateway_credential(fresh)
         self.assertIsNone(self._read_blob(credential_hash(fresh)))
+
+    def test_oauth_ambiguous_org_root_fails_closed(self):
+        # An OAuth app's org has two project-root teams, so the attribution team is
+        # ambiguous — fail closed rather than guess.
+        Team.objects.create(organization=self.organization, name="second root")
+        credential = self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
 
 
 class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
@@ -513,34 +502,6 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         deferred.save()
 
         self.assertIsNone(self._read_blob(old_hash))
-
-    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
-    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_team_gateway_credentials_task.delay")
-    def test_gateway_slug_change_reprojects(self, mock_delay, mock_settings, mock_transaction):
-        # The slug is the attribution value; a rename reprojects the team's credentials
-        # (they resolve to this gateway by team, not by binding).
-        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
-        mock_transaction.on_commit.side_effect = lambda fn: fn()
-
-        reloaded = Gateway.all_teams.get(pk=self.gateway.pk)  # snapshot old slug under patched setting
-        reloaded.slug = "posthog_code_v2"
-        reloaded.save()
-
-        mock_delay.assert_called_with(self.team.id)
-
-    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
-    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_team_gateway_credentials_task.delay")
-    def test_gateway_delete_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
-        # No FK to protect: deleting the team's gateway reprojects the team so its scoped
-        # credentials fail closed (the projection finds no gateway and clears each blob).
-        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
-        mock_transaction.on_commit.side_effect = lambda fn: fn()
-
-        self.gateway.delete()
-
-        mock_delay.assert_called_with(self.team.id)
 
     @pytest.mark.ee
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")

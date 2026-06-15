@@ -5,12 +5,11 @@ One blob per phs_ project secret key / pha_ OAuth token, keyed by the credential
 so the secret never sits in a Redis key. Public phc_ project tokens can't dispatch.
 
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
-    Body: {team_id, project_token, scopes, gateway_slug, billing_mode, revoked_at}
+    Body: {team_id, project_token, scopes, billing_mode, revoked_at}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
-gateway derives identically. A credential reaches its team's one gateway by holding
-llm_gateway:read (no per-key binding); that gateway's slug is the $ai_gateway_slug
-billing-attribution value, so the blob carries a single slug. project_token
+gateway derives identically. A credential holding llm_gateway:read attributes to its team
+directly (no per-gateway entity); team_id is the billing-attribution dimension. project_token
 is the team's phc_ key, carried only so the gateway can stamp the $ai_generation envelope —
 it never authorizes dispatch; the phs_/pha_ secret does. The gateway fails closed on a
 missing field, so a blob is written only for a fully-resolvable credential and cleared
@@ -19,7 +18,6 @@ cold Redis.
 """
 
 import os
-import re
 from collections.abc import Callable
 from typing import Any
 
@@ -30,7 +28,6 @@ from django.utils import timezone
 import structlog
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
-from posthog.models.gateway import GATEWAY_SLUG_PATTERN, Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -46,11 +43,6 @@ GATEWAY_CREDENTIAL_REQUIRED_SCOPE = "llm_gateway:read"
 # billing_mode is provisional — the gateway treats it as opaque pass-through and
 # does not enforce it yet. Open: whether it is ever non-internal.
 GATEWAY_CREDENTIAL_BILLING_MODE = "internal"
-
-# Backstop validation of gateway.slug before it lands in the blob. Gateway.save()
-# already enforces this on write; re-check here because the gateway does none of
-# its own and the slug flows straight onto the billing ledger.
-_GATEWAY_SLUG_RE = re.compile(GATEWAY_SLUG_PATTERN)
 
 # Minimum project access level a user needs for the bound team. The project read
 # level is the second-highest in the member ladder (none < member < admin).
@@ -69,7 +61,6 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "team_id",
     "project_token",
     "scopes",
-    "gateway_slug",
     "billing_mode",
     "revoked_at",
 ]
@@ -85,7 +76,7 @@ class _RefreshMemo:
     def __init__(self) -> None:
         self._memberships: dict[tuple[Any, Any], Any] = {}
         self._access: dict[tuple[Any, Any], bool] = {}
-        self._gateways: dict[Any, Gateway | None] = {}
+        self._teams: dict[Any, Team | None] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -99,10 +90,10 @@ class _RefreshMemo:
             self._access[key] = load()
         return self._access[key]
 
-    def gateway(self, team_id: Any, load: Callable[[], "Gateway | None"]) -> "Gateway | None":
-        if team_id not in self._gateways:
-            self._gateways[team_id] = load()
-        return self._gateways[team_id]
+    def team(self, team_id: Any, load: Callable[[], "Team | None"]) -> "Team | None":
+        if team_id not in self._teams:
+            self._teams[team_id] = load()
+        return self._teams[team_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -131,7 +122,7 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
 def _org_root_team_id(organization_id: Any) -> int | None:
     """An organization's single project-root team, or None when absent/ambiguous.
 
-    An OAuth app is org-scoped; its gateway is the org's root team's. Bind only when
+    An OAuth app is org-scoped, so it attributes to the org's root team. Resolve only when
     exactly one root exists (fetch 2 to detect ambiguity) — fail closed otherwise."""
     if not organization_id:
         return None
@@ -143,21 +134,18 @@ def _org_root_team_id(organization_id: Any) -> int | None:
     return roots[0] if len(roots) == 1 else None
 
 
-def _team_gateway(team_id: int, memo: "_RefreshMemo | None") -> Gateway | None:
-    """The team's gateway (one per team), or None. Oldest-first so a team that somehow
-    has more than one resolves deterministically to its provisioned default."""
+def _team_by_id(team_id: int, memo: "_RefreshMemo | None") -> "Team | None":
+    def load() -> "Team | None":
+        return Team.objects.filter(pk=team_id).first()
 
-    def load() -> Gateway | None:
-        return Gateway.all_teams.select_related("team").filter(team_id=team_id).order_by("created_at").first()
-
-    return memo.gateway(team_id, load) if memo else load()
+    return memo.team(team_id, load) if memo else load()
 
 
-def _gateway_for_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> Gateway | None:
-    """The credential's team's gateway, resolved by scope+team (no per-key binding).
+def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> "Team | None":
+    """The team a credential attributes to (no per-gateway entity).
 
-    A secret key resolves to its canonical (project-root) team; an OAuth token to its
-    application's org root team. Returns None when the team or its gateway is absent.
+    A secret key attributes to its canonical (project-root) team; an OAuth token to its
+    application's org root team. Returns None when the team can't be resolved unambiguously.
     """
     if isinstance(credential, ProjectSecretAPIKey):
         team_id: int | None = credential.team.parent_team_id or credential.team_id
@@ -166,7 +154,7 @@ def _gateway_for_credential(credential: Credential, memo: "_RefreshMemo | None" 
         team_id = _org_root_team_id(application.organization_id) if application is not None else None
     if team_id is None:
         return None
-    return _team_gateway(team_id, memo)
+    return _team_by_id(team_id, memo)
 
 
 def _ttl_for_credential(credential: Credential) -> float:
@@ -228,38 +216,29 @@ def _policy_for_credential(
 ) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
-    The credential's team's gateway (not a user's current team) is the source of truth for
-    the billed team. Fails closed on missing scope, a team with no gateway, a team with no
-    token, an invalid slug, or — for OAuth — the user/expiry/scope/membership/RBAC checks. A
-    project secret key has no user, so scope + resolvable-gateway + slug-valid + team-has-token
-    is sufficient.
+    The credential's team (not a user's current team) is the source of truth for the billed
+    team. Fails closed on missing scope, an unresolvable team, a team with no token, or — for
+    OAuth — the user/expiry/scope/membership/RBAC checks. A project secret key has no user, so
+    scope + resolvable-team + team-has-token is sufficient.
     """
     if not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
 
-    gateway = _gateway_for_credential(credential, memo)
-    if gateway is None:
+    team = _team_for_credential(credential, memo)
+    if team is None:
         return HyperCacheStoreMissing()
 
-    # gateway.team is canonical (Gateway is project-scoped), so team_id matches how
-    # a project token resolves. Backstop the slug — the gateway validates none of it.
-    team = gateway.team
-    team_id = gateway.team_id
     project_token = team.api_token
     if not project_token:
         return HyperCacheStoreMissing()
 
-    if not _GATEWAY_SLUG_RE.match(gateway.slug):
-        return HyperCacheStoreMissing()
-
-    if isinstance(credential, OAuthAccessToken) and not _oauth_authorization_ok(credential, team, team_id, memo):
+    if isinstance(credential, OAuthAccessToken) and not _oauth_authorization_ok(credential, team, team.id, memo):
         return HyperCacheStoreMissing()
 
     return {
-        "team_id": team_id,
+        "team_id": team.id,
         "project_token": project_token,
         "scopes": [GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
-        "gateway_slug": gateway.slug,
         "billing_mode": GATEWAY_CREDENTIAL_BILLING_MODE,
         "revoked_at": None,
     }
@@ -340,7 +319,7 @@ def refresh_all_gateway_credentials() -> int:
     """Re-project every credential currently granted llm_gateway:read, keeping entries warm.
 
     Forward-only (the cache key is a one-way hash); signals and the per-OAuth TTL handle
-    removal. The team's gateway and the per-OAuth membership/RBAC checks are memoized by team /
+    removal. The team resolution and the per-OAuth membership/RBAC checks are memoized by team /
     (org, user) / (team, user) so the run does O(distinct teams/users) lookups, and .iterator()
     keeps the working set flat. The secret-key scopes lookup rides the projectsecretapikey_scopes_gin
     index; OAuth scope is a whitespace-bounded regex.

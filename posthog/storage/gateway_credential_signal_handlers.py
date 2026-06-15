@@ -22,7 +22,6 @@ from django.db.models.signals import post_delete, post_init, post_save, pre_dele
 
 import structlog
 
-from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -48,7 +47,6 @@ _NAMESPACE = "gateway_credential"
 _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
-_LOADED_GATEWAY_SLUG_ATTR = "_fp_loaded_gateway_slug"
 _LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
 _LOADED_TEAM_API_TOKEN_ATTR = "_fp_loaded_team_api_token"
 
@@ -296,47 +294,6 @@ def _reproject_on_membership_save(
     transaction.on_commit(lambda: reproject_user_gateway_credentials_task.delay(user_id))
 
 
-def _snapshot_gateway(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL:
-        return
-    if "slug" not in instance.get_deferred_fields():
-        instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = instance.slug
-
-
-def _capture_old_gateway_slug_if_deferred(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_GATEWAY_SLUG_ATTR in instance.__dict__:
-        return
-    if not instance.pk or instance._state.adding:
-        return
-    row = Gateway.all_teams.filter(pk=instance.pk).values("slug").first()
-    if row is not None:
-        instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = row["slug"]
-
-
-def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created: bool, **kwargs: Any) -> None:
-    # The slug is the attribution value; on change, re-project the team's credentials so
-    # each blob carries the new slug (they resolve to this gateway by team, not by binding).
-    if not settings.AI_GATEWAY_REDIS_URL or created:
-        return
-    old_slug = instance.__dict__.get(_LOADED_GATEWAY_SLUG_ATTR)
-    instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = instance.slug
-    if old_slug is None or old_slug == instance.slug:
-        return
-
-    team_id = instance.team_id
-    transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
-
-
-def _reproject_gateway_on_delete(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
-    # Deleting the team's gateway leaves its scoped credentials with nothing to resolve, so
-    # reproject the team — the projection fails closed and clears each blob. on_commit fires
-    # only on a successful delete, and the task reads post-delete state (gateway gone).
-    if not settings.AI_GATEWAY_REDIS_URL:
-        return
-    team_id = instance.team_id
-    transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
-
-
 def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: Any) -> None:
     # A project AC flips the OAuth RBAC check; the projection keys ACs by team_id, so
     # reproject the team's credentials and a revocation clears promptly.
@@ -377,11 +334,6 @@ def connect_signal_handlers() -> None:
     pre_save.connect(_capture_old_membership_level_if_deferred, sender=OrganizationMembership)
     post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
-
-    post_init.connect(_snapshot_gateway, sender=Gateway)
-    pre_save.connect(_capture_old_gateway_slug_if_deferred, sender=Gateway)
-    post_save.connect(_reproject_gateway_on_save, sender=Gateway)
-    pre_delete.connect(_reproject_gateway_on_delete, sender=Gateway)
 
     # Project access controls live in ee, which isn't installed in FOSS. Connect
     # only when available; the projection's RBAC check default-allows there anyway.
