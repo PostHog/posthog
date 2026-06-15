@@ -37,10 +37,10 @@ describe('buildFunnelHistogramData', () => {
         expect(labels).toEqual(['0s', '1m', '2m'])
     })
 
-    it('carries the per-bin percentage labels', () => {
+    it('carries the per-bin percentage labels for the single series', () => {
         const { barLabels } = buildFunnelHistogramData(bins)
 
-        expect(barLabels).toEqual(['60%', '30%', '10%'])
+        expect(barLabels).toEqual([['60%', '30%', '10%']])
     })
 
     it('applies the provided series color', () => {
@@ -59,7 +59,7 @@ describe('buildFunnelHistogramData', () => {
         const { series, labels, barLabels } = buildFunnelHistogramData([])
 
         expect(labels).toEqual([])
-        expect(barLabels).toEqual([])
+        expect(barLabels).toEqual([[]])
         expect(series[0].data).toEqual([])
     })
 
@@ -79,6 +79,18 @@ describe('buildFunnelHistogramData', () => {
         expect(series[1].color).toBe('#cccccc')
         // Shared bins: labels come from the (current) period's boundaries.
         expect(labels).toEqual(['0s', '1m', '2m'])
+    })
+
+    it('keeps each period’s percentage labels on its own series row when comparing', () => {
+        const { barLabels } = buildFunnelHistogramData(bins, {
+            color: '#1d4aff',
+            previous: { data: previousBins, color: '#cccccc' },
+        })
+
+        expect(barLabels).toEqual([
+            ['60%', '30%', '10%'],
+            ['40%', '50%', '10%'],
+        ])
     })
 
     it('stays single-series when no previous period is provided', () => {

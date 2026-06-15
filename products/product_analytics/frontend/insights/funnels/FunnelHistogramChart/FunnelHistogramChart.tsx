@@ -76,13 +76,14 @@ export function FunnelHistogramChart(): JSX.Element | null {
             dataAttr="funnel-histogram"
             onError={handleChartError}
         >
-            {/* Per-bar percentage labels only read cleanly with a single series; the grouped
-                compare view relies on tooltips (which label each period) instead. */}
-            {!isComparing && (
-                <ValueLabels
-                    valueFormatter={(_value, _seriesIndex, dataIndex) => histogramData.barLabels[dataIndex] ?? ''}
-                />
-            )}
+            {/* Each bar is labelled with its own period's share. In the grouped compare view the
+                overlay anchors per-bar (via the series key), so `seriesIndex` selects the matching
+                period's labels; dense bin counts may drop colliding labels (overlay handles that). */}
+            <ValueLabels
+                valueFormatter={(_value, seriesIndex, dataIndex) =>
+                    histogramData.barLabels[seriesIndex]?.[dataIndex] ?? ''
+                }
+            />
         </BarChart>
     )
 }

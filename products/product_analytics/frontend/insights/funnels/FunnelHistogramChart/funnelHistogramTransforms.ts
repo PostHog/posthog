@@ -16,8 +16,9 @@ export interface FunnelHistogramData {
     series: Series[]
     /** Category labels — the lower bound of each duration bin, one per bar. */
     labels: string[]
-    /** Per-bar percentage label (share of total conversions), indexed to match `labels`. */
-    barLabels: string[]
+    /** Per-bar percentage label, keyed `barLabels[seriesIndex][dataIndex]` — one row per emitted
+     * series so grouped (compare) bars can label each period's own bar with its own share. */
+    barLabels: string[][]
 }
 
 /** Maps the funnel time-to-convert bins onto categorical hog-charts bar series.
@@ -37,6 +38,9 @@ export function buildFunnelHistogramData(
             color: options?.color,
         },
     ]
+    // Each series carries its own percentage labels (share of that period's conversions) so the
+    // value-label overlay can anchor the right label on each bar in the grouped compare view.
+    const barLabels: string[][] = [histogramGraphData.map((datum) => datum.label)]
 
     if (options?.previous) {
         series.push({
@@ -45,11 +49,12 @@ export function buildFunnelHistogramData(
             data: options.previous.data.map((datum) => datum.count),
             color: options.previous.color,
         })
+        barLabels.push(options.previous.data.map((datum) => datum.label))
     }
 
     return {
         labels: histogramGraphData.map((datum) => humanFriendlyDuration(datum.bin0, { maxUnits: 2 })),
-        barLabels: histogramGraphData.map((datum) => datum.label),
+        barLabels,
         series,
     }
 }
