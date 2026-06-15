@@ -1,3 +1,4 @@
+import type { CommonConfig } from '~/common/config'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/utils/logger'
 
@@ -9,9 +10,8 @@ export type RateLimiterValkeyConfig = Pick<
     | 'SES_RATE_LIMITER_VALKEY_PORT'
     | 'SES_RATE_LIMITER_VALKEY_PASSWORD'
     | 'SES_RATE_LIMITER_VALKEY_TLS'
-    | 'REDIS_POOL_MIN_SIZE'
-    | 'REDIS_POOL_MAX_SIZE'
->
+> &
+    Pick<CommonConfig, 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'>
 
 /**
  * Creates a connection to the dedicated SES rate-limiter Valkey instance.
