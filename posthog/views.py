@@ -242,6 +242,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             if not in_cloud
             else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            # Max runs on Anthropic, so it needs its own signal — otherwise self-hosted instances
+            # render the assistant but fail at call time with no key configured.
+            "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,

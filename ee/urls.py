@@ -30,7 +30,6 @@ from .api.scim import views as scim_views
 
 def extend_api_router() -> None:
     from posthog.api import (
-        environments_router,
         organizations_router,
         register_legacy_dual_route_team_nested_viewset,
         router as root_router,
@@ -55,8 +54,14 @@ def extend_api_router() -> None:
     )
     register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
 
-    _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
+    project_subscriptions_router, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
+    project_subscriptions_router.register(
+        r"deliveries",
+        subscription.SubscriptionDeliveryViewSet,
+        "project_subscription_deliveries",
+        ["team_id", "subscription_id"],
     )
     env_subscriptions_router.register(
         r"deliveries",
@@ -65,21 +70,23 @@ def extend_api_router() -> None:
         ["team_id", "subscription_id"],
     )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
     )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
     )
 
-    environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
+    register_legacy_dual_route_team_nested_viewset(
+        r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"]
+    )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"max_hands_free", hands_free.MaxHandsFreeViewSet, "environment_max_hands_free", ["team_id"]
     )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
     )
 

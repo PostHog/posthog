@@ -19,7 +19,7 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 
 ## Local eval scripts
 
-- [`ai/eval_slack_repo_selection.py`](./ai/eval_slack_repo_selection.py) — exercises the Slack `@PostHog` repo-selection cascade (cascade → Haiku gate → discovery agent) against a real team with a connected GitHub integration. Pass/fail summary, no Slack needed. Run as a file (`python posthog/temporal/ai/eval_slack_repo_selection.py --list-cases`), not via `python -m` — the latter would force `ai/__init__.py` to load workflows before `django.setup()`. Lives here, not under `management/commands/`, because the import graph it needs (`products/slack_app` + `products/tasks`) is only reachable from `posthog/`.
+- [`ai/slack_app/eval_slack_repo_selection.py`](./ai/slack_app/eval_slack_repo_selection.py) — exercises the Slack `@PostHog` repo-selection cascade (cascade → Haiku gate → discovery agent) against a real team with a connected GitHub integration. Pass/fail summary, no Slack needed. Run as a file (`python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --list-cases`), not via `python -m` — the latter would force `ai/__init__.py` to load workflows before `django.setup()`. Lives here, not under `management/commands/`, because the import graph it needs (`products/slack_app` + `products/tasks`) is only reachable from `posthog/`.
 
 ## Checking the Slack repo discovery agent
 
