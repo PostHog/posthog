@@ -92,11 +92,8 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(variables_schema["properties"]["country"]["type"], "string")
 
     def test_openapi_spec_marks_hogql_variables_without_default_as_required(self):
-        """Regression for #54605 — variables without a default value must be
-        surfaced as `required` in the generated spec, and the outer requestBody
-        must be required so generated SDK clients fail validation before the
-        round-trip instead of executing with no data."""
-        from posthog.models.insight_variable import InsightVariable
+        """Regression for #54605."""
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         with_default = InsightVariable.objects.create(
             team=self.team,
@@ -147,10 +144,14 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         operation = next(iter(spec["paths"].values()))["post"]
         self.assertTrue(operation["requestBody"]["required"])
 
+        # `variables` itself must be required on EndpointRunRequest, otherwise
+        # a client sending {} passes validation without supplying card_name.
+        request_schema = spec["components"]["schemas"]["EndpointRunRequest"]
+        self.assertIn("variables", request_schema.get("required", []))
+
     def test_openapi_spec_keeps_request_body_optional_when_all_variables_have_defaults(self):
-        """The outer requestBody must stay optional when every HogQL variable
-        has a default value — none of them are required for execution."""
-        from posthog.models.insight_variable import InsightVariable
+        """When every HogQL variable has a default value, nothing is required."""
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         variable = InsightVariable.objects.create(
             team=self.team,
@@ -183,6 +184,31 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         operation = next(iter(spec["paths"].values()))["post"]
         self.assertFalse(operation["requestBody"]["required"])
+
+        request_schema = spec["components"]["schemas"]["EndpointRunRequest"]
+        self.assertNotIn("variables", request_schema.get("required", []))
+
+    def test_build_variables_schema_marks_breakdown_required_on_materialized_insight(self):
+        """Materialized insights resolve the breakdown column at materialization
+        time, so callers have to supply the value at execution. Non-materialized
+        insights fall back to the saved filter so the breakdown stays optional."""
+        from products.endpoints.backend.openapi import _build_variables_schema
+
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+        }
+
+        schema = _build_variables_schema(trends_query, is_materialized=True, team_id=self.team.id)
+        assert schema is not None
+        self.assertIn("$browser", schema["properties"])
+        self.assertEqual(schema.get("required"), ["$browser"])
+
+        schema_non_materialized = _build_variables_schema(trends_query, is_materialized=False, team_id=self.team.id)
+        assert schema_non_materialized is not None
+        self.assertIn("$browser", schema_non_materialized["properties"])
+        self.assertNotIn("required", schema_non_materialized)
 
     def test_openapi_spec_variable_types(self):
         from products.product_analytics.backend.models.insight_variable import InsightVariable

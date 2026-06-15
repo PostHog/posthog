@@ -31,11 +31,13 @@ def generate_openapi_spec(
     description = target_version.description
 
     schemas = _build_component_schemas(endpoint, target_version, team_id)
-    # Flip the outer requestBody.required to True when the endpoint declares
-    # variables that the caller must supply (HogQL variables without a default
-    # value). Insight-style filters (breakdown / date_from / date_to) stay
-    # optional, so the body itself stays optional in that case.
-    body_required = bool(schemas.get("Variables", {}).get("required"))
+    variables_required = bool(schemas.get("Variables", {}).get("required"))
+    if variables_required:
+        # The Variables schema's `required` array only fires once the caller
+        # actually includes a `variables` key. Make `variables` itself
+        # required on EndpointRunRequest too, otherwise an SDK client that
+        # POSTs `{}` passes validation.
+        schemas["EndpointRunRequest"].setdefault("required", []).append("variables")
 
     return {
         "openapi": "3.0.3",
@@ -53,7 +55,7 @@ def generate_openapi_spec(
                     "description": description or f"Execute the {endpoint.name} endpoint",
                     "security": [{"PersonalAPIKey": []}],
                     "requestBody": {
-                        "required": body_required,
+                        "required": variables_required,
                         "content": {
                             "application/json": {
                                 "schema": {"$ref": "#/components/schemas/EndpointRunRequest"},
@@ -251,14 +253,9 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
     """Build schema for variables based on query type and materialization state."""
     query_kind = query.get("kind")
     properties: dict = {}
-    # Variables without a default value have to be provided by the caller — track
-    # them so the generated spec can mark them required. Insight-style filters
-    # (breakdowns, date_from/date_to) stay optional because the query still runs
-    # without them.
     required: list[str] = []
 
     if query_kind == "HogQLQuery":
-        # HogQL: variables from query definition, with types from InsightVariable model
         variables = query.get("variables", {})
         if variables:
             variable_ids = list(variables.keys())
@@ -285,13 +282,8 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                 if default_value is not None:
                     properties[code_name]["example"] = default_value
                 else:
-                    # No default → caller must supply this variable for the
-                    # query to execute. Surface that in the OpenAPI spec so
-                    # generated SDK clients fail validation up front instead
-                    # of round-tripping a malformed request.
                     required.append(code_name)
     else:
-        # Insight queries - only include breakdown for supported query types
         if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
             breakdown_filter = query.get("breakdownFilter") or {}
             breakdown = _get_single_breakdown_property(breakdown_filter)
@@ -301,9 +293,13 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                     "description": f"Filter by {breakdown} breakdown value",
                     "example": "Chrome",
                 }
+                # Materialized insights resolve the breakdown column at materialization
+                # time, so callers have to supply the value at execution; non-materialized
+                # insights can fall back to the saved filter.
+                if is_materialized:
+                    required.append(breakdown)
 
         if not is_materialized:
-            # Non-materialized also supports date variables
             properties["date_from"] = {
                 "type": "string",
                 "description": "Filter results from this date (ISO format or relative like '-7d')",
