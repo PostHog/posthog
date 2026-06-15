@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconChevronDown } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
@@ -359,43 +359,6 @@ function IntentCoverageTag({
     )
 }
 
-function ClampedDescription({ description }: { description: string }): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
-    const [isOverflowing, setIsOverflowing] = useState(false)
-    const contentRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        const el = contentRef.current
-        if (el) {
-            setIsOverflowing(el.scrollHeight > el.clientHeight)
-        }
-    }, [description])
-
-    return (
-        <>
-            <div ref={contentRef} className={isExpanded ? undefined : 'line-clamp-3'}>
-                <LemonMarkdown className="text-sm leading-snug" lowKeyHeadings>
-                    {description}
-                </LemonMarkdown>
-            </div>
-            {isOverflowing && (
-                <button
-                    type="button"
-                    onClick={() => setIsExpanded((prev) => !prev)}
-                    className="flex items-center gap-1 text-[11px] text-secondary hover:text-default cursor-pointer w-fit"
-                >
-                    <IconChevronDown
-                        className="transition-transform"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={isExpanded ? { transform: 'rotate(180deg)' } : undefined}
-                    />
-                    {isExpanded ? 'Show less' : 'Show more'}
-                </button>
-            )}
-        </>
-    )
-}
-
 function DescriptionBlock({
     descriptions,
     loading,
@@ -413,7 +376,9 @@ function DescriptionBlock({
     return (
         <div className="flex flex-col gap-1 max-w-3xl">
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
-            <ClampedDescription description={latest.description} />
+            <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
+                {latest.description}
+            </LemonMarkdown>
             {older.length > 0 ? (
                 <Tooltip
                     title={
