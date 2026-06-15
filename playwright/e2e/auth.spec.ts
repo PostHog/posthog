@@ -88,7 +88,7 @@ test.describe('Auth', () => {
 
     test('Redirect to appropriate place after login', async ({ page, context }) => {
         await context.clearCookies()
-        await page.goto('/activity/explore')
+        await page.goto('/activity/explore', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
@@ -103,7 +103,7 @@ test.describe('Auth', () => {
 
     test('Redirect to appropriate place after login with complex URL', async ({ page, context }) => {
         await context.clearCookies()
-        await page.goto('/insights?search=testString')
+        await page.goto('/insights?search=testString', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
