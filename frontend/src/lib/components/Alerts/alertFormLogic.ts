@@ -127,7 +127,10 @@ const _cellValue = (row: unknown, index: number): number | null => {
     return typeof cell === 'number' && Number.isFinite(cell) ? cell : null
 }
 
-/** Mirror of the backend heuristic: a column is numeric by its most recent non-null value. */
+/** Mirror of the backend's `_column_is_numeric` (products/alerts/backend/evaluation/hogql.py): a
+ * column is numeric by its most recent non-null value. Advisory only — the backend owns
+ * authoritative resolution, so drift just yields a wrong picker suggestion, not a wrong evaluation.
+ * Caveat: a trailing footer/total row with a string cell will mislabel an otherwise-numeric column. */
 const _columnIsNumeric = (rows: unknown[], index: number): boolean => {
     for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i]
@@ -785,14 +788,17 @@ export const alertFormLogic = kea<alertFormLogicType>([
     }),
 
     subscriptions(({ props, values, actions }) =>
-        props.insightAlertKind !== 'hogql'
+        // Create-only: prefilling an existing alert would dirty the form on passive open and,
+        // if the query result shape drifted since save, silently rewrite a stored column. New
+        // alerts have nothing to clobber. A subscription (not a listener) because the suggestion
+        // derives from another logic's loader — there is no single action to listen to. Never
+        // fires for single-column results (picker hidden there); those stay implicit so they
+        // keep working on column renames.
+        props.insightAlertKind !== 'hogql' || props.alert
             ? {}
             : {
                   // Materialize the suggested picks into the form, so the pickers show the actual
-                  // choice and the saved config is explicit. A subscription (not a listener)
-                  // because the suggestion derives from another logic's loader — there is no
-                  // single action to listen to. Never fires for single-column results (picker
-                  // hidden there); those stay implicit so they keep working on column renames.
+                  // choice and the saved config is explicit.
                   hogqlConfigPrefill: (patch: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null) => {
                       const config = values.alertForm?.config
                       if (patch != null && isHogQLAlertConfig(config)) {

@@ -381,6 +381,64 @@ describe('alertFormLogic', () => {
             expect(formConfig.column).toEqual(expectedColumn)
             expect(formConfig.label_column).toEqual(expectedLabelColumn)
         })
+
+        it('does not prefill when editing an existing alert (would dirty the form / clobber a saved column)', async () => {
+            const logic = alertFormLogic({
+                alert: makeSavedAlert({ config: { type: 'HogQLAlertConfig' } as any }),
+                insightId: 42,
+                onEditSuccess: jest.fn(),
+                insightVizDataLogicProps: insightLogicProps,
+                insightInterval: 'day',
+                insightAlertKind: 'hogql',
+            })
+            logic.mount()
+            insightDataLogic(insightLogicProps).actions.setInsightData({
+                columns: ['day', 'count'],
+                results: [['x', 1]],
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const formConfig = logic.values.alertForm.config as HogQLAlertConfig
+            expect(formConfig.column).toBeUndefined()
+            expect(logic.values.alertFormChanged).toBe(false)
+        })
+    })
+
+    describe('hogql column options', () => {
+        function mountWithData(insightData: Record<string, any>): ReturnType<typeof alertFormLogic.build> {
+            const logic = alertFormLogic({
+                alert: null,
+                insightId: 42,
+                onEditSuccess: jest.fn(),
+                insightVizDataLogicProps: insightLogicProps,
+                insightInterval: 'day',
+                insightAlertKind: 'hogql',
+            })
+            logic.mount()
+            logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig' })
+            insightDataLogic(insightLogicProps).actions.setInsightData(insightData)
+            return logic
+        }
+
+        it('value options are the numeric columns only', () => {
+            const logic = mountWithData({ columns: ['day', 'count'], results: [['2026-06-01', 1]] })
+            expect(logic.values.hogqlValueColumnOptions).toEqual([{ label: 'count', value: 'count' }])
+        })
+
+        it('value options fall back to every column when nothing is numeric (avoids a dead-end picker)', () => {
+            const logic = mountWithData({ columns: ['a', 'b'], results: [['x', 'y']] })
+            expect(logic.values.hogqlValueColumnOptions).toEqual([
+                { label: 'a', value: 'a' },
+                { label: 'b', value: 'b' },
+            ])
+        })
+
+        it('label options exclude the evaluated column', async () => {
+            const logic = mountWithData({ columns: ['day', 'count'], results: [['2026-06-01', 1]] })
+            // Wait for the prefill to materialize the evaluated column, then it should drop out of the label options.
+            await expectLogic(logic).toFinishAllListeners()
+            expect((logic.values.alertForm.config as HogQLAlertConfig).column).toEqual('count')
+            expect(logic.values.hogqlLabelColumnOptions).toEqual([{ label: 'day', value: 'day' }])
+        })
     })
 
     describe('deriveHogQLAlertPreview', () => {
