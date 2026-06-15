@@ -13,10 +13,10 @@ from products.slack_app.backend.api import (
     POSTHOG_CODE_REQUIRED_SLACK_SCOPES,
     ROUTE_HANDLED_LOCALLY,
     ROUTE_NO_INTEGRATION,
-    _bot_user_id_cache_key,
     _channel_onboarding_cache_key,
     route_posthog_code_event_to_relevant_region,
 )
+from products.slack_app.backend.services.slack_user_info import _bot_user_id_cache_key
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
