@@ -1435,8 +1435,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       '@clickhouse/client':
-        specifier: ^1.12.0
-        version: 1.12.0
+        specifier: head
+        version: 1.20.0-head.97f135e.1
       '@connectrpc/connect':
         specifier: ^2.1.1
         version: 2.1.1(@bufbuild/protobuf@2.11.0)
@@ -5426,11 +5426,11 @@ packages:
   '@chevrotain/types@11.1.2':
     resolution: {integrity: sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==}
 
-  '@clickhouse/client-common@1.12.0':
-    resolution: {integrity: sha512-cyI4n7u9jK30d9q1q0ceQ7IwJ/MtTs5HxoQfc8yHpN+ok5wqaU2jAtq5hpa1z7C7sS1pDy/ZOFmOzg1v1F683g==}
+  '@clickhouse/client-common@1.20.0-head.97f135e.1':
+    resolution: {integrity: sha512-mif7v/iKU2ntS+3CQ2yg7c9stYbriidhG+aztAlsbLO56tnLeRY49Pp3JF6mq7wnJWPS8U/Yv9xXckE833qFvA==}
 
-  '@clickhouse/client@1.12.0':
-    resolution: {integrity: sha512-vJUSX8THhTzlVn0WxPukVjOgNRaSoY02ubQkB0LpqNoHFxXuF5jQZZAYvGZWpBGbYQ/4gfPrqu8g4TX5UKeNxA==}
+  '@clickhouse/client@1.20.0-head.97f135e.1':
+    resolution: {integrity: sha512-QN+A8ZsPaWWB1MERkQCBvA6DXmhedaPSVaQmsDzyovwUv6u/CrZbEifzUdBvdLLm04D/hBJ7bNGLCWLDCC2GEQ==}
     engines: {node: '>=16'}
 
   '@cloudflare/kv-asset-handler@0.4.2':
@@ -26041,11 +26041,11 @@ snapshots:
 
   '@chevrotain/types@11.1.2': {}
 
-  '@clickhouse/client-common@1.12.0': {}
+  '@clickhouse/client-common@1.20.0-head.97f135e.1': {}
 
-  '@clickhouse/client@1.12.0':
+  '@clickhouse/client@1.20.0-head.97f135e.1':
     dependencies:
-      '@clickhouse/client-common': 1.12.0
+      '@clickhouse/client-common': 1.20.0-head.97f135e.1
 
   '@cloudflare/kv-asset-handler@0.4.2': {}
 

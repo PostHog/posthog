@@ -63,7 +63,7 @@
         "@babel/preset-typescript": "^7.18.6",
         "@babel/standalone": "^7.23.2",
         "@bufbuild/protobuf": "^2.11.0",
-        "@clickhouse/client": "^1.12.0",
+        "@clickhouse/client": "head",
         "@connectrpc/connect": "^2.1.1",
         "@connectrpc/connect-node": "^2.1.1",
         "@google-cloud/pubsub": "4.11.0",
