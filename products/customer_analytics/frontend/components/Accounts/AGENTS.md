@@ -34,6 +34,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_HOGQL_DATA_NODE_KEY, acc
 | Logic                        | Owns                                                                                                                                                                                                                                                                  |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `accountsLogic`              | The hub. Search (debounced), tag and assigned-to/unassigned filters, sort, inline role assignment, the `hogqlQuery` selector, shareable URL-hash view state, and `openAccount` (the Max entry point). `connect`s column-config, overview-tiles, and expansion logics. |
+| `accountsViewsLogic`         | Saved-views lifecycle (list/create/update/delete/select). Connects to `accountsLogic`, `accountsColumnConfigLogic`, and `accountsOverviewTilesLogic`; is the single owner of reading and writing the `ColumnConfiguration` rows for this area. |
 | `accountsColumnConfigLogic`  | Selected columns (`selectColumns` / `visibleColumnNames`), the column-picker groups built from the DB schema + data-warehouse joins, and the per-team saved column config (`columnConfigurations` API).                                                               |
 | `accountsExpansionLogic`     | Which rows are expanded (`expandedAccountIds`) and the active tab per account (`activeTabByAccount`). Pure state — no DOM, no data fetching.                                                                                                                          |
 | `accountsOverviewTilesLogic` | The overview metric tiles (persisted per team); feeds `metrics` into the query.                                                                                                                                                                                       |
@@ -62,6 +63,32 @@ The Usage tab renders an existing saved billing-usage insight — **point users 
 ## Shareable view state
 
 `accountsLogic` mirrors the full view (search, tags, unassigned, assigned-to, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Only non-default values are serialized. The "assigned to" filter persists as concrete `assignedTo` ids (not a `mine` flag), so a link shared with a colleague resolves to the **same** accounts for them as for the sharer; the legacy `mine: true` hash is still read and resolved to the current user's id for backward compatibility. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
+
+## Saved views
+
+A saved view is a named snapshot of the full Accounts list state (columns, sort, filters, overview tiles).
+Views are persisted as `ColumnConfiguration` rows under `context_key = 'customer_analytics_accounts_columns'` (the `ACCOUNTS_COLUMN_CONFIG_KEY` constant).
+`accountsViewsLogic` is the single owner of this lifecycle; components only call its actions.
+
+`accountsViewState.ts` is a pure module that maps UI state ↔ the `ColumnConfiguration` payload:
+
+- `columns` ← `selectColumns` (column names in order)
+- `order_by` ← sort, stored as `["<column> <ASC|DESC>"]` using the logical column name
+  (query-time `deriveAccountsOrderByExpr` wraps role/tuple columns at build time; the stored name stays clean)
+- `filters` ← search text, tags, unassigned toggle, role filters, tile filter (JSON)
+- `properties` ← `{ tiles }` — overview tile configuration (a `properties` field added to the `ColumnConfiguration` model)
+
+**Visibility** is `private` or `shared`; only the creator can edit or delete a view (enforced by the backend viewset).
+
+**Auto-restore:** the last-used view `id` is persisted in a team-scoped localStorage key (`currentViewId`).
+A shared link's `#view=` URL hash always wins over the saved `currentViewId`.
+`isDirty` is true when the live state diverges from the selected view's saved state.
+
+**One-time tiles migration:** on first load, if the signed-in user is the creator of the existing default `ColumnConfiguration` row and its `properties.tiles` is empty while their localStorage tiles differ from `DEFAULT_TILES`, `accountsViewsLogic` patches the localStorage tiles into that row.
+The operation is idempotent and skips non-creators.
+
+**Column configurator:** `AccountsColumnConfigurator.tsx` no longer persists columns itself — its footer button is "Done" (closes only).
+Column changes are saved as part of a view via `AccountsViewSelector.tsx` (the view dropdown in `AccountsTabFilters`), which offers "Save current view" (creates) and "Update '<name>'" (patches the selected view).
 
 ## Max / agent integration
 
@@ -110,8 +137,12 @@ We track user actions on the Accounts list with `posthog.capture()`. Conventions
 | `customer analytics accounts searched`              | `accountsLogic` `setSearchInput` listener (post-debounce)                                                                             | `query_length`, `has_query`, `active_filter_count`                                                                                                                                          |
 | `customer analytics accounts refreshed`             | `accountsLogic` `refresh`                                                                                                             | `has_search`, `active_filter_count`, `sort_column`                                                                                                                                          |
 | `customer analytics accounts sorted`                | `accountsLogic` `toggleSort`                                                                                                          | `column`, `direction` (`asc` \| `desc` \| `cleared`)                                                                                                                                        |
-| `customer analytics accounts columns saved`         | `accountsColumnConfigLogic` `saveColumns` (success, only when changed)                                                                | `column_count`, `columns`, `added_count`, `removed_count`, `reordered`                                                                                                                      |
+| ~~`customer analytics accounts columns saved`~~ | _Deprecated — no longer emitted. Column changes are now saved as part of a view (see view events below)._ | _n/a_ |
 | `customer analytics accounts overview tiles edited` | `accountsOverviewTilesLogic` editor close (diffed vs open snapshot, only when changed)                                                | `tiles_added`, `tiles_removed`, `tiles_updated`, `reordered`, `tile_count_before`, `tile_count_after`                                                                                       |
+| `customer analytics accounts view saved`            | `accountsViewsLogic` `submitNewViewForm` listener (success) | `visibility` (`private` \| `shared`) |
+| `customer analytics accounts view updated`          | `accountsViewsLogic` `updateViewSuccess` listener           | _(none)_ |
+| `customer analytics accounts view selected`         | `accountsViewsLogic` `applyView` listener                   | `visibility` |
+| `customer analytics accounts view deleted`          | `accountsViewsLogic` `deleteViewSuccess` listener           | _(none)_ |
 | `customer analytics account role assigned`          | `accountsLogic` `updateAccountRole`                                                                                                   | `role` (`csm` \| `account_executive` \| `account_owner`), `is_assigned`, `assigned_user_id`, `source` (always `list_row` today)                                                             |
 | `customer analytics account link clicked`           | `AccountNotebooksExpansion.tsx` useful-link `onClick`                                                                                 | `link_key`, `has_destination`                                                                                                                                                               |
 | `customer analytics account note clicked`           | `AccountNotebooksExpansion.tsx` note `<Link>` `onClick`                                                                               | `notebook_short_id`                                                                                                                                                                         |
