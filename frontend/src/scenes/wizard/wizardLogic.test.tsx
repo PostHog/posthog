@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { wizardLogic } from './wizardLogic'
+import { WIZARD_SESSION_TIMEOUT_MS, wizardLogic } from './wizardLogic'
 
 const MOCK_HASH = 'mock-hash'
 
@@ -74,6 +74,43 @@ describe('wizardLogic', () => {
                 view: 'pending',
                 wizardHash: MOCK_HASH,
             })
+        })
+    })
+
+    describe('session timeout', () => {
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: {
+                    organization: {
+                        teams: [MOCK_DEFAULT_TEAM, { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 }],
+                    },
+                },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = wizardLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('shows timed_out after 5 minutes on the project view', async () => {
+            jest.useFakeTimers()
+            router.actions.push('/wizard', { hash: MOCK_HASH })
+
+            await expectLogic(logic).toMatchValues({ view: 'project' })
+
+            jest.advanceTimersByTime(WIZARD_SESSION_TIMEOUT_MS)
+
+            await expectLogic(logic).toMatchValues({ view: 'timed_out' })
+        })
+
+        it('does not clobber a completed flow when the timer fires', async () => {
+            logic.actions.setView('success')
+            logic.actions.sessionTimedOut()
+
+            await expectLogic(logic).toMatchValues({ view: 'success' })
         })
     })
 

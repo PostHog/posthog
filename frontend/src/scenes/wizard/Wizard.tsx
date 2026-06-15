@@ -80,6 +80,16 @@ export function Wizard(): JSX.Element {
                         </p>
                     </>
                 )}
+                {view === 'timed_out' && (
+                    <>
+                        <h1 className="text-xl font-bold">Session timed out</h1>
+                        <SurprisedHog className="h-48 w-48" />
+                        <p className="text-lg">
+                            This setup session expired after 5 minutes for security reasons. Head back to your terminal
+                            and re-run the wizard to start a new one.
+                        </p>
+                    </>
+                )}
             </div>
         </div>
     )
