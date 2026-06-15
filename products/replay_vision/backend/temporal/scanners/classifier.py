@@ -1,6 +1,5 @@
 """Classifier scanner: assigns one or more tags from a fixed vocabulary, optionally plus freeform tags."""
 
-import re
 import typing
 from functools import cached_property
 from typing import Any, ClassVar, Literal
@@ -8,16 +7,10 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, create_model, field_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
 
 _MAX_FREEFORM_TAGS = 5
-# Anything that isn't a-z, 0-9, underscore, or dash collapses to a single underscore.
-_FREEFORM_NORMALIZE_RE = re.compile(r"[^a-z0-9_-]+")
-
-
-def _slugify_tag(value: str) -> str:
-    """Lowercase + replace non-[a-z0-9_-] runs with `_` + strip leading/trailing underscores."""
-    return _FREEFORM_NORMALIZE_RE.sub("_", value.lower()).strip("_")
 
 
 class ClassifierOutput(BaseScannerOutput, frozen=True):
@@ -36,7 +29,7 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
     @classmethod
     def _normalize_freeform(cls, value: list[str]) -> list[str]:
         # Lowercase + snake-case + order-preserving dedup so the unbounded freeform space stays consistent.
-        return list(dict.fromkeys(slug for tag in value if (slug := _slugify_tag(tag))))
+        return list(dict.fromkeys(slug for tag in value if (slug := slugify_tag(tag))))
 
 
 class ClassifierScanner(BaseScanner, frozen=True):
@@ -87,7 +80,7 @@ class ClassifierScanner(BaseScanner, frozen=True):
     @cached_property
     def _fixed_vocab_slugs(self) -> frozenset[str]:
         """Slug-normalized fixed-vocab tags; cached so per-observation finalize doesn't re-walk the regex."""
-        return frozenset(_slugify_tag(t) for t in self.tags)
+        return frozenset(slugify_tag(t) for t in self.tags)
 
     def finalize(self, llm_response: BaseModel) -> BaseScannerOutput:
         # Cast the dynamic `Literal`-typed response to the static `ClassifierOutput` for downstream consumers.
