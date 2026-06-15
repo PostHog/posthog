@@ -275,4 +275,10 @@ class GoogleAdsSource(
                     False,
                     "The Google account is not associated with any Google Ads accounts. Please use an account with Google Ads access.",
                 )
+            if "matching query does not exist" in error_message:
+                return (
+                    False,
+                    "Your Google Ads connection is no longer available — it may have been disconnected. "
+                    "Please reconnect your Google Ads account.",
+                )
             return False, f"Error validating credentials: {error_message}"

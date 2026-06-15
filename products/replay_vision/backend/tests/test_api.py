@@ -815,6 +815,23 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
 
+    @parameterized.expand(
+        [
+            ("single", "a", {"a"}),
+            ("multiple", "a,b", {"a", "b"}),
+            ("all", "a,b,c", {"a", "b", "c"}),
+            ("unknown_ignored", "a,zzz", {"a"}),
+            ("no_match", "zzz", set()),
+        ]
+    )
+    def test_filter_by_session_ids(self, _name: str, filter_value: str, expected: set[str]) -> None:
+        self._create_observation(session_id="a")
+        self._create_observation(session_id="b")
+        self._create_observation(session_id="c")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?session_id={filter_value}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
     def test_order_by_created_at_descending(self) -> None:
         first = self._create_observation(session_id="first")
         second = self._create_observation(session_id="second")
