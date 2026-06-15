@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     AggregatedSpanRow,
+    AttributeBreakdownRow,
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansTreeQueryResponse,
     DateRange,
@@ -35,6 +36,7 @@ from posthog.schema import (
     SpanTreeNode,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQuery,
     TraceSpansTreeQuery,
     TraceSpansTreeQueryResponse,
 )
@@ -78,7 +80,7 @@ class _SpanAggregationMixin:
     # with the narrower concrete type; the runtime attribute values come from `QueryRunner`
     # initialization on the concrete class, not from this mixin.
     if TYPE_CHECKING:
-        query: TraceSpansAggregationQuery | TraceSpansTreeQuery
+        query: TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery
         team: "Team"
         modifiers: HogQLQueryModifiers
         timings: HogQLTimings
@@ -254,7 +256,7 @@ class _SpanAggregationMixin:
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         raise NotImplementedError
 
-    def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow | SpanTreeNode:
+    def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow | SpanTreeNode | AttributeBreakdownRow:
         raise NotImplementedError
 
 

@@ -18,6 +18,22 @@ ui_apps:
         item_name_field: name
         click_prop: onSpanClick
 tools:
+    apm-attribute-breakdown:
+        operation: tracing_spans_attribute_breakdown_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Break down spans by attribute value
+        description_file: ./prompts/apm-attribute-breakdown.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
+                - compare
     apm-attribute-values-list:
         operation: tracing_spans_values_retrieve
         enabled: true

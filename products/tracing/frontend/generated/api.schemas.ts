@@ -114,6 +114,57 @@ export interface _TracingAggregationRequestApi {
     query: _TracingAggregationQueryBodyApi
 }
 
+/**
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ */
+export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
+
+export const BreakdownTypeEnumApi = {
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+/**
+ * * `count` - count
+ * * `error_count` - error_count
+ */
+export type _TracingAttributeBreakdownQueryBodyOrderByEnumApi =
+    (typeof _TracingAttributeBreakdownQueryBodyOrderByEnumApi)[keyof typeof _TracingAttributeBreakdownQueryBodyOrderByEnumApi]
+
+export const _TracingAttributeBreakdownQueryBodyOrderByEnumApi = {
+    Count: 'count',
+    ErrorCount: 'error_count',
+} as const
+
+export interface _TracingAttributeBreakdownQueryBodyApi {
+    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+    breakdownKey: string
+    /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+     *
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute */
+    breakdownType: BreakdownTypeEnumApi
+    /** Order rows by span count or error count, descending. Defaults to count.
+     *
+     * * `count` - count
+     * * `error_count` - error_count */
+    orderBy?: _TracingAttributeBreakdownQueryBodyOrderByEnumApi
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingAttributeBreakdownRequestApi {
+    /** The attribute breakdown query to execute. */
+    query: _TracingAttributeBreakdownQueryBodyApi
+}
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
