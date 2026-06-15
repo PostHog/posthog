@@ -6656,6 +6656,15 @@ class SpanTreeNode(BaseModel):
             " start time in the flame graph."
         ),
     )
+    calls_per_parent_invocation: float | None = Field(
+        default=None,
+        description=(
+            "How many times this child runs per parent invocation (edge count / parent"
+            " span count). Separates fan-out volume from per-call cost: a child can"
+            " dominate total_duration_nano purely by running many times per parent."
+            " Null for root edges (no parent invocation to ratio against)."
+        ),
+    )
     count: int
     error_count: int
     name: str
@@ -23595,6 +23604,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
