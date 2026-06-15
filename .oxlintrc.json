@@ -228,7 +228,6 @@
                 "products/agent_platform/services/agent-runner/**/*.test.{ts,tsx}",
                 "products/agent_platform/services/agent-janitor/**/*.test.{ts,tsx}",
                 "products/agent_platform/services/agent-tools/**/*.test.{ts,tsx}",
-                "products/agent_platform/services/agent-migrations/**/*.test.{ts,tsx}",
                 "products/agent_platform/services/agent-tests/**/*.test.{ts,tsx}",
                 "products/agent_platform/services/agent-sandbox-host/**/*.test.{ts,js}"
             ],
