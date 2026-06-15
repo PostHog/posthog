@@ -41,6 +41,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -57,7 +58,7 @@ from posthog.hogql_queries.query_runner import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -1434,3 +1435,26 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         # One shared bulk fetch for resource/object AC (schema filtering + fingerprint), one for property AC.
         assert len(resource_object_ac) == 1, resource_object_ac
         assert len(property_ac) == 1, property_ac
+
+    def test_create_for_reuses_preloaded_user_access_control(self):
+        # HogQLQueryRunner (a base AnalyticsQueryRunner) builds its database lazily inside
+        # execute_hogql_query, so it can't share via self.database like the ctx runner does. Instead
+        # it hands its warm fingerprint snapshot to create_for, which must reuse it rather than issue
+        # a second ee_accesscontrol fetch. This is the base-runner equivalent of the ctx-runner budget
+        # asserted in test_run_issues_bounded_access_control_queries.
+        self._ac(resource="notebook", access_level="none")
+        user_access_control = UserAccessControl(user=self.user, team=self.team)
+        # Warm the snapshot - the single bulk fetch the fingerprint already paid for.
+        _ = user_access_control.blocked_resources
+
+        with (
+            mock.patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", return_value=True),
+            CaptureQueriesContext(connection) as ctx,
+        ):
+            database = Database.create_for(team=self.team, user=self.user, user_access_control=user_access_control)
+
+        # Same object reused, table still denied, and no second ee_accesscontrol fetch.
+        assert database.user_access_control is user_access_control
+        assert "system.notebooks" in database._denied_tables
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert ac_queries == [], ac_queries

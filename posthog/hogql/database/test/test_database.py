@@ -2882,8 +2882,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         captured: dict = {}
 
-        def spy(team, user):
-            result = _compute_system_table_access_decision(team, user)
+        def spy(team, user, user_access_control=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control)
             captured["result"] = result
             return result
 
@@ -2905,8 +2905,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
-        def spy(team, user):
-            result = _compute_system_table_access_decision(team, user)
+        def spy(team, user, user_access_control=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control)
             captured["result"] = result
             return result
 
