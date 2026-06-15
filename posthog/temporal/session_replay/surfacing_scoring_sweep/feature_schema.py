@@ -37,20 +37,26 @@ def assert_sql_matches_feature_ranges() -> None:
 
 
 def assert_booster_matches_sql(booster_names: tuple[str, ...]) -> None:
-    """Hard-fail if booster.feature_names diverge from the SQL SELECT."""
+    """Hard-fail if the booster needs a feature the SQL doesn't produce.
+
+    The booster is the source of truth for *which* features the model scores;
+    the serving SQL must produce a superset of them (it may expose extra
+    columns the booster ignores — `feature_matrix` selects the booster's by
+    name). The only fatal drift is a booster feature the SQL never produces.
+    """
     if not booster_names:
         raise FeatureSchemaDriftError(
             "Booster has no feature_names. Train with explicit feature_names= on xgb.DMatrix."
         )
     sql_names = get_sql_feature_names()
-    if booster_names != sql_names:
+    not_produced = [name for name in booster_names if name not in set(sql_names)]
+    if not_produced:
         raise FeatureSchemaDriftError(
-            "Booster feature_names drifted from fetch_features_sql().\n"
+            "Booster needs feature(s) fetch_features_sql() does not produce.\n"
             f"  SQL aliases ({len(sql_names)}): {list(sql_names)}\n"
             f"  Booster names ({len(booster_names)}): {list(booster_names)}\n"
-            f"  In SQL not booster: {sorted(set(sql_names) - set(booster_names))}\n"
-            f"  In booster not SQL: {sorted(set(booster_names) - set(sql_names))}\n"
-            "Either retrain the model against the current SQL or update fetch_features_sql()."
+            f"  In booster not SQL: {sorted(not_produced)}\n"
+            "Add these columns to fetch_features_sql() (and FEATURE_RANGES), or retrain."
         )
 
 

@@ -194,7 +194,10 @@ SELECT
     f.unique_urls                  / nullIf(f.page_visit_count, 0)               AS unique_url_share,
     f.unique_click_targets         / nullIf(f.click_count, 0)                    AS click_target_share,
     f.unique_form_fields,
-    greatest(0, f.page_visit_count - f.unique_urls) / nullIf(f.page_visit_count, 0) AS page_revisit_share
+    greatest(0, f.page_visit_count - f.unique_urls) / nullIf(f.page_visit_count, 0) AS page_revisit_share,
+    f.unique_urls                  AS unique_urls,
+    f.unique_click_targets         AS unique_click_targets,
+    greatest(0, f.page_visit_count - f.unique_urls)                              AS page_revisit_count
 FROM aggregated_sufficient_statistics f
 """.strip()
 
@@ -317,7 +320,14 @@ SELECT
     rf.unique_url_share,
     rf.click_target_share,
     rf.unique_form_fields,
-    rf.page_revisit_share
+    rf.page_revisit_share,
+    -- Raw counts the current production booster consumes directly. The richer
+    -- query keeps the share/ratio variants above; surfacing both lets a simpler
+    -- booster (a subset of these columns) score against this superset query
+    -- without retraining or a serving code change.
+    rf.unique_urls,
+    rf.unique_click_targets,
+    rf.page_revisit_count
 FROM eligible_sessions e
 INNER JOIN replay_features rf ON rf.team_id = e.team_id AND rf.session_id = e.session_id
 """.strip()

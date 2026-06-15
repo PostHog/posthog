@@ -83,24 +83,40 @@ shows up as a `validate_features` failure rather than silent score skew.
 
 ### Feature schema sync (SQL ↔ FEATURE_RANGES ↔ booster)
 
-Three artifacts must stay identical (same columns, same order):
+The serving SQL and `FEATURE_RANGES` together define the **feature universe**;
+they must stay identical (same columns, same order). The booster is the
+source of truth for **which** of those features the model scores, and may use
+a **subset** — a simpler model can run against the richer query without a
+retrain or serving change.
 
-| Artifact                                        | Source of truth for            |
-| ----------------------------------------------- | ------------------------------ |
-| `fetch_features_sql()` final SELECT aliases     | What ClickHouse returns        |
-| `FEATURE_RANGES` keys in `features.py`          | Runtime dtype/range validation |
-| `booster.feature_names` in the S3-hosted `.ubj` | What XGBoost predicts on       |
+| Artifact                                        | Source of truth for            | Relationship           |
+| ----------------------------------------------- | ------------------------------ | ---------------------- |
+| `fetch_features_sql()` final SELECT aliases     | What ClickHouse returns        | == `FEATURE_RANGES`    |
+| `FEATURE_RANGES` keys in `features.py`          | Runtime dtype/range validation | == SQL aliases         |
+| `booster.feature_names` in the S3-hosted `.ubj` | What XGBoost predicts on       | ⊆ the SQL / ranges set |
 
-`feature_schema.py` enforces parity:
+`feature_schema.py` enforces this:
+
+- `assert_sql_matches_feature_ranges()` — SQL aliases **equal** `FEATURE_RANGES`
+  keys (the universe is consistent).
+- `assert_ranges_cover(booster)` / `assert_booster_matches_sql(booster)` — every
+  booster feature is **in** the universe (subset). Extra universe columns the
+  booster ignores are fine; `feature_matrix` selects the booster's by name, so
+  serving column order is irrelevant to predictions.
+
+Enforced at:
 
 - **Worker boot**: `scorer.warmup()` fetches the booster from S3 and runs
-  `assert_serving_schema_parity()` — drifted deploy fails before accepting chunks.
-- **CI** (`test_sql_alignment.py`): SQL ↔ FEATURE_RANGES, plus booster-side
-  checks against a synthetic booster trained on `FEATURE_RANGES.keys()`.
+  `assert_serving_schema_parity()` — a booster needing a column the SQL doesn't
+  produce fails before accepting chunks.
+- **CI** (`test_sql_alignment.py`): SQL ↔ FEATURE_RANGES equality, plus
+  subset-booster parity (a proper-subset booster passes; one needing an
+  unknown column fails).
 
-To change features: update `sql.py` SELECT + `FEATURE_RANGES`, retrain and
-upload the new `.ubj` (see [Uploading a model to S3](#uploading-a-model-to-s3)),
-bump `MODEL_FEATURE_SCHEMA_VERSION`, rerun the alignment tests.
+To **extend** the universe: update `sql.py` SELECT + `FEATURE_RANGES` together,
+bump `MODEL_FEATURE_SCHEMA_VERSION`, rerun the alignment tests. A new booster
+that uses any subset of the universe deploys without further code changes —
+just upload the `.ubj` (see [Uploading a model to S3](#uploading-a-model-to-s3)).
 
 Sessions without replay features are dropped by the inner join and stay
 NULL in `session_replay_events`. They re-appear on subsequent ticks until

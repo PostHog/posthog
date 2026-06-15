@@ -9,18 +9,21 @@ change here. What stays in this module:
       runtime value bounds, so this guards against "trained on [0, 1] but the SQL
       started returning 9999". Every booster feature must have an entry, else
       warmup raises `MissingFeatureRangeError`.
-    * `validate_features(df, feature_names=...)`: hard gate before predict (column
-      set/order + dtype). A violation can only be a wiring bug (SQL drifted from
-      the booster), never bad data, so it fails the whole chunk. Pure pandas.
+    * `validate_features(df, feature_names=...)`: hard gate before predict —
+      the booster's features must be present and well-typed. The serving SQL
+      may expose a superset (extra columns the booster ignores); only a
+      *missing* booster feature is a wiring bug, so it fails the whole chunk.
     * `out_of_contract_row_mask(df, feature_names=...)`: per-row flag for
       non-finite/out-of-range values. Replay payloads are client-controlled, so one
       crafted session must not fail its whole hash bucket; callers drop flagged rows
       and score the rest.
 
-Updating features: retrain the booster, sync `FEATURE_RANGES` and
-`sql.fetch_features_sql`'s alias list, bump `MODEL_FEATURE_SCHEMA_VERSION`. Drift
-fails loudly: a booster feature with no range entry raises at warmup; a SQL column
-mismatch raises `FeatureValidationError` on the first chunk.
+Updating features: extend `FEATURE_RANGES` and `sql.fetch_features_sql`'s alias
+list together (they define the feature universe), bump
+`MODEL_FEATURE_SCHEMA_VERSION`. The booster may use a subset of that universe, so
+a simpler model deploys unchanged. Drift fails loudly: a booster feature with no
+range entry raises at warmup; a booster feature the SQL never produces raises
+`FeatureSchemaDriftError`. Extra SQL columns the booster ignores are fine.
 
 Dtype notes: rates/ratios/shares are CH `Float64`; zero denominators become NaN
 (XGBoost handles it; validation accepts NaN but not +/-inf). Pass-through counts
@@ -39,7 +42,7 @@ import pandas as pd
 
 # Bump on every breaking feature-set change. Logged per chunk so distribution
 # shifts can be correlated with deploys.
-MODEL_FEATURE_SCHEMA_VERSION = 2
+MODEL_FEATURE_SCHEMA_VERSION = 3
 
 # Columns that identify the row but are NOT model features. Stripped before
 # predict; re-attached for the INSERT.
@@ -145,6 +148,12 @@ FEATURE_RANGES: dict[str, FeatureSpec] = {
     "click_target_share": _RATIO,
     "unique_form_fields": _NONNEG_COUNT,
     "page_revisit_share": _RATIO,
+    # Raw counts the current production booster consumes alongside the share
+    # variants above (the SQL surfaces both). uniqCombinedMerge estimates and
+    # a (visits - unique) difference — all non-negative counts.
+    "unique_urls": _NONNEG_COUNT,
+    "unique_click_targets": _NONNEG_COUNT,
+    "page_revisit_count": _NONNEG_COUNT,
 }
 
 
@@ -180,20 +189,23 @@ def assert_ranges_cover(feature_names: Iterable[str]) -> None:
 
 
 def _check_columns(df: pd.DataFrame, feature_names: tuple[str, ...]) -> None:
-    """Hard check on column set + order. Order matters for DMatrix construction."""
-    expected = list(feature_names)
-    actual_features = [c for c in df.columns if c not in ID_COLUMNS]
+    """Hard-fail only if a booster feature is absent from the frame.
 
-    missing = set(expected) - set(actual_features)
-    extra = set(actual_features) - set(expected)
-    if missing or extra:
+    The serving SQL may expose a superset of columns — the booster is the
+    source of truth for which subset it scores, and `feature_matrix` selects
+    those columns by name (so the frame's column order and any extra,
+    non-booster columns are irrelevant to predictions). The wiring bug worth
+    failing the chunk for is a booster feature the SQL stopped producing.
+    """
+    expected = set(feature_names)
+    actual_features = {c for c in df.columns if c not in ID_COLUMNS}
+    missing = expected - actual_features
+    if missing:
         raise FeatureValidationError(
-            f"Feature column set mismatch: missing={sorted(missing)}, extra={sorted(extra)}. "
-            f"Expected (in order): {expected}. Actual (in order): {actual_features}."
+            f"Feature column set mismatch: missing={sorted(missing)}. "
+            f"The serving SQL must produce every booster feature. "
+            f"Expected: {sorted(expected)}. Got (non-id): {sorted(actual_features)}."
         )
-
-    if actual_features != expected:
-        raise FeatureValidationError(f"Feature column order mismatch. Expected: {expected}. Actual: {actual_features}.")
 
 
 def _check_dtype(name: str, series: pd.Series, allowed_kinds: str) -> None:

@@ -68,23 +68,32 @@ class TestValidateFeaturesColumnSet:
         with pytest.raises(FeatureValidationError, match=r"missing=\['click_rate'\]"):
             validate_features(df, feature_names=feature_names_for_tests)
 
-    def test_extra_feature_column_raises(
+    def test_extra_feature_column_is_tolerated(
         self, feature_frame: pd.DataFrame, feature_names_for_tests: tuple[str, ...]
     ) -> None:
+        # The serving SQL may expose a superset of columns; the booster scores
+        # its own subset (feature_matrix selects by name), so extra columns the
+        # booster ignores must not fail the chunk.
         df = feature_frame.copy()
-        df["bogus_extra_feature"] = 0.0
-        with pytest.raises(FeatureValidationError, match=r"extra=\['bogus_extra_feature'\]"):
-            validate_features(df, feature_names=feature_names_for_tests)
+        df["unused_extra_feature"] = 0.0
+        validate_features(df, feature_names=feature_names_for_tests)
 
-    def test_reordered_columns_raise(
+    def test_subset_booster_validates_against_superset_frame(
         self, feature_frame: pd.DataFrame, feature_names_for_tests: tuple[str, ...]
     ) -> None:
-        # Ordering matters because we pass feature_names to DMatrix positionally.
-        # Silent reordering would change predictions without any error surface.
+        # Models the production case: a simpler booster (a subset of the
+        # query's features) scored against the full feature frame.
+        subset = feature_names_for_tests[: len(feature_names_for_tests) // 2]
+        validate_features(feature_frame, feature_names=subset)
+
+    def test_reordered_columns_are_tolerated(
+        self, feature_frame: pd.DataFrame, feature_names_for_tests: tuple[str, ...]
+    ) -> None:
+        # Column order is irrelevant: feature_matrix reorders to the trained
+        # order by name before DMatrix construction.
         cols = list(feature_frame.columns)
         cols[0], cols[1] = cols[1], cols[0]
-        with pytest.raises(FeatureValidationError, match="order mismatch"):
-            validate_features(feature_frame.loc[:, cols], feature_names=feature_names_for_tests)
+        validate_features(feature_frame.loc[:, cols], feature_names=feature_names_for_tests)
 
 
 class TestOutOfContractRowMask:

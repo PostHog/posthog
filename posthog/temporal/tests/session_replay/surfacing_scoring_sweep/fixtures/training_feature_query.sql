@@ -146,5 +146,8 @@ SELECT
     f.unique_urls                  / nullIf(f.page_visit_count, 0)               AS unique_url_share,
     f.unique_click_targets         / nullIf(f.click_count, 0)                    AS click_target_share,
     f.unique_form_fields,
-    greatest(0, f.page_visit_count - f.unique_urls) / nullIf(f.page_visit_count, 0) AS page_revisit_share
+    greatest(0, f.page_visit_count - f.unique_urls) / nullIf(f.page_visit_count, 0) AS page_revisit_share,
+    f.unique_urls                  AS unique_urls,
+    f.unique_click_targets         AS unique_click_targets,
+    greatest(0, f.page_visit_count - f.unique_urls)                              AS page_revisit_count
 FROM aggregated_sufficient_statistics f
