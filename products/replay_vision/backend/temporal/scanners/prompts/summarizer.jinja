@@ -1,6 +1,9 @@
 {% extends "base.jinja" %}
 {% from "_macros.jinja" import cite_in %}
-{% block task %}Summarize this session per these instructions: {{ user_prompt }}
+{% block task %}Summarize this session.{% if user_prompt %}
+
+Additional context from the team operating the product being recorded:
+{{ user_prompt }}{% endif %}
 
 `title` is at most ~80 characters and contains no event citations. `summary` should be {{ length_guidance }}.
 

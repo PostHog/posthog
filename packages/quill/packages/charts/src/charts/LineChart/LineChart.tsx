@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
+import { drawArea, drawAxes, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -68,7 +68,13 @@ function LineChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
-    const { yScaleType = 'linear', percentStackView = false, showGrid = false, valueDomain } = config ?? {}
+    const {
+        yScaleType = 'linear',
+        percentStackView = false,
+        showGrid = false,
+        showAxisLines = false,
+        valueDomain,
+    } = config ?? {}
 
     const hasMultipleFilledSeries = useMemo(() => {
         const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
@@ -169,22 +175,16 @@ function LineChartInner<Meta = unknown>({
 
             if (showGrid) {
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
+            } else if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
-            // Clip data drawing to the plot area so an overlay series with values outside
-            // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
-            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
-            // at the domain edge from rendering at half-thickness — line strokes and point
-            // markers extend past the value's pixel center.
+            // Clip vertically only: keep out-of-domain values (e.g. a trendline below 0) out of the
+            // axis-label gutters, but span the full width so edge point markers/line caps render whole.
             const CLIP_PAD = 8
             ctx.save()
             ctx.beginPath()
-            ctx.rect(
-                dimensions.plotLeft,
-                dimensions.plotTop - CLIP_PAD,
-                dimensions.plotWidth,
-                dimensions.plotHeight + CLIP_PAD * 2
-            )
+            ctx.rect(0, dimensions.plotTop - CLIP_PAD, dimensions.width, dimensions.plotHeight + CLIP_PAD * 2)
             ctx.clip()
 
             for (const s of coloredSeries) {
@@ -207,7 +207,7 @@ function LineChartInner<Meta = unknown>({
 
             ctx.restore()
         },
-        [showGrid, stackedData]
+        [showGrid, showAxisLines, stackedData]
     )
 
     const drawHover = useCallback(

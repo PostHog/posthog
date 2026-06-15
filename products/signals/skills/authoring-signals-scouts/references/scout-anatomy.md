@@ -4,6 +4,15 @@ A scout is a single `SKILL.md` (its body is loaded verbatim as the agent's syste
 plus optional `references/` files read on demand. Keep the body lean and push depth into
 references — every line of the body is a recurring token cost on **every** run.
 
+## Contents
+
+- Naming
+- Frontmatter
+- Body structure (the ten canonical sections)
+- References
+- Skeleton — specialist scout
+- Skeleton — broad / cross-product scout
+
 ## Naming
 
 The skill name **must** match `signals-scout-<scope>` — the harness discovers scouts by
@@ -38,6 +47,11 @@ metadata:
 `name` and `description` are required and validated at build time. `compatibility` and
 `metadata` are optional but conventional — `compatibility` documents the scopes/tools the
 scout assumes; `metadata.scope` gives downstream tooling a short label.
+
+The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the
+scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update`
+responses) — it's how the fleet roster reads to agents and the UI without opening each
+scout's body. Write it to stand alone in that listing.
 
 ## Body structure
 
@@ -87,7 +101,7 @@ share this shape:
 
 7. **Decide.** Emit / remember / skip, calibrated against the emit contract (see
    [`emit-contract.md`](emit-contract.md)). State the surface-specific "strong finding"
-   thresholds (e.g. "weight ≥ 0.7, confidence ≥ 0.85, with concrete entity ids and counts
+   thresholds (e.g. "confidence ≥ 0.85, with concrete entity ids and counts
    in the evidence"). Tell it to cross-check `inbox-reports-list` before emitting.
 
 8. **Disqualifiers.** The known noise for this surface that should be skipped (single-user
@@ -115,7 +129,7 @@ classifier + scratchpad vocab). For a **per-team** scout you usually don't need 
 your own copies — the canonical scout already encodes the conventions inline, and your
 scout body can too. Bundle a reference only when you have genuinely surface-specific depth
 (a long SQL cookbook, a taxonomy of fingerprints) that would bloat the body. Attach bundled
-files to a per-team scout with `posthog:llma-skill-file-create`; in the repo, drop them in
+files to a per-team scout with `posthog:skill-file-create`; in the repo, drop them in
 `references/` and they're collected automatically.
 
 ## Skeleton — specialist scout
@@ -189,7 +203,7 @@ category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`.
 
 ### Decide
 
-- **Emit** via `signals-scout-emit-signal` above the bar (weight ≥ 0.7, confidence ≥ 0.85,
+- **Emit** via `signals-scout-emit-signal` above the bar (confidence ≥ 0.85,
   concrete entity ids + counts in evidence). Cross-check `inbox-reports-list` first.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.

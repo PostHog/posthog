@@ -1,41 +1,55 @@
-from datetime import UTC, datetime
-
 from django.conf import settings
 from django.core.cache import BaseCache, caches
+
+import posthoganalytics
 
 from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
 from posthog.redis import get_async_client, get_client
 
-# One-time stream cutover: runs created on/after this instant use the dedicated tasks Redis;
-# older runs stay on the shared Redis until their streams drain (~6h TTL), so a live run is
-# never split across instances. Transitional — remove this and the stream routing below once
-# prod-us has fully drained past the cutover.
-TASKS_REDIS_STREAM_CUTOVER_AT = datetime(2026, 6, 9, 0, 0, tzinfo=UTC)
+# Evaluated once at run creation and pinned onto TaskRun.state["use_dedicated_stream"] so the
+# SSE reader and the temporal worker always agree for a run's life (no split-brain on flag
+# propagation or pod restarts).
+TASKS_DEDICATED_REDIS_STREAMS_FLAG = "tasks-dedicated-redis-streams"
 
 
-def _use_dedicated_stream(created_at: datetime | None) -> bool:
+def evaluate_dedicated_stream_flag(*, organization_id: str, distinct_id: str) -> bool:
+    # Gated on TASKS_REDIS_URL so the deciding process only opts a run into the dedicated
+    # instance if it can itself reach it — a misconfigured pod fails safe to shared.
     if not settings.TASKS_REDIS_URL:
         return False
-    if created_at is None:
-        # Unknown creation time: stay on the shared Redis so we never split an
-        # already-running pre-cutover stream across instances.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASKS_DEDICATED_REDIS_STREAMS_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
         return False
-    return created_at >= TASKS_REDIS_STREAM_CUTOVER_AT
 
 
-def _tasks_stream_redis_url(created_at: datetime | None) -> str:
+def run_uses_dedicated_stream(state: dict | None) -> bool:
+    # Defaults to shared so runs created before this rollout stay on the shared instance.
+    return bool((state or {}).get("use_dedicated_stream", False))
+
+
+def _tasks_stream_redis_url(use_dedicated: bool) -> str:
     dedicated = settings.TASKS_REDIS_URL
-    if dedicated is not None and _use_dedicated_stream(created_at):
+    if dedicated and use_dedicated:
         return dedicated
     return settings.REDIS_URL
 
 
-def get_tasks_stream_redis_async(created_at: datetime | None = None):
-    return get_async_client(_tasks_stream_redis_url(created_at))
+def get_tasks_stream_redis_async(use_dedicated: bool = False):
+    return get_async_client(_tasks_stream_redis_url(use_dedicated))
 
 
-def get_tasks_stream_redis_sync(created_at: datetime | None = None):
-    return get_client(_tasks_stream_redis_url(created_at))
+def get_tasks_stream_redis_sync(use_dedicated: bool = False):
+    return get_client(_tasks_stream_redis_url(use_dedicated))
 
 
 def get_tasks_cache() -> BaseCache:

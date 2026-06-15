@@ -423,6 +423,7 @@ export class CdpApi {
                         logs,
                         sensitiveValues
                     )
+                    options.sendEmailsInline = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -580,6 +581,7 @@ export class CdpApi {
 
             const logs: MinimalLogEntry[] = []
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({

@@ -4,6 +4,11 @@ on:
     push:
         branches: [master]
     pull_request:
+    # Required so `MCP Tests Pass` (a required status check) reports on merge
+    # queue entries — without it the queue would wait for the check until timeout.
+    # The jobs themselves skip on merge_group (the suite already runs in full on
+    # every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -22,6 +27,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run MCP checks
+        if: github.event_name != 'merge_group'
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
@@ -80,10 +86,17 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
-                        # hogli db commands used to restore test database
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli db setup (db:restore-test-db). Scoped to the
+                        # modules that command actually imports — framework,
+                        # manifest, boot modules, db_schema — so unrelated hogli
+                        # commands (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - 'hogli.yaml'
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
@@ -262,7 +275,7 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
-            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets'
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge'
             # Required for the feature_flags test_evaluation endpoint, which authenticates
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.
@@ -460,6 +473,24 @@ jobs:
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
+                  # The dump is produced by ci-backend.yml, where TEST=1 activates
+                  # ProductDBRouter and routes the apps in products/db_routing.yaml to
+                  # separate databases: their tables are absent from the dump, but
+                  # django_migrations still records their migrations as applied. This job
+                  # configures no product DBs, so those apps live on the default DB —
+                  # drop their migration records so migrate below replays them from 0001
+                  # and actually creates the tables.
+                  APPS=$(python - <<'EOF'
+                  import yaml
+                  with open("products/db_routing.yaml") as f:
+                      routes = yaml.safe_load(f)["routes"]
+                  print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
+                  EOF
+                  )
+                  if [ -n "$APPS" ]; then
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog posthog \
+                        -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
+                  fi
 
             - name: Run migrations
               run: |

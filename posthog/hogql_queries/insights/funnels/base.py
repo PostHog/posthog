@@ -25,13 +25,13 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.property.property import PropertyName
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling
 from posthog.types import FunnelEntityNode
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 JOIN_ALGOS = "auto"
 

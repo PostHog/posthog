@@ -9,7 +9,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
@@ -20,6 +19,8 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.trends.util import process_math
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):

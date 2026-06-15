@@ -120,6 +120,9 @@ tools:
       name:
         description: Custom description
         input_schema: NameSchema # replace this param's type with a schema from tool-inputs
+    confirmed_action: # typed-confirm two-tool paradigm for destructive actions
+      message: "About to {action}. Reply 'confirm' to proceed." # prompt shown to user, supports {param} placeholders
+      action_label: Short action label # optional, defaults to tool title
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
@@ -179,3 +182,41 @@ tools:
 
 This keeps the Orval-derived schema for all other fields but replaces `steps` with `ActionStepsSchema`
 from `src/schema/tool-inputs.ts` via `.extend()`.
+
+## Typed-confirm for destructive tools
+
+Tools that perform destructive or security-sensitive actions can declare `confirmed_action`
+to require explicit user confirmation. When this field is present, codegen emits two tools
+instead of one:
+
+- `<name>-prepare` — validates args, returns a signed confirmation hash and a message to surface to the user
+- `<name>-execute` — verifies the hash plus the literal "confirm" string from the user, then executes the action
+
+The model calls them in sequence: prepare → surface message → wait for user to type "confirm" → execute.
+
+```yaml
+tools:
+  project-delete:
+    operation: projects_delete
+    enabled: true
+    scopes: [project:delete]
+    annotations:
+      readOnly: false
+      destructive: true
+      idempotent: false
+    confirmed_action:
+      message: "About to delete project {id}. This cannot be undone. Reply 'confirm' to proceed."
+      action_label: Delete project
+```
+
+`confirmed_action` fields:
+
+| Field          | Required | Description                                                                                              |
+| -------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `message`      | Yes      | Prompt shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args. |
+| `action_label` | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                        |
+
+Requirements:
+
+- The `MCP_SIGNED_STATE_KEY` environment variable (≥32 bytes) must be set on the MCP Hono server
+- Cannot be combined with `ui_app` (codegen limitation)

@@ -14,6 +14,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -238,13 +239,14 @@ async def _spawn_and_run(
         user_id=user_id,
         repository=repository,
         sandbox_environment_id=sandbox_env_id,
-        # `signals_scout` is the harness's own scope posture: same scope content as
-        # `read_only` (project reads + INTERNAL_SCOPES, including
-        # `signal_scout_internal:write`) but reports `has_write_scopes=True` so the
-        # MCP server doesn't enable read-only-mode tool filtering. Without that
-        # opt-out, the MCP layer would categorically strip every tool annotated
-        # `readOnlyHint: false` — including the agent's own `remember`, `forget`,
-        # and `emit_finding` tools — even though the OAuth token does carry the
+        # `signals_scout` is the harness's own scope posture: project reads +
+        # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
+        # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`, e.g.
+        # `notebook:write`) so a finding can produce a durable artifact. It reports
+        # `has_write_scopes=True` so the MCP server doesn't enable read-only-mode tool
+        # filtering. Without that opt-out, the MCP layer would categorically strip every
+        # tool annotated `readOnlyHint: false` — including the agent's own `remember`,
+        # `forget`, and `emit_finding` tools — even though the OAuth token does carry the
         # right scope to call them.
         posthog_mcp_scopes="signals_scout",
     )
@@ -283,6 +285,11 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
         on_task_run_created=_create_bridge_row,
+        # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
+        # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
+        # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
+        # ceiling and would let the activity die before salvage could return the written summary.
+        max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
     )
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a

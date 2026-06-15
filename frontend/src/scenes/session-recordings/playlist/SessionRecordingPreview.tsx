@@ -26,6 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -275,6 +276,7 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
 }): JSX.Element | null {
     const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
     const { startSummarization } = useActions(sessionSummaryProgressLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
     const isSummarizing = !!loadingBySessionId[recording.id]
     const summaryOutcome = selectOutcome([summaryBySessionId[recording.id]?.session_outcome, recording.summary_outcome])
@@ -302,6 +304,11 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
                 </span>
             </Tooltip>
         )
+    }
+    // AI summaries are PostHog Cloud only — hide the per-row trigger on self-hosted. The upsell
+    // lives on the replay page dock (PlayerSummaryDock) rather than repeating per list row.
+    if (!isCloudOrDev) {
+        return null
     }
     return (
         <LemonButton

@@ -20,13 +20,14 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
-from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.constants import get_percentile_bucket_label
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer

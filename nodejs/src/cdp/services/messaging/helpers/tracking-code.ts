@@ -25,7 +25,6 @@ export const trackingCodeFormatCounter = new Counter({
 
 function toBase64UrlSafe(input: string | Buffer): string {
     const b64 = Buffer.isBuffer(input) ? input.toString('base64') : Buffer.from(input, 'utf8').toString('base64')
-    // Make URL safe and strip padding
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
@@ -42,7 +41,10 @@ function fromBase64UrlSafe(b64url: string): string {
 }
 
 function getSigningKeys(): string[] {
-    return (defaultConfig.ENCRYPTION_SALT_KEYS || '').split(',').filter(Boolean)
+    return (defaultConfig.ENCRYPTION_SALT_KEYS || '')
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean)
 }
 
 function signPayload(payload: string, key: string): string {
@@ -140,6 +142,7 @@ export const generateEmailTrackingCode = (invocation: TrackingInvocation): strin
     )
     const keys = getSigningKeys()
     if (keys.length === 0) {
+        // Fail open while signing rolls out so sends never break; tighten to throw once enforced (#62624).
         return payload
     }
     return `${payload}.${signPayload(payload, keys[0])}`

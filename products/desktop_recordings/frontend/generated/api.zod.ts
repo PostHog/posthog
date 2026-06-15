@@ -30,8 +30,8 @@ export const DesktopRecordingsCreateBody = /* @__PURE__ */ zod
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsUpdateBodyMeetingTitleMax = 255
 
@@ -109,8 +109,8 @@ export const DesktopRecordingsUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsPartialUpdateBodyMeetingTitleMax = 255
 

@@ -39,7 +39,13 @@ def validate_deploy_url(deploy_url: str) -> str:
     Enforces https scheme, host matching *.convex.cloud, no query/fragment.
     Returns the validated base URL (scheme + host, no trailing slash).
     """
-    parsed = urlparse(deploy_url.strip())
+    deploy_url = deploy_url.strip()
+    # Tolerate a missing scheme — users routinely paste the bare host. We only add
+    # https when no scheme is present; an explicit http:// is still rejected below.
+    if deploy_url and "://" not in deploy_url:
+        deploy_url = f"https://{deploy_url}"
+
+    parsed = urlparse(deploy_url)
 
     if parsed.scheme != "https":
         raise InvalidDeployUrlError(

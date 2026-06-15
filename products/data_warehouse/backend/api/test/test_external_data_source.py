@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+from datetime import timedelta
 from typing import cast
 
 from freezegun import freeze_time
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.test import override_settings
+from django.utils import timezone
 
 import psycopg
 from parameterized import parameterized
@@ -29,7 +31,7 @@ from posthog.models import Team
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
-from posthog.temporal.data_imports.sources.common.base import FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
 from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
@@ -69,6 +71,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -3381,6 +3384,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -3450,6 +3454,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -4081,6 +4086,57 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
+
+    @parameterized.expand([("with_password", {"password": "new_password"}, 200), ("without_password", {}, 400)])
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_host_change_with_stored_connection_string(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # A stored `connection_string` (never re-suppliable via the edit form) must not block a host
+        # change, while `password` stays gated: re-entering it succeeds, omitting it is still rejected.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_host_conn_string",
+            job_inputs={
+                "source_type": "Postgres",
+                "connection_string": "postgresql://dbuser:original_password@db.example.com:5432/mydb",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"host": "new-host.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        # Preserved by the merge regardless of outcome — connection-string-based sources rely on this.
+        assert (
+            source.job_inputs["connection_string"] == "postgresql://dbuser:original_password@db.example.com:5432/mydb"
+        )
+        if expected_status == 200:
+            assert source.job_inputs["host"] == "new-host.example.com"
+            assert source.job_inputs["password"] == "new_password"
+            mock_validate_credentials.assert_called_once()
+        else:
+            assert source.job_inputs["host"] == "db.example.com"
+            assert source.job_inputs["password"] == "original_password"
+            mock_validate_credentials.assert_not_called()
 
     @patch(
         "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
@@ -7445,8 +7501,8 @@ def _make_postgres_source(
                 "cdc_slot_name": slot_name,
                 "cdc_publication_name": pub_name,
                 "cdc_auto_drop_slot": True,
-                "cdc_lag_warning_threshold_mb": 1024,
-                "cdc_lag_critical_threshold_mb": 10240,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 2048,
                 "cdc_consistent_point": "0/12345",
             }
         )
@@ -7680,8 +7736,8 @@ class TestEnableCDC(APIBaseTest):
                         payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
                     ),
                     "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
-                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
-                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 512),
+                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 2048),
                     "cdc_consistent_point": "0/ABCDEF",
                 }
             )
@@ -8224,8 +8280,8 @@ class TestUpdateCDCSettings(APIBaseTest):
         assert ji["cdc_publication_name"] == original_pub
         assert ji["cdc_management_mode"] == original_mode
         # Thresholds preserved at defaults.
-        assert int(ji["cdc_lag_warning_threshold_mb"]) == 1024
-        assert int(ji["cdc_lag_critical_threshold_mb"]) == 10240
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 512
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 2048
 
     def test_update_cdc_settings_empty_payload_is_unchanged(self) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
@@ -8361,3 +8417,420 @@ class TestCDCStatus(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+
+
+class TestExternalDataSourceConnectLink(APIBaseTest):
+    def _connect_link(self, source_type: str):
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/connect_link?source_type={source_type}"
+        )
+
+    @parameterized.expand(
+        [
+            # OAuth-only sources connect via the same page — the form renders the integration picker.
+            ("oauth_only", "Hubspot", "oauth"),
+            ("credentials_only", "Postgres", "credentials"),
+            # Stripe's OAuth option is nested inside the auth_method select alongside API key —
+            # the page form offers both, so the user chooses how to authenticate.
+            ("mixed_auth", "Stripe", "credentials"),
+        ]
+    )
+    def test_connect_link_always_points_at_the_connect_page(self, _name, source_type, expected_auth_method):
+        response = self._connect_link(source_type)
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["auth_method"] == expected_auth_method
+        assert f"/project/{self.team.pk}/data-warehouse/connect?kind={source_type}" in data["connect_url"]
+        # One discovery path for every source: the page stores a credential, the agent passes its id.
+        assert "data-warehouse-stored-credentials-list" in data["instructions"]
+        assert "credential_id" in data["instructions"]
+
+    def test_connect_link_missing_source_type(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_connect_link_unknown_source_type(self):
+        response = self._connect_link("NotARealSource")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestExternalDataSourceSetup(APIBaseTest):
+    # Stripe enables revenue analytics, whose post-create view sync builds the HogQL Database — patched
+    # out here so the test exercises setup's own logic rather than that unrelated side effect.
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_creates_source_with_all_tables_and_mcp_created_via(
+        self, _mock_validate, _mock_sync_views, _mock_person_join
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "prefix": "stripe_setup_test",
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        assert source.created_via == ExternalDataSource.CreatedVia.MCP
+        assert source.prefix == "stripe_setup_test"
+
+        schemas = ExternalDataSchema.objects.filter(source=source)
+        # Every discovered Stripe endpoint becomes a schema...
+        assert schemas.count() == len(STRIPE_ENDPOINTS)
+        # ...and the syncable ones are enabled with a sync type (incremental for Stripe's created-based tables).
+        synced = schemas.filter(should_sync=True)
+        assert synced.exists()
+        assert all(s.sync_type in ("incremental", "append", "full_refresh") for s in synced)
+
+    def _create_stripe_webhook_template(self):
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+
+        return HogFunctionTemplate.objects.create(
+            template_id="template-warehouse-source-stripe",
+            name="Stripe warehouse source webhook",
+            description="Receive Stripe webhook events for data warehouse ingestion",
+            code="// test code",
+            code_language="hog",
+            inputs_schema=[
+                {
+                    "type": "string",
+                    "key": "signing_secret",
+                    "label": "Signing secret",
+                    "required": False,
+                    "secret": True,
+                },
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "required": True, "hidden": True},
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True, "hidden": True},
+            ],
+            type="warehouse_source_webhook",
+            status="alpha",
+            category=[],
+        )
+
+    def _setup_stripe(self):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "prefix": "stripe_webhook_test",
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_123"}),
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_auto_registers_webhook_and_switches_capable_tables(
+        self, _mock_validate, _mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_stripe_webhook_template()
+        response = self._setup_stripe()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        assert data["webhook"]["success"] is True
+        assert "/public/webhooks/dwh/" in data["webhook"]["webhook_url"]
+        assert data["webhook"]["error"] is None
+        assert data["webhook"]["pending_inputs"] == []
+
+        schemas = ExternalDataSchema.objects.filter(source_id=data["id"])
+        # Webhook-only tables (no list API) are unlocked by the registered webhook...
+        webhook_only = schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME)
+        assert webhook_only.should_sync is True
+        assert webhook_only.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+        # ...and dual-capability tables switch from polling to real-time webhook sync.
+        customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        assert customer.should_sync is True
+        assert customer.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook", deleted=False)
+        assert hog_function.enabled is True
+        assert hog_function.inputs is not None
+        assert hog_function.inputs["source_id"]["value"] == data["id"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=False, error="This API key lacks webhook permissions"),
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_falls_back_to_polling_when_webhook_registration_fails(
+        self, _mock_validate, _mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_stripe_webhook_template()
+        response = self._setup_stripe()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        assert data["webhook"]["success"] is False
+        assert "lacks webhook permissions" in data["webhook"]["error"]
+
+        schemas = ExternalDataSchema.objects.filter(source_id=data["id"])
+        # Webhook-only tables have no polling fallback, so they stay disabled...
+        webhook_only = schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME)
+        assert webhook_only.should_sync is False
+        # ...while dual-capability tables keep their polling sync defaults.
+        customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        assert customer.should_sync is True
+        assert customer.sync_type in ("incremental", "append", "full_refresh")
+        # The orphaned handler is removed so nothing dangles.
+        assert not HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook", deleted=False).exists()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_keeps_polling_defaults_when_webhook_template_missing(
+        self, _mock_validate, mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        response = self._setup_stripe()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        data = response.json()
+        assert data["webhook"]["success"] is False
+        assert "sync_hog_function_templates" in data["webhook"]["error"]
+        mock_create_webhook.assert_not_called()
+
+        schemas = ExternalDataSchema.objects.filter(source_id=data["id"])
+        assert schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME).should_sync is False
+        customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        assert customer.sync_type in ("incremental", "append", "full_refresh")
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Missing Stripe API key"),
+    )
+    def test_setup_returns_credential_error(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"auth_method": {"selection": "api_key"}}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Missing Stripe API key" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
+
+    def _store_stripe_credential(self, team=None, **kwargs) -> PendingSourceCredential:
+        team = team or self.team
+        return PendingSourceCredential.objects.for_team(team.pk).create(
+            team=team,
+            source_type="Stripe",
+            payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
+            **kwargs,
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_with_credential_id_merges_stored_payload(self, mock_validate, _mock_sync_views, _mock_person_join):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        assert source.created_via == ExternalDataSource.CreatedVia.MCP
+        # The stored secret was merged in server-side and used for validation.
+        validated_config = mock_validate.call_args.args[0]
+        assert validated_config.auth_method.stripe_secret_key == "sk_test_stored"
+        # Stored credentials are single-use — consumed on successful setup.
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_setup_failure_keeps_stored_credential(self, _mock_validate):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
+
+    @parameterized.expand(
+        [
+            ("missing", "ba07775f-8eaf-4d09-aa6f-50e37f17f243"),
+            ("not_a_uuid", "abc"),
+            ("not_a_string", 999999),
+        ]
+    )
+    def test_setup_with_unknown_credential_id_returns_400(self, _name, credential_id):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": credential_id}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
+
+    def test_setup_with_expired_credential_returns_400(self):
+        credential = self._store_stripe_credential(expires_at=timezone.now() - timedelta(minutes=1))
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found or expired" in response.json()["message"]
+        assert not ExternalDataSource.objects.exists()
+
+    def test_setup_with_other_teams_credential_returns_400(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        credential = self._store_stripe_credential(team=other_team)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Stripe", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found" in response.json()["message"]
+
+    def test_setup_with_credential_for_other_source_type_returns_400(self):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "Postgres", "payload": {"credential_id": str(credential.pk)}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "is for 'Stripe'" in response.json()["message"]
+
+
+class TestExternalDataSourceStoreCredentials(APIBaseTest):
+    def _store(self, source_type: str = "Stripe", payload: dict | None = None):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/store_credentials/",
+            data={
+                "source_type": source_type,
+                "payload": payload
+                if payload is not None
+                else {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_store_credentials_creates_pending_credential_without_source(self, _mock_validate):
+        response = self._store()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["source_type"] == "Stripe"
+
+        credential = PendingSourceCredential.objects.for_team(self.team.pk).get(pk=data["credential_id"])
+        assert credential.team_id == self.team.pk
+        assert credential.source_type == "Stripe"
+        assert credential.payload["auth_method"]["stripe_secret_key"] == "sk_test_123"
+        assert credential.created_by == self.user
+        assert credential.expires_at > timezone.now()
+        # Storing credentials must not create a source.
+        assert not ExternalDataSource.objects.exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_store_credentials_purges_expired_credentials(self, _mock_validate):
+        expired = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team,
+            source_type="Stripe",
+            payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_old"}},
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        response = self._store()
+        assert response.status_code == status.HTTP_201_CREATED
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=expired.pk).exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_store_credentials_rejects_invalid_credentials(self, _mock_validate):
+        response = self._store()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid Stripe API key" in response.json()["message"]
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    def test_store_credentials_rejects_invalid_config(self):
+        response = self._store(source_type="Postgres", payload={"host": "localhost"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid source config" in response.json()["message"]
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_stored_credentials_list_returns_metadata_only(self, _mock_validate):
+        response = self._store()
+        assert response.status_code == status.HTTP_201_CREATED
+
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
+        assert list_response.status_code == status.HTTP_200_OK
+        results = list_response.json()
+        assert len(results) == 1
+        assert results[0]["credential_id"] == response.json()["credential_id"]
+        assert results[0]["source_type"] == "Stripe"
+        assert "sk_test_123" not in json.dumps(list_response.json())
+
+    def test_stored_credentials_list_filters_by_source_type_and_hides_expired_and_other_teams(self):
+        def _create(team, source_type, **kwargs):
+            return PendingSourceCredential.objects.for_team(team.pk).create(
+                team=team, source_type=source_type, payload={"key": "secret"}, **kwargs
+            )
+
+        stripe_credential = _create(self.team, "Stripe")
+        _create(self.team, "Postgres")
+        _create(self.team, "Stripe", expires_at=timezone.now() - timedelta(minutes=1))
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        _create(other_team, "Stripe")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/?source_type=Stripe"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()
+        assert [result["credential_id"] for result in results] == [str(stripe_credential.pk)]
+
+    def test_stored_credentials_list_orders_newest_first(self):
+        older = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team, source_type="Stripe", payload={"key": "secret"}
+        )
+        newer = PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team, source_type="Stripe", payload={"key": "secret"}
+        )
+        PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=older.pk).update(
+            created_at=timezone.now() - timedelta(hours=1)
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]

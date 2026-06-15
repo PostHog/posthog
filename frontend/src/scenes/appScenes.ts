@@ -140,4 +140,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
     [Scene.OrganizationPendingDeletion]: () => import('./organization/PendingDeletion'),
+    [Scene.ProjectPendingDeletion]: () => import('./project/PendingDeletion'),
 }

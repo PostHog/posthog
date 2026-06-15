@@ -171,14 +171,18 @@ describe('EmailService', () => {
                     from: { integrationId: 100 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not an email integration', async () => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 3 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
+                )
             })
             it('should validate if the integration is not the correct team', async () => {
                 invocation.teamId = 100
@@ -186,7 +190,9 @@ describe('EmailService', () => {
                     from: { integrationId: 1 },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"Email integration not found"`)
+                expect(result.error).toMatchInlineSnapshot(
+                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                )
             })
             it('should validate if the email domain is not verified', async () => {
                 invocation.queueParameters = createEmailParams({
@@ -292,9 +298,11 @@ describe('EmailService', () => {
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
-            expect(emails[0].html).toContain('http://localhost:8010/public/m/redirect?ph_id=')
-            expect(emails[0].html).toContain('http://localhost:8010/public/m/pixel?ph_id=')
-            expect(emails[0].html).toContain('&target=https%3A%2F%2Fexample.com')
+            // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
+            // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
+            expect(emails[0].html).toMatch(
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
+            )
         })
     })
     describe('native email sending with ses', () => {
@@ -342,7 +350,8 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            // Tracking code now includes distinct_id, so we check structure instead of exact value
+            // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
+            // rides in the header.
             expect(sentCommand.input).toMatchObject({
                 ConfigurationSetName: 'posthog-messaging',
                 Content: {
@@ -355,11 +364,10 @@ describe('EmailService', () => {
                     },
                 },
                 Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: [{ Name: 'ph_id' }],
+                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
-            expect(sentCommand.input.EmailTags[0].Value).toBeDefined()
         })
 
         it('should include cc addresses in SES destination', async () => {
@@ -517,14 +525,13 @@ describe('EmailService', () => {
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const headers = sentCommand.input.Content.Simple.Headers
-            const headerNames = headers.map((h: { Name: string }) => h.Name)
+            const headerNames = (sentCommand.input.Content.Simple.Headers ?? []).map((h: { Name: string }) => h.Name)
             expect(headerNames).not.toContain('List-Unsubscribe')
             expect(headerNames).not.toContain('List-Unsubscribe-Post')
             expect(headerNames).toContain('X-PostHog-Tracking-Code')
         })
 
-        it('attaches the X-PostHog-Tracking-Code header carrying the full tracking code', async () => {
+        it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
             // regardless of transactional vs. marketing category.
@@ -539,7 +546,7 @@ describe('EmailService', () => {
             expect(trackingHeader).toBeDefined()
             expect(typeof trackingHeader.Value).toBe('string')
             expect(trackingHeader.Value.length).toBeGreaterThan(0)
-            // The SES EmailTag carries a *different* (shorter) code so it stays under the
+            // The SES EmailTag carries a *different* (shorter, unsigned) code so it stays under the
             // 256-char tag-value limit even when distinct_id is long.
             expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
         })

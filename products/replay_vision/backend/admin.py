@@ -54,6 +54,8 @@ class ReplayQuotaGrantAdmin(admin.ModelAdmin):
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
         initial: dict[str, Any] = super().get_changeform_initial_data(request)
         # Pre-fill but don't force — admins can clear either field on the add form.
-        initial.setdefault("expires_at", next_month_start(datetime.now(UTC)).isoformat())
-        initial.setdefault("granted_by", str(request.user.pk))
+        # Pass native types (not strings): the admin's SplitDateTimeWidget calls
+        # `to_current_timezone(value)` on initial, which AttributeErrors on a str.
+        initial.setdefault("expires_at", next_month_start(datetime.now(UTC)))
+        initial.setdefault("granted_by", request.user.pk)
         return initial

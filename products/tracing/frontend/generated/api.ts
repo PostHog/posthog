@@ -14,6 +14,7 @@ import type {
     TracingSpansValuesRetrieveParams,
     _HasSpansResponseApi,
     _TracingAggregationRequestApi,
+    _TracingAttributeBreakdownRequestApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
@@ -38,6 +39,23 @@ export const tracingSpansAggregateCreate = async (
     })
 }
 
+export const getTracingSpansAttributeBreakdownCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/attribute-breakdown/`
+}
+
+export const tracingSpansAttributeBreakdownCreate = async (
+    projectId: string,
+    _tracingAttributeBreakdownRequestApi: _TracingAttributeBreakdownRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingAttributeBreakdownRequestApi),
+    })
+}
+
 export const getTracingSpansAttributesRetrieveUrl = (
     projectId: string,
     params?: TracingSpansAttributesRetrieveParams
@@ -46,7 +64,7 @@ export const getTracingSpansAttributesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -82,6 +100,23 @@ export const tracingSpansCountCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingCountRequestApi),
+    })
+}
+
+export const getTracingSpansDurationHistogramCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/duration-histogram/`
+}
+
+export const tracingSpansDurationHistogramCreate = async (
+    projectId: string,
+    _tracingQueryRequestApi: _TracingQueryRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingQueryRequestApi),
     })
 }
 
@@ -124,7 +159,7 @@ export const getTracingSpansServiceNamesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -203,7 +238,7 @@ export const getTracingSpansValuesRetrieveUrl = (projectId: string, params: Trac
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

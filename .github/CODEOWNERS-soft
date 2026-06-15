@@ -45,6 +45,8 @@ frontend/src/scenes/hog-functions/ @PostHog/team-workflows
 # Web Analytics - owned by @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
 posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
+posthog/models/web_preaggregated/** @PostHog/team-web-analytics
+posthog/models/channel_type/** @PostHog/team-web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
 nodejs/src/ingestion/cookieless/** @PostHog/team-web-analytics
@@ -68,10 +70,11 @@ ee/tasks/subscriptions/** @PostHog/team-analytics-platform
 frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
 frontend/src/scenes/dashboard/ @PostHog/team-analytics-platform
 posthog/api/schema_property_group.py @PostHog/team-analytics-platform
-posthog/hogql/database/schema/sessions*\*.py @PostHog/team-analytics-platform
-posthog/models/raw_sessions/** @PostHog/team-analytics-platform
 posthog/models/schema.py @PostHog/team-analytics-platform
-posthog/models/sessions/** @PostHog/team-analytics-platform
+posthog/hogql_queries/sessions_query_runner.py @PostHog/team-analytics-platform
+posthog/hogql_queries/sessions_timeline_query_runner.py @PostHog/team-analytics-platform
+posthog/dags/sessions.py @PostHog/team-analytics-platform
+ee/clickhouse/materialized_columns/** @PostHog/team-analytics-platform
 posthog/tasks/alerts/** @PostHog/team-analytics-platform
 posthog/tasks/exports/** @PostHog/team-analytics-platform
 posthog/temporal/alerts/ @PostHog/team-analytics-platform
@@ -95,6 +98,7 @@ posthog/api/cohort.py @PostHog/team-feature-flags
 posthog/models/cohort/ @PostHog/team-feature-flags
 frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
 posthog/tasks/calculate_cohort.py @PostHog/team-feature-flags
+posthog/hogql_queries/hogql_cohort_query.py @PostHog/team-feature-flags
 
 # Feature Flags frontend - owned by @PostHog/team-feature-flags
 frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
@@ -115,6 +119,7 @@ posthog/temporal/data_modeling/** @PostHog/team-data-modeling
 # HogQL - owned by @PostHog/team-data-tools
 # and also hard owned by the @PostHog/hogql on `CODEOWNERS` file
 posthog/hogql/\*\* @PostHog/team-data-tools
+posthog/hogql_queries/hogql_query_runner.py @PostHog/team-data-tools
 
 # Tracing/Metrics — owned by @PostHog/logs (logs itself comes from products/logs/product.yaml)
 products/tracing/** @PostHog/logs
@@ -127,9 +132,8 @@ products/error_tracking/frontend/** @PostHog/team-error-tracking
 products/error_tracking/mcp/** @PostHog/team-error-tracking
 products/error_tracking/skills/** @PostHog/team-error-tracking
 cli/** @PostHog/team-error-tracking
-posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
-posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
 rust/cymbal/** @PostHog/team-error-tracking
+rust/common/symbol_data/** @PostHog/team-error-tracking
 
 # Notebooks - owned by @PostHog/team-platform-features
 frontend/src/scenes/notebooks/ @PostHog/team-platform-features
@@ -264,9 +268,17 @@ frontend/src/scenes/groups/ @PostHog/team-product-analytics
 frontend/src/scenes/persons/ @PostHog/team-product-analytics
 frontend/src/scenes/persons-management/ @PostHog/team-product-analytics
 posthog/api/event_definition.py @PostHog/team-product-analytics
+posthog/api/event.py @PostHog/team-product-analytics
+posthog/api/element.py @PostHog/team-product-analytics
+posthog/api/person.py @PostHog/team-product-analytics
 posthog/models/action/ @PostHog/team-product-analytics
 posthog/hogql_queries/insights/ @PostHog/team-product-analytics
 posthog/hogql_queries/groups/ @PostHog/team-product-analytics
+posthog/hogql_queries/events_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/actors_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/property_values_query_runner.py @PostHog/team-product-analytics
+ee/clickhouse/views/groups.py @PostHog/team-product-analytics
+ee/clickhouse/queries/related_actors_query.py @PostHog/team-product-analytics
 posthog/temporal/product_analytics/ @PostHog/team-product-analytics
 posthog/temporal/mcp_analytics/ @PostHog/team-product-analytics
 frontend/src/scenes/themes/ @PostHog/team-product-analytics
@@ -286,6 +298,8 @@ frontend/src/scenes/max/ @PostHog/team-signals
 frontend/src/scenes/inbox/ @PostHog/team-signals
 ee/hogai/ @PostHog/team-signals
 ee/support_sidebar_max/ @PostHog/team-signals
+posthog/models/ai/** @PostHog/team-signals
+posthog/hogql_queries/document_embeddings_query_runner.py @PostHog/team-signals
 
 # Billing - owned by @PostHog/team-billing
 frontend/src/scenes/billing/ @PostHog/team-billing
@@ -300,11 +314,19 @@ posthog/temporal/quota_limiting/ @PostHog/team-billing
 # Query performance - owned by @PostHog/team-query-performance
 posthog/queries/ @PostHog/team-query-performance
 posthog/caching/ @PostHog/team-query-performance
+posthog/hogql/database/schema/sessions*\*.py @PostHog/team-query-performance
+posthog/models/raw_sessions/** @PostHog/team-query-performance
+posthog/models/sessions/** @PostHog/team-query-performance
 
 # Ingestion (persons identity pipeline) - owned by @PostHog/team-ingestion
 posthog/temporal/delete_persons/ @PostHog/team-ingestion
 posthog/temporal/sync_person_distinct_ids/ @PostHog/team-ingestion
 posthog/tasks/split_person.py @PostHog/team-ingestion
+posthog/models/person/** @PostHog/team-ingestion
+posthog/dags/detach_distinct_id.py @PostHog/team-ingestion
+posthog/dags/fix_missing_person_overrides.py @PostHog/team-ingestion
+posthog/dags/fix_person_id_overrides.py @PostHog/team-ingestion
+posthog/dags/person_property_reconciliation.py @PostHog/team-ingestion
 
 # User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
 products/user_interviews/** @pauldambra @fivestarspicy @ksvat

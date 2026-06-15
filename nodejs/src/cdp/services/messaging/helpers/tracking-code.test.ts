@@ -90,19 +90,6 @@ describe('email tracking code', () => {
             },
             {
                 // Webhooks for emails already in flight when the fix deploys must still parse.
-                name: 'parses legacy 5-segment unsigned codes emitted before distinctId existed',
-                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4'),
-                expected: {
-                    functionId: 'fn-1',
-                    invocationId: 'inv-2',
-                    teamId: '3',
-                    actionId: 'act-5',
-                    parentRunId: 'batch-4',
-                    distinctId: undefined,
-                    format: 'unsigned',
-                },
-            },
-            {
                 name: 'parses legacy 4-segment unsigned codes emitted before parentRunId existed',
                 encoded: encodeRaw('fn-1:inv-2:3:act-5'),
                 expected: {
@@ -111,6 +98,19 @@ describe('email tracking code', () => {
                     teamId: '3',
                     actionId: 'act-5',
                     parentRunId: undefined,
+                    distinctId: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
+                name: 'parses legacy 5-segment unsigned codes emitted before distinctId existed',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -131,7 +131,7 @@ describe('email tracking code', () => {
             expect(code).toContain('.')
         })
 
-        it('does not sign the short code even when signing keys are configured', () => {
+        it('does not sign the short code used for the SES tag', () => {
             const short = generateShortEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
             expect(short).not.toContain('.')
             expect(parseEmailTrackingCode(short)?.format).toBe('unsigned')
@@ -183,6 +183,19 @@ describe('email tracking code', () => {
             const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
             // Rotation: new key first, old key kept for the verification grace period.
             defaultConfig.ENCRYPTION_SALT_KEYS = 'new-key-bbbbbbbbbbbbbbbbbbbbbbbb,old-key-aaaaaaaaaaaaaaaaaaaaaaaa'
+            try {
+                expect(parseEmailTrackingCode(code)?.format).toBe('signed')
+            } finally {
+                defaultConfig.ENCRYPTION_SALT_KEYS = original
+            }
+        })
+
+        it('trims whitespace around keys in the rotation list', () => {
+            const original = defaultConfig.ENCRYPTION_SALT_KEYS
+            defaultConfig.ENCRYPTION_SALT_KEYS = 'signing-key-cccccccccccccccccccc'
+            const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
+            // Same keys, but configured with a space after the comma — must still verify.
+            defaultConfig.ENCRYPTION_SALT_KEYS = 'other-key-dddddddddddddddddddddd, signing-key-cccccccccccccccccccc'
             try {
                 expect(parseEmailTrackingCode(code)?.format).toBe('signed')
             } finally {

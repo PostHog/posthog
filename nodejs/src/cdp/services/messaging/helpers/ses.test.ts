@@ -1,5 +1,8 @@
 import { SesWebhookHandler } from './ses'
-import { TRACKING_CODE_HEADER_NAME, generateEmailTrackingCode, generateShortEmailTrackingCode } from './tracking-code'
+import { generateEmailTrackingCode, generateShortEmailTrackingCode } from './tracking-code'
+
+// Hardcoded (not imported) so a change to the header constant fails this test.
+const TRACKING_CODE_HEADER = 'X-PostHog-Tracking-Code'
 
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
@@ -7,10 +10,9 @@ describe('SesWebhookHandler', () => {
         handler = new SesWebhookHandler()
     })
 
-    // Mirrors what the sender writes for every outbound message: the SES tag
-    // carries the short (no-distinct_id) code as a backwards-compat carrier,
-    // and the custom header carries the full code (including distinct_id) as
-    // the authoritative source. The parser prefers the header.
+    // Mirrors what the sender writes: the custom header carries the full signed code (including
+    // distinct_id, the authoritative source), the SES tag carries the short unsigned code
+    // (no distinct_id) as a fallback. The parser prefers the header.
     const baseInvocation = {
         functionId: 'abc123',
         id: 'inv456',
@@ -24,7 +26,7 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: generateEmailTrackingCode(baseInvocation) }],
+        headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation) }],
         tags: {
             ph_id: [generateShortEmailTrackingCode(baseInvocation)],
         },
@@ -149,6 +151,34 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics).toHaveLength(0)
     })
 
+    it('parses the signed code from the header when the SES tag is absent', async () => {
+        const headerOnlyMail = { ...baseMail, tags: undefined }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: headerOnlyMail,
+                open: { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0]).toMatchObject({ functionId: 'abc123', invocationId: 'inv456' })
+    })
+
+    it('falls back to the SES tag when the custom header is absent (in-flight backwards compat)', async () => {
+        const tagOnlyMail = { ...baseMail, headers: undefined }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: tagOnlyMail,
+                open: { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0]).toMatchObject({ functionId: 'abc123', invocationId: 'inv456' })
+    })
+
     it('parses a raw Delivery event', async () => {
         const body = [
             {
@@ -214,6 +244,31 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].metricName).toBe('email_bounced')
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.optOutRecipients).toEqual([])
+    })
+
+    it('rejects raw (non-SNS) deliveries when signature verification is required', async () => {
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [
+                        {
+                            emailAddress: 'victim@example.com',
+                            action: 'failed',
+                            status: '5.1.1',
+                            diagnosticCode: 'bad',
+                        },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                    reportingMTA: 'mta',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {}, verifySignature: true })
+        expect(result.status).toBe(403)
+        expect(result.optOutRecipients).toBeUndefined()
     })
 
     it('parses a raw Complaint event', async () => {
@@ -318,7 +373,7 @@ describe('SesWebhookHandler', () => {
         }
         const mailWithParentRun = {
             ...baseMail,
-            headers: [{ name: TRACKING_CODE_HEADER_NAME, value: generateEmailTrackingCode(batchInvocation) }],
+            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(batchInvocation) }],
             tags: {
                 ph_id: [generateShortEmailTrackingCode(batchInvocation)],
             },

@@ -92,8 +92,16 @@ export class EmailService {
         let success: boolean = false
 
         try {
-            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
             }
 
             const from = this.resolveFromSender(integration)
@@ -205,9 +213,9 @@ export class EmailService {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
         const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        // Full signed code (with distinct_id) rides in the header; the short unsigned carrier
+        // (no distinct_id) goes in the SES EmailTag, guaranteed under the 256-char tag-value limit.
         const trackingCode = generateEmailTrackingCode({ ...result.invocation, distinctId })
-        // Short carrier (no distinct_id) for the SES EmailTag — guaranteed to stay
-        // under the 256-char tag-value limit. The full code rides in the header.
         const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
 
         const htmlBody = params.html
@@ -243,17 +251,17 @@ export class EmailService {
                 },
             },
             ConfigurationSetName: 'posthog-messaging',
-            // Short tag kept as a backwards-compat carrier so in-flight messages
-            // still parse if the configuration set isn't yet emitting headers.
+            // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
+            // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        // Authoritative tracking-code carrier: a custom MIME header. Header values
-        // aren't 256-char-bounded the way SES tag values are, so this can safely
-        // carry a long distinct_id. The configuration set's event destination needs
+        // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
+        // 256-char-bounded the way SES tag values are, so they safely carry the signed code
+        // (with distinct_id). The configuration set's event destination needs
         // `IncludeOriginalHeaders: true` for the webhook to surface this header.
-        const trackingHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
+        const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {

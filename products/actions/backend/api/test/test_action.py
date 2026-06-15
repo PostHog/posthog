@@ -13,10 +13,11 @@ from unittest.mock import ANY, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Cohort, Tag, User
+from posthog.models import Tag, User
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.models.insight import Insight
 
 
