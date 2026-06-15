@@ -381,6 +381,74 @@ async def test_cap_dispatches_most_overdue_first(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_per_team_tick_cap_defers_overflow(ateam):
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    with patch("products.signals.backend.temporal.agentic.scout_coordinator.MAX_RUNS_PER_TEAM_PER_TICK", 2):
+        planned = await _run_activity()
+
+    assert sorted(p.skill_name for p in planned) == ["signals-scout-mid", "signals-scout-most"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_global_cap_is_split_fairly_across_teams(ateam, aother_team):
+    # Team A has three due scouts, all more overdue than team B's two. With the global cap
+    # at 3, pure most-overdue-first would hand A the whole tick; round-robin must give B a
+    # slot in the first round.
+    now = timezone.now()
+    for name, hours in [("signals-scout-a1", 30), ("signals-scout-a2", 20), ("signals-scout-a3", 10)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _seed_other():
+        with team_scope(aother_team.id, canonical=True):
+            for name, hours in [("signals-scout-b1", 5), ("signals-scout-b2", 4)]:
+                _create_skill(aother_team, name)
+                _create_config(
+                    aother_team, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+                )
+
+    await database_sync_to_async(_seed_other)()
+
+    with patch("products.signals.backend.temporal.agentic.scout_coordinator.MAX_RUNS_PER_TICK", 3):
+        planned = await _run_activity()
+
+    assert sorted((p.team_id, p.skill_name) for p in planned) == [
+        (ateam.id, "signals-scout-a1"),
+        (ateam.id, "signals-scout-a2"),
+        (aother_team.id, "signals-scout-b1"),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
+    # One enabled scout puts the team at the (patched) cap; a freshly authored skill must
+    # still get a config row — but disabled, so it adds no spend and isn't planned.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-existing", enabled=True)
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
+
+    with patch("products.signals.backend.scout_harness.config_registry.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+        planned = await _run_activity()
+
+    fresh = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.get(team_id=ateam.id, skill_name="signals-scout-fresh")
+    )()
+    assert fresh.enabled is False
+    assert sorted(p.skill_name for p in planned) == ["signals-scout-existing"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_planned_runs_sorted_by_team_then_skill(ateam, aother_team):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-zeta")
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-alpha")

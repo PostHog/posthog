@@ -1,6 +1,7 @@
 import copy
 import json
 import graphlib
+from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
@@ -250,6 +251,28 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
                 "like 'https:', so the bound parent value can't redirect the request off the manifest's base URL"
             )
     return resolved
+
+
+def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
+    """Reject incremental config values that would deterministically crash at sync time.
+
+    The structural schema doesn't model ``endpoint.incremental``, so a hand-authored
+    non-string ``datetime_format`` would otherwise only surface mid-sync, and only
+    from the second sync onward (formatting needs a stored watermark).
+    """
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        endpoint = resource.get("endpoint")
+        incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+        if not isinstance(incremental, dict):
+            continue
+        datetime_format = incremental.get("datetime_format")
+        if datetime_format is not None and not isinstance(datetime_format, str):
+            raise ManifestValidationError(
+                f"Resource {resource.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+                'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+            )
 
 
 def _format_validation_errors(exc: ValidationError) -> str:
@@ -548,6 +571,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # preferable to carrying a permanent leniency mode. The returned
             # map feeds the probe's child filter below.
             resolved = _validate_resource_graph(manifest)
+            _validate_incremental_configs(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 
@@ -682,6 +706,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
 
+            # The engine serializes a datetime watermark via str() (space-separated),
+            # which strict APIs reject — format it to the declared wire format first.
+            last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            last_value = _format_incremental_cursor(last_value, chosen)
+
             # Inside the try block: the engine raises deterministic ValueErrors at
             # build time for config problems the create-time checks can't see
             # (e.g. `include_from_parent` on a resource with no resolve param).
@@ -689,9 +718,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 engine_manifest,
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
-                db_incremental_field_last_value=(
-                    inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-                ),
+                db_incremental_field_last_value=last_value,
             )
         except ValueError as exc:
             # A malformed manifest, a missing resource, or a broken parent
@@ -820,11 +847,36 @@ def _incremental_field_type(raw: Any) -> IncrementalFieldType:
 
 
 # Keys the Custom source understands on ``endpoint.incremental`` that the generic
-# REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
-# how the cursor is typed (see ``_incremental_field_type``) but must be removed
-# before the engine builds its incremental tracker, or it raises an unexpected
-# keyword-argument error at sync setup.
-_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type"})
+# REST engine's ``Incremental(**config)`` constructor does NOT accept. They must be
+# removed before the engine builds its incremental tracker, or it raises an
+# unexpected keyword-argument error at sync setup.
+_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type", "datetime_format"})
+
+
+def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
+    """Render a datetime/date high-watermark as a string for the REST engine.
+
+    The engine binds the watermark via ``str()``, whose space-separated datetime
+    rendering strict APIs (e.g. Typeform) reject. The resource's
+    ``endpoint.incremental.datetime_format`` strftime pattern controls the wire
+    format, defaulting to ISO-8601; non-datetime cursors pass through untouched.
+
+    A non-string ``datetime_format`` raises ``ManifestValidationError`` (non-retryable)
+    instead of strftime's ``TypeError``, which Temporal would retry — a backstop for
+    manifests stored before ``_validate_incremental_configs`` existed.
+    """
+    # `datetime` is a subclass of `date`, so this matches both.
+    if not isinstance(value, date):
+        return value
+    endpoint = chosen.get("endpoint")
+    incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+    datetime_format = incremental.get("datetime_format") if isinstance(incremental, dict) else None
+    if datetime_format is not None and not isinstance(datetime_format, str):
+        raise ManifestValidationError(
+            f"Resource {chosen.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+            'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+        )
+    return value.strftime(datetime_format) if datetime_format else value.isoformat()
 
 
 def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:

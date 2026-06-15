@@ -1001,10 +1001,10 @@ class SourceSetupSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Connection details as flat keys for the source_type (discover required fields with the wizard "
-            "tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key "
-            "(e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} "
-            "referencing credentials the user stored via the connect-link page (discover ids with the "
-            "stored_credentials endpoint) — they are merged in server-side and deleted once consumed. "
+            "tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection "
+            "details the user stored via the connect-link page (discover ids with the stored_credentials "
+            "endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth "
+            "integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). "
             "A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible "
             "sync defaults."
         ),
@@ -1060,23 +1060,16 @@ class SourceConnectLinkSerializer(serializers.Serializer):
     auth_method = serializers.ChoiceField(
         choices=["oauth", "credentials"],
         help_text=(
-            "'oauth' = the user authorizes in their browser; 'credentials' = the user enters credentials in the "
-            "PostHog UI. Either way secrets never pass through the agent."
+            "What the user will do on the connect page: 'oauth' = authorize an account in their browser; "
+            "'credentials' = enter connection details (or pick OAuth where the source offers both). Either "
+            "way secrets never pass through the agent, and the result is always a stored credential id."
         ),
     )
     connect_url = serializers.CharField(
         help_text=(
-            "Full URL to share with the user. They open it in a browser to authorize or enter credentials directly "
-            "in PostHog — credentials never pass through the agent or the chat."
+            "Full URL to share with the user. It opens the source's connection form in PostHog — "
+            "credentials never pass through the agent or the chat."
         )
-    )
-    integration_field = serializers.CharField(
-        allow_null=True,
-        help_text=(
-            "The payload key to pass to data-warehouse-source-setup: for OAuth sources, the source's integration "
-            "id key (e.g. 'hubspot_integration_id'); for credential sources, 'credential_id' referencing the "
-            "credentials the user stored via the connect page."
-        ),
     )
     instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
 
@@ -1105,20 +1098,17 @@ class SourceCredentialSerializer(serializers.Serializer):
     )
 
 
-def _find_oauth_field(config: object) -> dict | None:
-    """Recursively find an OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump."""
-    if isinstance(config, dict):
-        if config.get("type") == "oauth" and config.get("kind"):
-            return config
-        for value in config.values():
-            found = _find_oauth_field(value)
-            if found is not None:
-                return found
-    elif isinstance(config, list):
-        for item in config:
-            found = _find_oauth_field(item)
-            if found is not None:
-                return found
+def _find_top_level_oauth_field(config: dict) -> dict | None:
+    """Find a top-level OAuth field ({type: 'oauth', kind, name, ...}) in a source config dump.
+
+    Only a top-level OAuth field makes a source OAuth-only (e.g. Hubspot). An OAuth option
+    nested inside a select (e.g. Stripe's auth_method) coexists with credential options, so
+    those sources route to the credentials connect page — its form still offers the OAuth
+    choice alongside API keys.
+    """
+    for field in config.get("fields") or []:
+        if isinstance(field, dict) and field.get("type") == "oauth" and field.get("kind"):
+            return field
     return None
 
 
@@ -2919,11 +2909,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def connect_link(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Return a secure browser link for connecting a data warehouse source.
 
-        For OAuth sources the link starts the OAuth authorize flow; for credential sources it opens a minimal
-        connect page where the user enters only their credentials — no table selection, no source creation.
-        Either way the user authenticates in their browser, credentials never pass through the agent, and the
-        agent finishes setup afterwards by passing the resulting reference (integration id or credential id)
-        to data-warehouse-source-setup.
+        The link opens a minimal connect page rendering the source's full connection form — OAuth options
+        included — with no table selection and no source creation. The user authenticates in their browser,
+        secrets never pass through the agent, and the agent finishes setup afterwards by passing the stored
+        credential id to data-warehouse-source-setup.
         """
         source_type = request.query_params.get("source_type")
         if not source_type:
@@ -2940,43 +2929,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         source = SourceRegistry.get_source(source_type_model)
-        oauth_field = _find_oauth_field(source.get_source_config.model_dump())
+        oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())
+        action_phrase = (
+            f"connect their {source_type} account" if oauth_field else f"enter their {source_type} connection details"
+        )
 
-        # Minimal connect page: credentials only — no table selection, no source creation in the UI.
-        ui_path = f"/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
-
-        if oauth_field is not None:
-            connect_url = (
-                f"{settings.SITE_URL}/api/integrations/authorize"
-                f"?kind={quote(oauth_field['kind'])}&next={quote(ui_path, safe='')}"
-            )
-            data = {
-                "source_type": source_type,
-                "auth_method": "oauth",
-                "connect_url": connect_url,
-                "integration_field": oauth_field["name"],
-                "instructions": (
-                    f"Share this link with the user to authorize {source_type} in their browser. Once they confirm "
-                    f"they're done, find the new integration id via integrations-list (kind='{oauth_field['kind']}') "
-                    f'and call data-warehouse-source-setup with {{"{oauth_field["name"]}": <integration id>}}. '
-                    "Never ask the user to paste OAuth tokens into the chat."
-                ),
-            }
-        else:
-            data = {
-                "source_type": source_type,
-                "auth_method": "credentials",
-                "connect_url": f"{settings.SITE_URL}{ui_path}",
-                "integration_field": "credential_id",
-                "instructions": (
-                    f"Share this link with the user. They enter their {source_type} credentials directly in PostHog "
-                    "(over TLS) — never ask them to paste credentials into the chat. The page only stores the "
-                    "credentials; it does not create the source. Once the user confirms they're done, find the "
-                    f"stored credential id via data-warehouse-stored-credentials-list (source_type='{source_type}', "
-                    'newest first) and call data-warehouse-source-setup with {"credential_id": <id>} in the payload. '
-                    "Stored credentials are single-use and expire after 24 hours."
-                ),
-            }
+        data = {
+            "source_type": source_type,
+            "auth_method": "oauth" if oauth_field else "credentials",
+            "connect_url": (
+                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect?kind={quote(str(source_type))}"
+            ),
+            "instructions": (
+                f"Share this link with the user. They {action_phrase} directly in PostHog — never ask them to "
+                "paste credentials or tokens into the chat. The page only stores the connection details; it does "
+                "not create the source. Once the user confirms they're done, find the stored credential id via "
+                f"data-warehouse-stored-credentials-list (source_type='{source_type}', newest first) and call "
+                'data-warehouse-source-setup with {"credential_id": <id>} in the payload. Stored credentials are '
+                "single-use and expire after 24 hours."
+            ),
+        }
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))

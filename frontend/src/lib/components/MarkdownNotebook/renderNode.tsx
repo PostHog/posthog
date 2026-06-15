@@ -3,7 +3,12 @@ import { MutableRefObject } from 'react'
 import { CommentBlock } from './CommentBlock'
 import { ComponentPanel, ComponentPanelVisibility } from './componentPanels'
 import { DividerBlock } from './DividerBlock'
-import { isCommentComponentNode, isDividerComponentNode, isPromptComponentNode } from './documentModel'
+import {
+    isCommentComponentNode,
+    isDiscussionCommentNode,
+    isDividerComponentNode,
+    isPromptComponentNode,
+} from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
 import { EditableListBlock } from './EditableListBlock'
 import { EditablePromptComponent } from './EditablePromptComponent'
@@ -122,7 +127,9 @@ export function renderNode({
             )
         }
 
-        if (isCommentComponentNode(node)) {
+        // Discussion comments (ref/replies) render through the registry shell; only the
+        // authorial note flavor uses the inline chip.
+        if (isCommentComponentNode(node) && !isDiscussionCommentNode(node)) {
             return (
                 <CommentBlock
                     node={node}

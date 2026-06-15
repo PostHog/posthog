@@ -378,6 +378,96 @@ Users activated faster.
         expect(notebookContentHasCommentMarks(null)).toBe(false)
     })
 
+    it('converts v1 comment marks to ref highlights with comment threads', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'Numbers ' },
+                        { type: 'text', text: 'look off', marks: [{ type: 'comment', attrs: { id: 'mark-1' } }] },
+                        { type: 'text', text: ' here' },
+                    ],
+                },
+                { type: 'paragraph', content: [{ type: 'text', text: 'Unrelated' }] },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content, {
+            commentRepliesByMarkId: {
+                'mark-1': [{ id: 'c1', author: 'Ann', text: 'Why is this lower?', at: '2026-01-01T00:00:00Z' }],
+            },
+        })
+
+        expect(markdown).toEqual(
+            [
+                '<Comment ref="mark-1" replies={[{"id":"c1","author":"Ann","text":"Why is this lower?","at":"2026-01-01T00:00:00Z"}]} />',
+                '',
+                'Numbers <ref id="mark-1">look off</ref> here',
+                '',
+                'Unrelated',
+            ].join('\n')
+        )
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
+    })
+
+    it('emits an empty comment thread when no replies are provided for a mark', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'annotated', marks: [{ type: 'comment', attrs: { id: 'm1' } }] }],
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(
+            '<Comment ref="m1" replies={[]} />\n\n<ref id="m1">annotated</ref>'
+        )
+    })
+
+    it('wraps the ref outside other formatting marks', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'bolded',
+                            marks: [{ type: 'bold' }, { type: 'comment', attrs: { id: 'm1' } }],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toContain('<ref id="m1">**bolded**</ref>')
+    })
+
+    it('converts mentions to mention tags preserving the member id', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'Ping ' },
+                        { type: NotebookNodeType.Mention, attrs: { id: 5 } },
+                    ],
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content, { getMentionLabel: () => '@Marius' })).toEqual(
+            'Ping <mention id="5">@Marius</mention>'
+        )
+        expect(convertNotebookContentToMarkdown(content)).toEqual('Ping <mention id="5">@member</mention>')
+    })
+
     it('does not duplicate an artifact markdown title', () => {
         const content: NotebookArtifactContent = {
             content_type: ArtifactContentType.Notebook,

@@ -8,12 +8,12 @@ The markdown notebook rewrite (markdown storage, custom component tags, conflict
 - Decide and implement the default-on path: create new notebooks as markdown notebooks once the flag ramps.
 - Batch conversion of existing notebooks (`convertNotebookContentToMarkdown`) needs migration validation fixtures built from real production notebook shapes, beyond the unit-test coverage in `notebookUpgradeDialog.test.tsx`.
 - Verify notebook history and sharing behavior survive the upgrade (history diffs against TipTap JSON snapshots predating the conversion).
-- Define fallback/rollback behavior: there is currently no downgrade path from a markdown notebook back to TipTap content.
+- Rollback: `convertMarkdownToNotebookContent` (markdownNotebookDowngrade.ts) converts markdown back to TipTap content. Known one-way losses are documented in its module docstring (discussion reply threads, AI chats/prompts, table alignments) — wire it into a user-facing rollback flow if needed.
 
 ## Editor gaps
 
-- Block movement: rows and components cannot be dragged to reorder; the only way to move a block is cut/paste.
 - Accessibility: the formatting toolbar, insert menu, and component insertion flow need keyboard navigation and screen-reader coverage (focus management, roving tabindex, ARIA roles beyond the current labels).
+- Inline comments: selections inside code blocks can't be commented (code carries no inline marks).
 
 ## Open questions
 

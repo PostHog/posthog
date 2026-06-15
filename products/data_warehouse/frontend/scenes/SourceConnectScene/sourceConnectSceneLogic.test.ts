@@ -112,17 +112,6 @@ describe('sourceConnectSceneLogic', () => {
         expect(sourceConnectSceneLogic.values.sourceConfig).toBeNull()
     })
 
-    it.each([
-        ['Postgres', false],
-        ['Hubspot', true],
-        // Stripe's oauth field is nested inside a select option — must still count as oauth,
-        // matching the backend's recursive _find_oauth_field
-        ['Stripe', true],
-    ])('classifies %s as oauth=%s', (kind, expected) => {
-        router.actions.push(`/data-warehouse/connect?kind=${kind}`)
-        expect(sourceConnectSceneLogic.values.isOauthSource).toEqual(expected)
-    })
-
     it('starts with no stored credential and records one after setStoredCredential', () => {
         expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
         sourceConnectSceneLogic.actions.setStoredCredential({
