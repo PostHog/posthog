@@ -16902,6 +16902,23 @@ export namespace Schemas {
       key_id: string;
     }
 
+    export interface EvaluationContextSuggestionRequest {
+      /**
+         * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+         * @maxLength 255
+         */
+      context_name: string;
+    }
+
+    export interface EvaluationContextSuggestionResponse {
+      /** Whether the suggestion visibility change was applied. */
+      success: boolean;
+      /** Normalized name of the affected evaluation context. */
+      name: string;
+      /** Whether the context is now hidden from the flag editor's suggestion list. */
+      hidden_from_suggestions: boolean;
+    }
+
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -50639,6 +50656,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
