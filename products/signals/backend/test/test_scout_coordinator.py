@@ -19,7 +19,6 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -35,6 +34,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
+from products.skills.backend.models.skills import LLMSkill
 
 _PAYLOAD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.get_feature_flag_payload"
 _IS_CLOUD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.is_cloud"

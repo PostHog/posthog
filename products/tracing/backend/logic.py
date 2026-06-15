@@ -780,12 +780,6 @@ def run_attribute_values_query(
     return results
 
 
-# Imported below the helpers above (and `translate_span_filter`) because the runners
-# import `translate_span_filter` from this module. Keeping this import at the bottom
-# avoids a partial-load circular import.
-from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner  # noqa: E402
-
-
 def run_aggregation_query(
     *,
     team: "Team",
@@ -795,6 +789,10 @@ def run_aggregation_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
+    # noqa-justified: the runners import `translate_span_filter` from this module, so a
+    # module-level import here is circular and only resolves when this module loads first.
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
+
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
@@ -818,6 +816,9 @@ def run_tree_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
     """Facade-friendly entry point for running a span call-tree aggregation query."""
+    # noqa-justified: same circular import as run_aggregation_query above.
+    from .aggregation_query_runner import TraceSpansTreeQueryRunner  # noqa: PLC0415
+
     query = TraceSpansTreeQuery(
         dateRange=date_range,
         spanName=span_name,
