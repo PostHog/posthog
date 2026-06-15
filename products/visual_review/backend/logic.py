@@ -1434,7 +1434,7 @@ def _fetch_baseline_file(
 
     import yaml
 
-    is_partial
+    from .github import github_request
 
     access_token = github.get_access_token()
 
