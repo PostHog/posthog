@@ -192,6 +192,7 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Reminder
                               |ReplayObservation
                               |ReplayScanner
                               |Repo
@@ -436,6 +437,7 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Reminder
                         |ReplayObservation
                         |ReplayScanner
                         |Repo
