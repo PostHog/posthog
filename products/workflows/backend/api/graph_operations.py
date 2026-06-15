@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import NoReturn
 
 from rest_framework import serializers
 
@@ -32,7 +33,7 @@ def _edges_match(a: dict, b: dict) -> bool:
     )
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     raise serializers.ValidationError({"operations": message})
 
 

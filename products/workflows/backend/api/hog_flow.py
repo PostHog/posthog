@@ -1101,11 +1101,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
             # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
+            # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
             serializer.save()
 
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
+        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
 
-        return Response(self.get_serializer(serializer.instance).data)
+        return Response(self.get_serializer(locked).data)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
