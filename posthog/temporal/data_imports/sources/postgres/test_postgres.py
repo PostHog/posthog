@@ -1659,6 +1659,25 @@ class TestGetPartitionSettings:
             assert result is not None
             assert result.partition_size > 0
 
+    def test_reuses_passed_is_partitioned_flag(self):
+        # When the caller already knows the table is partitioned, skip re-detecting it.
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        sentinel = object()
+
+        with (
+            patch("posthog.temporal.data_imports.sources.postgres.postgres._is_partitioned_table") as mock_detect,
+            patch(
+                "posthog.temporal.data_imports.sources.postgres.postgres._get_partition_settings_for_partitioned_table",
+                return_value=sentinel,
+            ) as mock_partitioned,
+        ):
+            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=True)
+
+        mock_detect.assert_not_called()
+        mock_partitioned.assert_called_once()
+        assert result is sentinel
+
 
 class TestPostgreSQLColumnToArrowField:
     @pytest.mark.parametrize(
