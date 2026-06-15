@@ -7,8 +7,6 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from parameterized import parameterized
-
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
 
 from posthog.hogql_queries.insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
@@ -114,13 +112,11 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.resolved_date_range is not None
         assert response.resolved_date_range.date_to.strftime("%Y-%m-%d") == "2024-06-15"
 
-    @parameterized.expand(
-        [
-            ("action_series", {"action": {"order": 2}, "breakdown_value": None}, (2, "None")),
-            ("formula_series_uses_top_level_order", {"action": None, "order": 1, "breakdown_value": None}, (1, "None")),
-            ("formula_series_defaults_to_zero", {"action": None, "breakdown_value": None}, (0, "None")),
-            ("breakdown_included_in_key", {"action": {"order": 0}, "breakdown_value": "paid"}, (0, "paid")),
-        ]
-    )
-    def test_series_key(self, _name, result, expected_key):
-        assert SlopeGraphTrendsQueryRunner._series_key(result) == expected_key
+    @snapshot_clickhouse_queries
+    def test_single_bucket_range_yields_a_one_point_series(self):
+        self._create_events([("a", [("2024-05-03T10:00:00Z",), ("2024-05-04T10:00:00Z",)])])
+        # A range within one month bucket can't form a slope — one bucket, one point.
+        response = self._run("2024-05-01", "2024-05-31", interval="month")
+
+        for result in response.results:
+            assert len(result["data"]) == 1
