@@ -185,6 +185,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "QueryTimeoutException": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
+            # getaddrinfo EAI_NODATA — the host resolves in DNS but has no address record.
+            # Same class as "could not translate host name" / "Name or service not known"
+            # (EAI_NONAME); the customer's configured DB host doesn't resolve to an IP, so
+            # retrying can't help.
+            "No address associated with hostname": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
             "Connection refused": None,
