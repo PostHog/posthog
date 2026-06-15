@@ -101,9 +101,9 @@ export const getEnvironmentsEvaluationContextSuggestionsCreateUrl = (projectId: 
 
 /**
  * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
-
-POST hides the name; DELETE restores it. The underlying context row and any flags already
-using it are never modified — this only controls what gets suggested.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
  */
 export const environmentsEvaluationContextSuggestionsCreate = async (
     projectId: string,
@@ -131,7 +131,7 @@ export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -144,9 +144,9 @@ export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
 
 /**
  * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
-
-POST hides the name; DELETE restores it. The underlying context row and any flags already
-using it are never modified — this only controls what gets suggested.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
  */
 export const environmentsEvaluationContextSuggestionsDestroy = async (
     projectId: string,
