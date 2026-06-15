@@ -524,12 +524,23 @@ class UserAccessControl:
 
             filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
 
+        self._preload_filter_groups(filter_groups)
+
+    def _preload_filter_groups(self, filter_groups: list[dict]) -> None:
+        """Fill self._cache for these filter groups. When every group is team-scoped they're served
+        from the single bulk preload (_cached_access_controls) in memory - no extra query; otherwise
+        a targeted OR-combined query is issued for them."""
+        if not filter_groups:
+            return
+
+        if all(self._can_serve_from_preload(filters) for filters in filter_groups):
+            self._fill_filters_cache(filter_groups, self._cached_access_controls)
+            return
+
         q = Q()
         for filters in filter_groups:
             q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-        self._fill_filters_cache(filter_groups, access_controls)
+        self._fill_filters_cache(filter_groups, list(AccessControl.objects.filter(q)))
 
     def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
         """
@@ -552,12 +563,7 @@ class UserAccessControl:
         else:
             filter_groups.append(self._access_controls_filters_for_queryset(resource))
 
-        q = Q()
-        for filters in filter_groups:
-            q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-        self._fill_filters_cache(filter_groups, access_controls)
+        self._preload_filter_groups(filter_groups)
 
     # ------------------------------------------------------------
     # Object level - checking conditions for specific items
