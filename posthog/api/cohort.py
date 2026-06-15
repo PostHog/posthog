@@ -530,7 +530,7 @@ COHORT_SAVE_ADVISORY_LOCK_WAIT = Histogram(
 
 def _acquire_cohort_save_lock(project_id: int) -> None:
     """Serialize cohort saves per project, closing the TOCTOU where two concurrent saves each pass
-    `will_create_loops` and together form a cycle. Transaction-scoped; must run inside `transaction.atomic()`.
+    `will_create_loops_in_memory` and together form a cycle. Transaction-scoped; must run inside `transaction.atomic()`.
     """
     started = time.monotonic()
     with connection.cursor() as cursor:
@@ -735,10 +735,7 @@ class CohortSerializer(serializers.ModelSerializer):
             project_id = self._project_id()
             _acquire_cohort_save_lock(project_id)
             cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
-            cohorts_by_id = {c.pk: c for c in Cohort.objects.filter(team__project_id=project_id)}
-            cohorts_by_id[cohort.pk] = cohort
-            if will_create_loops_in_memory(cohort, cohorts_by_id):
-                raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
+            _ensure_no_cohort_loops(cohort, project_id)
 
         if cohort.is_static:
             if (
@@ -1254,12 +1251,7 @@ class CohortSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             project_id = cohort.team.project_id
             _acquire_cohort_save_lock(project_id)
-            cohorts_by_id = {c.pk: c for c in Cohort.objects.filter(team__project_id=project_id)}
-            # cohort.save() runs below, so the prefetched row is stale — overlay the in-memory
-            # instance (which already carries its new filters) so the new edges are walked.
-            cohorts_by_id[cohort.pk] = cohort
-            if will_create_loops_in_memory(cohort, cohorts_by_id):
-                raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
+            _ensure_no_cohort_loops(cohort, project_id)
             cohort.save()
 
         if not deleted_state:
@@ -1891,48 +1883,34 @@ class LegacyCohortViewSet(CohortViewSet):
     param_derived_from_user_current_team = "team_id"
 
 
-def will_create_loops(cohort: Cohort) -> bool:
-    # Loops can only be formed when trying to update a Cohort, not when creating one
-    project_id = cohort.team.project_id
-
-    # We can model this as a directed graph, where each node is a Cohort and each edge is a reference to another Cohort
-    # There's a loop only if there's a cycle in the directed graph. The "directed" bit is important.
-    # For example, if Cohort A exists, and Cohort B references Cohort A, and Cohort C references both Cohort A & B
-    # then, there's no cycle, because we can compute cohort A, using which we can compute cohort B, using which we can compute cohort C.
-
-    # However, if cohort A depended on Cohort C, then we'd have a cycle, because we can't compute Cohort A without computing Cohort C, and on & on.
-
-    # For a good explainer of this algorithm, see: https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
-
-    def dfs_loop_helper(current_cohort: Cohort, seen_cohorts, cohorts_on_path):
-        seen_cohorts.add(current_cohort.pk)
-        cohorts_on_path.add(current_cohort.pk)
-
-        for property in current_cohort.properties.flat:
-            if property.type == "cohort":
-                if property.value in cohorts_on_path:
-                    return True
-                elif property.value not in seen_cohorts:
-                    try:
-                        nested_cohort = Cohort.objects.get(
-                            pk=cast(str | int, property.value), team__project_id=project_id
-                        )
-                    except Cohort.DoesNotExist:
-                        raise ValidationError("Invalid Cohort ID in filter")
-
-                    if dfs_loop_helper(nested_cohort, seen_cohorts, cohorts_on_path):
-                        return True
-
-        cohorts_on_path.remove(current_cohort.pk)
-        return False
-
-    return dfs_loop_helper(cohort, set(), set())
+def _ensure_no_cohort_loops(cohort: Cohort, project_id: int) -> None:
+    # Only cohorts that reference other cohorts can form a loop; skip the project-wide
+    # fetch (and the lock-held round-trip) for the common no-cohort-leaf save.
+    if not any(p.type == "cohort" for p in cohort.properties.flat):
+        return
+    # will_create_loops_in_memory reads only .pk and .properties (derived from filters/groups).
+    cohorts_by_id = {
+        c.pk: c for c in Cohort.objects.filter(team__project_id=project_id).only("id", "filters", "groups")
+    }
+    cohorts_by_id[cohort.pk] = cohort  # overlay the in-memory instance: its new edges must be walked
+    if will_create_loops_in_memory(cohort, cohorts_by_id):
+        raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
 
 def will_create_loops_in_memory(cohort: Cohort, cohorts_by_id: dict[int, Cohort]) -> bool:
-    """In-memory variant of will_create_loops: walks the cohort reference graph without per-node DB
-    round-trips. `cohorts_by_id` must hold every cohort in the project, overlaid with the cohort
-    being saved so its new edges are walked."""
+    """Walk the cohort reference graph in memory to detect whether saving `cohort` would create a
+    cycle, without per-node DB round-trips. `cohorts_by_id` must hold every cohort in the project,
+    overlaid with the cohort being saved so its new edges are walked.
+
+    The references form a directed graph: each node is a Cohort and each edge is a reference to
+    another Cohort. A loop exists only if that directed graph has a cycle — the "directed" bit is
+    important. For example, if Cohort A exists, Cohort B references A, and Cohort C references both A
+    and B, there is no cycle: we can compute A, then B, then C. But if A also depended on C, we'd
+    have a cycle, because A can't be computed without C and vice versa.
+
+    For a good explainer of this cycle-detection algorithm, see:
+    https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
+    """
 
     def dfs_loop_helper(current: Cohort, seen: set[int], on_path: set[int]) -> bool:
         seen.add(current.pk)
