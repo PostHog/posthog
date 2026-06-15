@@ -14,6 +14,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -284,6 +285,11 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
         on_task_run_created=_create_bridge_row,
+        # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
+        # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
+        # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
+        # ceiling and would let the activity die before salvage could return the written summary.
+        max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
     )
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a

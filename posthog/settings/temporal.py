@@ -123,6 +123,11 @@ EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
+# Error tracking
+ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(os.getenv("ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS", "")) if team_id
+]
+
 # Signals inbox notification: how long to wait for an auto-started implementation PR before
 # notifying anyway, and how often to poll for it.
 SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS: int = get_from_env(
@@ -131,3 +136,6 @@ SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS: int = get_from_env(
 SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
     "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
 )
+
+# Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
+EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")
