@@ -1,7 +1,7 @@
 import os
 import re
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils.timezone import now
 
 CORE_MIGRATION_PATH = "posthog/clickhouse/migrations"
@@ -25,6 +25,8 @@ class Command(BaseCommand):
         product = options["product"]
 
         path = f"products/{product}/backend/clickhouse/migrations" if product else CORE_MIGRATION_PATH
+        if not os.path.isdir(path):
+            raise CommandError(f"Migration directory does not exist: {path}")
 
         # default to auto syntax
         if not name:
