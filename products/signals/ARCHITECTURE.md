@@ -1011,6 +1011,31 @@ Both `report` and `task` FKs cascade on delete — deleting a report or task cle
 
 Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.
 
+### Resetting autonomy state for local re-testing
+
+The product-autonomy wizard (`npx @posthog/wizard … autonomy`) enables signal sources, materializes and enables the scout fleet, and creates custom `signals-scout-*` skills for the project. To re-test a run from a clean slate without manually undoing each change, use the dev-only `reset_signals_autonomy` command (the practical inverse of `enable_signals_autonomy`; `DEBUG`-gated like `cleanup_signals`):
+
+```text
+python manage.py reset_signals_autonomy --team-id 1 --yes \
+    --install-dir /path/to/your/test/project
+```
+
+For a fresh team the signals config tables are empty, so the reset **deletes** rather than disables — the next wizard run's `sync` call re-creates the canonical fleet (enabled) exactly as it would for a brand-new team. (Disabling instead would leave the fleet off on the next run, since the wizard's scout step only _disables_ misfits and relies on the fresh default being enabled.)
+
+Cleared for the team:
+
+| What               | Tables / artifacts                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Signal sources     | `SignalSourceConfig` (all rows)                                                                                                                                                                                                                         |
+| Scout fleet config | `SignalScoutConfig` (all rows)                                                                                                                                                                                                                          |
+| Custom scouts      | `LLMSkill` rows whose `name` starts `signals-scout-` and are **not** seeded — i.e. not in the set of names carrying `metadata.seeded_by == "signals_scout_harness"` (covers the common case where the key is absent entirely) (cascades `LLMSkillFile`) |
+| Scout run-state    | `SignalScratchpad`, `SignalProjectProfile`, `SignalScoutRun`, `SignalEmissionRecord`                                                                                                                                                                    |
+| Emitted findings   | `SignalReport` + artefacts + ClickHouse rows + Temporal workflows (delegates to `cleanup_signals`; skip with `--keep-findings`)                                                                                                                         |
+| Wizard report      | `<install-dir>/posthog-product-autonomy-report.md` (only if `--install-dir` is given)                                                                                                                                                                   |
+| Wizard log         | `/tmp/posthog-wizard.log` → backed up to `/tmp/posthog-wizard-previous-<timestamp>.log` then removed (override `--wizard-log`, skip `--keep-log`)                                                                                                       |
+
+Preserved: canonical scouts and the `authoring-signals-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"` — the only reliable canonical-vs-custom discriminator. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard), and the `llm_analytics` source is always enabled in code regardless of its config row.
+
 ---
 
 ## Data Types (`backend/temporal/types.py`)
@@ -1115,6 +1140,7 @@ products/signals/
 │   │       ├── list_signal_reports.py
 │   │       ├── parse_sandbox_log.py
 │   │       ├── reingest_team_signals.py   # Starts TeamSignalReingestionWorkflow for a team
+│   │       ├── reset_signals_autonomy.py  # Dev-only: undo a product-autonomy wizard run (configs, custom scouts, run-state)
 │   │       ├── run_signals_scout.py       # One-shot scout run; bypasses the coordinator
 │   │       ├── select_repo.py
 │   │       ├── signal_pipeline_status.py
