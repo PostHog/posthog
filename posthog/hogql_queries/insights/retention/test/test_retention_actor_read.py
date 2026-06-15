@@ -134,6 +134,8 @@ class TestRetentionActorReadParity(ClickhouseTestMixin, APIBaseTest):
             ("test_accounts", {"filterTestAccounts": True}, {}),
             ("property_filter", {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}, {}),
             ("min_occurrences", {}, {"minimumOccurrences": 2}),
+            ("24h_window", {}, {"timeWindowMode": "24_hour_windows"}),
+            ("custom_bracket", {}, {"retentionCustomBrackets": [7, 2]}),
         ]
     )
     def test_gate_falls_back_for_unsupported_shapes(
