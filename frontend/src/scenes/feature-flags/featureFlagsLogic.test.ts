@@ -5,8 +5,10 @@ import api from 'lib/api'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
+    FeatureFlagsFilters,
     FeatureFlagsTab,
     featureFlagsLogic,
+    flagMatchesFilters,
     flagMatchesSearch,
     flagMatchesStatus,
     flagMatchesType,
@@ -153,6 +155,48 @@ describe('flagMatchesType', () => {
         ['remote_config', 'remote_config', true],
     ])('%s with type=%p → %p', (flagKey, type, expected) => {
         expect(flagMatchesType(flags[flagKey], type)).toBe(expected)
+    })
+})
+
+describe('flagMatchesFilters', () => {
+    const base = { ...NEW_FLAG, id: 1, key: 'test', active: true } as FeatureFlagType
+
+    describe('archived filter', () => {
+        const liveFlag = { ...base, archived: false } as FeatureFlagType
+        const archivedFlag = { ...base, archived: true } as FeatureFlagType
+
+        it.each<[string, FeatureFlagType, Partial<FeatureFlagsFilters>, boolean]>([
+            ['hides archived by default', archivedFlag, {}, false],
+            ['shows live flags by default', liveFlag, {}, true],
+            ['shows archived when archived=true', archivedFlag, { archived: 'true' }, true],
+            ['hides live when archived=true', liveFlag, { archived: 'true' }, false],
+        ])('%s', (_label, flag, filters, expected) => {
+            expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
+        })
+    })
+
+    describe('excluded_tags filter', () => {
+        const flagWithTag = { ...base, archived: false, tags: ['beta', 'internal'] } as FeatureFlagType
+        const flagWithoutTag = { ...base, archived: false, tags: ['beta'] } as FeatureFlagType
+
+        it.each<[string, FeatureFlagType, Partial<FeatureFlagsFilters>, boolean]>([
+            ['excludes a flag whose tag matches excluded_tags', flagWithTag, { excluded_tags: ['internal'] }, false],
+            [
+                'keeps a flag whose tags do not match excluded_tags',
+                flagWithoutTag,
+                { excluded_tags: ['internal'] },
+                true,
+            ],
+            ['keeps a flag when excluded_tags is empty', flagWithTag, { excluded_tags: [] }, true],
+            [
+                'excluded_tags wins over tags when both match',
+                flagWithTag,
+                { tags: ['beta'], excluded_tags: ['beta'] },
+                false,
+            ],
+        ])('%s', (_label, flag, filters, expected) => {
+            expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
+        })
     })
 })
 

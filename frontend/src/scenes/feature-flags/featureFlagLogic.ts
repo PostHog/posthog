@@ -1449,6 +1449,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
+                // Shares the featureFlagActiveUpdate loader key (and its loading/success state)
                 updateFeatureFlagArchived: async (archived: boolean) => {
                     if (!values.featureFlag.id) {
                         throw new Error('Cannot archive an unsaved flag')

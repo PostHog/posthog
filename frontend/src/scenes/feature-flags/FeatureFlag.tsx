@@ -110,6 +110,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         activeTab,
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
+        featureFlagActiveUpdateLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -352,7 +353,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {({ disabledReason }) => (
                                     <ButtonPrimitive
                                         menuItem
-                                        disabled={!!disabledReason}
+                                        disabled={!!disabledReason || featureFlagActiveUpdateLoading}
                                         {...(disabledReason && { tooltip: disabledReason })}
                                         data-attr={
                                             featureFlag.archived ? 'unarchive-feature-flag' : 'archive-feature-flag'
@@ -433,7 +434,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             type="warning"
                             action={
                                 featureFlag.can_edit
-                                    ? { children: 'Unarchive', onClick: () => updateFeatureFlagArchived(false) }
+                                    ? {
+                                          children: 'Unarchive',
+                                          onClick: () => updateFeatureFlagArchived(false),
+                                          disabledReason: featureFlagActiveUpdateLoading ? 'Updating…' : undefined,
+                                      }
                                     : undefined
                             }
                         >
