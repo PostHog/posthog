@@ -10,12 +10,14 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.convex.convex import (
     ConvexResumeConfig,
     InvalidDeployUrlError,
+    InvalidWindowError,
     convex_source,
     document_deltas,
     list_snapshot,
     validate_credentials,
     validate_deploy_url,
 )
+from posthog.temporal.data_imports.sources.convex.source import ConvexSource
 
 
 def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
@@ -262,3 +264,51 @@ class TestConvexSource:
         first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         for key, value in expected_first_params.items():
             assert first_params[key] == value
+
+
+class TestConvexNonRetryableErrors:
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_invalid_window_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
+        # The activity-level non-retryable check compares its keys against `str(exception)`, which is
+        # the message only — not the class name. Drive document_deltas to raise the real error and
+        # assert the produced message matches a configured non-retryable key.
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.return_value = _make_response(
+            {
+                "code": "InvalidWindowToReadDocuments",
+                "message": "Trying to synchronize from a timestamp older than the retention window.",
+            },
+            status_code=400,
+        )
+
+        with pytest.raises(InvalidWindowError) as exc_info:
+            list(document_deltas("https://x.convex.cloud", "key", "email_unsubscribes", 10, manager))
+
+        error_msg = str(exc_info.value)
+        non_retryable_errors = ConvexSource().get_non_retryable_errors()
+        assert any(key in error_msg for key in non_retryable_errors), error_msg
+
+    @parameterized.expand(
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
+            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            (
+                "invalid_window",
+                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
+                "Please trigger a full resync of this source.",
+            ),
+        ]
+    )
+    def test_known_errors_match(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = ConvexSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error for url: https://x.convex.cloud/api/document_deltas"),
+            ("read_timeout", "HTTPSConnectionPool(host='x.convex.cloud', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_do_not_match(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = ConvexSource().get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
