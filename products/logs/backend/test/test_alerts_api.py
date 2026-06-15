@@ -1992,16 +1992,16 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
 
     # --- events action (GET detail, requires logs:read) ---
 
-    def test_events_action_allowed_with_logs_read_scope(self):
-        key = self._make_key(["logs:read"])
+    @parameterized.expand(
+        [
+            ("logs_read", ["logs:read"]),
+            ("logs_write", ["logs:write"]),
+        ]
+    )
+    def test_events_action_allowed(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
         # Target a non-existent UUID so the action body doesn't run; a 404
         # proves the scope gate was passed (403 = gate rejected the key).
-        url = f"{self.base_url}{uuid4()}/events/"
-        response = self.client.get(url, **self._auth(key))
-        assert response.status_code != 403, response.json()
-
-    def test_events_action_allowed_with_logs_write_scope(self):
-        key = self._make_key(["logs:write"])
         url = f"{self.base_url}{uuid4()}/events/"
         response = self.client.get(url, **self._auth(key))
         assert response.status_code != 403, response.json()
@@ -2020,16 +2020,16 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
 
     # --- simulate action (POST non-detail, requires logs:read) ---
 
-    def test_simulate_action_allowed_with_logs_read_scope(self):
-        key = self._make_key(["logs:read"])
+    @parameterized.expand(
+        [
+            ("logs_read", ["logs:read"]),
+            ("logs_write", ["logs:write"]),
+        ]
+    )
+    def test_simulate_action_allowed(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
         url = f"{self.base_url}simulate/"
         # Empty body triggers 400 from serializer validation — proves scope gate passed.
-        response = self.client.post(url, {}, format="json", **self._auth(key))
-        assert response.status_code != 403, response.json()
-
-    def test_simulate_action_allowed_with_logs_write_scope(self):
-        key = self._make_key(["logs:write"])
-        url = f"{self.base_url}simulate/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code != 403, response.json()
 

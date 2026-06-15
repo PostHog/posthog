@@ -8,6 +8,7 @@ from rest_framework import serializers, status
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -601,6 +602,82 @@ class TestScheduledChange(APIBaseTest):
         assert scheduled_change.scheduled_at == original_scheduled_at, (
             f"scheduled_at changed to {scheduled_change.scheduled_at} (status={response.status_code})"
         )
+
+    @parameterized.expand(
+        [
+            ("denied_without_permission", False, status.HTTP_403_FORBIDDEN, True),
+            ("allowed_with_permission", True, status.HTTP_204_NO_CONTENT, False),
+        ]
+    )
+    def test_destroy_respects_feature_flag_edit_permission(
+        self, _name, has_permission, expected_status, should_still_exist
+    ):
+        """DELETE must enforce CanEditFeatureFlag, matching the create/update checks."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key=f"destroy-flag-{_name}", name="Destroy Flag"
+        )
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=has_permission,
+        ):
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+            )
+
+        assert response.status_code == expected_status, getattr(response, "data", response)
+        assert ScheduledChange.objects.filter(id=scheduled_change.id).exists() is should_still_exist
+
+    def test_reads_exclude_schedules_for_flags_the_caller_cannot_read(self):
+        """List/retrieve must hide schedules whose target flag the caller has no read access to."""
+        readable_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="readable-flag", name="Readable Flag"
+        )
+        restricted_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="restricted-flag", name="Restricted Flag"
+        )
+        readable_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=readable_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+        restricted_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=restricted_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        def fake_filter(_self, queryset, include_all_if_admin=False):
+            # Only the feature flag access query is restricted; leave other querysets untouched.
+            if queryset.model is FeatureFlag:
+                return queryset.exclude(id=restricted_flag.id)
+            return queryset
+
+        with patch.object(UserAccessControl, "filter_queryset_by_access_level", new=fake_filter):
+            list_response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/")
+            retrieve_response = self.client.get(
+                f"/api/projects/{self.team.id}/scheduled_changes/{restricted_change.id}/"
+            )
+
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        assert readable_change.id in listed_ids
+        assert restricted_change.id not in listed_ids
+        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
 
 class TestScheduledChangePersonalAPIKey(APIBaseTest):
