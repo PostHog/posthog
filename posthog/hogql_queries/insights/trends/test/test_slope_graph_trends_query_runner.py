@@ -13,6 +13,9 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -218,3 +221,102 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = response.results[0]
         # Formula A*2 over the two end buckets: May 1 has 1 event -> 2, May 10 has 2 -> 4.
         assert result["data"] == [2, 4]
+
+    @snapshot_clickhouse_queries
+    def test_monthly_active_math_keeps_its_trailing_window(self):
+        # monthly_active is a 30-day trailing window; like weekly_active it must skip the scan restriction.
+        self._create_events([("u", [("2024-04-20T10:00:00Z",)])])
+        response = self._run(
+            "2024-04-01",
+            "2024-05-13",
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="monthly_active")],
+        )
+
+        result = response.results[0]
+        # Apr 1: nobody in its trailing 30 days -> 0. May 13: Apr 20 is within its window -> 1.
+        assert result["data"] == [0, 1]
+
+    @snapshot_clickhouse_queries
+    def test_hour_interval_first_and_last_hour(self):
+        self._create_events(
+            [
+                ("first_hour", [("2024-06-14T00:15:00Z",)]),
+                ("middle_hour", [("2024-06-14T02:15:00Z",)]),
+                ("last_hour", [("2024-06-14T04:15:00Z",)]),
+            ]
+        )
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-06-14T00:00:00Z", date_to="2024-06-14T04:30:00Z"),
+            interval="hour",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH),
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="total")],
+        )
+        response = SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        result = response.results[0]
+        # First hour (00:00) and last hour (04:00) each keep their event; the 02:00 hour is sliced off.
+        assert result["data"] == [1, 1]
+
+    @snapshot_clickhouse_queries
+    def test_non_utc_team_timezone(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        # 20:00 UTC is ~13:00 the same calendar day in Pacific, so these land on May 1 and May 10 PT.
+        self._create_events(
+            [
+                ("first", [("2024-05-01T20:00:00Z",)]),
+                ("middle", [("2024-05-05T20:00:00Z",)]),
+                ("last", [("2024-05-10T20:00:00Z",)]),
+            ]
+        )
+        response = self._run("2024-05-01", "2024-05-10")
+
+        result = response.results[0]
+        # The scan filter aligns to the team's timezone, so the first and last Pacific days are kept.
+        assert result["data"] == [1, 1]
+
+    @snapshot_clickhouse_queries
+    def test_relative_date_range(self):
+        # "now" is frozen at 2024-06-15, so the last 7 days span 2024-06-08..2024-06-15.
+        self._create_events(
+            [
+                ("first", [("2024-06-08T10:00:00Z",)]),
+                ("middle", [("2024-06-11T10:00:00Z",)]),
+                ("last", [("2024-06-15T10:00:00Z",)]),
+            ]
+        )
+        response = self._run("-7d", None)
+
+        result = response.results[0]
+        assert result["data"] == [1, 1]
+
+    @snapshot_clickhouse_queries
+    def test_preserves_a_property_group_filter(self):
+        self._create_events(
+            [
+                ("paid_first", [("2024-05-01T10:00:00Z", {"plan": "paid"})]),
+                ("free_first", [("2024-05-01T11:00:00Z", {"plan": "free"})]),
+                ("paid_last", [("2024-05-10T10:00:00Z", {"plan": "paid"})]),
+            ]
+        )
+        group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[EventPropertyFilter(key="plan", value=["paid"], operator=PropertyOperator.EXACT)],
+                )
+            ],
+        )
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-05-01", date_to="2024-05-10"),
+            interval="day",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH),
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="total")],
+            properties=group,
+        )
+        response = SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        result = response.results[0]
+        # The group's "plan = paid" survives the bucket restriction, so the free event is excluded.
+        assert result["data"] == [1, 1]
