@@ -29,8 +29,12 @@ def test_deepcopy_preserves_resolved_type_cycle():
 
     clone = copy.deepcopy(node)
 
-    assert clone.type is not field_type
-    assert clone.type.table_type.columns["x"] is clone.type
+    cloned_type = clone.type
+    assert isinstance(cloned_type, ast.FieldType)
+    assert cloned_type is not field_type
+    cloned_table_type = cloned_type.table_type
+    assert isinstance(cloned_table_type, ast.SelectQueryType)
+    assert cloned_table_type.columns["x"] is cloned_type
 
 
 def test_deepcopy_handles_self_referential_container_value():
@@ -64,8 +68,11 @@ def test_deepcopy_clears_nothing_and_matches_structure():
     assert isinstance(clone, ast.And)
     assert clone is not node
     assert clone.exprs[0] is not node.exprs[0]
-    assert clone.exprs[0].op == ast.CompareOperationOp.Eq
-    assert clone.exprs[1].value is True
+    first, second = clone.exprs[0], clone.exprs[1]
+    assert isinstance(first, ast.CompareOperation)
+    assert first.op == ast.CompareOperationOp.Eq
+    assert isinstance(second, ast.Constant)
+    assert second.value is True
 
 
 def test_deepcopy_returns_ast_subclass_instance():
