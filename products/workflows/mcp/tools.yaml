@@ -237,8 +237,8 @@ tools:
             nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result
             fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise
             nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned,
-            so you don't need to re-fetch before the next edit. conditional_branch conditions must wrap their
-            conditions in a 'filters' key — {conditions: [{filters: {properties: [<cond>], ...}}]}, same shape as
+            so you don't need to re-fetch before the next edit. conditional_branch conditions must wrap their conditions
+            in a 'filters' key — {conditions: [{filters: {properties: [<cond>], ...}}]}, same shape as
             trigger.config.filters; a bare {properties: [...]} saves but compiles to always-false and errors in the UI.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
