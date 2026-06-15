@@ -763,18 +763,18 @@ class SessionRecordingPlaylistViewSet(
             queryset = queryset.filter(deleted=False)
             queryset = self._filter_request(self.request, queryset)
 
+        # Append a unique "id" tiebreaker: LIMIT/OFFSET needs a total order, or rows with
+        # an equal name/timestamp can be skipped or repeated across pages — including when
+        # a user collection shares a name with a synthetic.
         order = resolve_playlist_order(self.request)
         if order.lstrip("-") == "name":
             # Case-insensitive so the DB order matches _synthetic_global_ranks;
             # otherwise the rank-derived offsets skip/duplicate items.
             name_order = playlist_name_sort_expression()
-            primary = name_order.desc() if order.startswith("-") else name_order.asc()
+            name_ordered = name_order.desc() if order.startswith("-") else name_order.asc()
+            queryset = queryset.order_by(name_ordered, "id")
         else:
-            primary = order
-        # Append a unique tiebreaker: LIMIT/OFFSET needs a total order, or rows with an
-        # equal name/timestamp can be skipped or repeated across pages — including when a
-        # user collection shares a name with a synthetic.
-        queryset = queryset.order_by(primary, "id")
+            queryset = queryset.order_by(order, "id")
 
         return queryset
 
