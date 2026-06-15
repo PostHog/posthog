@@ -1719,6 +1719,8 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** @asType integer */
@@ -6733,6 +6735,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
     ERROR_TRACKING = 'error_tracking',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
@@ -6763,6 +6766,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
+    SKILLS = 'skills',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',

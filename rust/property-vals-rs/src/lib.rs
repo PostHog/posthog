@@ -5,4 +5,5 @@ pub mod metrics_consts;
 pub mod producer;
 pub mod seen_cache;
 pub mod types;
+pub mod wire;
 pub mod worker;

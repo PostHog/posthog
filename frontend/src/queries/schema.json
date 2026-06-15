@@ -21879,6 +21879,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -29676,6 +29680,7 @@
                 "data_warehouse_saved_queries",
                 "early_access_features",
                 "endpoints",
+                "engineering_analytics",
                 "error_tracking",
                 "experiments",
                 "feature_flags",
@@ -29706,6 +29711,7 @@
                 "session_replay",
                 "replay_vision",
                 "site_apps",
+                "skills",
                 "subscriptions",
                 "streamlit_apps",
                 "surveys",
