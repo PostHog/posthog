@@ -17,6 +17,7 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
+import { ScanSessionButton } from './ScanSessionButton'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -92,9 +93,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         availableTags,
         observationStats,
         scanner,
+        triggeringOnDemandObservation,
+        refreshing,
     } = useValues(logic)
     const {
-        loadObservations,
+        refreshObservations,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -197,6 +200,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 </p>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
+                        <ScanSessionButton scannerId={scannerId} />
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
                                 <FilterPill<ObservationStatusValue>
@@ -245,10 +249,12 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 size="small"
                                 type="secondary"
                                 icon={<IconRefresh />}
-                                onClick={() => loadObservations()}
-                                loading={observationsLoading}
+                                onClick={() => refreshObservations()}
+                                loading={refreshing}
                                 data-attr="vision-observations-refresh"
-                            />
+                            >
+                                Refresh
+                            </LemonButton>
                         </Tooltip>
                     </div>
                     {observationStats.total > 0 && (
@@ -277,7 +283,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={observationsLoading}
+                loading={
+                    refreshing || triggeringOnDemandObservation || (observationsLoading && observations.length === 0)
+                }
                 rowKey="id"
                 pagination={{
                     controlled: true,

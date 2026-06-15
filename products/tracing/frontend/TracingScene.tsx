@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,10 +14,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
+import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
-import { TraceFlameChart } from './TraceFlameChart'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
@@ -50,10 +49,12 @@ function TracingSceneContents(): JSX.Element {
         spansLoading,
         isTraceOpen,
         selectedTraceId,
+        selectedSpanId,
+        selectedTraceTs,
         sparklineData,
         sparklineLoading,
         totalSpansMatchingFilters,
-        modalSpans,
+        openTraceSpans,
         isLoadingFullTrace,
         aggregation,
         aggregationLoading,
@@ -74,6 +75,7 @@ function TracingSceneContents(): JSX.Element {
     const {
         openTrace,
         closeTrace,
+        selectSpan,
         setDateRange,
         setOverlayWindows,
         openCompareFlame,
@@ -169,14 +171,12 @@ function TracingSceneContents(): JSX.Element {
                     </div>
                 )}
                 {compareMode ? (
-                    <div className="flex flex-col flex-1 min-h-0 overflow-auto">
-                        <TraceCompareTable
-                            current={aggregation.current}
-                            previous={aggregation.previous}
-                            loading={aggregationLoading}
-                            onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
-                        />
-                    </div>
+                    <TraceCompareTable
+                        current={aggregation.current}
+                        previous={aggregation.previous}
+                        loading={aggregationLoading}
+                        onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                    />
                 ) : (
                     <VirtualizedSpanList
                         dataSource={rootSpans}
@@ -208,23 +208,21 @@ function TracingSceneContents(): JSX.Element {
                             // element; react-modal then scrolls it back into view when restoring focus
                             // on close. Blur so the restore target is <body>, which doesn't scroll.
                             ;(document.activeElement as HTMLElement | null)?.blur?.()
-                            openTrace(span.trace_id)
+                            openTrace(span.trace_id, { ts: span.timestamp })
                         }}
                     />
                 )}
             </TracingSetupPrompt>
-            <LemonModal
-                title="Trace waterfall"
-                description={selectedTraceId ? `Trace ${selectedTraceId}` : undefined}
+            <TraceDrawer
                 isOpen={isTraceOpen}
+                traceId={selectedTraceId}
+                ts={selectedTraceTs}
+                spans={openTraceSpans}
+                loading={isLoadingFullTrace}
+                selectedSpanId={selectedSpanId}
+                onSelectSpan={selectSpan}
                 onClose={closeTrace}
-                width="90vw"
-            >
-                <div className="relative min-h-32">
-                    {isLoadingFullTrace && <SpinnerOverlay />}
-                    <TraceFlameChart spans={modalSpans} />
-                </div>
-            </LemonModal>
+            />
             <LemonModal
                 title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
                 isOpen={compareFlameSpanName !== null}

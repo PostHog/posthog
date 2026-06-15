@@ -22,11 +22,24 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { isObject } from '~/lib/utils'
-import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import {
+    AgentMode,
+    AssistantTool,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    TaskExecutionStatus,
+} from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
-import { EnhancedToolCall } from './Thread'
+
+export interface EnhancedToolCall extends AssistantToolCall {
+    status: TaskExecutionStatus
+    isLastPlanningMessage?: boolean
+    updates?: string[]
+    /** The tool call result message, if available */
+    result?: AssistantToolCallMessage
+}
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
@@ -134,6 +147,7 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
     'list_data',
+    'list_feature_flags',
     'search',
     'switch_mode',
     'list_llm_skills',
@@ -499,6 +513,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return `Listing ${entityLabel}${pageInfo}...`
         },
     },
+    list_feature_flags: {
+        name: 'List feature flags',
+        description: 'List feature flags with their status, filterable by stale/enabled/disabled',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const status = typeof toolCall.args?.status === 'string' ? toolCall.args.status : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+            const label = status ? `${status} feature flags` : 'feature flags'
+            return toolCall.status === 'completed' ? `Listed ${label}${pageInfo}` : `Listing ${label}${pageInfo}...`
+        },
+    },
     create_insight: {
         name: 'Create an insight or edit an existing one',
         description: "Create an insight or edit an existing one you're viewing",
@@ -738,6 +764,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Drafted scanner prompt'
             }
             return 'Drafting scanner prompt...'
+        },
+    },
+    search_replay_vision_observations: {
+        name: 'Search observations',
+        description: "Search observations by the meaning of a Replay Vision scanner's model reasoning",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched observations'
+            }
+            return 'Searching observations...'
         },
     },
     create_survey: {

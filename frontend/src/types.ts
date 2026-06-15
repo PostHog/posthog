@@ -247,6 +247,7 @@ export enum Realm {
 export enum Region {
     US = 'US',
     EU = 'EU',
+    DEV = 'DEV',
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
@@ -294,6 +295,7 @@ export enum AccessControlResourceType {
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -710,6 +712,7 @@ export interface ConversationsSettings {
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -1927,6 +1930,8 @@ export interface SessionRecordingType {
     summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
+    /** False when the recording was included in list results via a direct link despite not matching the filters. */
+    matches_filters?: boolean
 }
 
 export interface SessionRecordingUpdateType {
@@ -3900,6 +3905,8 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
         }
     > | null
 }
@@ -3975,6 +3982,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -4389,6 +4398,7 @@ export interface PreflightStatus {
     is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
+    anthropic_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -5256,15 +5266,21 @@ export enum SlackIntegrationScope {
     TEAM_READ = 'team:read',
     USERS_READ = 'users:read',
     USERS_READ_EMAIL = 'users:read.email',
-    // Pending Slack app-directory submission review — uncomment once approved. Until then we cannot
-    // request these in the OAuth install URL without Slack returning `invalid_scope`. Keeping the
-    // entries here so the next person widening the scope set has the full target list in one place.
-    // ASSISTANT_WRITE = 'assistant:write',
-    // IM_HISTORY = 'im:history',
-    // MPIM_READ = 'mpim:read',
 }
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
+
+// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
+// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
+// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
+// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
+export enum SlackIntegrationScopeInReview {
+    ASSISTANT_WRITE = 'assistant:write',
+    IM_HISTORY = 'im:history',
+    MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export interface IntegrationType {
     id: number
@@ -5521,6 +5537,7 @@ export type APIScopeObject =
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'field_note'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5693,6 +5710,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
@@ -6160,6 +6178,42 @@ export type BatchExportServiceS3 = {
     }
 }
 
+export type BatchExportServiceAwsS3 = {
+    type: 'AwsS3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
+export type BatchExportServiceS3Compatible = {
+    type: 'S3Compatible'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        endpoint_url: string
+        use_virtual_style_addressing: boolean
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
 export type BatchExportServicePostgres = {
     type: 'Postgres'
     config: {
@@ -6281,7 +6335,11 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
+    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
     'S3',
+    'AwsS3',
+    'S3Compatible',
     'Snowflake',
     'Postgres',
     'BigQuery',
@@ -6292,6 +6350,8 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
 ]
 export type BatchExportService =
     | BatchExportServiceS3
+    | BatchExportServiceAwsS3
+    | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
     | BatchExportServicePostgres
     | BatchExportServiceBigQuery

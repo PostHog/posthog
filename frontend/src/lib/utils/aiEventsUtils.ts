@@ -8,6 +8,12 @@ import { isDefinitionStale } from './definitions'
 
 export const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
 
+// Use a longer staleness window than the global default so orgs that ingested AI events
+// in the past, paused, and have since resumed still land on the dashboard rather than the
+// onboarding screen.
+const AI_STALE_EVENT_DAYS = 90
+const AI_STALE_EVENT_SECONDS = AI_STALE_EVENT_DAYS * 24 * 60 * 60
+
 /**
  * Checks if the team has sent any AI events.
  *
@@ -23,7 +29,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     })
 
     const validDefinition = aiEventDefinitions.results.find(
-        (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r)
+        (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r, AI_STALE_EVENT_SECONDS)
     )
 
     if (validDefinition) {
@@ -34,7 +40,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     const response = await api.query<HogQLQuery>(
         {
             kind: NodeKind.HogQLQuery,
-            query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 3 HOUR LIMIT 1`,
+            query: hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 12 HOUR LIMIT 1`,
             tags: { productKey: ProductKey.AI_OBSERVABILITY },
         },
         { refresh: 'force_blocking' }

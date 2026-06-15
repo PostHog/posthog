@@ -58,7 +58,7 @@ import {
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
@@ -400,6 +400,34 @@ export function OverviewTab({
                         }
                         description={featureFlag.name ? <FlagDescription name={featureFlag.name} /> : undefined}
                     />
+                )
+            },
+        },
+        {
+            title: 'Type',
+            width: 120,
+            render: function RenderType(_, featureFlag: FeatureFlagType) {
+                const labels: string[] = []
+                if (flagMatchesType(featureFlag, 'remote_config')) {
+                    labels.push('Remote config')
+                }
+                if (flagMatchesType(featureFlag, 'experiment')) {
+                    labels.push('Experiment')
+                }
+                if (flagMatchesType(featureFlag, 'multivariant')) {
+                    labels.push('Multiple variants')
+                }
+                if (labels.length === 0) {
+                    labels.push('Boolean')
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {labels.map((label) => (
+                            <LemonTag key={label} type="default" className="whitespace-nowrap">
+                                {label}
+                            </LemonTag>
+                        ))}
+                    </div>
                 )
             },
         },
