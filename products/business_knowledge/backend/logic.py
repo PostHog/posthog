@@ -39,6 +39,10 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_RERANK_CONTENT_MAX_CHARS,
+    BK_RERANK_DEFAULT_TOP_K,
+    BK_RERANK_MODEL,
+    BK_RERANK_TIMEOUT,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
     BK_SEMANTIC_DISTANCE_CUTOFF,
@@ -1847,6 +1851,237 @@ def search_knowledge_for_team(
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+
+
+# ---------------------------------------------------------------------------
+# Reranker: LLM-based listwise reranking for precision improvement
+# ---------------------------------------------------------------------------
+
+_RERANK_SYSTEM_PROMPT = """You are a relevance ranking assistant. Given a query and a list of text chunks, rank them by relevance to the query.
+
+Output a JSON array of objects with "id" (the chunk ID) and "score" (relevance from 0 to 1, where 1 is most relevant).
+Order the array from most to least relevant. Include ALL chunks in your output.
+
+Example output format:
+[{"id": "abc123", "score": 0.95}, {"id": "def456", "score": 0.72}]
+
+Respond with ONLY the JSON array, no other text."""
+
+
+def _build_rerank_user_prompt(query: str, candidates: list[KnowledgeSearchResult]) -> str:
+    """Build the user prompt for the reranker with truncated content."""
+    chunks_text = []
+    for c in candidates:
+        heading = c.heading_path or c.document_title or "Untitled"
+        content = c.content[:BK_RERANK_CONTENT_MAX_CHARS]
+        if len(c.content) > BK_RERANK_CONTENT_MAX_CHARS:
+            content += "..."
+        chunks_text.append(f"ID: {c.chunk_id}\nHeading: {heading}\nContent: {content}")
+
+    return f"""Query: {query}
+
+Chunks to rank:
+
+{chr(10).join(f"---{chr(10)}{chunk}" for chunk in chunks_text)}"""
+
+
+@dataclass(frozen=True)
+class RerankResult:
+    """A single chunk with its rerank score."""
+
+    chunk_id: UUID
+    score: float
+
+
+def _parse_rerank_response(response_text: str, candidate_ids: set[UUID]) -> list[RerankResult] | None:
+    """
+    Parse the LLM rerank response. Returns None on any parse failure.
+
+    Validates that all returned IDs exist in the candidate set and dedupes.
+    """
+    import json
+
+    try:
+        data = json.loads(response_text.strip())
+        if not isinstance(data, list):
+            return None
+
+        results: list[RerankResult] = []
+        seen: set[UUID] = set()
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            chunk_id_str = item.get("id")
+            score = item.get("score")
+            if chunk_id_str is None or score is None:
+                continue
+            try:
+                chunk_id = UUID(str(chunk_id_str))
+            except (ValueError, TypeError):
+                continue
+            if chunk_id not in candidate_ids or chunk_id in seen:
+                continue
+            try:
+                score_float = float(score)
+            except (ValueError, TypeError):
+                continue
+            seen.add(chunk_id)
+            results.append(RerankResult(chunk_id=chunk_id, score=score_float))
+
+        return results if results else None
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
+async def async_rerank_chunks(
+    team_id: int,
+    query: str,
+    results: list[KnowledgeSearchResult],
+    *,
+    top_k: int = BK_RERANK_DEFAULT_TOP_K,
+) -> list[KnowledgeSearchResult]:
+    """
+    Async LLM-based listwise reranking of search results.
+
+    Sends candidates to claude-haiku-4-5 via the LLM gateway, parses the ranked
+    output, and returns the top_k results. Falls back to the original RRF order
+    on any failure (model error, parse error, timeout).
+
+    Used by Max's SearchTool for business-knowledge queries. The sync
+    ``rerank_chunks`` variant is available for non-async callers.
+    """
+    if not results:
+        return []
+
+    if len(results) <= top_k:
+        return results
+
+    candidate_ids = {r.chunk_id for r in results}
+    id_to_result = {r.chunk_id: r for r in results}
+
+    try:
+        import asyncio  # noqa: PLC0415 — only import in async path
+
+        from posthog.llm.gateway_client import get_async_llm_client  # noqa: PLC0415
+
+        client = get_async_llm_client(product="django", team_id=team_id)
+
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=BK_RERANK_MODEL,
+                messages=[
+                    {"role": "system", "content": _RERANK_SYSTEM_PROMPT},
+                    {"role": "user", "content": _build_rerank_user_prompt(query, results)},
+                ],
+                temperature=0,
+                max_tokens=2048,
+            ),
+            timeout=BK_RERANK_TIMEOUT,
+        )
+
+        response_text = response.choices[0].message.content or ""
+        parsed = _parse_rerank_response(response_text, candidate_ids)
+
+        if parsed is None:
+            logger.warning(
+                "bk_rerank_parse_failed",
+                team_id=team_id,
+                response_preview=response_text[:200],
+            )
+            return results[:top_k]
+
+        reranked: list[KnowledgeSearchResult] = []
+        for rr in parsed[:top_k]:
+            if rr.chunk_id in id_to_result:
+                reranked.append(id_to_result[rr.chunk_id])
+
+        if not reranked:
+            return results[:top_k]
+
+        logger.info(
+            "bk_rerank_success",
+            team_id=team_id,
+            candidate_count=len(results),
+            reranked_count=len(reranked),
+        )
+        return reranked
+
+    except Exception:
+        logger.warning("bk_rerank_failed", team_id=team_id, exc_info=True)
+        return results[:top_k]
+
+
+def rerank_chunks(
+    team_id: int,
+    query: str,
+    results: list[KnowledgeSearchResult],
+    *,
+    top_k: int = BK_RERANK_DEFAULT_TOP_K,
+) -> list[KnowledgeSearchResult]:
+    """
+    Sync LLM-based listwise reranking of search results.
+
+    Sends candidates to claude-haiku-4-5 via the LLM gateway, parses the ranked
+    output, and returns the top_k results. Falls back to the original RRF order
+    on any failure (model error, parse error, timeout).
+
+    For async callers (e.g., Max's SearchTool), use ``async_rerank_chunks``.
+    """
+    if not results:
+        return []
+
+    if len(results) <= top_k:
+        return results
+
+    candidate_ids = {r.chunk_id for r in results}
+    id_to_result = {r.chunk_id: r for r in results}
+
+    try:
+        from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415
+
+        client = get_llm_client(product="django", team_id=team_id)
+
+        response = client.chat.completions.create(
+            model=BK_RERANK_MODEL,
+            messages=[
+                {"role": "system", "content": _RERANK_SYSTEM_PROMPT},
+                {"role": "user", "content": _build_rerank_user_prompt(query, results)},
+            ],
+            temperature=0,
+            max_tokens=2048,
+            timeout=BK_RERANK_TIMEOUT,
+        )
+
+        response_text = response.choices[0].message.content or ""
+        parsed = _parse_rerank_response(response_text, candidate_ids)
+
+        if parsed is None:
+            logger.warning(
+                "bk_rerank_parse_failed",
+                team_id=team_id,
+                response_preview=response_text[:200],
+            )
+            return results[:top_k]
+
+        reranked: list[KnowledgeSearchResult] = []
+        for rr in parsed[:top_k]:
+            if rr.chunk_id in id_to_result:
+                reranked.append(id_to_result[rr.chunk_id])
+
+        if not reranked:
+            return results[:top_k]
+
+        logger.info(
+            "bk_rerank_success",
+            team_id=team_id,
+            candidate_count=len(results),
+            reranked_count=len(reranked),
+        )
+        return reranked
+
+    except Exception:
+        logger.warning("bk_rerank_failed", team_id=team_id, exc_info=True)
+        return results[:top_k]
 
 
 # ---------------------------------------------------------------------------

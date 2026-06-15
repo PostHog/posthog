@@ -184,3 +184,16 @@ BK_DRILLDOWN_DEFAULT_RADIUS = 5
 # Hard cap on drill-down radius. radius=15 => up to 31 chunks ~= 50k chars;
 # bounds how much one read_data call can pull.
 BK_DRILLDOWN_MAX_RADIUS = 15
+
+# --- Reranker tunables ---
+# Model for listwise reranking. claude-haiku-4-5 is cheap and fast, already used
+# elsewhere (signals, product_tours, slack_app) via the LLM gateway.
+BK_RERANK_MODEL = "claude-haiku-4-5"
+# Timeout for the rerank LLM call in seconds. The call is listwise over ~10
+# candidates with short content excerpts — should complete well under 5s.
+BK_RERANK_TIMEOUT = 8.0
+# Max characters of chunk content to include in the rerank prompt per candidate.
+# Keeps the prompt size bounded while retaining enough context for ranking.
+BK_RERANK_CONTENT_MAX_CHARS = 500
+# Default top_k for reranking. After reranking, trim to this many results.
+BK_RERANK_DEFAULT_TOP_K = 5

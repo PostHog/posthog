@@ -12,8 +12,12 @@ from pydantic import BaseModel, Field
 from posthog.api.embedding_worker import async_generate_embedding
 from posthog.sync import database_sync_to_async
 
-from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
-from products.business_knowledge.backend.logic import has_ready_sources, search_knowledge
+from products.business_knowledge.backend.constants import (
+    BK_EMBEDDING_MODEL,
+    BK_QUERY_EMBEDDING_TIMEOUT,
+    BK_RERANK_DEFAULT_TOP_K,
+)
+from products.business_knowledge.backend.logic import async_rerank_chunks, has_ready_sources, search_knowledge
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
@@ -189,9 +193,11 @@ class SearchTool(MaxTool):
         # thread_sensitive=False: the hybrid path issues a ClickHouse query that
         # can take seconds; the default shared sync thread would serialize all
         # such calls and block other DB work. Run it on the general pool.
+        # Over-fetch 3x to give the reranker more candidates to work with.
         results = await database_sync_to_async(search_knowledge, thread_sensitive=False)(
             self._team.id,
             query,
+            limit=BK_RERANK_DEFAULT_TOP_K * 3,
             use_semantic=use_semantic,
             query_embedding=query_embedding,
         )
@@ -203,6 +209,15 @@ class SearchTool(MaxTool):
         )
         if not results:
             return BK_SEARCH_NO_RESULTS_TEMPLATE
+
+        # Rerank for precision: LLM listwise reranking trims to top_k (default 5).
+        # Falls back to RRF order on any failure.
+        results = await async_rerank_chunks(self._team.id, query, results)
+        logger.info(
+            "bk_reranked_results",
+            team_id=self._team.id,
+            reranked_count=len(results),
+        )
 
         chunks = []
         for r in results:
