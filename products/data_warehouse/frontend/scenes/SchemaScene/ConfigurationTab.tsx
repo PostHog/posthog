@@ -581,26 +581,29 @@ function ColumnsAndRowFiltersSection({
                 </div>
             </div>
 
-            <div>
-                <SectionHeader
-                    title="Row filters"
-                    description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
-                />
-                <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                    {!hasAvailableColumns ? (
-                        <div className="text-sm text-muted-alt py-2 text-center">
-                            No columns discovered yet — pull schemas from the Columns section above to add row filters.
-                        </div>
-                    ) : (
-                        <>
-                            <span className="text-sm text-secondary">{rowFiltersSummary}</span>
-                            <fieldset disabled={!!editorDisabledReason}>
-                                <RowFilterEditor hideActions schema={schema} onChange={setDraftRowFilters} />
-                            </fieldset>
-                        </>
-                    )}
+            {source?.access_method !== 'direct' && (
+                <div>
+                    <SectionHeader
+                        title="Row filters"
+                        description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
+                    />
+                    <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                        {!hasAvailableColumns ? (
+                            <div className="text-sm text-muted-alt py-2 text-center">
+                                No columns discovered yet — pull schemas from the Columns section above to add row
+                                filters.
+                            </div>
+                        ) : (
+                            <>
+                                <span className="text-sm text-secondary">{rowFiltersSummary}</span>
+                                <fieldset disabled={!!editorDisabledReason}>
+                                    <RowFilterEditor hideActions schema={schema} onChange={setDraftRowFilters} />
+                                </fieldset>
+                            </>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {hasAvailableColumns && (
                 <div className="flex justify-end">

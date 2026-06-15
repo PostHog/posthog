@@ -448,6 +448,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            if instance.source.is_direct_postgres:
+                raise ValidationError(
+                    "Row filters are not supported for direct Postgres sources — "
+                    "tables are queried live and filters cannot be enforced at the source."
+                )
             try:
                 validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
             except RowFilterValidationError as e:
