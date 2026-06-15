@@ -644,8 +644,8 @@ export const CodexRuntimeAdapterEnumApi = {
 
 /**
  * * `standard` - standard
- * `fast` - fast
- * `flex` - flex
+ * * `fast` - fast
+ * * `flex` - flex
  */
 export type ServiceTierEnumApi = (typeof ServiceTierEnumApi)[keyof typeof ServiceTierEnumApi]
 
@@ -722,10 +722,10 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Codex service tier for this run.
-
-  * `standard` - standard
-  * `fast` - fast
-  * `flex` - flex */
+     *
+     * * `standard` - standard
+     * * `fast` - fast
+     * * `flex` - flex */
     service_tier?: ServiceTierEnumApi
     /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
@@ -1135,10 +1135,10 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Codex service tier for this run. Use 'standard' for default behavior, 'fast' for Fast Mode, or 'flex' for Flex Mode.
-
-  * `standard` - standard
-  * `fast` - fast
-  * `flex` - flex */
+     *
+     * * `standard` - standard
+     * * `fast` - fast
+     * * `flex` - flex */
     service_tier?: ServiceTierEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
