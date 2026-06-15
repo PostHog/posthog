@@ -215,6 +215,95 @@ describe('MenuFilterCombobox', () => {
         expect(rowsText).toContain('Power users')
     })
 
+    // Mirrors the synthetic entry built by `TaxonomicPopoverMenu` for an
+    // already-selected event value (e.g. the trends series picker reopened on
+    // "Pageview"). `value` is whatever the call site threads through — the raw
+    // event key `$pageview` or, when `filter.name` holds the label, `Pageview`.
+    // getValue returns name-or-id just like the adapter.
+    function syntheticEventSelected(value: string): any {
+        return {
+            item: { id: value, name: value },
+            group: {
+                type: TaxonomicFilterGroupType.Events,
+                getName: (t: any) => t?.name,
+                getValue: (t: any) => t?.name ?? t?.id,
+            },
+            name: value,
+        }
+    }
+
+    function renderEventsWithSelection(options: {
+        searchQuery?: string
+        selectedEntry?: any
+    }): ReturnType<typeof render> {
+        return render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={options.searchQuery ?? ''}
+                >
+                    <MenuFilterCombobox
+                        drillTo="all"
+                        selectedEntry={options.selectedEntry}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+    }
+
+    // The committed selection arrives as a synthetic entry whose value is
+    // either the raw event key (`$pageview`) or — when `ActionFilterRow` threads
+    // `filter.name` and that holds the display label — the friendly label
+    // (`Pageview`). Both must collapse onto the real endpoint row instead of
+    // stranding a placeholder beside it with a second checkmark and a blank
+    // preview.
+    it.each([
+        ['the raw key', '$pageview'],
+        ['the friendly label', 'Pageview'],
+    ])(
+        'dedups the synthetic selected event against the real endpoint event when the value is %s',
+        async (_label, selectedValue) => {
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('event_definitions')) {
+                    return Promise.resolve({
+                        results: [
+                            { id: 'def-1', name: '$pageview' },
+                            { id: 'def-2', name: '$bot_pageview' },
+                        ],
+                        count: 2,
+                    })
+                }
+                return Promise.resolve({ results: [], count: 0 })
+            })
+
+            renderEventsWithSelection({
+                searchQuery: 'pagev',
+                selectedEntry: syntheticEventSelected(selectedValue),
+            })
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('$bot_pageview'))).toBe(true))
+            // Exactly one "Pageview" row…
+            const pageviewRows = rowTexts().filter((t) => t.includes('Pageview') && !t.includes('bot'))
+            expect(pageviewRows).toHaveLength(1)
+            // …and the surviving row is the real definition (carries the raw
+            // `$pageview` value), not the synthetic placeholder (which would render
+            // just the label with no raw value).
+            expect(pageviewRows[0]).toContain('$pageview')
+            // The selection resolves onto the real row so the checkmark + preview
+            // track it: the real row's DOM id must exist to be targeted.
+            expect(document.getElementById('menu-filter-row-events-$pageview')).toBeInTheDocument()
+            // The preview pane picks up the real definition ("Sent as $pageview"),
+            // not the synthetic placeholder (which has no core definition and so
+            // renders neither a raw value nor a description).
+            const preview = document.querySelector('[data-slot="menu-filter-preview"]')
+            expect(preview?.textContent).toContain('Sent as')
+            expect(preview?.textContent).toContain('$pageview')
+        }
+    )
+
     it('caches the cohorts first page and filters typed queries locally (no per-keystroke refetch)', async () => {
         // Track every cohorts request — there must be exactly one even after
         // typing, because client-side fuse takes over after the first page.

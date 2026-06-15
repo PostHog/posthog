@@ -112,6 +112,27 @@ function rowDomId(entry: MenuFilterEntry): string {
     }`
 }
 
+/** True when a real list entry refers to the same definition as the committed
+ *  selection. The stored value can be the definition's raw key (`$pageview`)
+ *  or its friendly label (`Pageview`) — `ActionFilterRow` threads `filter.name`,
+ *  which may be either — so a synthetic entry built from the label won't match
+ *  the real row on value alone. Match on the entry's value, its raw name, or
+ *  its resolved friendly label so the selection collapses onto the real row
+ *  (one checkmark, one preview) instead of stranding a placeholder beside it. */
+function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    if (entry.group.type !== selected.group.type) {
+        return false
+    }
+    const target = String(selected.group.getValue?.(selected.item) ?? selected.name)
+    if (String(entry.group.getValue?.(entry.item) ?? entry.name) === target) {
+        return true
+    }
+    if (entry.name === target) {
+        return true
+    }
+    return entry.friendlyLabel != null && entry.friendlyLabel === target
+}
+
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
     if (entries.length === 0) {
         return []
@@ -221,48 +242,6 @@ export function MenuFilterCombobox({
     useEffect(() => {
         includeStaleEventsRef.current = includeStaleEvents
     }, [includeStaleEvents])
-
-    // Stable DOM id for the selected row — derived via `rowDomId` to stay in
-    // sync with `Row`'s `stableId` and the `filtered` selected-promotion logic.
-    const selectedRowId = useMemo<string | null>(() => {
-        if (!selectedEntry) {
-            return null
-        }
-        return rowDomId(selectedEntry)
-    }, [selectedEntry])
-
-    // Scroll the selected row into view after the list mounts. Polls a few
-    // animation frames because rows render after the underlying group's
-    // items resolve (remote endpoints), so the element won't exist on the
-    // first paint. Stops as soon as the node appears or after ~10 frames.
-    useEffect(() => {
-        if (!selectedRowId) {
-            return
-        }
-        let cancelled = false
-        let attempts = 0
-        const tick = (): void => {
-            if (cancelled) {
-                return
-            }
-            const el = document.getElementById(selectedRowId)
-            if (el) {
-                // `center` keeps a comfortable buffer above + below the
-                // selected row so it never lands flush against the edge
-                // of the scroll viewport (where the scroll-to button or
-                // the scrollbar fade can obscure it).
-                el.scrollIntoView({ block: 'center' })
-                return
-            }
-            if (attempts++ < 10) {
-                requestAnimationFrame(tick)
-            }
-        }
-        tick()
-        return () => {
-            cancelled = true
-        }
-    }, [selectedRowId])
 
     const reportItems = useCallback((type: string, next: TaxonomicDefinitionTypes[]): void => {
         setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
@@ -386,19 +365,13 @@ export function MenuFilterCombobox({
             // mixed scope left here is `all`.
             const fitsScope = scope === 'all' || scope === selectedEntry.group.type
             if (fitsScope) {
-                // Stringify both sides so a synthetic `selected` shimmed in
-                // by callers like `TaxonomicPopoverMenu` (where the value
-                // arrives as e.g. `'5'`) dedups against the real entry
-                // returned by the endpoint (`cohort.id === 5`). Without this
-                // coercion the two land side-by-side with two checkmarks —
-                // the stableId path below already coerces, so matching here
-                // keeps the prepend logic aligned with how rows are keyed.
-                const selectedValue = String(selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name)
-                const present = merged.some(
-                    (e) =>
-                        e.group.type === selectedEntry.group.type &&
-                        String(e.group.getValue?.(e.item) ?? e.name) === selectedValue
-                )
+                // `entryMatchesSelection` reconciles a synthetic `selected`
+                // shimmed in by callers like `TaxonomicPopoverMenu` against the
+                // real endpoint row — by value (`cohort.id === 5` vs `'5'`) or
+                // by friendly label (a value of `Pageview` vs the real
+                // `$pageview` row). Only prepend the placeholder when the real
+                // row genuinely isn't loaded (paginated past it).
+                const present = merged.some((e) => entryMatchesSelection(e, selectedEntry))
                 if (!present) {
                     merged.unshift(selectedEntry)
                 }
@@ -423,6 +396,53 @@ export function MenuFilterCombobox({
         searchQuery,
         surveyQuestionLabels,
     ])
+
+    // Stable DOM id for the selected row — drives `Row`'s checkmark, the
+    // scroll-into-view below, and the `filtered` idle-promotion. Resolve the
+    // committed selection to the real loaded row when one matches (the stored
+    // value may be a friendly label, not the row's raw value), so all three
+    // land on the canonical row rather than a synthetic placeholder. Falls back
+    // to the selection itself when the real row hasn't loaded (paginated past).
+    const selectedRowId = useMemo<string | null>(() => {
+        if (!selectedEntry) {
+            return null
+        }
+        const real = indexed.find((e) => entryMatchesSelection(e, selectedEntry))
+        return rowDomId(real ?? selectedEntry)
+    }, [indexed, selectedEntry])
+
+    // Scroll the selected row into view after the list mounts. Polls a few
+    // animation frames because rows render after the underlying group's
+    // items resolve (remote endpoints), so the element won't exist on the
+    // first paint. Stops as soon as the node appears or after ~10 frames.
+    useEffect(() => {
+        if (!selectedRowId) {
+            return
+        }
+        let cancelled = false
+        let attempts = 0
+        const tick = (): void => {
+            if (cancelled) {
+                return
+            }
+            const el = document.getElementById(selectedRowId)
+            if (el) {
+                // `center` keeps a comfortable buffer above + below the
+                // selected row so it never lands flush against the edge
+                // of the scroll viewport (where the scroll-to button or
+                // the scrollbar fade can obscure it).
+                el.scrollIntoView({ block: 'center' })
+                return
+            }
+            if (attempts++ < 10) {
+                requestAnimationFrame(tick)
+            }
+        }
+        tick()
+        return () => {
+            cancelled = true
+        }
+    }, [selectedRowId])
 
     // Recents + pinned that lead the default "All" surface (fixed order:
     // recents, then pinned). Idle shows the top-3 of each; searching shows the
