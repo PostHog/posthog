@@ -4,7 +4,7 @@ import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isClientNetworkError, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
@@ -659,13 +659,22 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            if (isClientNetworkError(error)) {
+                // Ad-blocker / CORS / transient network drop on the visitor's browser —
+                // noise, not a toolbar defect. Keep the analytics event below for telemetry.
+                toolbarLogger.warn('auth', 'Toolbar ui host check failed (client network)', {
+                    error_type: errorType,
+                })
+            } else {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
@@ -774,7 +783,11 @@ async function exchangeCodeForTokens(
             duration_ms: Math.round(performance.now() - startTime),
         })
         toolbarLogger.error('auth', 'Token exchange network error')
-        captureToolbarException(err, 'token_exchange_network')
+        if (!isClientNetworkError(err)) {
+            // A genuine network/parse defect — benign client-side failures (ad-blocker /
+            // CORS / transient drop) are surfaced to the user below but not error-tracked.
+            captureToolbarException(err, 'token_exchange_network')
+        }
         lemonToast.error('Authentication failed due to a network error. Please try again.')
         return false
     } finally {

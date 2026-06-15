@@ -4,10 +4,21 @@ import { ToolbarParams } from '~/types'
 const mockFetch = jest.fn()
 global.fetch = mockFetch
 
+// Spy on captureToolbarException so we can assert benign network failures are not error-tracked.
+const mockCaptureToolbarException = jest.fn()
+jest.mock('~/toolbar/toolbarPosthogJS', () => {
+    const actual = jest.requireActual('~/toolbar/toolbarPosthogJS')
+    return {
+        ...actual,
+        captureToolbarException: (...args: unknown[]) => mockCaptureToolbarException(...args),
+    }
+})
+
 describe('Toolbar flag loading', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         mockFetch.mockClear()
+        mockCaptureToolbarException.mockClear()
         jest.resetModules()
 
         // Setup DOM
@@ -85,7 +96,40 @@ describe('Toolbar flag loading', () => {
         // Should not have called overrideFeatureFlags
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
+        // A non-network Error is a genuine defect, so it is reported as an exception
+        expect(mockCaptureToolbarException).toHaveBeenCalledWith(expect.any(Error), 'preloaded_flags_fetch')
+
         consoleErrorSpy.mockRestore()
+    })
+
+    it('should not report benign client-side network failures as exceptions', async () => {
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        // `fetch` rejects with a TypeError ("Failed to fetch") for ad-blocker / CORS / offline failures
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        // Should still load the toolbar without throwing
+        await expect((window as any).ph_load_toolbar(toolbarParams, mockPostHog)).resolves.not.toThrow()
+
+        expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
+        // The benign network failure must not open an error-tracking issue
+        expect(mockCaptureToolbarException).not.toHaveBeenCalled()
+
+        consoleWarnSpy.mockRestore()
     })
 
     it('should handle non-ok responses gracefully', async () => {
