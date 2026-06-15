@@ -361,6 +361,29 @@ class TestLinkedinAdsClientFunction:
         with pytest.raises(ValueError, match="LinkedIn Ads integration does not have an access token"):
             linkedin_ads_client(config, team_id=789)
 
+    def test_linkedin_ads_client_refreshes_stale_db_connection_before_query(self, mock_integration_model):
+        # The ORM read runs lazily inside `get_rows` on a pooled worker thread whose
+        # Django connection may have been closed server-side, surfacing as
+        # `OperationalError: server closed the connection unexpectedly`. We must drop
+        # the stale connection before querying, so the read happens on a fresh one.
+        calls: list[str] = []
+
+        mock_integration = mock.MagicMock()
+        mock_integration.access_token = "token"
+        mock_integration_model.objects.get.side_effect = lambda *args, **kwargs: (
+            calls.append("Integration.objects.get") or mock_integration
+        )
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.close_old_connections",
+            side_effect=lambda: calls.append("close_old_connections"),
+        ):
+            linkedin_ads_client(config, team_id=789)
+
+        assert calls == ["close_old_connections", "Integration.objects.get"]
+
 
 @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.linkedin_ads_client")
 class TestLinkedinAdsSource:
