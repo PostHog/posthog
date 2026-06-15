@@ -1,10 +1,5 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
-import posthog from 'posthog-js'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,7 +11,6 @@ import type { DataWarehouseViewLink } from '~/types'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
-import { AccountsEvents } from './constants'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -201,7 +195,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         unselectColumn: (column: string) => ({ column }),
         moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
         resetColumns: true,
-        saveColumns: true,
         showColumnConfigurator: true,
         hideColumnConfigurator: true,
     }),
@@ -230,37 +223,9 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
-                saveColumns: () => false,
             },
         ],
     }),
-    loaders(({ values }) => ({
-        savedColumnConfiguration: [
-            null as { id: string; columns: string[] } | null,
-            {
-                loadSavedColumnConfiguration: async (): Promise<{ id: string; columns: string[] } | null> => {
-                    try {
-                        const response = await api.columnConfigurations.list({
-                            teamId: values.currentTeamId || undefined,
-                            context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
-                        })
-                        if (response.results && response.results.length > 0) {
-                            return {
-                                id: response.results[0].id,
-                                columns: response.results[0].columns || [],
-                            }
-                        }
-                        return null
-                    } catch (error) {
-                        posthog.captureException(error as Error, {
-                            scope: 'accountsColumnConfigLogic.loadSavedColumnConfiguration',
-                        })
-                        return null
-                    }
-                },
-            },
-        ],
-    })),
     selectors({
         visibleColumnNames: [
             (s) => [s.selectColumns],
@@ -274,54 +239,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             ): AccountColumnGroup[] => buildAccountColumnGroups(allTablesMap, warehouseJoins),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
-            // A shared link's columns (in the URL hash) win over the per-user
-            // saved config, which loads asynchronously after mount. Read the
-            // live URL rather than tracking state, so this stays correct
-            // regardless of later column edits.
-            const urlHasColumns = !!router.values.hashParams?.view?.columns
-            if (savedColumnConfiguration && !urlHasColumns) {
-                actions.setSelectColumns(savedColumnConfiguration.columns)
-            }
-        },
-        saveColumns: async () => {
-            const teamId = values.currentTeamId || undefined
-            const columns = values.selectColumns
-            const previousColumns = values.savedColumnConfiguration?.columns ?? ACCOUNTS_HOGQL_DEFAULT_SELECT
-            try {
-                if (values.savedColumnConfiguration?.id) {
-                    await api.columnConfigurations.update({
-                        teamId,
-                        id: values.savedColumnConfiguration.id,
-                        data: { columns },
-                    })
-                } else {
-                    const response = await api.columnConfigurations.create({
-                        teamId,
-                        data: { context_key: ACCOUNTS_COLUMN_CONFIG_KEY, columns },
-                    })
-                    actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns || [] })
-                }
-                lemonToast.success('Columns saved')
-                const diff = diffColumnConfiguration(previousColumns, columns)
-                if (diff.changed) {
-                    posthog.capture(AccountsEvents.ColumnsSaved, {
-                        column_count: columns.length,
-                        columns,
-                        added_count: diff.added,
-                        removed_count: diff.removed,
-                        reordered: diff.reordered,
-                    })
-                }
-            } catch (error) {
-                posthog.captureException(error as Error, { scope: 'accountsColumnConfigLogic.saveColumns' })
-                lemonToast.error('Failed to save columns')
-            }
-        },
-    })),
     afterMount(({ actions, values }) => {
-        actions.loadSavedColumnConfiguration()
         // Lazily fetch the database schema only if it isn't already in flight / loaded.
         // databaseTableListLogic dedupes concurrent calls internally.
         if (!values.allTablesMap || Object.keys(values.allTablesMap).length === 0) {
