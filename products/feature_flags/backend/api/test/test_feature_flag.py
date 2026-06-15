@@ -8052,6 +8052,39 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    def test_user_blast_radius_with_flag_dependency_condition(self):
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        dependency_flag_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"name": "Dependency flag", "key": "dependency-flag"}
+        )
+        self.assertEqual(dependency_flag_response.status_code, status.HTTP_201_CREATED)
+        dependency_flag_id = dependency_flag_response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag_id),
+                            "type": "flag",
+                            "value": False,
+                            "operator": "flag_evaluates_to",
+                        }
+                    ],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):

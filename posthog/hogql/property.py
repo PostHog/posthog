@@ -1209,6 +1209,10 @@ def property_to_expr(
             ),
             right=ast.Constant(value=cohort.pk),
         )
+    elif property.type == "flag":
+        # Flag dependencies are evaluated at the API layer, not in HogQL.
+        # Return a neutral filter that doesn't affect the query.
+        return ast.Constant(value=1)
 
     # TODO: Add support for these types: "recording"
 

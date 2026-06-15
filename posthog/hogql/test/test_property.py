@@ -1750,6 +1750,12 @@ class TestProperty(BaseTest):
         result = property_to_expr([prop], self.team)
         self.assertEqual(result, ast.Constant(value=1))
 
+    def test_flag_evaluates_to_dict_produces_neutral_expr(self):
+        result = self._property_to_expr(
+            {"type": "flag", "key": "123", "value": False, "operator": "flag_evaluates_to"}
+        )
+        self.assertEqual(result, ast.Constant(value=1))
+
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
