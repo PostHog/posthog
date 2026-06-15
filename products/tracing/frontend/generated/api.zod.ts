@@ -120,7 +120,12 @@ export const TracingSpansCountCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the count. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             filterGroup: zod
                 .array(
                     zod.object({
@@ -196,7 +201,12 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             orderBy: zod
                 .enum(['timestamp', 'duration'])
                 .describe('\* `timestamp` - timestamp\n\* `duration` - duration')
@@ -311,7 +321,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             orderBy: zod
                 .enum(['timestamp', 'duration'])
                 .describe('\* `timestamp` - timestamp\n\* `duration` - duration')
@@ -426,7 +441,12 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             orderBy: zod
                 .enum(['timestamp', 'duration'])
                 .describe('\* `timestamp` - timestamp\n\* `duration` - duration')

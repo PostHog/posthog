@@ -3866,6 +3866,7 @@
                 "marketing_suggest_utm_mappings",
                 "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
+                "search_replay_vision_observations",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -17326,6 +17327,14 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "useQueryV2": {
+                    "deprecated": "Ignored — V2 query path was removed. Kept so requests from older clients still validate.",
+                    "type": "boolean"
+                },
+                "useQueryV3": {
+                    "deprecated": "Ignored — V3 is the only query path. Kept so requests from older clients still validate.",
+                    "type": "boolean"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",

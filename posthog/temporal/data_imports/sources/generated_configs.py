@@ -352,7 +352,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class CheckoutComSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -403,7 +405,7 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudflareSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
