@@ -4629,6 +4629,29 @@
   
   '''
 # ---
+# name: test_create_table_query[retention_actor]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS retention_actor
+  (
+      team_id     Int64,
+  
+      -- Retention entity: a real event name ('$pageview') or the all-events marker.
+      kind        LowCardinality(String),
+  
+      -- Actor identity. Raw `events.person_id`; overrides resolved at READ time.
+      actor_id    UUID,
+  
+      -- All-history first qualifying timestamp (cohort anchor). Read with minMerge(first_seen).
+      first_seen  AggregateFunction(min, DateTime64(6, 'UTC')),
+  
+      -- Set of absolute active day-numbers (toUInt32(toDate(ts))). Read with
+      -- groupUniqArrayMerge(active_days); horizon cap is applied at materialisation, not here.
+      active_days AggregateFunction(groupUniqArray, UInt32)
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_retention_actor', sipHash64(team_id, actor_id))
+  
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -6154,6 +6177,32 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_retention_actor]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_retention_actor
+  (
+      team_id     Int64,
+  
+      -- Retention entity: a real event name ('$pageview') or the all-events marker.
+      kind        LowCardinality(String),
+  
+      -- Actor identity. Raw `events.person_id`; overrides resolved at READ time.
+      actor_id    UUID,
+  
+      -- All-history first qualifying timestamp (cohort anchor). Read with minMerge(first_seen).
+      first_seen  AggregateFunction(min, DateTime64(6, 'UTC')),
+  
+      -- Set of absolute active day-numbers (toUInt32(toDate(ts))). Read with
+      -- groupUniqArrayMerge(active_days); horizon cap is applied at materialisation, not here.
+      active_days AggregateFunction(groupUniqArray, UInt32)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.retention_actor', '{replica}')
+  
+  ORDER BY (team_id, kind, actor_id)
+  SETTINGS index_granularity=8192
   
   '''
 # ---
@@ -10156,6 +10205,32 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_retention_actor]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_retention_actor
+  (
+      team_id     Int64,
+  
+      -- Retention entity: a real event name ('$pageview') or the all-events marker.
+      kind        LowCardinality(String),
+  
+      -- Actor identity. Raw `events.person_id`; overrides resolved at READ time.
+      actor_id    UUID,
+  
+      -- All-history first qualifying timestamp (cohort anchor). Read with minMerge(first_seen).
+      first_seen  AggregateFunction(min, DateTime64(6, 'UTC')),
+  
+      -- Set of absolute active day-numbers (toUInt32(toDate(ts))). Read with
+      -- groupUniqArrayMerge(active_days); horizon cap is applied at materialisation, not here.
+      active_days AggregateFunction(groupUniqArray, UInt32)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.retention_actor', '{replica}')
+  
+  ORDER BY (team_id, kind, actor_id)
+  SETTINGS index_granularity=8192
   
   '''
 # ---

@@ -183,6 +183,12 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),
     "groupUniqArray": HogQLFunctionMeta("groupUniqArray", 1, 1, aggregate=True),
     "groupUniqArrayIf": HogQLFunctionMeta("groupUniqArrayIf", 2, 2, aggregate=True),
+    # -State / -Merge combinators for the retention_actor active-days set (not auto-generated,
+    # since groupUniqArray isn't in COMBINATOR_AGGREGATIONS).
+    "groupUniqArrayState": HogQLFunctionMeta("groupUniqArrayState", 1, 1, aggregate=True),
+    "groupUniqArrayStateIf": HogQLFunctionMeta("groupUniqArrayStateIf", 2, 2, aggregate=True),
+    "groupUniqArrayMerge": HogQLFunctionMeta("groupUniqArrayMerge", 1, 1, aggregate=True),
+    "groupUniqArrayMergeIf": HogQLFunctionMeta("groupUniqArrayMergeIf", 2, 2, aggregate=True),
     "groupUniqArrayArray": HogQLFunctionMeta("groupUniqArrayArray", 1, 1, min_params=0, max_params=1, aggregate=True),
     "groupUniqArrayArrayIf": HogQLFunctionMeta(
         "groupUniqArrayArrayIf", 2, 2, min_params=0, max_params=1, aggregate=True

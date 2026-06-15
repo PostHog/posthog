@@ -108,6 +108,7 @@ from posthog.hogql.database.schema.preaggregation_results import PreaggregationR
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
+from posthog.hogql.database.schema.retention_actor import RetentionActorTable
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
@@ -331,6 +332,7 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
+                    "retention_actor": TableNode(name="retention_actor", table=RetentionActorTable()),
                     "conversion_goal_attributed_preaggregated": TableNode(
                         name="conversion_goal_attributed_preaggregated",
                         table=ConversionGoalAttributedPreaggregatedTable(),
