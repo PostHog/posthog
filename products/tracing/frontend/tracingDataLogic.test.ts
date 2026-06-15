@@ -18,8 +18,6 @@ const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
     error_count: 0,
 })
 
-const TEST_TAB = 'test-tab'
-
 const createMockSpan = (uuid: string, timestamp: string): Span => ({
     uuid,
     trace_id: `trace-${uuid}`,
@@ -34,6 +32,8 @@ const createMockSpan = (uuid: string, timestamp: string): Span => ({
     duration_nano: 1000,
     is_root_span: true,
     matched_filter: true,
+    attributes: {},
+    resource_attributes: {},
 })
 
 const mockSpans: Span[] = [
@@ -44,8 +44,8 @@ const mockSpans: Span[] = [
 ]
 
 function mountWithSpans(spans: Span[] = mockSpans): ReturnType<typeof tracingDataLogic.build> {
-    tracingFiltersLogic({ tabId: TEST_TAB }).mount()
-    const logic = tracingDataLogic({ tabId: TEST_TAB })
+    tracingFiltersLogic().mount()
+    const logic = tracingDataLogic()
     logic.mount()
     if (spans.length > 0) {
         logic.actions.fetchSpansSuccess(spans)

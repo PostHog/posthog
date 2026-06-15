@@ -61,6 +61,7 @@ PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 - dashboard
 - execute-sql
 - feature-flag
+- query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
@@ -203,35 +204,35 @@ The user's name is Jane Doe (jane@acme.com).
 
 ### URL patterns
 
-All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.
-Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
+PostHog app links must be full URLs (origin + path) — bare paths aren't clickable in MCP clients like Cursor or Claude Desktop. Use Markdown with descriptive anchor text, e.g. `[Cohorts](https://us.posthog.com/project/1/cohorts)`. Never include `/-/`.
 
-Key URL patterns:
+Choose the link source in this order:
 
-- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
-- Data management: `/data-management/events`, `/data-management/properties`
-- Billing: `/organization/billing`
+1. If a tool result has a `*url` field (e.g. `_posthogUrl`), surface it verbatim — never rewrite or strip it.
+2. Only when you actually want to link a specific entity (or the user asks for a link) and it has no `_posthogUrl`, call `generate-app-url` and surface the `url` verbatim — don't hand-write slugs or retype IDs into paths, both are easy to get wrong. Don't fetch a link just because a result has an ID.
+3. Only for genuinely static pages not covered by `generate-app-url` (some settings / data-management pages), build the link from the Base URL in the active-environment block (don't double-prefix):
+   - Project-scoped paths → Base URL + `/project/:id`: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`), `/data-management/events`, `/data-management/properties`.
+   - Org-/account-level paths → Base URL only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
 
 ### Sharing feedback on this MCP server
 
-The `agent-feedback` tool is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. We rely on it to find and fix the rough edges you hit in real work.
+The `agent-feedback` tool is the primary signal we use to fix problems with this MCP server — its tool descriptions, input schemas, response formats, and these instructions. Keep every report strictly about the MCP server itself, not about the user's task, their data, or your findings.
 
-**When you finish a task on which you hit friction, please call `agent-feedback` before handing back to the user.** Friction means anything that slowed you down or made you guess — examples below. You are not required to call it, and you should skip it for smooth, routine work where nothing stood out. But if something was awkward, missing, or wrong, a short report is the most useful thing you can do for the next agent.
+**Only call `agent-feedback` when something went wrong or was missing with the MCP — report problems, not praise.** The feedback must be constructive and actionable: each report should point at a concrete defect the PostHog team can fix. Skip it entirely for smooth, routine work — do **not** submit positive or "everything worked fine" reports, as they are noise we cannot act on.
 
-Friction worth reporting (any one is enough):
+Keep it short: give a one-sentence `summary`, then write the detail fields (`friction_points`, `suggested_improvement`, `details`) as clear, concise bullet points, quoting the exact tool name, parameter, or error text. Report only when one of these actually happened:
 
 - A tool description was unclear or ambiguous and you had to guess.
 - An input schema was confusing or surprising.
-- A response format was hard to consume or contained too much / too little data.
+- A response format was hard to consume or had too much / too little data.
 - A tool returned wrong, incomplete, or unexpected results.
 - An error message was unhelpful or didn't explain how to recover.
 - A capability was missing entirely and you had to work around it.
 - These instructions led you down the wrong path.
-- A tool worked particularly well — concrete praise is just as useful as criticism.
 
-When you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+Every report must include a concrete `suggested_improvement` — if you can't name a specific change the team should make, don't submit. Use `task_completed: false` when you couldn't finish the user's request — that signal is especially valuable. Do not include user PII or sensitive query content in any field.
 
-Submitting feedback is **not** a way to end your turn or skip work, and it is **not** a substitute for finishing the user's request. It is a side report to the PostHog team about your experience with the tools — call it once at the end of a task when warranted, then keep going and finish the user's task using the other available tools.
+Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about the MCP server — call it once at the end of a task when warranted, then keep going and finish the user's task with the other tools.
 
 ### Examples
 

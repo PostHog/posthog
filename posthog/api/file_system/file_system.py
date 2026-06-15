@@ -19,11 +19,40 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.folder_context_generation import (
+    ContextGenerationSerializer,
+    ContextGenerationSetSerializer,
+)
+from posthog.api.file_system.folder_context_generation_service import (
+    get_context_generation_task_id,
+    set_context_generation_task_id,
+)
+from posthog.api.file_system.folder_instructions import (
+    FolderInstructionsPublishSerializer,
+    FolderInstructionsSerializer,
+    FolderInstructionsVersionSerializer,
+)
+from posthog.api.file_system.folder_instructions_service import (
+    FolderInstructionsVersionConflictError,
+    FolderInstructionsVersionLimitError,
+    delete_folder_instructions,
+    ensure_blank_folder_instructions,
+    get_folder_instructions_versions,
+    get_latest_folder_instructions,
+    publish_folder_instructions,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
-from posthog.models.file_system.file_system import FileSystem, create_or_update_file, join_path, split_path
+from posthog.models.file_system.file_system import (
+    DEFAULT_SURFACE,
+    FileSystem,
+    create_or_update_file,
+    join_path,
+    split_path,
+    surface_q,
+)
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
@@ -67,13 +96,14 @@ class FileSystemSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystem:
         request = self.context["request"]
         team = self.context["get_team"]()
+        surface = self.context.get("file_system_surface", DEFAULT_SURFACE)
 
         full_path = validated_data["path"]
         segments = split_path(full_path)
 
         for depth_index in range(1, len(segments)):
             parent_path = "/".join(segments[:depth_index])
-            folder_exists = FileSystem.objects.filter(team=team, path=parent_path).exists()
+            folder_exists = FileSystem.objects.filter(surface_q(surface), team=team, path=parent_path).exists()
             if not folder_exists:
                 FileSystem.objects.create(
                     team=team,
@@ -82,6 +112,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
                     type="folder",
                     created_by=request.user,
                     shortcut=False,
+                    surface=surface,
                 )
 
         if validated_data.get("shortcut") is None:
@@ -92,6 +123,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             team=team,
             created_by=request.user,
             depth=depth,
+            surface=surface,
             **validated_data,
         )
 
@@ -156,6 +188,36 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
+    # Product surface this tree serves. Subclass and override to expose a different surface
+    # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
+    file_system_surface: str = DEFAULT_SURFACE
+    # GET /instructions/ and /instructions/versions/ are reads; PUT/PATCH/DELETE on
+    # /instructions/ resolve to `publish_instructions` / `delete_instructions` via DRF's
+    # method mapping, so they go in the write bucket.
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "instructions",
+        "instructions_versions",
+        "unfiled",
+        "count",
+        "count_by_path",
+        "context_generation",
+    ]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "publish_instructions",
+        "delete_instructions",
+        "move",
+        "link",
+        "log_view",
+        "undo_delete",
+        "set_context_generation",
+    ]
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -278,11 +340,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset.filter(combined_q)
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["file_system_surface"] = self.file_system_surface
+        return context
+
     def _scope_by_project(self, queryset: QuerySet) -> QuerySet:
         """
-        Show all objects belonging to the project.
+        Show all objects belonging to the project, restricted to this viewset's surface.
         """
-        return queryset.filter(team__project_id=self.team.project_id)
+        return queryset.filter(surface_q(self.file_system_surface), team__project_id=self.team.project_id)
 
     def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
         """
@@ -554,7 +621,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_serializer = UnfiledFilesQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         file_type = query_serializer.validated_data.get("type")
-        files = save_unfiled_files(self.team, cast(User, request.user), file_type)
+        files = save_unfiled_files(self.team, cast(User, request.user), file_type, surface=self.file_system_surface)
 
         self._retroactively_fix_folders_and_depth(cast(User, request.user))
 
@@ -717,6 +784,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             name="",
             href="",
             meta={},
+            surface=self.file_system_surface,
         )
 
         log_api_file_system_view(
@@ -737,7 +805,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         validated = serializer.validated_data
 
-        queryset = FileSystemViewLog.objects.filter(team=self.team, user=request.user)
+        queryset = FileSystemViewLog.objects.filter(
+            surface_q(self.file_system_surface), team=self.team, user=request.user
+        )
         log_type = validated.get("type")
         if log_type:
             queryset = queryset.filter(type=log_type)
@@ -793,6 +863,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     depth=depth_index,
                     type="folder",
                     created_by=created_by,
+                    surface=self.file_system_surface,
                 )
 
     def _restore_file_system_path(self, instance: Any, payload: dict[str, Any]) -> None:
@@ -811,7 +882,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._assure_parent_folders(restore_path, created_by_user, team)
 
-        update_count = FileSystem.objects.filter(team=team, type=payload["type"], ref=payload["ref"]).update(
+        update_count = FileSystem.objects.filter(
+            surface_q(self.file_system_surface), team=team, type=payload["type"], ref=payload["ref"]
+        ).update(
             path=restore_path,
             depth=len(split_path(restore_path)),
         )
@@ -831,6 +904,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 meta=fs_data.meta,
                 created_at=fs_data.meta.get("created_at"),
                 created_by_id=fs_data.meta.get("created_by"),
+                surface=self.file_system_surface,
             )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
@@ -871,6 +945,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             depth=depth_index,
                             type="folder",
                             created_by=user,
+                            surface=self.file_system_surface,
                         )
                     )
 
@@ -880,3 +955,149 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if items_to_update:
             for item in items_to_update:
                 item.save()
+
+
+@extend_schema(extensions={"x-product": "core"})
+class DesktopFileSystemViewSet(FileSystemViewSet):
+    """
+    The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+    scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+    Adds per-folder, versioned markdown instructions describing the contents of a folder.
+    """
+
+    file_system_surface = "desktop"
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        super().perform_create(serializer)
+        instance = cast(FileSystem, serializer.instance)
+        self._ensure_blank_instructions_for_created_path(instance)
+
+    def _ensure_blank_instructions_for_created_path(self, instance: FileSystem) -> None:
+        """Give every desktop folder along the created path a blank instruction set.
+
+        Covers the created folder itself plus any parent folders auto-created by the serializer,
+        so a "channel" always has instructions from the moment it exists.
+        """
+        segments = split_path(instance.path)
+        candidate_paths = [join_path(segments[:depth_index]) for depth_index in range(1, len(segments))]
+        if instance.type == "folder":
+            candidate_paths.append(instance.path)
+        if not candidate_paths:
+            return
+
+        folders = self._scope_by_project(FileSystem.objects.filter(path__in=candidate_paths, type="folder"))
+        user = self.request.user if isinstance(self.request.user, User) else None
+        for folder in folders:
+            ensure_blank_folder_instructions(folder, user=user)
+
+    def _get_folder_or_400(self) -> FileSystem | Response:
+        instance = self.get_object()
+        if instance.type != "folder":
+            return Response(
+                {"detail": "Instructions can only be attached to folders."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return instance
+
+    @extend_schema(responses={200: FolderInstructionsSerializer})
+    @action(methods=["GET"], detail=True)
+    def instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the latest non-deleted instructions for this folder."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        latest = get_latest_folder_instructions(folder)
+        if latest is None:
+            return Response({"detail": "This folder has no instructions."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(FolderInstructionsSerializer(latest).data)
+
+    @extend_schema(request=FolderInstructionsPublishSerializer, responses={200: FolderInstructionsSerializer})
+    @instructions.mapping.put
+    @instructions.mapping.patch
+    def publish_instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a new version of the folder's instructions."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        payload = FolderInstructionsPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            published = publish_folder_instructions(
+                folder,
+                content=payload.validated_data["content"],
+                user=cast(User, request.user),
+                base_version=payload.validated_data.get("base_version"),
+            )
+        except FolderInstructionsVersionConflictError as err:
+            return Response(
+                {
+                    "detail": "The instructions changed since you opened them. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except FolderInstructionsVersionLimitError as err:
+            return Response(
+                {"detail": f"This folder has reached the maximum of {err.max_version} instruction versions."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(FolderInstructionsSerializer(published).data)
+
+    @extend_schema(request=None, responses={204: None})
+    @instructions.mapping.delete
+    def delete_instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Soft-delete every version of this folder's instructions."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        deleted_count = delete_folder_instructions(folder)
+        if deleted_count == 0:
+            return Response({"detail": "This folder has no instructions."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: FolderInstructionsVersionSerializer(many=True)})
+    @action(methods=["GET"], detail=True, url_path="instructions/versions")
+    def instructions_versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the version history for this folder's instructions, newest first."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        versions = get_folder_instructions_versions(folder)
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(FolderInstructionsVersionSerializer(page, many=True).data)
+        return Response(FolderInstructionsVersionSerializer(versions, many=True).data)
+
+    @extend_schema(responses={200: ContextGenerationSerializer})
+    @action(methods=["GET"], detail=True, url_path="context_generation")
+    def context_generation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the Task currently generating this folder's CONTEXT.md, or null if none."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        return Response(ContextGenerationSerializer({"task_id": get_context_generation_task_id(folder)}).data)
+
+    @extend_schema(request=ContextGenerationSetSerializer, responses={200: ContextGenerationSerializer})
+    @context_generation.mapping.put
+    def set_context_generation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Set or clear the Task associated with this folder's CONTEXT.md generation."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        payload = ContextGenerationSetSerializer(data=request.data, context={"folder_team": folder.team})
+        payload.is_valid(raise_exception=True)
+        task_id = payload.validated_data["task_id"]
+        set_context_generation_task_id(folder, task_id=task_id)
+
+        return Response(ContextGenerationSerializer({"task_id": task_id}).data)

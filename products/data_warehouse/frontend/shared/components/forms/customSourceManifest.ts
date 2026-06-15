@@ -16,7 +16,6 @@ export const API_KEY_LOCATIONS = ['header', 'query', 'cookie'] as const
 export type ApiKeyLocation = (typeof API_KEY_LOCATIONS)[number]
 
 export const PAGINATOR_TYPES = [
-    'auto',
     'single_page',
     'json_response',
     'cursor',
@@ -27,7 +26,6 @@ export const PAGINATOR_TYPES = [
 export type PaginatorType = (typeof PAGINATOR_TYPES)[number]
 
 export type Paginator =
-    | { type: 'auto' }
     | { type: 'single_page' }
     | { type: 'json_response'; next_url_path?: string }
     | { type: 'cursor'; cursor_path?: string; cursor_param?: string }
@@ -88,6 +86,22 @@ export interface StreamForm {
     cursor_path: string
     cursor_type: CursorType
     start_param: string
+    // strftime pattern for the outgoing watermark; empty → ISO-8601 default
+    datetime_format: string
+    // Fan-out (parent/child): when `parent_stream` is set, PostHog fetches that
+    // stream first and calls this one once per parent row, injecting
+    // `parent_resolve_field` into the `{parent_path_param}` placeholder in the
+    // path. `include_from_parent` lists parent fields copied onto each child row.
+    // Empty `parent_stream` means a top-level stream.
+    parent_stream: string
+    parent_resolve_field: string
+    parent_path_param: string
+    include_from_parent: string
+    // Raw-authored `endpoint.params` entries the builder has no UI for (static
+    // query params, the engine's incremental specs, extra resolve params).
+    // Carried verbatim through parse → build so editing a stream in the builder
+    // never silently drops a query param the manifest author wrote by hand.
+    passthrough_params: Record<string, unknown>
 }
 
 export interface ManifestState {
@@ -113,6 +127,17 @@ export function emptyHeader(): HeaderEntry {
     return { id: nextHeaderId(), key: '', value: '' }
 }
 
+// The cleared (top-level) state of every parent-dependency field. Single
+// source for the three places that reset a dependency — emptyStream, removing
+// a parent stream, and the builder's "None" selection — so a new parent field
+// only needs a default here.
+export const EMPTY_PARENT_FIELDS = {
+    parent_stream: '',
+    parent_resolve_field: '',
+    parent_path_param: '',
+    include_from_parent: '',
+} satisfies Partial<StreamForm>
+
 export function emptyStream(): StreamForm {
     return {
         id: nextStreamId(),
@@ -127,7 +152,65 @@ export function emptyStream(): StreamForm {
         cursor_path: '',
         cursor_type: 'datetime',
         start_param: '',
+        datetime_format: '',
+        passthrough_params: {},
+        ...EMPTY_PARENT_FIELDS,
     }
+}
+
+function splitCsv(value: string): string[] {
+    return value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+}
+
+/**
+ * Names of the streams that `streams[index]` may depend on: named, not itself,
+ * and top-level — nesting is capped at one level (a stream that already has a
+ * parent can't be a parent itself), mirroring the backend validation. This also
+ * makes cycles structurally impossible to build in the UI.
+ */
+export function eligibleParentStreams(streams: StreamForm[], index: number): string[] {
+    return streams
+        .filter(
+            (other, otherIndex) =>
+                otherIndex !== index && other.name.trim().length > 0 && other.parent_stream.trim().length === 0
+        )
+        .map((other) => other.name)
+}
+
+/**
+ * Applies a patch to one stream. Renaming a stream follows through to children
+ * that reference it via `parent_stream` — otherwise their dependency would
+ * dangle silently and only fail at save time.
+ */
+export function updateStreamInList(streams: StreamForm[], index: number, patch: Partial<StreamForm>): StreamForm[] {
+    const oldName = streams[index]?.name
+    const updated = streams.map((stream, i) => (i === index ? { ...stream, ...patch } : stream))
+    const newName = patch.name
+    if (newName === undefined || !oldName || newName === oldName) {
+        return updated
+    }
+    return updated.map((stream, i) =>
+        i !== index && stream.parent_stream === oldName ? { ...stream, parent_stream: newName } : stream
+    )
+}
+
+/**
+ * Removes a stream. Children that depended on it have the parent dependency
+ * cleared (back to top-level) so they don't reference a stream that no longer
+ * exists.
+ */
+export function removeStreamFromList(streams: StreamForm[], index: number): StreamForm[] {
+    const removedName = streams[index]?.name
+    const remaining = streams.filter((_, i) => i !== index)
+    if (!removedName || remaining.some((stream) => stream.name === removedName)) {
+        return remaining
+    }
+    return remaining.map((stream) =>
+        stream.parent_stream === removedName ? { ...stream, ...EMPTY_PARENT_FIELDS } : stream
+    )
 }
 
 export function defaultState(): ManifestState {
@@ -201,18 +284,41 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             if (stream.cursor_type !== 'datetime') {
                 incremental.cursor_type = stream.cursor_type
             }
+            if (stream.datetime_format.trim()) {
+                incremental.datetime_format = stream.datetime_format.trim()
+            }
             endpoint.incremental = incremental
         }
-        const primaryKeys = stream.primary_key
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean)
+        // Fan-out: bind the parent's field into the path placeholder via a
+        // `resolve` param, merged onto the raw-authored params the builder has
+        // no UI for. The dependency is emitted whenever a parent is selected,
+        // even half-filled: an incomplete dependency must fail backend validation
+        // loudly (the builder UI flags the missing pieces inline) rather than be
+        // silently dropped — that would sync this stream as an unrelated
+        // top-level endpoint.
+        const parentStream = stream.parent_stream.trim()
+        const params: Record<string, unknown> = { ...stream.passthrough_params }
+        if (parentStream) {
+            params[stream.parent_path_param.trim()] = {
+                type: 'resolve',
+                resource: parentStream,
+                field: stream.parent_resolve_field.trim(),
+            }
+        }
+        if (Object.keys(params).length > 0) {
+            endpoint.params = params
+        }
+        const primaryKeys = splitCsv(stream.primary_key)
         const resource: Record<string, unknown> = {
             name: stream.name,
             // Fall back to 'id' when the field is cleared — an empty primary_key
             // array produces a broken resource downstream.
             primary_key: primaryKeys.length === 0 ? 'id' : primaryKeys.length === 1 ? primaryKeys[0] : primaryKeys,
             endpoint,
+        }
+        const includeFromParent = splitCsv(stream.include_from_parent)
+        if (parentStream && includeFromParent.length > 0) {
+            resource.include_from_parent = includeFromParent
         }
         // sort_mode only affects incremental resume safety. Emit only when the
         // user explicitly opts into descending order — backend default is asc.
@@ -241,8 +347,6 @@ export function extractAuthSecrets(state: ManifestState): AuthSecrets {
 
 function serializePaginator(paginator: Paginator): Record<string, unknown> {
     switch (paginator.type) {
-        case 'auto':
-            return { type: 'auto' }
         case 'json_response':
             return {
                 type: 'json_response',
@@ -348,6 +452,29 @@ function parseStream(resource: unknown): StreamForm {
     const cursorTypeRaw = asString(incremental.cursor_type, 'datetime')
     const cursorType: CursorType = isMember(CURSOR_TYPES, cursorTypeRaw) ? cursorTypeRaw : 'datetime'
     const primaryKey = r.primary_key
+    // Recover a fan-out dependency from the first `resolve` param: its key is the
+    // path placeholder, and it names the parent stream + the parent field bound in.
+    // Every other params entry (static query params, incremental specs, extra
+    // resolve params on a malformed manifest) is preserved verbatim so a builder
+    // edit can't silently drop it.
+    const params = asObject(endpoint.params)
+    let parentStream = ''
+    let parentResolveField = ''
+    let parentPathParam = ''
+    const passthroughParams: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(params)) {
+        const spec = asObject(value)
+        if (spec.type === 'resolve' && !parentPathParam) {
+            parentPathParam = key
+            parentStream = asString(spec.resource)
+            parentResolveField = asString(spec.field)
+        } else {
+            passthroughParams[key] = value
+        }
+    }
+    const includeFromParent = Array.isArray(r.include_from_parent)
+        ? (r.include_from_parent as unknown[]).map((field) => String(field)).join(', ')
+        : ''
     return {
         id: nextStreamId(),
         name: asString(r.name),
@@ -361,5 +488,11 @@ function parseStream(resource: unknown): StreamForm {
         cursor_path: asString(incremental.cursor_path),
         cursor_type: cursorType,
         start_param: asString(incremental.start_param),
+        datetime_format: asString(incremental.datetime_format),
+        parent_stream: parentStream,
+        parent_resolve_field: parentResolveField,
+        parent_path_param: parentPathParam,
+        include_from_parent: includeFromParent,
+        passthrough_params: passthroughParams,
     }
 }

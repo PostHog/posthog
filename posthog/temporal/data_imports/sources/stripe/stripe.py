@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -29,6 +30,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -44,7 +46,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS, WEBHOOK_ONLY_ENDPOINTS
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
@@ -70,15 +72,21 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Invoke a Stripe SDK list method and rewrite any StripeError it raises with a cleaned
     message — primarily collapsing the long asterisk run from redacted restricted keys.
 
-    Re-raises the same exception class (so framework-level non-retryable error matching on
+    Re-raises the same exception instance (so framework-level non-retryable error matching on
     `"PermissionError"` etc. continues to work) but with a shorter, frontend-friendly message
     that still preserves the actionable detail Stripe surfaces (which scope is missing).
+
+    The message is mutated in place rather than reconstructed: StripeError subclasses have
+    differing constructor signatures (e.g. InvalidRequestError requires a positional `param`),
+    so `type(e)(message=...)` would itself raise a TypeError and mask the original error.
     """
     try:
         return method(*args, **kwargs)
     except stripe_lib.StripeError as e:
-        cleaned = _clean_stripe_error_message(str(e))
-        raise type(e)(message=cleaned) from e
+        cleaned = _clean_stripe_error_message(e._message or "")
+        e._message = cleaned
+        e.args = (cleaned,)
+        raise
 
 
 def _stripe_base_addresses() -> BaseAddresses:
@@ -139,8 +147,20 @@ def _build_resources(
         PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
         PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
         REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
-        SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+        SUBSCRIPTION_RESOURCE_NAME: StripeResource(
+            method=client.subscriptions.list,
+            params={
+                "status": "all",
+                # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
+                # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
+                # Key must be "expand" (not "expand[]") for a list value: the SDK encodes it as
+                # expand[0]=…&expand[1]=…, whereas "expand[]" + a list yields expand[][0]=… (doubled
+                # brackets), which Stripe rejects with "Invalid string: {...}".
+                "expand": ["data.discounts", "data.items.data.discounts"],
+            },
+        ),
         CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.balance_transactions.list,
             nested_parent_param="customer",
@@ -180,6 +200,15 @@ def get_rows(
     resources = _build_resources(client, logger=logger)
 
     batcher = Batcher(logger=logger)
+
+    if endpoint in WEBHOOK_ONLY_ENDPOINTS:
+        # Webhook-only resources (e.g. Discount) have no Stripe list endpoint — Discount
+        # can only be retrieved in the context of a customer/subscription/invoice. These
+        # tables are populated exclusively by their corresponding webhook events. Yield
+        # nothing so the initial "sync" completes immediately, allowing the webhook source
+        # manager to take over (it requires schema.initial_sync_complete=True before activating).
+        logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
+        return
 
     resource = resources.get(endpoint, None)
     if not resource:
@@ -462,6 +491,9 @@ def validate_credentials(
         # "not available for OAuth" reason instead since it feeds the UI.
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
             continue
+        # Webhook-only resources (e.g. Discount) have no list API to probe.
+        if name in WEBHOOK_ONLY_ENDPOINTS:
+            continue
         if name not in all_resources:
             raise StripePermissionError({name: f"{name} does not exist"})
         resources_to_check.append(_resolve_to_flat(name, all_resources))
@@ -499,6 +531,10 @@ def check_endpoint_permissions(
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
             results[name] = "Account is not available for OAuth-connected Stripe sources"
             continue
+        # Webhook-only resources (e.g. Discount) have no list API — treat as reachable.
+        if name in WEBHOOK_ONLY_ENDPOINTS:
+            results[name] = None
+            continue
         if name not in all_resources:
             results[name] = f"{name} is not a known Stripe resource"
             continue
@@ -510,16 +546,40 @@ def check_endpoint_permissions(
     return results
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
-    logger = LOGGER.bind()
-
+def _all_known_webhook_events() -> list[str]:
+    """Every Stripe event whose prefix appears in RESOURCE_TO_STRIPE_WEBHOOK_EVENT.
+    Re-deriving on each reconcile is what auto-heals webhooks created before the map grew."""
     hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
     enabled_events_type = hints["enabled_events"]
     list_inner = get_args(enabled_events_type)[0]
     possible_event_values: tuple[str] = get_args(list_inner)
 
     prefixes_set = set(RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values())
-    filtered_events = [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+    return [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+
+
+def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
+    """Detect Stripe's account-access/account-mismatch rejection (code ``account_invalid``).
+
+    A restricted key sent with a ``stripe_account`` header that doesn't match the key's own
+    account makes Stripe reject the request for the account rather than the webhook scope, so it
+    never matches the permission/403/forbidden branch. Surfacing the raw message strands the user;
+    classifying it lets us point them at the manual-setup fallback instead.
+    """
+    if getattr(error, "code", None) == "account_invalid":
+        return True
+    lowered = error_str.lower()
+    return (
+        "does not have access to account" in lowered
+        or "application access may have been revoked" in lowered
+        or "no such account" in lowered
+    )
+
+
+def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+    logger = LOGGER.bind()
+
+    filtered_events = _all_known_webhook_events()
 
     if not filtered_events:
         return WebhookCreationResult(
@@ -551,11 +611,24 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
 
         return WebhookCreationResult(success=True, extra_inputs=extra_inputs)
     except Exception as e:
-        error_str = str(e)
+        error_str = _clean_stripe_error_message(str(e))
         logger.warning(
             "Failed to create Stripe webhook",
             error=error_str,
         )
+
+        # Check account access before the permission branch — an account-access rejection can carry a
+        # 403 and would otherwise be misclassified as a missing webhook scope.
+        if _is_stripe_account_access_error(e, error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Stripe rejected the request because your API key isn't authorized for the configured "
+                    "Stripe account. The 'Account id' in your source settings only applies to Stripe Connect "
+                    "platform accounts — remove or correct it if your key belongs directly to the account, "
+                    "then retry. Otherwise, set up the webhook manually below."
+                ),
+            )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
             return WebhookCreationResult(
@@ -601,6 +674,64 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
+
+
+def update_webhook_events(
+    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str]
+) -> WebhookSyncResult:
+    """Add `desired_events` to the matching Stripe endpoint, writing only on drift.
+    A 403 (missing webhook write scope) returns a failure result rather than raising, so
+    callers can enable the table and warn instead of hard-failing."""
+    logger = LOGGER.bind()
+
+    if not desired_events:
+        return WebhookSyncResult(success=True)
+
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url != webhook_url:
+                continue
+
+            current = set(endpoint.enabled_events or [])
+            # "*" already covers everything.
+            if "*" in current:
+                return WebhookSyncResult(success=True)
+
+            missing = [e for e in desired_events if e not in current]
+            if not missing:
+                return WebhookSyncResult(success=True)
+
+            # Merge, don't replace — never drop events the user added themselves.
+            merged = sorted(current | set(desired_events))
+            client.webhook_endpoints.update(endpoint.id, params={"enabled_events": merged})  # type: ignore
+            return WebhookSyncResult(success=True)
+
+        # No matching endpoint — nothing to reconcile (creation is handled elsewhere).
+        return WebhookSyncResult(success=True)
+    except stripe_lib.PermissionError as e:
+        logger.warning("No permission to update Stripe webhook events", error=str(e))
+        return WebhookSyncResult(
+            success=False,
+            error=(
+                "Your Stripe API key doesn't have permission to update webhooks. Add the 'Write' permission "
+                f"for 'Webhook endpoints' to your API key, or add these events manually: {', '.join(desired_events)}"
+            ),
+        )
+    except Exception as e:
+        error_str = _clean_stripe_error_message(str(e))
+        logger.warning("Failed to update Stripe webhook events", error=error_str)
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events automatically: {error_str}")
 
 
 def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:

@@ -18,10 +18,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.business_knowledge.backend import url_fetch
+from products.business_knowledge.backend.html_parse import _bs4_fallback, parse_html
 from products.business_knowledge.backend.logic import (
     InvalidUrlError,
     QuotaExceededError,
     SourceBusyError,
+    chunk_text,
     create_url_source,
     refresh_source,
     update_url_source,
@@ -142,6 +144,54 @@ _BASIC_HTML = b"""<!doctype html>
 <p>To request a refund, open a ticket with your order number.</p>
 </article>
 </body></html>"""
+
+
+class TestParseHtml(BaseTest):
+    def test_blocks_are_blank_line_separated_and_chunk_on_paragraphs(self) -> None:
+        # Regression: txt extraction separated blocks with single newlines, so
+        # the chunker (which splits on blank lines) saw one mega-paragraph and
+        # hard-split mid-sentence. Markdown output must keep blank lines.
+        paragraphs = "".join(
+            f"<h2>Section {i}</h2><p>Paragraph {i} with realistic prose content that runs long enough "
+            f"to matter for chunk packing and boundary checks in this regression test.</p>"
+            for i in range(30)
+        )
+        html = f"<html><head><title>Doc</title></head><body><article>{paragraphs}</article></body></html>".encode()
+
+        title, text = parse_html(html, "https://example.com/doc", content_type="text/html")
+        assert title
+        assert "\n\n" in text
+        chunks = chunk_text(text)
+        assert len(chunks) > 1
+        # Paragraph-aligned packing — every chunk ends on a block boundary
+        # (a full sentence or a heading line), never a mid-sentence hard split.
+        for chunk in chunks:
+            last_line = chunk.content.rstrip().splitlines()[-1]
+            assert last_line.startswith("#") or last_line.endswith((".", "?", "!"))
+
+    def test_fallback_strips_nav_and_footer(self) -> None:
+        html = (
+            "<html><body>"
+            '<nav><a href="/pricing">Pricing</a><a href="/docs">Docs</a></nav>'
+            "<main><p>Actual page content.</p></main>"
+            '<footer><a href="/privacy">Privacy</a> Copyright</footer>'
+            "</body></html>"
+        )
+        text = _bs4_fallback(html)
+        assert "Actual page content." in text
+        assert "Pricing" not in text
+        assert "Privacy" not in text
+
+    def test_non_utf8_page_decodes_correctly(self) -> None:
+        html_str = (
+            '<html><head><meta charset="windows-1251"><title>Тест</title></head>'
+            "<body><article><p>Первый абзац с настоящим содержимым, достаточно длинный для извлечения.</p>"
+            "<p>Второй абзац тоже с настоящим содержимым для проверки декодирования.</p></article></body></html>"
+        )
+        title, text = parse_html(html_str.encode("windows-1251"), "https://example.com/ru")
+        assert "Первый абзац" in text
+        assert "\ufffd" not in text
+        assert title == "Тест"
 
 
 class TestCreateUrlSource(BaseTest):
@@ -402,22 +452,17 @@ class TestUrlApi(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
-    @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
     @patch(
         "products.business_knowledge.backend.api.serializers.is_url_allowed",
         return_value=(True, None),
     )
-    def test_create_url_source_api(
-        self, _serializer_ssrf: MagicMock, _logic_ssrf: MagicMock, mock_fetch: MagicMock, _ff: MagicMock
+    def test_create_url_source_api_claims_and_backgrounds(
+        self, _serializer_ssrf: MagicMock, _logic_ssrf: MagicMock, mock_ingest: MagicMock, _ff: MagicMock
     ) -> None:
-        mock_fetch.return_value = url_fetch.FetchResult(
-            status=200,
-            body=_BASIC_HTML,
-            content_type="text/html",
-            etag='"v1"',
-            final_url="https://docs.example.com/billing",
-        )
+        # Creation must return immediately in PROCESSING and hand ingestion off
+        # to the background — the request never blocks on the fetch.
         response = self.client.post(
             self.url,
             {"name": "Docs", "url": "https://docs.example.com/billing", "source_type": "url"},
@@ -426,8 +471,36 @@ class TestUrlApi(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         body = response.json()
         assert body["source_type"] == "url"
-        assert body["status"] == "ready"
+        assert body["status"] == "processing"
         assert body["source_url"] == "https://docs.example.com/billing"
+        assert body["chunk_count"] == 0
+        mock_ingest.assert_called_once()
+
+    @patch("products.business_knowledge.backend.logic.ingest_source")
+    @patch("products.business_knowledge.backend.api.views.sync_connect", side_effect=Exception("temporal unavailable"))
+    @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))
+    @patch(
+        "products.business_knowledge.backend.api.serializers.is_url_allowed",
+        return_value=(True, None),
+    )
+    def test_create_url_source_api_falls_back_to_inline_ingest(
+        self,
+        _serializer_ssrf: MagicMock,
+        _logic_ssrf: MagicMock,
+        _sync_connect: MagicMock,
+        mock_ingest: MagicMock,
+        _ff: MagicMock,
+    ) -> None:
+        # If the background workflow can't start, ingestion must still run inline
+        # so the source doesn't hang in PROCESSING.
+        response = self.client.post(
+            self.url,
+            {"name": "Docs", "url": "https://docs.example.com/billing", "source_type": "url"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        mock_ingest.assert_called_once()
+        assert mock_ingest.call_args.kwargs["team_id"] == self.team.id
 
     @patch(
         "products.business_knowledge.backend.api.serializers.is_url_allowed",

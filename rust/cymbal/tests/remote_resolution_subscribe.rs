@@ -17,7 +17,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::remote::{EndpointPool, RemoteResolutionConfig};
 use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::symbol_store::chunk_id::OrChunkId;
@@ -37,7 +37,7 @@ impl SymbolResolver for EmptyResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }
@@ -120,6 +120,11 @@ fn pool_config(host: &str, tick_hint: Duration) -> RemoteResolutionConfig {
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
         sample_rate: 1.0,
+        routing_jitter: 0.0,
+        routing_acceptance_concurrency: 10,
+        overload_ejection_initial: Duration::ZERO,
+        overload_ejection_max: Duration::ZERO,
+        overload_ejection_decay: Duration::from_secs(30),
         subscribe_tick_hint: tick_hint,
         subscribe_reconnect_backoff: Duration::from_millis(20),
     }

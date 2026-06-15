@@ -10,14 +10,14 @@ import { urls } from 'scenes/urls'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
-import { readScore, readVerdict } from '../../utils/observation'
 import {
+    OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
-import { ScannerOverview } from './ScannerOverview'
+import { ScanSessionButton } from './ScanSessionButton'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -35,42 +35,28 @@ const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
     { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
 ]
-
-// Nulls (no model output) sort last regardless of direction.
-function compareByScore(a: ReplayObservationApi, b: ReplayObservationApi): number {
-    const sa = readScore(a)
-    const sb = readScore(b)
-    if (sa === null || sb === null) {
-        return sa === sb ? 0 : sa === null ? 1 : -1
-    }
-    return sa - sb
-}
-
-function compareByVerdict(a: ReplayObservationApi, b: ReplayObservationApi): number {
-    const va = readVerdict(a)
-    const vb = readVerdict(b)
-    if (va === vb) {
-        return 0
-    }
-    if (va === null || vb === null) {
-        return va === null ? 1 : -1
-    }
-    return va ? -1 : 1
-}
-
-// Rows with no snapshot (rendered as "—") sort last regardless of direction, matching compareByScore/Verdict.
-function compareByVersion(a: ReplayObservationApi, b: ReplayObservationApi): number {
-    const va = a.scanner_snapshot?.scanner_version ?? null
-    const vb = b.scanner_snapshot?.scanner_version ?? null
-    if (va === null || vb === null) {
-        return va === vb ? 0 : va === null ? 1 : -1
-    }
-    return va - vb
-}
 
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
 const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
+
+function Metric({
+    label,
+    value,
+    valueClass,
+}: {
+    label: string
+    value: number | string
+    valueClass?: string
+}): JSX.Element {
+    return (
+        <div className="text-center">
+            <div className={`font-semibold text-lg ${valueClass ?? ''}`}>{value}</div>
+            <div className="text-muted">{label}</div>
+        </div>
+    )
+}
 
 function versionTag(
     obsVersion: number | null | undefined,
@@ -90,12 +76,15 @@ function versionTag(
     return { type, label, tooltip }
 }
 
-export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const logic = replayScannerLogic({ id: scannerId, tabId })
+export function ScannerObservationsTable({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
     const {
+        observations,
         observationsLoading,
         hasObservationsInFlight,
-        filteredObservations,
+        observationsPage,
+        observationsTotal,
+        observationsSort,
         observationStatusFilter,
         observationTriggeredByFilter,
         observationVerdictFilter,
@@ -104,9 +93,13 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
         availableTags,
         observationStats,
         scanner,
+        triggeringOnDemandObservation,
+        refreshing,
     } = useValues(logic)
     const {
-        loadObservations,
+        refreshObservations,
+        setObservationsPage,
+        setObservationsSort,
         setObservationStatusFilter,
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
@@ -133,18 +126,19 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
         {
             title: 'Status',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} />,
+            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
         },
         {
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <div className="min-w-[18rem] max-w-xl">
-                    <ObservationResultSummary observation={obs} />
-                </div>
+                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                    <div className="min-w-[18rem] max-w-xl">
+                        <ObservationResultSummary observation={obs} />
+                    </div>
+                </Link>
             ),
-            sorter:
-                scannerType === 'scorer' ? compareByScore : scannerType === 'monitor' ? compareByVerdict : undefined,
+            sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },
         {
             title: 'Version',
@@ -162,7 +156,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     </Tooltip>
                 )
             },
-            sorter: compareByVersion,
+            sorter: true,
         },
         {
             title: 'Triggered by',
@@ -177,7 +171,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
             title: 'Created',
             key: 'created_at',
             render: (_, obs) => <TZLabel time={obs.created_at} />,
-            sorter: (a, b) => a.created_at.localeCompare(b.created_at),
+            sorter: true,
         },
         {
             title: '',
@@ -190,6 +184,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
                     className="whitespace-nowrap"
+                    data-attr="vision-observation-view-recording"
                 >
                     View recording
                 </LemonButton>
@@ -198,115 +193,117 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
     ]
 
     return (
-        <div className="space-y-4">
-            <ScannerOverview scannerId={scannerId} tabId={tabId} />
-            <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+            <div className="flex items-center gap-3">
                 <p className="text-muted text-sm m-0">
-                    Past applications of this scanner to session recordings. Each row is one observation.
+                    Past observations made by this scanner. Each row is one observation.
                 </p>
-                <div className="flex items-center gap-4">
+                <div className="ml-auto flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <ScanSessionButton scannerId={scannerId} />
+                        {(observationStats.total > 0 || hasActiveObservationFilters) && (
+                            <>
+                                <FilterPill<ObservationStatusValue>
+                                    label="Status"
+                                    options={STATUS_OPTIONS}
+                                    value={observationStatusFilter}
+                                    onChange={setObservationStatusFilter}
+                                />
+                                <FilterPill<ObservationTriggeredByValue>
+                                    label="Triggered by"
+                                    options={TRIGGERED_BY_OPTIONS}
+                                    value={observationTriggeredByFilter}
+                                    onChange={setObservationTriggeredByFilter}
+                                />
+                                {scannerType === 'monitor' && (
+                                    <FilterPill<ObservationVerdictValue>
+                                        label="Verdict"
+                                        options={VERDICT_OPTIONS}
+                                        value={observationVerdictFilter}
+                                        onChange={setObservationVerdictFilter}
+                                    />
+                                )}
+                                {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
+                                    <FilterPill<string>
+                                        label="Tag"
+                                        options={tagFilterOptions}
+                                        value={observationTagFilter}
+                                        onChange={setObservationTagFilter}
+                                    />
+                                )}
+                                {hasActiveObservationFilters && (
+                                    <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
+                                        Clear filters
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                        <Tooltip
+                            title={
+                                hasObservationsInFlight
+                                    ? 'Auto-refreshing while observations are in flight'
+                                    : 'Refresh observations'
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => refreshObservations()}
+                                loading={refreshing}
+                                data-attr="vision-observations-refresh"
+                            >
+                                Refresh
+                            </LemonButton>
+                        </Tooltip>
+                    </div>
                     {observationStats.total > 0 && (
                         <div className="flex gap-4 text-sm">
-                            <div className="text-center">
-                                <div className="font-semibold text-lg">{observationStats.total}</div>
-                                <div className="text-muted">Total</div>
-                            </div>
+                            <Metric label="Total" value={observationStats.total} />
                             {observationStats.successRate !== null && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg text-success">
-                                        {observationStats.successRate}%
-                                    </div>
-                                    <div className="text-muted">Success rate</div>
-                                </div>
+                                <Metric
+                                    label="Success rate"
+                                    value={`${observationStats.successRate}%`}
+                                    valueClass="text-success"
+                                />
                             )}
                             {observationStats.failed > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg text-danger">{observationStats.failed}</div>
-                                    <div className="text-muted">Failed</div>
-                                </div>
+                                <Metric label="Failed" value={observationStats.failed} valueClass="text-danger" />
                             )}
                             {observationStats.ineligible > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg">{observationStats.ineligible}</div>
-                                    <div className="text-muted">Ineligible</div>
-                                </div>
+                                <Metric label="Ineligible" value={observationStats.ineligible} />
                             )}
                             {observationStats.inFlight > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg">{observationStats.inFlight}</div>
-                                    <div className="text-muted">In flight</div>
-                                </div>
+                                <Metric label="In flight" value={observationStats.inFlight} />
                             )}
                         </div>
                     )}
-                    <Tooltip
-                        title={
-                            hasObservationsInFlight
-                                ? 'Auto-refreshing while observations are in flight'
-                                : 'Refresh observations'
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            onClick={() => loadObservations()}
-                            loading={observationsLoading}
-                        >
-                            Refresh
-                        </LemonButton>
-                    </Tooltip>
                 </div>
             </div>
-            {observationStats.total > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                    <FilterPill<ObservationStatusValue>
-                        label="Status"
-                        options={STATUS_OPTIONS}
-                        value={observationStatusFilter}
-                        onChange={setObservationStatusFilter}
-                    />
-                    <FilterPill<ObservationTriggeredByValue>
-                        label="Triggered by"
-                        options={TRIGGERED_BY_OPTIONS}
-                        value={observationTriggeredByFilter}
-                        onChange={setObservationTriggeredByFilter}
-                    />
-                    {scannerType === 'monitor' && (
-                        <FilterPill<ObservationVerdictValue>
-                            label="Verdict"
-                            options={VERDICT_OPTIONS}
-                            value={observationVerdictFilter}
-                            onChange={setObservationVerdictFilter}
-                        />
-                    )}
-                    {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
-                        <FilterPill<string>
-                            label="Tag"
-                            options={tagFilterOptions}
-                            value={observationTagFilter}
-                            onChange={setObservationTagFilter}
-                        />
-                    )}
-                    {hasActiveObservationFilters && (
-                        <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
-                            Clear filters
-                        </LemonButton>
-                    )}
-                </div>
-            )}
             <LemonTable
                 columns={columns}
-                dataSource={filteredObservations}
-                loading={observationsLoading}
+                dataSource={observations}
+                loading={
+                    refreshing || triggeringOnDemandObservation || (observationsLoading && observations.length === 0)
+                }
                 rowKey="id"
-                pagination={{ pageSize: 50 }}
+                pagination={{
+                    controlled: true,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    currentPage: observationsPage,
+                    entryCount: observationsTotal,
+                    onForward: () => setObservationsPage(observationsPage + 1),
+                    onBackward: () => setObservationsPage(observationsPage - 1),
+                }}
+                sorting={observationsSort}
+                onSort={(next) => setObservationsSort(next)}
+                useURLForSorting={false}
                 nouns={['observation', 'observations']}
                 emptyState={
                     <div className="p-6 text-center text-muted">
                         {hasActiveObservationFilters
                             ? 'No observations match your filters.'
-                            : 'No observations yet. Observations appear here once the scanner runs on a schedule, or when you observe a recording from the session replay page.'}
+                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
                     </div>
                 }
             />

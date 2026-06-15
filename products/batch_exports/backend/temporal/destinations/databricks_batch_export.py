@@ -962,7 +962,7 @@ def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
 
 
 @contextlib.asynccontextmanager
-async def handle_common_errors(operation: str, timeout: float) -> AsyncGenerator[None, None]:
+async def handle_common_errors(operation: str, timeout: float) -> AsyncGenerator[None]:
     """Map common Databricks client errors to non-retryable typed exceptions.
 
     Operation-specific exceptions (catalog-not-found, schema-not-found, etc.) should be
@@ -1086,7 +1086,7 @@ async def manage_resources(
     fields: list[DatabricksField],
     table_name: str,
     stage_table_name: str | None = None,
-) -> AsyncGenerator[tuple[str, str, str | None], None]:
+) -> AsyncGenerator[tuple[str, str, str | None]]:
     """Manage resources in Databricks by ensuring they exist while in context."""
     async with client.managed_volume(volume_name) as volume:
         async with client.managed_table(table_name, fields, delete=False) as table:

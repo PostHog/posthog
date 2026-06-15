@@ -7,7 +7,6 @@ import structlog
 import temporalio
 
 from posthog.models import Team
-from posthog.models.exported_asset import ExportedAsset
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.types.video import (
@@ -15,12 +14,14 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay.backend.models.session_summaries import SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import (
     EXPIRES_AFTER_DAYS,
     FULL_VIDEO_EXPORT_FORMAT,
     MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
 )
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 

@@ -26,7 +26,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
-from posthog.temporal.data_imports.sources.common.http import bind_job_context
+from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
@@ -37,8 +37,6 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
-
-WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
 @dataclasses.dataclass
@@ -163,6 +161,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
+                schema_metadata=schema.schema_metadata,
+                dwh_storage_key=schema.dwh_storage_key,
             )
 
             new_source = SourceRegistry.get_source(source_type)
@@ -220,19 +220,6 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
-async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
-    from posthog.temporal.data_imports.workflow_activities.create_job_model import (
-        _is_pipeline_v3_enabled as _sync_check,
-    )
-
-    enabled = await database_sync_to_async_pool(_sync_check)(team_id, source_type)
-    if enabled:
-        logger.debug(
-            f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
-        )
-    return enabled
-
-
 @database_sync_to_async_pool
 def _get_models(
     job_id: str,
@@ -260,7 +247,7 @@ async def _run(
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
 
-        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, source.source_type, logger)
+        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3

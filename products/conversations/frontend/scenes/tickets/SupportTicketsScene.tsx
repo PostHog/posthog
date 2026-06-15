@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
@@ -10,6 +11,8 @@ import {
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -18,6 +21,7 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -46,10 +50,13 @@ import { SlaDisplay } from '../../components/SlaDisplay'
 import {
     type Ticket,
     type TicketSlaState,
+    type TicketStatus,
+    type TicketTagsMatch,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
     statusMultiselectOptions,
+    statusOptionsWithoutAll,
 } from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -216,11 +223,99 @@ interface SupportTicketsTableProps {
     embedded?: boolean
 }
 
+function SupportTicketsBulkActions(): JSX.Element {
+    const { selectedTicketIds, selectedTickets, bulkUpdating } = useValues(supportTicketsSceneLogic)
+    const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
+
+    const hasSelection = selectedTicketIds.length > 0
+    const selectedStatuses = selectedTickets.map((t) => t.status)
+    const currentStatus = selectedStatuses.reduce<TicketStatus | 'mixed' | null>((acc, s) => {
+        if (acc === null) {
+            return s
+        }
+        return acc === s ? acc : 'mixed'
+    }, null)
+
+    return (
+        <LemonSelect
+            onChange={(value) => {
+                if (!value || value === currentStatus) {
+                    return
+                }
+                bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
+            }}
+            value={currentStatus === 'mixed' ? null : currentStatus}
+            placeholder="Mark as"
+            loading={bulkUpdating}
+            disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
+            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+            size="small"
+        />
+    )
+}
+
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { tickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
-    const { setCurrentPage, setSorting } = useActions(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
+    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
     const { push } = useActions(router)
+
+    const getKey = useMemo(() => (t: Ticket) => t.id, [])
+    const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
+    const {
+        selectedKeys,
+        clearSelection,
+        isSomeOnPageSelected,
+        isAllOnPageSelected,
+        toggleAllOnPage,
+        selectedKeysSet,
+        toggleRow,
+    } = bulk
+
+    useEffect(() => {
+        setSelectedTicketIds(selectedKeys)
+    }, [selectedKeys, setSelectedTicketIds])
+
+    // Clear hook selection only when kea's selection is reset *externally* (e.g. after a bulk
+    // update or page reload). We detect that as a non-empty -> empty transition. Reacting to
+    // `selectedTicketIds.length === 0` alone would also fire during the brief window right after
+    // the first selection, before the effect above has pushed `selectedKeys` into kea — which
+    // would immediately wipe the selection the user just made.
+    const prevSelectedTicketIdCount = useRef(selectedTicketIds.length)
+    useEffect(() => {
+        const wasSelected = prevSelectedTicketIdCount.current > 0
+        prevSelectedTicketIdCount.current = selectedTicketIds.length
+        if (wasSelected && selectedTicketIds.length === 0 && selectedKeys.length > 0) {
+            clearSelection()
+        }
+    }, [selectedTicketIds, selectedKeys, clearSelection])
+
+    const columns = useMemo<LemonTableColumns<Ticket>>(() => {
+        const checkboxCol: LemonTableColumns<Ticket>[number] = {
+            key: '__select__' as any,
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={isSomeOnPageSelected ? 'indeterminate' : isAllOnPageSelected}
+                    onChange={toggleAllOnPage}
+                    stopPropagation
+                />
+            ),
+            render: (_, ticket: Ticket, recordIndex: number) => (
+                <LemonCheckbox
+                    checked={selectedKeysSet.has(ticket.id)}
+                    onChange={(_value, event) =>
+                        toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                    }
+                    stopPropagation
+                />
+            ),
+        }
+        const base = embedded
+            ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
+            : SUPPORT_TICKETS_TABLE_COLUMNS
+        return [checkboxCol, ...base]
+    }, [embedded, isSomeOnPageSelected, isAllOnPageSelected, toggleAllOnPage, selectedKeysSet, toggleRow])
 
     return (
         <LemonTable<Ticket>
@@ -268,11 +363,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     'bg-primary-alt-highlight': ticket.unread_team_count > 0,
                 })
             }
-            columns={
-                embedded
-                    ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
-                    : SUPPORT_TICKETS_TABLE_COLUMNS
-            }
+            columns={columns}
         />
     )
 }
@@ -287,6 +378,8 @@ export function SupportTicketsTableFilters(): JSX.Element {
         slaFilter,
         assigneeFilter,
         tagsFilter,
+        tagsMatch,
+        tagsExcludeFilter,
         dateFrom,
         dateTo,
         ticketsLoading,
@@ -299,10 +392,13 @@ export function SupportTicketsTableFilters(): JSX.Element {
         setSlaFilter,
         setAssigneeFilter,
         setTagsFilter,
+        setTagsMatch,
+        setTagsExcludeFilter,
         setDateRange,
         loadTickets,
     } = useActions(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 
     return (
         <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -443,33 +539,68 @@ export function SupportTicketsTableFilters(): JSX.Element {
                 <LemonDropdown
                     closeOnClickInside={false}
                     overlay={
-                        <div className="p-2 min-w-64">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                value={tagsFilter}
-                                options={tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []}
-                                onChange={setTagsFilter}
-                                placeholder="Select or type tags..."
-                                data-attr="tags-filter-input"
-                            />
+                        <div className="p-2 min-w-64 flex flex-col gap-2">
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-muted text-xs">Include tags</span>
+                                    <LemonSegmentedButton
+                                        size="small"
+                                        value={tagsMatch}
+                                        onChange={(value) => setTagsMatch(value as TicketTagsMatch)}
+                                        options={[
+                                            { value: 'any', label: 'Match any' },
+                                            { value: 'all', label: 'Match all' },
+                                        ]}
+                                    />
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsFilter}
+                                    options={tagOptions}
+                                    onChange={setTagsFilter}
+                                    placeholder="Select or type tags..."
+                                    data-attr="tags-filter-input"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-muted text-xs">Exclude tags</span>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsExcludeFilter}
+                                    options={tagOptions}
+                                    onChange={setTagsExcludeFilter}
+                                    placeholder="Exclude tags..."
+                                    data-attr="tags-exclude-filter-input"
+                                />
+                            </div>
                         </div>
                     }
                 >
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {tagsFilter.length === 0
+                        {tagsFilter.length === 0 && tagsExcludeFilter.length === 0
                             ? 'All tags'
-                            : tagsFilter.length === 1
-                              ? tagsFilter[0]
-                              : `${tagsFilter.length} tags`}
+                            : [
+                                  tagsFilter.length > 0 &&
+                                      (tagsFilter.length === 1
+                                          ? tagsFilter[0]
+                                          : `${tagsMatch === 'all' ? 'all' : 'any'} of ${tagsFilter.length} tags`),
+                                  tagsExcludeFilter.length > 0 && `excl. ${tagsExcludeFilter.length}`,
+                              ]
+                                  .filter(Boolean)
+                                  .join(', ')}
                     </LemonButton>
                 </LemonDropdown>
-                {tagsFilter.length > 0 && (
+                {(tagsFilter.length > 0 || tagsExcludeFilter.length > 0) && (
                     <LemonButton
                         type="secondary"
                         size="small"
                         icon={<IconX />}
-                        onClick={() => setTagsFilter([])}
+                        onClick={() => {
+                            setTagsFilter([])
+                            setTagsExcludeFilter([])
+                        }}
                         tooltip="Clear tag filter"
                     />
                 )}
@@ -497,6 +628,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
                 />
             </div>
             <div className="flex items-center gap-2">
+                <SupportTicketsBulkActions />
                 <SavedViewsButton id="SupportTicketsScene" />
                 <LemonButton
                     type="secondary"

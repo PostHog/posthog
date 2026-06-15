@@ -140,7 +140,7 @@ class EndpointResponseSerializer(serializers.Serializer):
         help_text="How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
     )
     endpoint_path = serializers.CharField(
-        help_text="Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run).",
+        help_text="Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run).",
     )
     url = serializers.CharField(
         allow_null=True,
@@ -197,6 +197,10 @@ class EndpointRunResponseSerializer(serializers.Serializer):
     """Response from executing an endpoint query."""
 
     name = serializers.CharField(help_text="URL-safe endpoint name that was executed.")
+    execution_id = serializers.UUIDField(
+        required=False,
+        help_text="Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs.",
+    )
     results = serializers.ListField(
         required=False,
         help_text="Query result rows. Each row is a list of values matching the columns order.",
@@ -219,6 +223,14 @@ class EndpointRunResponseSerializer(serializers.Serializer):
 class EndpointVersionResponseSerializer(EndpointResponseSerializer):
     """Extended endpoint representation when viewing a specific version."""
 
+    last_executed_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When this specific version was last executed via the API (ISO 8601), or null if it hasn't "
+            "been executed. Per-version tracking is recent, so versions that predate it read null until "
+            "their next run."
+        ),
+    )
     version = serializers.IntegerField(help_text="Version number.")
     version_id = serializers.UUIDField(help_text="Version unique identifier (UUID).")
     endpoint_is_active = serializers.BooleanField(

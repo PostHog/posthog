@@ -1,8 +1,11 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -14,11 +17,23 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import {
+    ACCOUNTS_HOGQL_DEFAULT_SELECT,
+    ACCOUNTS_NAME_COLUMN,
+    accountsColumnConfigLogic,
+} from './accountsColumnConfigLogic'
+import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import type { accountsLogicType } from './accountsLogicType'
+import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
+import { AccountsEvents } from './constants'
 
-export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
+export const SEARCH_DEBOUNCE_MS = 300
+
+// Revealing an off-screen account triggers an async refetch, so its row may not
+// be in the DOM yet — poll briefly for it before scrolling.
+const SCROLL_TO_ACCOUNT_POLL_MS = 100
+const SCROLL_TO_ACCOUNT_MAX_ATTEMPTS = 40
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -42,9 +57,22 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
     }
 }
 
-export type RoleFilterValue = number | null
+export type RoleFilterValue = number[]
+
+// Shared URLs persisted a single role id (e.g. `csm: 7`) before the filters
+// became multi-select. Coerce any scalar (or malformed value) from the view
+// hash into a `number[]` so restoring a legacy link can't poison the array
+// (a stray number breaks the `.length`/`.map` the filters now rely on).
+function normalizeRoleFilter(value: unknown): RoleFilterValue {
+    if (Array.isArray(value)) {
+        return value.filter((entry): entry is number => typeof entry === 'number')
+    }
+    return typeof value === 'number' ? [value] : []
+}
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
+
+export type AccountFilterType = 'tag' | 'csm' | 'account_executive' | 'account_owner' | 'unassigned_only'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -78,13 +106,43 @@ const ROLE_LABELS: Record<AccountRoleKey, string> = {
 
 export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
+// Shareable view state encoded into the URL hash (`#view=...`) so a copied URL
+// reproduces the exact accounts list a colleague is looking at. Only non-default
+// values are serialized, keeping the hash empty for the default view.
+export interface AccountsViewUrlState {
+    search?: string
+    tags?: string[]
+    unassigned?: boolean
+    csm?: number[]
+    accountExecutive?: number[]
+    accountOwner?: number[]
+    sort?: NonNullable<AccountSortOrder>
+    columns?: string[]
+    tileFilter?: TileFilter
+}
+
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], accountsColumnConfigLogic, ['selectColumns', 'visibleColumnNames']],
-        actions: [accountsColumnConfigLogic, ['setSelectColumns', 'unselectColumn', 'resetColumns']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            accountsColumnConfigLogic,
+            ['selectColumns', 'visibleColumnNames'],
+            accountsOverviewTilesLogic,
+            ['metrics as overviewMetrics', 'tileFilter'],
+        ],
+        actions: [
+            accountsColumnConfigLogic,
+            ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
+            accountsOverviewTilesLogic,
+            ['setTileFilter'],
+            accountsExpansionLogic,
+            ['openAccountTab'],
+        ],
     })),
     actions({
+        setSearchInput: (query: string) => ({ query }),
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
@@ -94,6 +152,10 @@ export const accountsLogic = kea<accountsLogicType>([
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
+        // Dispatched by the filter controls on genuine user interaction only.
+        // The raw filter setters are also fired by URL sync and cross-filter
+        // cascades, so capturing analytics here keeps phantom events out.
+        reportFilterChange: (filterType: AccountFilterType) => ({ filterType }),
         updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
             accountId,
             role,
@@ -102,8 +164,21 @@ export const accountsLogic = kea<accountsLogicType>([
         roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
         replaceAccount: (account: AccountApi) => ({ account }),
+        openAccount: (accountId: string, externalId: string | null, name: string, tab: AccountExpansionTab) => ({
+            accountId,
+            externalId,
+            name,
+            tab,
+        }),
     }),
     reducers({
+        searchInput: [
+            '',
+            {
+                setSearchInput: (_, { query }) => query,
+                setSearchQuery: (_, { query }) => query,
+            },
+        ],
         searchQuery: [
             '',
             {
@@ -123,19 +198,19 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
         csmFilter: [
-            null as RoleFilterValue,
+            [] as RoleFilterValue,
             {
                 setCsmFilter: (_, { value }) => value,
             },
         ],
         accountExecutiveFilter: [
-            null as RoleFilterValue,
+            [] as RoleFilterValue,
             {
                 setAccountExecutiveFilter: (_, { value }) => value,
             },
         ],
         accountOwnerFilter: [
-            null as RoleFilterValue,
+            [] as RoleFilterValue,
             {
                 setAccountOwnerFilter: (_, { value }) => value,
             },
@@ -174,6 +249,87 @@ export const accountsLogic = kea<accountsLogicType>([
                 (accountId: string, role: AccountRoleKey): boolean =>
                     !!savingRoles[savingRoleKey(accountId, role)],
         ],
+        activeFilterCount: [
+            (s) => [
+                s.searchQuery,
+                s.tagsFilter,
+                s.csmFilter,
+                s.accountExecutiveFilter,
+                s.accountOwnerFilter,
+                s.allRolesUnassigned,
+            ],
+            (
+                searchQuery: string,
+                tagsFilter: string[],
+                csmFilter: RoleFilterValue,
+                accountExecutiveFilter: RoleFilterValue,
+                accountOwnerFilter: RoleFilterValue,
+                allRolesUnassigned: boolean
+            ): number =>
+                [
+                    !!searchQuery.trim(),
+                    tagsFilter.length > 0,
+                    csmFilter.length > 0,
+                    accountExecutiveFilter.length > 0,
+                    accountOwnerFilter.length > 0,
+                    allRolesUnassigned,
+                ].filter(Boolean).length,
+        ],
+        viewUrlState: [
+            (s) => [
+                s.searchQuery,
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.csmFilter,
+                s.accountExecutiveFilter,
+                s.accountOwnerFilter,
+                s.sortOrder,
+                s.selectColumns,
+                s.tileFilter,
+            ],
+            (
+                searchQuery: string,
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                csmFilter: RoleFilterValue,
+                accountExecutiveFilter: RoleFilterValue,
+                accountOwnerFilter: RoleFilterValue,
+                sortOrder: AccountSortOrder,
+                selectColumns: string[],
+                tileFilter: TileFilter | null
+            ): AccountsViewUrlState => {
+                const state: AccountsViewUrlState = {}
+                const trimmedSearch = searchQuery.trim()
+                if (trimmedSearch) {
+                    state.search = trimmedSearch
+                }
+                if (tagsFilter.length > 0) {
+                    state.tags = tagsFilter
+                }
+                if (allRolesUnassigned) {
+                    state.unassigned = true
+                }
+                if (csmFilter.length > 0) {
+                    state.csm = csmFilter
+                }
+                if (accountExecutiveFilter.length > 0) {
+                    state.accountExecutive = accountExecutiveFilter
+                }
+                if (accountOwnerFilter.length > 0) {
+                    state.accountOwner = accountOwnerFilter
+                }
+                if (sortOrder) {
+                    state.sort = sortOrder
+                }
+                if (!objectsEqual(selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT)) {
+                    state.columns = selectColumns
+                }
+                if (tileFilter) {
+                    state.tileFilter = tileFilter
+                }
+                return state
+            },
+        ],
         hogqlQuery: [
             (s) => [
                 s.searchQuery,
@@ -182,6 +338,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
+                s.tileFilter,
+                s.overviewMetrics,
                 s.sortOrder,
                 s.selectColumns,
             ],
@@ -192,6 +350,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
+                tileFilter: TileFilter | null,
+                overviewMetrics: string[],
                 sortOrder: AccountSortOrder,
                 selectColumns: string[]
             ): DataTableNode => {
@@ -199,6 +359,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     kind: NodeKind.AccountsQuery,
                     select: selectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
+                }
+                if (overviewMetrics.length > 0) {
+                    source.metrics = overviewMetrics
                 }
                 const trimmed = searchQuery.trim()
                 if (trimmed) {
@@ -210,14 +373,17 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (allRolesUnassigned) {
                     source.allRolesUnassigned = true
                 }
-                if (csmFilter !== null) {
+                if (csmFilter.length > 0) {
                     source.csm = csmFilter
                 }
-                if (accountExecutiveFilter !== null) {
+                if (accountExecutiveFilter.length > 0) {
                     source.accountExecutive = accountExecutiveFilter
                 }
-                if (accountOwnerFilter !== null) {
+                if (accountOwnerFilter.length > 0) {
                     source.accountOwner = accountOwnerFilter
+                }
+                if (tileFilter) {
+                    source.filterExpression = tileFilter.expression
                 }
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)
@@ -236,32 +402,75 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setSearchInput: async ({ query }, breakpoint) => {
+            await breakpoint(SEARCH_DEBOUNCE_MS)
+            actions.setSearchQuery(query)
+            const trimmed = query.trim()
+            posthog.capture(AccountsEvents.Searched, {
+                query_length: trimmed.length,
+                has_query: !!trimmed,
+                active_filter_count: values.activeFilterCount,
+            })
+        },
+        reportFilterChange: ({ filterType }) => {
+            const properties: Record<string, unknown> = {
+                filter_type: filterType,
+                active_filter_count: values.activeFilterCount,
+            }
+            switch (filterType) {
+                case 'tag':
+                    properties.value = values.tagsFilter
+                    properties.tag_count = values.tagsFilter.length
+                    properties.is_cleared = values.tagsFilter.length === 0
+                    break
+                case 'csm':
+                    properties.value = values.csmFilter
+                    properties.role_count = values.csmFilter.length
+                    properties.is_cleared = values.csmFilter.length === 0
+                    break
+                case 'account_executive':
+                    properties.value = values.accountExecutiveFilter
+                    properties.role_count = values.accountExecutiveFilter.length
+                    properties.is_cleared = values.accountExecutiveFilter.length === 0
+                    break
+                case 'account_owner':
+                    properties.value = values.accountOwnerFilter
+                    properties.role_count = values.accountOwnerFilter.length
+                    properties.is_cleared = values.accountOwnerFilter.length === 0
+                    break
+                case 'unassigned_only':
+                    properties.value = values.allRolesUnassigned
+                    properties.is_cleared = !values.allRolesUnassigned
+                    break
+            }
+            posthog.capture(AccountsEvents.FilterChanged, properties)
+        },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
-                if (values.csmFilter !== null) {
-                    actions.setCsmFilter(null)
+                if (values.csmFilter.length > 0) {
+                    actions.setCsmFilter([])
                 }
-                if (values.accountExecutiveFilter !== null) {
-                    actions.setAccountExecutiveFilter(null)
+                if (values.accountExecutiveFilter.length > 0) {
+                    actions.setAccountExecutiveFilter([])
                 }
-                if (values.accountOwnerFilter !== null) {
-                    actions.setAccountOwnerFilter(null)
+                if (values.accountOwnerFilter.length > 0) {
+                    actions.setAccountOwnerFilter([])
                 }
             }
         },
         setCsmFilter: ({ value }) => {
-            if (value !== null && values.allRolesUnassigned) {
+            if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
         },
         setAccountExecutiveFilter: ({ value }) => {
-            if (value !== null && values.allRolesUnassigned) {
+            if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
         },
         setAccountOwnerFilter: ({ value }) => {
-            if (value !== null && values.allRolesUnassigned) {
+            if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
         },
@@ -276,6 +485,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 next = null
             }
             actions.setSortOrder(next)
+            posthog.capture(AccountsEvents.Sorted, {
+                column,
+                direction: next ? next.direction : 'cleared',
+            })
         },
         setSelectColumns: () => {
             clearSortIfColumnRemoved(values, actions)
@@ -287,6 +500,11 @@ export const accountsLogic = kea<accountsLogicType>([
             clearSortIfColumnRemoved(values, actions)
         },
         refresh: () => {
+            posthog.capture(AccountsEvents.Refreshed, {
+                has_search: !!values.searchQuery.trim(),
+                active_filter_count: values.activeFilterCount,
+                sort_column: values.sortOrder?.column ?? null,
+            })
             dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         updateAccountRole: async ({ accountId, role, user }) => {
@@ -303,12 +521,157 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
                 actions.replaceAccount(updated)
+                posthog.capture(AccountsEvents.RoleAssigned, {
+                    role,
+                    is_assigned: user !== null,
+                    assigned_user_id: user?.id ?? null,
+                    source: 'list_row',
+                })
                 dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
                 lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
             } finally {
                 actions.roleUpdateFinished(accountId, role)
+            }
+        },
+        openAccount: ({ accountId, externalId, name, tab }) => {
+            const dataNode = dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })
+            const results = (dataNode?.values.response as { results?: unknown[] } | undefined)?.results
+            const rows = Array.isArray(results) ? results : []
+            const nameIndex = values.visibleColumnNames.indexOf(ACCOUNTS_NAME_COLUMN)
+            const isVisible =
+                nameIndex >= 0 &&
+                rows.some((row) => {
+                    const cell = Array.isArray(row) ? (row as unknown[])[nameIndex] : undefined
+                    return !!cell && typeof cell === 'object' && (cell as { id?: string }).id === accountId
+                })
+            // Reveal the account if it isn't currently shown, so the expanded row actually renders.
+            if (!isVisible) {
+                if (values.tagsFilter.length > 0) {
+                    actions.setTagsFilter([])
+                }
+                if (values.allRolesUnassigned) {
+                    actions.setAllRolesUnassigned(false)
+                }
+                if (values.csmFilter.length > 0) {
+                    actions.setCsmFilter([])
+                }
+                if (values.accountExecutiveFilter.length > 0) {
+                    actions.setAccountExecutiveFilter([])
+                }
+                if (values.accountOwnerFilter.length > 0) {
+                    actions.setAccountOwnerFilter([])
+                }
+                const term = externalId || name
+                if (term) {
+                    actions.setSearchQuery(term)
+                }
+            }
+            actions.openAccountTab(accountId, tab)
+            // Keyed so a second open cancels a still-pending scroll. One-shot, so
+            // it opts out of pause-on-hidden rather than re-scrolling on tab return.
+            cache.disposables.add(
+                () => {
+                    let attempts = 0
+                    let timer: number | undefined
+                    const scrollWhenReady = (): void => {
+                        const row = document.querySelector(`[data-account-id="${accountId}"]`)
+                        if (row) {
+                            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                            return
+                        }
+                        attempts += 1
+                        if (attempts < SCROLL_TO_ACCOUNT_MAX_ATTEMPTS) {
+                            timer = window.setTimeout(scrollWhenReady, SCROLL_TO_ACCOUNT_POLL_MS)
+                        }
+                    }
+                    scrollWhenReady()
+                    return () => window.clearTimeout(timer)
+                },
+                'scrollToAccount',
+                { pauseOnPageHidden: false }
+            )
+        },
+    })),
+    afterMount(() => {
+        posthog.capture(AccountsEvents.ListViewed)
+    }),
+    actionToUrl(({ values }) => {
+        // Mirror the full view into the URL hash so the link is shareable.
+        // Search params are preserved untouched — the parent scene owns those.
+        const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            urls.customerAnalyticsAccounts(),
+            router.values.searchParams,
+            objectsEqual(values.viewUrlState, {}) ? {} : { view: values.viewUrlState },
+            { replace: true },
+        ]
+        return {
+            setSearchQuery: toUrl,
+            setTagsFilter: toUrl,
+            setAllRolesUnassigned: toUrl,
+            setCsmFilter: toUrl,
+            setAccountExecutiveFilter: toUrl,
+            setAccountOwnerFilter: toUrl,
+            setSortOrder: toUrl,
+            setSelectColumns: toUrl,
+            selectColumn: toUrl,
+            unselectColumn: toUrl,
+            moveColumn: toUrl,
+            resetColumns: toUrl,
+            setTileFilter: toUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
+            const view: AccountsViewUrlState =
+                hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
+
+            const search = view.search ?? ''
+            if (search !== values.searchQuery) {
+                actions.setSearchQuery(search)
+            }
+
+            const tags = view.tags ?? []
+            if (!objectsEqual(tags, values.tagsFilter)) {
+                actions.setTagsFilter(tags)
+            }
+
+            const unassigned = view.unassigned ?? false
+            if (unassigned !== values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(unassigned)
+            }
+
+            const csm = normalizeRoleFilter(view.csm)
+            if (!objectsEqual(csm, values.csmFilter)) {
+                actions.setCsmFilter(csm)
+            }
+
+            const accountExecutive = normalizeRoleFilter(view.accountExecutive)
+            if (!objectsEqual(accountExecutive, values.accountExecutiveFilter)) {
+                actions.setAccountExecutiveFilter(accountExecutive)
+            }
+
+            const accountOwner = normalizeRoleFilter(view.accountOwner)
+            if (!objectsEqual(accountOwner, values.accountOwnerFilter)) {
+                actions.setAccountOwnerFilter(accountOwner)
+            }
+
+            const sort = view.sort ?? null
+            if (!objectsEqual(sort, values.sortOrder)) {
+                actions.setSortOrder(sort)
+            }
+
+            // A shared link's columns win over the per-user saved column config;
+            // accountsColumnConfigLogic enforces this by reading the URL when its
+            // async saved-config load resolves.
+            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                actions.setSelectColumns(view.columns)
+            }
+
+            const tileFilter = view.tileFilter ?? null
+            if (!objectsEqual(tileFilter, values.tileFilter)) {
+                actions.setTileFilter(tileFilter)
             }
         },
     })),

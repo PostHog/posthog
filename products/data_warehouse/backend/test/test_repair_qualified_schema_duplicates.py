@@ -11,7 +11,8 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
-_TEMPORAL = "products.warehouse_sources.backend.models.external_data_schema"
+# Patched at the defining module: update_should_sync imports these function-locally now.
+_TEMPORAL = "products.data_warehouse.backend.data_load.service"
 
 
 class TestRepairQualifiedSchemaDuplicates(BaseTest):

@@ -1,6 +1,7 @@
 import { Layout } from 'react-grid-layout'
 
 import {
+    DASHBOARD_WIDGET_CATALOG,
     getDashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogEntry,
 } from '@posthog/products-dashboards/frontend/widget_types/catalog'
@@ -20,7 +21,7 @@ export interface TileLayout {
 
 const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
-const MIN_WIDGET_TILE_WIDTH_COLS = 6
+const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
 
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
@@ -31,10 +32,10 @@ type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
  * (default size 6×5, mins `MIN_WIDGET_TILE_WIDTH_COLS` / `MIN_WIDGET_TILE_HEIGHT_ROWS`).
  */
 function getWidgetCatalogLayout(widgetType: string | undefined): WidgetCatalogLayout | undefined {
-    if (!widgetType) {
+    if (!widgetType || !(widgetType in DASHBOARD_WIDGET_CATALOG)) {
         return undefined
     }
-    return getDashboardWidgetCatalogEntry(widgetType)?.defaultLayout
+    return getDashboardWidgetCatalogEntry(widgetType).defaultLayout
 }
 
 function getTileMinDimensions({

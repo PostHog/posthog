@@ -33,8 +33,9 @@ from posthog.hogql import ast
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.models.cohort.cohort import Cohort
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
@@ -130,6 +131,66 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
+
+    def _run_conversion_window_trends(self, *, hide_incomplete_periods: bool) -> list[dict]:
+        # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
+        # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
+        # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
+        journeys_for(
+            {
+                "user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7)},
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 13)},
+                ],
+                "recent_entrant": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 15)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-18 23:59:59"),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+                hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
+            ),
+        )
+        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_keeps_incomplete_conversion_window_periods_by_default(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=False)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # every daily period in range is present, including the recent incomplete ones
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 19)])
+        # both of user_a's entrances converted
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
+        # recent entrant shows as a non-converter, which is what drags the recent trend down
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_hides_incomplete_conversion_window_periods_when_enabled(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=True)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
+        # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
+        # on or before 2021-06-10.
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 11)])
+        # the old entrance that converted is retained, even though its conversion event is recent
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
+        self.assertNotIn(date(2021, 6, 12), by_day)
+        self.assertNotIn(date(2021, 6, 15), by_day)
 
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_only_one_user_reached_one_step(self, timezone):

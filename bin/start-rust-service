@@ -59,6 +59,16 @@ case "$RS_SVC" in
     export LOG_LEVEL=debug
     export DEBUG=1
     export KAFKA_ERROR_TRACKING_TOPIC=${KAFKA_ERROR_TRACKING_TOPIC:-ingestion-errortracking-main}
+    # v1 capture sink (MSK, writes to same topics as v0)
+    export CAPTURE_V1_SINKS=${CAPTURE_V1_SINKS:-msk}
+    export CAPTURE_V1_SINK_MSK_KAFKA_HOSTS=${CAPTURE_V1_SINK_MSK_KAFKA_HOSTS:-$DEFAULT_KAFKA}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN:-events_plugin_ingestion}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL:-events_plugin_ingestion_historical}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW:-events_plugin_ingestion_overflow}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ:-events_plugin_ingestion_dlq}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION:-ingestion-errortracking-main}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP:-heatmaps_ingestion}
+    export CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING=${CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING:-ingestion-clientwarnings-main-1}
     ;;
 
   capture-replay)
@@ -190,7 +200,8 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
+    export DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
+    export BIND_PORT=3310 # default 3303 collides with property-vals-rs in local dev
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;

@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-tasks",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services backend/stream/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services backend/stream/tests backend/code_workstreams -v --tb=short"
     },
     "dependencies": {
         "fast-deep-equal": "catalog:",
@@ -17,7 +17,7 @@
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

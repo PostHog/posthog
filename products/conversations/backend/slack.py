@@ -9,6 +9,7 @@ Handles three triggers that create or update tickets from Slack:
 All three converge to create_or_update_slack_ticket().
 """
 
+import re
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -24,7 +25,14 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .cache import get_cached_slack_avatar, get_cached_slack_user, set_cached_slack_avatar, set_cached_slack_user
+from .cache import (
+    get_cached_bot_user_id,
+    get_cached_slack_avatar,
+    get_cached_slack_user,
+    set_cached_bot_user_id,
+    set_cached_slack_avatar,
+    set_cached_slack_user,
+)
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
@@ -38,6 +46,11 @@ from .support_slack import (
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
+
+# Slack ID shapes — guard against malformed payloads before interpolating into mrkdwn.
+# Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
+_SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
+_SLACK_CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9_]+$")
 
 
 def _get_team_id(team: Team) -> int:
@@ -178,6 +191,23 @@ def get_bot_user_id(client: WebClient) -> str | None:
         return auth.get("user_id")
     except Exception:
         return None
+
+
+def get_bot_user_id_cached(team: Team, client: WebClient) -> str | None:
+    """Resolve the bot's own user ID, cached per team.
+
+    auth.test is Tier-1 rate-limited, so we cache the (stable) result to avoid a
+    round-trip per event. Only positive results are cached, so a transient
+    auth.test failure retries on the next event rather than being pinned for an hour.
+    """
+    team_id = _get_team_id(team)
+    cached = get_cached_bot_user_id(team_id)
+    if cached:
+        return cached
+    user_id = get_bot_user_id(client)
+    if user_id:
+        set_cached_bot_user_id(team_id, user_id)
+    return user_id
 
 
 def _is_allowed_slack_file_url(url: str) -> bool:
@@ -541,9 +571,11 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel:
         return
 
-    # Skip bot messages to prevent loops
-    if event.get("bot_id") or event.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
+    # Always skip non-message subtypes
+    if event.get("subtype") in ("message_changed", "message_deleted"):
         return
+
+    is_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
 
     slack_user_id = event.get("user")
     text = event.get("text", "")
@@ -560,6 +592,16 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     message_ts = event.get("ts")
 
     if thread_ts:
+        if is_bot:
+            # Allow other bots' thread replies but skip our own bot to prevent loops
+            try:
+                client = get_slack_client(team)
+                own_bot_user_id = get_bot_user_id(client)
+            except Exception:
+                own_bot_user_id = None
+            if own_bot_user_id and slack_user_id == own_bot_user_id:
+                return
+
         # Thread replies should sync even outside a configured channel when a
         # ticket already exists for that thread (e.g. ticket created via @mention).
         if not Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=thread_ts).exists():
@@ -578,6 +620,10 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
             is_thread_reply=True,
             slack_team_id=slack_team_id,
         )
+        return
+
+    # Top-level bot messages don't create tickets
+    if is_bot:
         return
 
     if channel not in configured_channels:
@@ -602,7 +648,10 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'app_mention' event to create a support ticket.
 
-    The mention message becomes the first message of the ticket.
+    For a top-level mention, the mention message becomes the ticket's first message.
+    For a mention posted as a thread reply on an untracked thread, the ticket is
+    seeded from the message that started the thread (not the mention itself), then
+    the in-between replies are backfilled.
     """
     channel = event.get("channel")
     slack_user_id = event.get("user")
@@ -612,8 +661,10 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel or not slack_user_id:
         return
 
+    message_ts = event.get("ts")
+    event_thread_ts = event.get("thread_ts")
     # Use thread_ts if in a thread, otherwise the message ts
-    thread_ts = event.get("thread_ts") or event.get("ts")
+    thread_ts = event_thread_ts or message_ts
     if not thread_ts:
         return
 
@@ -629,6 +680,49 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         slack_channel_id=channel,
         slack_thread_ts=thread_ts,
     ).exists()
+
+    # When the mention is a reply on an untracked thread, the message that started
+    # the thread — not the @mention reply — should seed the ticket. Fetch the parent
+    # message and create the ticket from it, then backfill the in-between replies
+    # (including the mention itself).
+    is_thread_reply_mention = bool(event_thread_ts) and event_thread_ts != message_ts
+    if not existing and is_thread_reply_mention:
+        client = get_slack_client(team)
+        try:
+            result = client.conversations_history(
+                channel=channel,
+                latest=thread_ts,
+                inclusive=True,
+                limit=1,
+            )
+            messages: list[dict] = result.get("messages", [])
+        except Exception:
+            logger.warning("slack_support_mention_parent_fetch_failed", channel=channel, thread_ts=thread_ts)
+            messages = []
+
+        if messages:
+            parent_msg = messages[0]
+            parent_user = parent_msg.get("user", "")
+            parent_text = parent_msg.get("text", "")
+            parent_blocks = parent_msg.get("blocks")
+            parent_files = parent_msg.get("files")
+
+            if parent_user and (parent_text.strip() or parent_files):
+                ticket = create_or_update_slack_ticket(
+                    team=team,
+                    slack_channel_id=channel,
+                    thread_ts=thread_ts,
+                    slack_user_id=parent_user,
+                    text=parent_text,
+                    blocks=parent_blocks,
+                    files=parent_files,
+                    is_thread_reply=False,
+                    slack_team_id=slack_team_id,
+                    channel_detail=ChannelDetail.SLACK_BOT_MENTION,
+                )
+                if ticket:
+                    _backfill_thread_replies(client, team, ticket, channel, thread_ts)
+                return
 
     create_or_update_slack_ticket(
         team=team,
@@ -671,6 +765,7 @@ def _backfill_thread_replies(
         thread_reply_count=len(thread_replies),
     )
 
+    own_bot_user_id = get_bot_user_id(client)
     user_cache: dict[str, dict] = {}
     posthog_user_cache: dict[str, User | None] = {}
     comments_to_create: list[Comment] = []
@@ -678,11 +773,14 @@ def _backfill_thread_replies(
     team_message_count = 0
 
     for reply in thread_replies:
-        # Match the bot/subtype filtering from handle_support_message
-        if reply.get("bot_id") or reply.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
+        if reply.get("subtype") in ("message_changed", "message_deleted"):
             continue
 
+        # Skip our own bot's messages to prevent loops, but allow other bots
         reply_user = reply.get("user", "")
+        if own_bot_user_id and reply_user == own_bot_user_id:
+            continue
+
         reply_text = reply.get("text", "")
         reply_blocks = reply.get("blocks")
         reply_files = reply.get("files")
@@ -846,3 +944,75 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
 
     if ticket:
         _backfill_thread_replies(client, team, ticket, channel, message_ts)
+
+
+def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
+    """Post a join/leave alert to the configured alert channel.
+
+    Fires for any channel the bot is in (Slack only delivers member_joined_channel /
+    member_left_channel for channels the bot belongs to). Gated per-direction by the
+    team's settings.
+    """
+    settings_dict = team.conversations_settings or {}
+
+    toggle_key = "slack_notify_on_join" if joined else "slack_notify_on_leave"
+    if not settings_dict.get(toggle_key):
+        return
+
+    alert_channel = settings_dict.get("slack_alert_channel_id")
+    if not isinstance(alert_channel, str) or not alert_channel:
+        return
+
+    user = event.get("user")
+    channel = event.get("channel")
+    if not user or not channel:
+        return
+    if not _SLACK_USER_ID_RE.match(user) or not _SLACK_CHANNEL_ID_RE.match(channel):
+        logger.warning("slack_member_event_malformed_ids", user=user, channel=channel)
+        return
+
+    client = get_slack_client(team)
+
+    # If we can't resolve the bot's own ID (auth.test failed), bail — without it we can't tell
+    # the bot's own join apart from a real user's, and posting a self-referential alert is worse
+    # than skipping one alert during a transient auth outage.
+    own_bot_user_id = get_bot_user_id_cached(team, client)
+    if not own_bot_user_id:
+        logger.warning("slack_member_event_bot_id_unresolved", team_id=_get_team_id(team))
+        return
+
+    # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
+    if user == own_bot_user_id:
+        return
+
+    verb = "joined" if joined else "left"
+    message_kwargs: dict = {
+        "channel": alert_channel,
+        "text": f"<@{user}> {verb} <#{channel}>",
+    }
+    bot_display_name = settings_dict.get("slack_bot_display_name")
+    bot_icon_url = settings_dict.get("slack_bot_icon_url")
+    if bot_display_name:
+        message_kwargs["username"] = bot_display_name
+    if bot_icon_url:
+        message_kwargs["icon_url"] = bot_icon_url
+
+    try:
+        client.chat_postMessage(**message_kwargs)
+    except Exception:
+        logger.warning(
+            "slack_member_event_post_failed",
+            team_id=_get_team_id(team),
+            alert_channel=alert_channel,
+            joined=joined,
+        )
+
+
+def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
+    """Handle a Slack 'member_joined_channel' event by alerting the configured channel."""
+    _handle_member_event(event, team, joined=True)
+
+
+def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:
+    """Handle a Slack 'member_left_channel' event by alerting the configured channel."""
+    _handle_member_event(event, team, joined=False)

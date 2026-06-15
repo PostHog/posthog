@@ -83,7 +83,6 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             caption="Connect your Slack workspace to sync channels, users, and messages.",
             iconPath="/static/services/slack.png",
             featureFlag="slack-dwh",
-            unreleasedSource=True,
             releaseStatus="alpha",
             fields=cast(
                 list[FieldType],
@@ -200,6 +199,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
                     supports_incremental=False,
                     supports_append=False,
                     supports_webhooks=True,
+                    webhook_only=True,
                     incremental_fields=[],
                 )
             )

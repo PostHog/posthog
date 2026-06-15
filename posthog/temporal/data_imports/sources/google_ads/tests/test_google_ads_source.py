@@ -1,6 +1,71 @@
 import pytest
 
+from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+
+_CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
+_MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+class TestCleanCustomerId:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("123-456-7890", "1234567890"),
+            ("1234567890", "1234567890"),
+            ("  123-456-7890  ", "1234567890"),
+            ("123 456 7890", "1234567890"),
+            ("", ""),
+            (None, None),
+        ],
+    )
+    def test_strips_to_bare_digits(self, raw, expected):
+        assert clean_customer_id(raw) == expected
+
+
+class TestGoogleAdsValidateConfig:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+
+    def _customer_id_errors(self, job_inputs: dict) -> list[str]:
+        _, errors = self.source.validate_config(job_inputs)
+        return [e for e in errors if _CUSTOMER_ID_ERROR in e]
+
+    def _manager_id_errors(self, job_inputs: dict) -> list[str]:
+        _, errors = self.source.validate_config(job_inputs)
+        return [e for e in errors if _MANAGER_ID_ERROR in e]
+
+    @pytest.mark.parametrize(
+        "customer_id",
+        ["123-456-7890", "1234567890", "123 456 7890", "  123-456-7890  "],
+    )
+    def test_accepts_any_common_customer_id_format(self, customer_id):
+        assert self._customer_id_errors({"customer_id": customer_id}) == []
+
+    @pytest.mark.parametrize(
+        "customer_id",
+        ["12345", "123-456-789", "abcd", "123-456-78901"],
+    )
+    def test_rejects_invalid_customer_id(self, customer_id):
+        assert len(self._customer_id_errors({"customer_id": customer_id})) == 1
+
+    @pytest.mark.parametrize(
+        "mcc_client_id",
+        ["123-456-7890", "1234567890", "123 456 7890", "  123-456-7890  "],
+    )
+    def test_accepts_any_common_manager_customer_id_format(self, mcc_client_id):
+        job_inputs = {
+            "customer_id": "1234567890",
+            "is_mcc_account": {"enabled": True, "mcc_client_id": mcc_client_id},
+        }
+        assert self._manager_id_errors(job_inputs) == []
+
+    def test_rejects_invalid_manager_customer_id(self):
+        job_inputs = {
+            "customer_id": "1234567890",
+            "is_mcc_account": {"enabled": True, "mcc_client_id": "123"},
+        }
+        assert len(self._manager_id_errors(job_inputs)) == 1
 
 
 class TestGoogleAdsNonRetryableErrors:
@@ -20,6 +85,30 @@ class TestGoogleAdsNonRetryableErrors:
         ],
     )
     def test_invalid_grant_is_non_retryable(self, error_msg):
+        assert any(pattern in error_msg for pattern in self.non_retryable), (
+            f"RefreshError message {error_msg!r} did not match any non-retryable pattern"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real RefreshError strings observed in production when a Google Workspace
+            # admin has restricted third-party API access for the app. Reported by
+            # `str(e)` on google.auth.exceptions.RefreshError.
+            (
+                "('access_not_configured: Access to your account data (which may include HIPAA and PHI data) is "
+                "restricted by policies within your organization. Please contact the administrator of your "
+                "organization for more information regarding API access from third-party applications.', "
+                "{'error': 'access_not_configured', 'error_description': 'Access to your account data ...'})"
+            ),
+            (
+                "('access_not_configured: You can't access this app until an admin at your institution reviews "
+                "and configures access for it. If you need access to this app,', {'error': 'access_not_configured', "
+                "'error_description': 'You can't access this app ...'})"
+            ),
+        ],
+    )
+    def test_access_not_configured_is_non_retryable(self, error_msg):
         assert any(pattern in error_msg for pattern in self.non_retryable), (
             f"RefreshError message {error_msg!r} did not match any non-retryable pattern"
         )
@@ -53,6 +142,9 @@ class TestGoogleAdsNonRetryableErrors:
             "UNAVAILABLE: The service is currently unavailable",
             "ConnectionError: Connection reset by peer",
             "INTERNAL: Internal server error",
+            # A RefreshError wrapping a transient 502 from Google's token endpoint shares the
+            # same error-tracking group as access_not_configured but must remain retryable.
+            "('<!DOCTYPE html><title>Error 502 (Server Error)!!1</title>', None)",
         ],
     )
     def test_transient_errors_are_retryable(self, error_msg):
@@ -69,6 +161,7 @@ class TestGoogleAdsNonRetryableErrors:
             "INVALID_CUSTOMER_ID",
             "REQUESTED_METRICS_FOR_MANAGER",
             "invalid_grant",
+            "access_not_configured",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -83,3 +176,8 @@ class TestGoogleAdsNonRetryableErrors:
         friendly = self.non_retryable["invalid_grant"]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
+
+    def test_access_not_configured_has_friendly_message(self):
+        friendly = self.non_retryable["access_not_configured"]
+        assert friendly is not None
+        assert "admin" in friendly.lower()

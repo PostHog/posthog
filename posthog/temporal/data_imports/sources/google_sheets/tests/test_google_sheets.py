@@ -43,6 +43,71 @@ def test_get_worksheet_backoff():
         assert mock_get_worksheet_by_id.call_count == 10
 
 
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+def test_get_worksheet_retries_transient_api_errors(status_code):
+    """Transient API errors (quota 429s and 5xx server errors like
+    "[500]: Internal error encountered.") should be retried with backoff, not
+    re-raised on the first occurrence."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_spreadsheet = mock.MagicMock()
+        mock_get_worksheet_by_id = mock.MagicMock()
+
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {
+            "error": {
+                "code": status_code,
+                "message": "Internal error encountered.",
+                "status": "INTERNAL",
+            }
+        }
+
+        mock_get_worksheet_by_id.side_effect = gspread.exceptions.APIError(mock_response)
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.return_value = mock_spreadsheet
+        mock_spreadsheet.get_worksheet_by_id = mock_get_worksheet_by_id
+
+        # Use a unique worksheet id per status code to avoid the module-level TTLCache
+        with pytest.raises(gspread.exceptions.APIError):
+            _get_worksheet("transient-url", status_code)
+
+        assert mock_get_worksheet_by_id.call_count == 10
+
+
+def test_get_worksheet_does_not_retry_non_transient_api_error():
+    """A non-transient API error (e.g. 400) should be raised immediately without
+    burning through the retry budget."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_spreadsheet = mock.MagicMock()
+        mock_get_worksheet_by_id = mock.MagicMock()
+
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {
+            "error": {"code": 400, "message": "Bad request", "status": "INVALID_ARGUMENT"}
+        }
+
+        mock_get_worksheet_by_id.side_effect = gspread.exceptions.APIError(mock_response)
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.return_value = mock_spreadsheet
+        mock_spreadsheet.get_worksheet_by_id = mock_get_worksheet_by_id
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _get_worksheet("non-transient-url", 400)
+
+        assert mock_get_worksheet_by_id.call_count == 1
+
+
 def test_get_worksheet_caching():
     with (
         mock.patch(
@@ -101,3 +166,18 @@ def test_permission_error_is_non_retryable():
     error_msg = str(raised)
 
     assert any(key in error_msg for key in non_retryable_errors)
+
+
+def test_not_found_api_error_is_non_retryable():
+    """gspread raises a 404 APIError when the spreadsheet has been deleted/moved — it
+    must match a non-retryable pattern so we stop retrying a permanent failure."""
+    mock_response = mock.MagicMock()
+    mock_response.json.return_value = {
+        "error": {"code": 404, "message": "Requested entity was not found.", "status": "NOT_FOUND"}
+    }
+    error_msg = str(gspread.exceptions.APIError(mock_response))
+
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+    assert any(key in error_msg for key in non_retryable_errors), (
+        f"Google Sheets 404 error {error_msg!r} did not match any non-retryable pattern"
+    )

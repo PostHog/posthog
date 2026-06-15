@@ -13,6 +13,8 @@ import {
     type AuthType,
     CURSOR_TYPES,
     type CursorType,
+    eligibleParentStreams,
+    EMPTY_PARENT_FIELDS,
     type HeaderEntry,
     type ManifestState,
     type Paginator,
@@ -32,7 +34,6 @@ import {
 // customSourceManifest.ts; only the labels live here, so the allowed values can't
 // drift between the type, the parser, and these selects.
 const PAGINATOR_LABELS: Record<PaginatorType, string> = {
-    auto: 'Auto-detect',
     single_page: 'Single page (no pagination)',
     json_response: 'JSON body next-URL',
     cursor: 'Cursor in JSON body',
@@ -64,6 +65,9 @@ const CURSOR_TYPE_LABELS: Record<CursorType, string> = {
     integer: 'Integer',
 }
 const CURSOR_TYPE_OPTIONS = CURSOR_TYPES.map((value) => ({ value, label: CURSOR_TYPE_LABELS[value] }))
+
+// The only cursor types `datetime_format` applies to — the backend ignores it for any other type.
+const DATE_LIKE_CURSOR_TYPES: readonly CursorType[] = ['datetime', 'date', 'timestamp']
 
 const SORT_MODE_LABELS: Record<SortMode, string> = {
     asc: 'Ascending (oldest first)',
@@ -134,6 +138,7 @@ export function CustomSourceManifestBuilder({
                         index={index}
                         stream={stream}
                         canRemove={manifestState.streams.length > 1}
+                        parentOptions={eligibleParentStreams(manifestState.streams, index)}
                         onUpdate={(patch) => updateStream(index, patch)}
                         onUpdatePaginator={(paginator) => updatePaginator(index, paginator)}
                         onRemove={() => removeStream(index)}
@@ -293,6 +298,7 @@ function StreamCard({
     index,
     stream,
     canRemove,
+    parentOptions,
     onUpdate,
     onUpdatePaginator,
     onRemove,
@@ -300,6 +306,7 @@ function StreamCard({
     index: number
     stream: StreamForm
     canRemove: boolean
+    parentOptions: string[]
     onUpdate: (patch: Partial<StreamForm>) => void
     onUpdatePaginator: (paginator: Paginator) => void
     onRemove: () => void
@@ -360,8 +367,117 @@ function StreamCard({
                     <code>items</code>, <code>results.data</code>).
                 </p>
             </LemonField.Pure>
+            {/* Only show the dependency section when there's an eligible parent to
+                pick, or an existing dependency to edit / warn about (a stale parent
+                from raw-authored JSON still needs its warning). A single-stream
+                manifest has neither, so the section would just be an inert box. */}
+            {(parentOptions.length > 0 || stream.parent_stream.trim().length > 0) && (
+                <ParentSection stream={stream} parentOptions={parentOptions} onUpdate={onUpdate} />
+            )}
             <PaginatorSection paginator={stream.paginator} onUpdate={onUpdatePaginator} />
             <IncrementalSection stream={stream} onUpdate={onUpdate} />
+        </div>
+    )
+}
+
+function ParentSection({
+    stream,
+    parentOptions,
+    onUpdate,
+}: {
+    stream: StreamForm
+    parentOptions: string[]
+    onUpdate: (patch: Partial<StreamForm>) => void
+}): JSX.Element {
+    const hasParent = stream.parent_stream.trim().length > 0
+    const pathParam = stream.parent_path_param.trim()
+    const parentField = stream.parent_resolve_field.trim()
+    // A parent name can go stale when the manifest was authored elsewhere (raw
+    // JSON) — the select would render the raw value with no visible error, and
+    // saving fails with an engine message that doesn't point here.
+    const parentMissing = hasParent && !parentOptions.includes(stream.parent_stream)
+    // The REST engine can only inject a resolved value into the URL path, so the
+    // path must contain the placeholder — warn early instead of failing at sync.
+    const pathMissingPlaceholder = hasParent && pathParam.length > 0 && !stream.path.includes(`{${pathParam}}`)
+    return (
+        <div className="rounded border border-border p-3 space-y-2">
+            <LemonField.Pure label="Depends on parent stream">
+                <LemonSelect
+                    value={hasParent ? stream.parent_stream : ''}
+                    onChange={(value) =>
+                        value ? onUpdate({ parent_stream: value }) : onUpdate({ ...EMPTY_PARENT_FIELDS })
+                    }
+                    options={[
+                        { value: '', label: 'None (top-level stream)' },
+                        ...parentOptions.map((name) => ({ value: name, label: name })),
+                    ]}
+                />
+            </LemonField.Pure>
+            {hasParent && (
+                <>
+                    <p className="m-0 text-xs text-secondary">
+                        PostHog fetches the parent stream first, then calls this stream once per parent row — binding
+                        the chosen parent field into the path placeholder (e.g.{' '}
+                        <code>/forms/{'{form_id}'}/responses</code>).
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Parent field">
+                            <LemonInput
+                                placeholder="id"
+                                value={stream.parent_resolve_field}
+                                onChange={(value) => onUpdate({ parent_resolve_field: value })}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Path placeholder">
+                            <LemonInput
+                                placeholder="form_id"
+                                value={stream.parent_path_param}
+                                onChange={(value) => onUpdate({ parent_path_param: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    <LemonField.Pure label="Include parent fields">
+                        <LemonInput
+                            placeholder="id, name"
+                            value={stream.include_from_parent}
+                            onChange={(value) => onUpdate({ include_from_parent: value })}
+                        />
+                        <p className="m-0 mt-1 text-xs text-secondary">
+                            Optional comma-separated parent fields copied onto each row, as{' '}
+                            <code>_{stream.parent_stream || 'parent'}_&lt;field&gt;</code>.
+                        </p>
+                    </LemonField.Pure>
+                </>
+            )}
+            {/* One persistently-mounted live region so screen readers announce
+                validation messages as they appear — a region that enters the DOM
+                already populated (e.g. mounted inside the hasParent gate) is
+                skipped by several readers. empty:hidden keeps it from adding
+                spacing when there's nothing to say. */}
+            <div aria-live="polite" className="empty:hidden space-y-2">
+                {parentMissing && (
+                    <p className="m-0 text-xs text-danger">
+                        Stream <code>{stream.parent_stream}</code> doesn't exist or can't be this stream's parent — pick
+                        another parent or set to none.
+                    </p>
+                )}
+                {hasParent && !parentField && (
+                    <p className="m-0 text-xs text-danger">
+                        Set the parent field — the dependency is incomplete without it and saving fails.
+                    </p>
+                )}
+                {hasParent && !pathParam && (
+                    <p className="m-0 text-xs text-danger">
+                        Set the path placeholder — the dependency is incomplete without it and saving fails.
+                    </p>
+                )}
+                {pathMissingPlaceholder && (
+                    <p className="m-0 text-xs text-danger">
+                        Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected there, and
+                        the sync fails without it.
+                    </p>
+                )}
+            </div>
         </div>
     )
 }
@@ -375,7 +491,6 @@ function PaginatorSection({
 }): JSX.Element {
     const switchType = (type: Paginator['type']): void => {
         switch (type) {
-            case 'auto':
             case 'single_page':
                 onUpdate({ type })
                 return
@@ -544,6 +659,11 @@ function IncrementalSection({
                                 value={stream.sort_mode}
                                 onChange={(value) => onUpdate({ sort_mode: value as SortMode })}
                                 options={SORT_MODE_OPTIONS}
+                                disabledReason={
+                                    stream.parent_stream.trim()
+                                        ? 'Streams with a parent always defer the incremental cursor commit to the end of the run — rows arrive grouped by parent, not in cursor order.'
+                                        : undefined
+                                }
                             />
                         </LemonField.Pure>
                     </div>
@@ -551,6 +671,19 @@ function IncrementalSection({
                         Pick "Descending" when the API returns newest rows first — otherwise a resumed sync may skip
                         rows.
                     </p>
+                    {DATE_LIKE_CURSOR_TYPES.includes(stream.cursor_type) && (
+                        <LemonField.Pure label="Datetime format">
+                            <LemonInput
+                                placeholder="%Y-%m-%dT%H:%M:%SZ"
+                                value={stream.datetime_format}
+                                onChange={(value) => onUpdate({ datetime_format: value })}
+                            />
+                            <p className="m-0 mt-1 text-xs text-secondary">
+                                strftime pattern for the watermark sent to the API (e.g. <code>%Y-%m-%dT%H:%M:%SZ</code>
+                                , <code>%s</code> for unix). Leave blank for ISO-8601.
+                            </p>
+                        </LemonField.Pure>
+                    )}
                 </>
             )}
         </div>

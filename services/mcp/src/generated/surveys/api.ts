@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -26,6 +26,10 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.'
         ),
+    type: zod
+        .enum(['api', 'external_survey', 'popover', 'widget'])
+        .optional()
+        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
 })
 
 export const SurveysCreateParams = /* @__PURE__ */ zod.object({
@@ -721,6 +725,16 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1518,6 +1532,16 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1621,15 +1645,92 @@ export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched (start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys or surveys with an end_date in the past; unarchive or extend the end_date first.
+ */
+export const SurveysLaunchParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
+ */
+export const SurveysResponsesListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const surveysResponsesListQueryExcludeArchivedDefault = false
+export const surveysResponsesListQueryLimitDefault = 100
+export const surveysResponsesListQueryLimitMax = 500
+
+export const surveysResponsesListQueryOffsetDefault = 0
+export const surveysResponsesListQueryOffsetMin = 0
+
+export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
+    exclude_archived: zod
+        .boolean()
+        .default(surveysResponsesListQueryExcludeArchivedDefault)
+        .describe('When true, exclude responses that have been archived via the archive_response endpoint.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(surveysResponsesListQueryLimitMax)
+        .default(surveysResponsesListQueryLimitDefault)
+        .describe('Maximum number of rows to return (1-500). Defaults to 100.'),
+    offset: zod
+        .number()
+        .min(surveysResponsesListQueryOffsetMin)
+        .default(surveysResponsesListQueryOffsetDefault)
+        .describe('Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.'),
+    question_id: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte."
+        ),
+    score_gte: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.'
+        ),
+    score_lte: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.'
+        ),
+    since: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return responses submitted on or after this ISO 8601 timestamp.'),
+    until: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return responses submitted on or before this ISO 8601 timestamp.'),
+})
+
+/**
  * Get survey response statistics for a specific survey.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
-
-Returns:
-    Survey statistics including event counts, unique respondents, and conversion rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+ *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
+ *
+ * Returns:
+ *     Survey statistics including event counts, unique respondents, and conversion rates
  */
 export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
@@ -1649,17 +1750,67 @@ export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
+    include_per_question_stats: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.'
+        ),
+})
+
+/**
+ * Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. No-op if the survey already has an end_date in the past.
+ */
+export const SurveysStopParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
+ */
+export const SurveysSummarizeResponsesCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const SurveysSummarizeResponsesCreateQueryParams = /* @__PURE__ */ zod.object({
+    question_id: zod
+        .string()
+        .optional()
+        .describe('Question UUID. Preferred over question_index — stable across question edits.'),
+    question_index: zod
+        .number()
+        .optional()
+        .describe('Zero-based question index. Omit to get the survey-wide headline instead.'),
+})
+
+export const surveysSummarizeResponsesCreateBodyForceRefreshDefault = false
+
+export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
+    force_refresh: zod
+        .boolean()
+        .default(surveysSummarizeResponsesCreateBodyForceRefreshDefault)
+        .describe('When true, bypass cached summaries and regenerate. Defaults to false.'),
 })
 
 /**
  * Get aggregated response statistics across all surveys.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-
-Returns:
-    Aggregated statistics across all surveys including total counts and rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *
+ * Returns:
+ *     Aggregated statistics across all surveys including total counts and rates
  */
 export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

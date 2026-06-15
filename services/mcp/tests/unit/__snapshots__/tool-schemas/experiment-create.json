@@ -27,13 +27,38 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "description": "Custom exposure event name.",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                        },
+                                        "id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Action ID. Required when kind is 'ActionsNode'."
                                         },
                                         "kind": {
-                                            "const": "ExperimentEventExposureConfig",
-                                            "default": "ExperimentEventExposureConfig",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                         },
                                         "properties": {
                                             "description": "Event property filters. Pass an empty array if no filters needed.",
@@ -50,8 +75,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     },
                                                     "operator": {
                                                         "anyOf": [
@@ -136,8 +160,7 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ],
-                                                        "default": null
+                                                        ]
                                                     }
                                                 },
                                                 "required": ["key"],
@@ -146,14 +169,13 @@
                                             "type": "array"
                                         }
                                     },
-                                    "required": ["event", "properties"],
+                                    "required": ["properties"],
                                     "type": "object"
                                 },
                                 {
                                     "type": "null"
                                 }
-                            ],
-                            "default": null
+                            ]
                         },
                         "filterTestAccounts": {
                             "anyOf": [
@@ -163,8 +185,7 @@
                                 {
                                     "type": "null"
                                 }
-                            ],
-                            "default": null
+                            ]
                         }
                     },
                     "type": "object"
@@ -176,7 +197,7 @@
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag_key": {
-            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible.",
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
             "type": "string"
         },
         "holdout_id": {
@@ -211,7 +232,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
                         },
                         "feature_flag_variants": {
@@ -232,7 +252,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Human-readable variant name."
                                             },
                                             "rollout_percentage": {
@@ -243,8 +262,7 @@
                                                     {
                                                         "type": "null"
                                                     }
-                                                ],
-                                                "default": null
+                                                ]
                                             },
                                             "split_percent": {
                                                 "anyOf": [
@@ -255,7 +273,6 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "default": null,
                                                 "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
                                             }
                                         },
@@ -268,7 +285,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
                         },
                         "minimum_detectable_effect": {
@@ -280,7 +296,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
                         },
                         "rollout_percentage": {
@@ -292,7 +307,6 @@
                                     "type": "null"
                                 }
                             ],
-                            "default": null,
                             "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
                         }
                     },

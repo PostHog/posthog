@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.sources.generated_configs import ShopifySourc
 from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
     shopify_source,
@@ -30,6 +32,13 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
+            # Retrying cannot recover; the user must reconnect the integration.
+            SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -46,7 +55,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Store id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="my-store-id",
+                        placeholder="my-store",
+                        caption=(
+                            "Your store subdomain — the `my-store` in `my-store.myshopify.com`. "
+                            "Pasting the full store URL works too."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -67,7 +80,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(

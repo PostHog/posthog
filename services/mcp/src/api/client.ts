@@ -2,7 +2,14 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import {
+    ErrorCode,
+    parseRetryAfterSeconds,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogRateLimitError,
+    PostHogValidationError,
+} from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -21,7 +28,15 @@ import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/expe
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
-import { globalRateLimiter } from './rate-limiter.js'
+
+// Outbound 429 retry policy. The API is the source of truth for rate limits
+// (per-scope, with per-team overrides), so we honor its Retry-After signal and
+// fall back to jittered exponential backoff when the header is missing or
+// invalid. The total wait budget bounds how long a throttled tool call can
+// hold the MCP client's request open across all retries combined.
+const RATE_LIMIT_MAX_RETRIES = 3
+const RATE_LIMIT_BASE_BACKOFF_MS = 2000
+const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -130,7 +145,6 @@ export class ApiClient {
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
-        // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
@@ -174,7 +188,7 @@ export class ApiClient {
     }
 
     /**
-     * Generic HTTP request with auth, rate limiting, and retries.
+     * Generic HTTP request with auth.
      * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
      */
     async request<T = unknown>(opts: {
@@ -323,41 +337,52 @@ export class ApiClient {
     }
 
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
-        const maxRetries = 3
-        const baseBackoffMs = 2000
         const method = options?.method ?? 'GET'
+        let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
             try {
-                // Apply rate limiting before making the request
-                await globalRateLimiter.throttle()
-
                 const response = await this.fetch(url, options)
 
-                // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
-                    if (attempt < maxRetries) {
-                        // Check for Retry-After header
-                        const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
-
-                        console.warn(
-                            `[API] Rate limited (429) on ${method} ${url}. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
-                        )
-                        await new Promise((resolve) => setTimeout(resolve, delayMs))
-                        continue
-                    }
-                    // Max retries exceeded
-                    const errorText = await response.text()
-                    console.error(`[API] Rate limit exceeded after ${maxRetries} retries on ${method} ${url}`)
-                    return {
+                    const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                    const rateLimitFailure = async (): Promise<Result<T>> => ({
                         success: false,
-                        error: new Error(
-                            `Rate limit exceeded after ${maxRetries} retries:\nURL: ${method} ${url}\nStatus Code: ${response.status}\nError Message: ${errorText}`
-                        ),
+                        error: new PostHogRateLimitError({
+                            body: await response.text(),
+                            url,
+                            method,
+                            retryAfterSeconds,
+                        }),
+                    })
+
+                    if (attempt === RATE_LIMIT_MAX_RETRIES) {
+                        console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
+                        return rateLimitFailure()
                     }
+
+                    // DRF rejects throttled requests before the view executes,
+                    // so retrying is safe for mutations too.
+                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
+                    const delayMs =
+                        retryAfterSeconds !== null
+                            ? retryAfterSeconds * 1000
+                            : // Equal jitter so concurrent 429s don't retry in lockstep.
+                              backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                    if (delayMs > waitBudgetMs) {
+                        console.warn(
+                            `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
+                        )
+                        return rateLimitFailure()
+                    }
+
+                    waitBudgetMs -= delayMs
+                    console.warn(
+                        `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                    )
+                    await new Promise((resolve) => setTimeout(resolve, delayMs))
+                    continue
                 }
 
                 if (!response.ok) {
@@ -439,19 +464,13 @@ export class ApiClient {
                     return { success: true, data: rawText as T }
                 }
             } catch (error) {
-                // Only retry on rate limit errors, not other errors
-                if (error instanceof Error && error.message.includes('Rate limit')) {
-                    continue
-                }
                 return { success: false, error: error as Error }
             }
         }
 
-        // This should never be reached, but TypeScript needs it
-        return {
-            success: false,
-            error: new Error('Unexpected error in retry logic'),
-        }
+        // Unreachable: the final attempt always returns above, but TypeScript
+        // can't prove the loop is exhaustive.
+        return { success: false, error: new Error('Unexpected rate limit retry state') }
     }
 
     organizations(): Endpoint {
@@ -1204,6 +1223,9 @@ export class ApiClient {
                 runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
 
             lifecycleActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
+                runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
         }
     }
 

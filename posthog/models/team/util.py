@@ -25,8 +25,26 @@ actions_that_require_current_team = [
 
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
+    # Each phase is its own batched helper so the Temporal deletion workflow can run them
+    # as separate, individually-retryable activities while Celery keeps calling them in sequence.
+    _delete_misc_small_tables_for_teams(team_ids)
+    _delete_personless_distinct_ids_for_teams(team_ids)
+    _delete_cohort_members_for_all_teams(team_ids)
+    _delete_groups_for_teams(team_ids)
+    _delete_group_type_mappings_for_teams(team_ids)
 
-    from posthog.models.cohort import Cohort
+    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
+    # Falls back to ORM batch deletion when personhog is not available.
+    _delete_persons_for_teams(team_ids)
+
+
+def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
+    """Batch-delete the per-team tables that have no dedicated bulk path.
+
+    These previously used a single unbatched DELETE each, which could hit a statement
+    timeout or hold a long lock on very large teams. _raw_delete_batch keeps every
+    statement bounded.
+    """
     from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
     from products.data_modeling.backend.models import Edge, Node
@@ -35,33 +53,33 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from products.feature_flags.backend.models.feature_flag import FeatureFlagHashKeyOverride
     from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
-    # Delete data modeling nodes and edges first to not block Team deletion.
-    # Team cascades to DataWarehouseSavedQuery, but it has PROTECT on delete.
-    _raw_delete(Edge.objects.filter(team_id__in=team_ids))
-    _raw_delete(Node.objects.filter(team_id__in=team_ids))
+    # Data modeling Edge/Node must be deleted before the Team row: Team cascades to
+    # DataWarehouseSavedQuery, which has PROTECT on delete.
+    _raw_delete_batch(Edge.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(Node.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
+    # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
+    _raw_delete_batch(
+        FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids)  # nosemgrep: no-direct-persons-db-orm
+    )
+    _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
 
-    _raw_delete(FileSystemViewLog.objects.filter(team_id__in=team_ids))
 
-    _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
+def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
     for team_id in team_ids:
         _raw_delete_personless_distinct_ids_for_team(team_id)
-    _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
-    # Get cohort_ids from the default database first to avoid cross-database join
-    # CohortPeople is in persons_db, Cohort is in default db
+
+def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
+    # Resolve cohort ids from the default DB first to avoid a cross-database join:
+    # CohortPeople lives in persons_db, Cohort in the default db.
+    from products.cohorts.backend.models.cohort import Cohort
+
     cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
     if cohort_ids:
         _delete_cohort_members_for_teams(team_ids, cohort_ids)
-
-    _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
-    _delete_groups_for_teams(team_ids)
-    _delete_group_type_mappings_for_teams(team_ids)
-
-    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
-    # Falls back to ORM batch deletion when personhog is not available.
-    _delete_persons_for_teams(team_ids)
-
-    _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
 
 
 def _raw_delete_personless_distinct_ids_for_team(team_id: int, batch_size: int = 10000) -> None:
@@ -222,8 +240,8 @@ def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int])
     Falls back to ORM _raw_delete when personhog is not available.
     Routes per-team for consistent gate/metrics/fallback behavior.
     """
-    from posthog.models.cohort import Cohort
-    from posthog.models.cohort.util import delete_cohort_members_bulk
+    from products.cohorts.backend.models.cohort import Cohort
+    from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
     for team_id in team_ids:
         team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))
@@ -287,7 +305,7 @@ def delete_batch_exports(team_ids: list[int]):
 
     Using normal CASCADE doesn't trigger a delete from Temporal.
     """
-    from posthog.batch_exports.models import BatchExport
+    from products.batch_exports.backend.models.batch_export import BatchExport
 
     temporal = sync_connect()
 
@@ -342,6 +360,33 @@ def delete_data_modeling_schedules(team_ids: list[int]) -> None:
                 )
                 continue
             capture_exception(e)
+
+
+def delete_team_records(team_ids: list[int]) -> None:
+    """Delete the Team rows once their bulky child data has been removed.
+
+    FOR UPDATE on the teams blocks concurrent FK-inserts to any child table during the
+    cascade delete.
+    """
+    from django.db import transaction
+
+    from posthog.models.team import Team
+
+    with transaction.atomic():
+        list(Team.objects.select_for_update().filter(id__in=team_ids))
+        Team.objects.filter(id__in=team_ids).delete()
+
+
+def delete_project_record(project_id: int) -> None:
+    from posthog.models.project import Project
+
+    Project.objects.filter(id=project_id).delete()
+
+
+def delete_organization_record(organization_id: str) -> None:
+    from posthog.models.organization import Organization
+
+    Organization.objects.filter(id=organization_id).delete()
 
 
 can_enable_actor_on_events = False

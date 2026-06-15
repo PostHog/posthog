@@ -17,13 +17,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -884,7 +884,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_encrypted_payloads_flag(self):
         """Test that copying a flag with encrypted payloads decrypts them before copying."""
-        from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads
+        from products.feature_flags.backend.encrypted_flag_payloads import encrypt_flag_payloads
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         target_project = self.team_2
@@ -927,14 +927,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertTrue(copied_flag.has_encrypted_payloads)
 
         # Verify the encrypted payload can be decrypted back to the original value
-        from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
+        from products.feature_flags.backend.encrypted_flag_payloads import get_decrypted_flag_payload
 
         decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
         self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
 
     def test_copy_encrypted_payloads_flag_to_multiple_projects(self):
         """Test that copying a flag with encrypted payloads to multiple projects works correctly."""
-        from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads, get_decrypted_flag_payload
+        from products.feature_flags.backend.encrypted_flag_payloads import (
+            encrypt_flag_payloads,
+            get_decrypted_flag_payload,
+        )
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
 

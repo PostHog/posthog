@@ -12,7 +12,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.cohort.cohort import is_cohort_recalculation_only_save
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
@@ -28,6 +28,7 @@ from posthog.utils import absolute_uri
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.plugin import sync_team_inject_web_apps
+from products.cohorts.backend.models.cohort import is_cohort_recalculation_only_save
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -119,16 +120,18 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     batch_export = models.ForeignKey(
-        "posthog.BatchExport",
+        "batch_exports.BatchExport",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
     )
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog_function/", ref_field="id")
+        return cls._filter_unfiled_queryset(
+            base_qs, team, type__startswith="hog_function/", ref_field="id", surface=surface
+        )
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
@@ -272,7 +275,7 @@ def team_saved(sender, instance: Team, created, **kwargs):
     refresh_affected_hog_functions.delay(team_id=instance.id)
 
 
-@receiver(post_save, sender="posthog.Cohort")
+@receiver(post_save, sender="cohorts.Cohort")
 def cohort_saved(sender, instance, **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
         return

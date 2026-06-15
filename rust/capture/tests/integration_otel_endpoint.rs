@@ -178,7 +178,6 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
             "test-bucket".to_string(),
             "llma/".to_string(),
         ))), // ai_blob_storage
-        Some(10),         // request_timeout_seconds
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes

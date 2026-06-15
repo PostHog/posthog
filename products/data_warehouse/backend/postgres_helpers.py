@@ -15,6 +15,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace
 from posthog.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
     sql_schema_metadata as _sql_schema_metadata,
@@ -50,13 +51,6 @@ filter_dwh_columns_by_enabled_columns = _filter_dwh_columns_by_enabled_columns
 
 type PostgresDwhColumns = dict[str, dict[str, Any]]
 type PostgresSourceLocation = tuple[str | None, str, str]
-
-
-def _normalize_default_schema(default_schema: str | None) -> str | None:
-    if not isinstance(default_schema, str):
-        return None
-    normalized = default_schema.strip()
-    return normalized or None
 
 
 def postgres_schema_metadata(
@@ -108,7 +102,7 @@ def get_postgres_source_location(
     source_catalog = schema_metadata.get("source_catalog") if isinstance(schema_metadata, dict) else None
     source_schema = schema_metadata.get("source_schema") if isinstance(schema_metadata, dict) else None
     source_table_name = schema_metadata.get("source_table_name") if isinstance(schema_metadata, dict) else None
-    normalized_default = _normalize_default_schema(default_schema)
+    normalized_default = normalize_namespace(default_schema)
 
     if isinstance(source_schema, str) and isinstance(source_table_name, str):
         return source_catalog if isinstance(source_catalog, str) else None, source_schema, source_table_name
@@ -318,6 +312,8 @@ def reproject_direct_postgres_table(
             enabled_columns,
             schema_row.primary_key_columns,
             schema_row.incremental_field,
+            # Direct-postgres columns are keyed by raw, case-sensitive source names.
+            normalize=False,
         ),
         source_catalog=source_catalog,
         source_schema=source_schema,

@@ -1,6 +1,7 @@
 import uuid
 import asyncio
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
@@ -26,21 +27,32 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
+from posthog.cloud_utils import is_cloud
+from posthog.constants import (
+    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+    SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+)
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
-from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
+    PromptRejectedError,
+    sanitize_prompt,
+)
+from products.exports.backend.temporal.subscriptions.types import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionTriggerType,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -72,6 +84,24 @@ def _count_active_summaries(organization) -> int:
 
 def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
+
+
+def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
+    if not settings.DEBUG and not is_cloud():
+        return "AI subscriptions are only available in PostHog Cloud."
+    if not organization.is_ai_data_processing_approved:
+        return "Your organization must approve AI data processing before creating AI subscriptions."
+    # Per-user gate so people can self-enable via feature previews (early access) — the flag is
+    # person-based. AI credits and the subscription limit stay org-scoped, enforced separately.
+    # Non-user callers get a synthetic team_<id> distinct_id that never matches → fails closed.
+    if not posthoganalytics.feature_enabled(
+        SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
+        distinct_id,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        return "AI subscriptions are not enabled for your account."
+    return None
 
 
 @extend_schema_field({"type": "array", "items": {"type": "integer"}})
@@ -112,16 +142,28 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
+    resource_type = serializers.ChoiceField(
+        choices=Subscription.ResourceType.choices,
+        read_only=True,
+        help_text=(
+            "What the subscription delivers: 'insight' (snapshot of one insight), "
+            "'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). "
+            "Read-only — derived from the populated target (insight → insight, "
+            "dashboard → dashboard, prompt → ai_prompt)."
+        ),
+    )
 
     class Meta:
         model = Subscription
         fields = [
             "id",
+            "resource_type",
             "dashboard",
             "insight",
             "insight_short_id",
             "resource_name",
             "dashboard_export_insights",
+            "prompt",
             "target_type",
             "target_value",
             "frequency",
@@ -153,15 +195,26 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
         ]
         extra_kwargs = {
+            "prompt": {
+                "help_text": (
+                    "Free-text prompt that drives the AI-generated report. Required when "
+                    "resource_type is 'ai_prompt'. Max 4000 characters."
+                ),
+            },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
-            "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
+            "target_type": {"help_text": "Delivery channel: email or slack."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
+                "help_text": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack."
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
-                "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
+                "required": True,
+                "min_value": 1,
+                "help_text": (
+                    "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). "
+                    "Required on create; must be 1 or greater."
+                ),
             },
             "byweekday": {
                 "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
@@ -177,6 +230,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "enabled": {
                 "help_text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid."
             },
+            "summary_enabled": {
+                "help_text": (
+                    "Whether to attach an AI-generated summary to each delivery (insight and dashboard "
+                    "subscriptions only). Requires the organization to have approved AI data processing, and "
+                    "is subject to the org's active-summary cap and AI credit budget; otherwise the write is "
+                    "rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+                ),
+            },
+            "summary_prompt_guide": {
+                "help_text": (
+                    "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics "
+                    "to emphasize. Only settable when AI summary context is enabled for the organization; "
+                    "clearing it (empty string) is always allowed."
+                ),
+            },
         }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
@@ -187,6 +255,42 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
         return info.name if info else None
+
+    def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
+        if not (attrs.get("insight") or (existing and existing.insight_id)):
+            raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
+        if attrs.get("dashboard") or attrs.get("prompt"):
+            raise ValidationError({"insight": ["Insight subscriptions cannot also set dashboard or prompt."]})
+
+    def _validate_dashboard_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
+        if not (attrs.get("dashboard") or (existing and existing.dashboard_id)):
+            raise ValidationError({"dashboard": ["Dashboard is required for dashboard subscriptions."]})
+        if attrs.get("insight") or attrs.get("prompt"):
+            raise ValidationError({"dashboard": ["Dashboard subscriptions cannot also set insight or prompt."]})
+
+    def _validate_ai_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
+        if attrs.get("insight") or attrs.get("dashboard"):
+            raise ValidationError({"prompt": ["AI subscriptions cannot also set insight or dashboard."]})
+        # Explicit-key check so a PATCH sending prompt="" doesn't fall through to the stale value.
+        prompt = (attrs["prompt"] if "prompt" in attrs else (existing.prompt if existing else None)) or ""
+        prompt = prompt.strip()
+        if not prompt:
+            raise ValidationError({"prompt": ["Prompt is required for AI subscriptions."]})
+        if len(prompt) > AI_PROMPT_MAX_LENGTH:
+            raise ValidationError({"prompt": [f"Prompt cannot exceed {AI_PROMPT_MAX_LENGTH} characters."]})
+        if "prompt" in attrs:
+            attrs["prompt"] = prompt
+        target_type = attrs.get("target_type") or (existing.target_type if existing else None)
+        if target_type and target_type not in (
+            Subscription.SubscriptionTarget.EMAIL,
+            Subscription.SubscriptionTarget.SLACK,
+        ):
+            raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
+        # Gates fire on create only; existing AI subs stay editable.
+        if existing is None:
+            gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
+            if gate_reason is not None:
+                raise ValidationError(gate_reason)
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -201,16 +305,42 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if msg:
                 raise ValidationError({"subscription": [msg]})
 
-        if self.instance is None:
-            # Create: a subscription must export an insight or a dashboard.
-            if not attrs.get("dashboard") and not attrs.get("insight"):
-                raise ValidationError("Either dashboard or insight is required for an export.")
+        existing = self.instance
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
 
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        if existing is None:
+            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
+            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+                raise ValidationError("A subscription must have an insight, a dashboard, or a prompt.")
+
+        try:
+            if existing is not None:
+                # `resource_type` derives from the row's content; a corrupt row (e.g. a prompt
+                # nulled directly in the DB) leaves nothing to derive from and raises.
+                resource_type = existing.resource_type
+            else:
+                insight, dashboard = attrs.get("insight"), attrs.get("dashboard")
+                resource_type = Subscription.derive_resource_type(
+                    insight.id if insight else None, dashboard.id if dashboard else None, attrs.get("prompt")
+                )
+        except ValueError as exc:
+            raise ValidationError(str(exc))
+        content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
+            Subscription.ResourceType.INSIGHT: self._validate_insight_content,
+            Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
+            Subscription.ResourceType.AI_PROMPT: self._validate_ai_content,
+        }
+        validate_for_resource_type = content_validators.get(resource_type)
+        # Fail soft on an unexpected resource_type (e.g. a stale DB row) — a 400 is
+        # diagnosable, an unhandled KeyError surfaces as a 500.
+        if validate_for_resource_type is None:
+            raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
+        validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
 
@@ -232,6 +362,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             error_message = validate_re_enable(target_type, integration_id)
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
+            # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
+            # fails sanitization). The delivery path will just re-disable on the next
+            # tick unless the underlying cause is fixed by this PATCH.
+            if resource_type == Subscription.ResourceType.AI_PROMPT:
+                prompt_after = attrs.get("prompt") if "prompt" in attrs else (existing.prompt if existing else None)
+                created_by_after = existing.created_by if existing else None
+                if created_by_after is None:
+                    raise ValidationError(
+                        {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
+                    )
+                try:
+                    sanitize_prompt(prompt_after)
+                except PromptRejectedError as exc:
+                    raise ValidationError(
+                        {"enabled": [f"Cannot re-enable AI subscription: prompt is invalid ({exc})."]}
+                    )
 
         # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
         # with a null next_delivery_date is invisible to the scheduler (the
@@ -262,13 +408,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
-
-        # SSRF protection for webhook subscriptions
-        target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
-        if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
-            allowed, error = is_url_allowed(target_value)
-            if not allowed:
-                raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
@@ -339,6 +478,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "Disable an existing summary or upgrade your plan to add more."
             )
 
+    def _caller_distinct_id(self) -> str:
+        request = self.context.get("request")
+        if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None):
+            return str(request.user.distinct_id)
+        return f"team_{self.context.get('team_id')}"
+
     def _capture_summary_cap_hit(self, organization, active_count: int, limit: int) -> None:
         # Rate-limited to one event per org per 10 minutes so a misbehaving
         # client retrying in a loop doesn't spam the analytics stream. Within
@@ -348,15 +493,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return
         cache.set(dedupe_key, True, SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS)
 
-        request = self.context.get("request")
-        distinct_id = (
-            str(request.user.distinct_id)
-            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
-            else f"team_{self.context.get('team_id')}"
-        )
         try:
             posthoganalytics.capture(
-                distinct_id=distinct_id,
+                distinct_id=self._caller_distinct_id(),
                 event="subscription_ai_summary_cap_hit",
                 properties={
                     "team_id": self.context.get("team_id"),
@@ -377,6 +516,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         Scoped by organization (not user) so gates are stable across a team's
         members. `only_evaluate_locally=False` so we respect server-side cohort
         / property conditions — these checks aren't on a hot path.
+        (`_ai_create_gate_reason` is intentionally person-scoped instead — it
+        backs a per-user early-access opt-in — so don't unify the two.)
         """
         request = self.context.get("request")
         if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
@@ -496,7 +637,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "byweekday": instance.byweekday,
                 "bysetpos": instance.bysetpos,
                 "count": instance.count,
-                "resource_type": "dashboard" if instance.dashboard_id else "insight" if instance.insight_id else None,
+                "resource_type": instance.resource_type,
                 "dashboard_export_insights_count": len(dashboard_export_insight_ids),
                 "summary_enabled": instance.summary_enabled,
                 "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
@@ -518,6 +659,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         previous_value="",
                         invite_message=invite_message,
                         trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -547,11 +689,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     "subscription_id": instance.id,
                     "target_type": instance.target_type,
                     "frequency": instance.frequency,
-                    "resource_type": "dashboard"
-                    if instance.dashboard_id
-                    else "insight"
-                    if instance.insight_id
-                    else None,
+                    "resource_type": instance.resource_type,
                 },
             ):
                 instance = super().update(instance, validated_data)
@@ -591,6 +729,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     previous_value=previous_value,
                     invite_message=invite_message,
                     trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    resource_type=instance.resource_type,
                 ),
                 id=workflow_id,
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -598,6 +737,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         )
 
         return instance
+
+
+def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool:
+    """An AI subscription is one backed by a non-empty prompt (team-scoped)."""
+    return (
+        Subscription.objects.filter(pk=subscription_id, team_id=team_id)
+        .exclude(prompt__isnull=True)
+        .exclude(prompt="")
+        .exists()
+    )
 
 
 @extend_schema_view(
@@ -613,10 +762,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             OpenApiParameter(
                 name="resource_type",
                 type=str,
-                enum=["insight", "dashboard"],
+                enum=["insight", "dashboard", "ai_prompt"],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by subscription resource: insight vs dashboard export.",
+                description="Filter by subscription resource: insight, dashboard export, or AI report.",
             ),
             OpenApiParameter(
                 name="target_type",
@@ -624,7 +773,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 enum=[m.value for m in Subscription.SubscriptionTarget],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by delivery channel (email, Slack, or webhook).",
+                description="Filter by delivery channel (email or Slack).",
             ),
             OpenApiParameter(
                 name="insight",
@@ -643,7 +792,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         ],
     ),
 )
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["subscriptions"])
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
@@ -662,6 +811,39 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         "created_by__email",
     ]
     ordering = ["-created_at"]
+
+    # Writing an AI prompt subscription also requires query-read access: it runs LLM-generated
+    # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics.
+    # Two layers gate this off _write_touches_ai_subscription: a required query:read scope keeps a
+    # token least-privileged, and the RBAC check in check_permissions enforces actual query access
+    # for every write — a scope is only a capability flag, not proof of RBAC (personal keys can
+    # carry query:read without it), and session auth has no scopes at all.
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        scopes = [f"{self.scope_object}:write"]
+        if self._write_touches_ai_subscription(request, view):
+            scopes.append("query:read")
+        return scopes
+
+    def check_permissions(self, request) -> None:
+        super().check_permissions(request)
+        # Enforce query-viewer RBAC for every AI-prompt write, regardless of auth: the query:read
+        # scope above gates tokens but does not prove the owner has query access, and session auth
+        # bypasses scopes entirely.
+        if (
+            request.method not in ("GET", "HEAD", "OPTIONS")
+            and self._write_touches_ai_subscription(request, self)
+            and not self.user_access_control.check_access_level_for_resource("query", "viewer")
+        ):
+            raise exceptions.PermissionDenied("You need query access to create or deliver AI prompt subscriptions.")
+
+    def _write_touches_ai_subscription(self, request, view) -> bool:
+        if request.data.get("prompt"):  # create (or a body that sets a prompt)
+            return True
+        # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
+        pk = view.kwargs.get("pk")
+        return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
@@ -688,6 +870,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(insight_id__isnull=False)
             elif resource_type == "dashboard":
                 queryset = queryset.filter(dashboard_id__isnull=False)
+            elif resource_type == "ai_prompt":
+                queryset = queryset.filter(prompt__isnull=False).exclude(prompt="")
 
             target_type_filter = request_params.get("target_type")
             if target_type_filter:
@@ -766,7 +950,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         detail=True,
         url_path="test-delivery",
         throttle_classes=[SubscriptionTestDeliveryThrottle],
-        required_scopes=["subscription:write"],
+        # Scope is resolved dynamically in dangerously_get_required_scopes so AI subscriptions
+        # also require query:read (test-delivery runs the AI HogQL pipeline). A static
+        # required_scopes here would short-circuit that check.
     )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
@@ -793,6 +979,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         previous_value=None,
                         invite_message=None,
                         trigger_type=SubscriptionTriggerType.MANUAL,
+                        resource_type=subscription.resource_type,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -828,6 +1015,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
+    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
+
     class Meta:
         model = SubscriptionDelivery
         fields = [
@@ -857,7 +1049,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
             "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
-            "target_type": {"help_text": "Channel snapshot at send time (email, slack, webhook)."},
+            "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
             "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
             "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
             "content_snapshot": {
@@ -876,6 +1068,15 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "finished_at": {"help_text": "When the run finished, if applicable."},
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # The viewset sets this flag when an AI prompt delivery is read by a caller without query
+        # access; scrub the query-derived report so subscription:read (or a self-granted query:read
+        # scope) can't read analytics the user isn't allowed to run themselves.
+        if self.context.get("hide_ai_report"):
+            data.update(self.AI_REPORT_SCRUBBED)
+        return data
 
 
 class SubscriptionDeliveryCursorPagination(CursorPagination):
@@ -905,13 +1106,28 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["subscriptions"])
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()
     serializer_class = SubscriptionDeliverySerializer
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
+
+    def get_serializer_context(self) -> dict:
+        context = super().get_serializer_context()
+        context["hide_ai_report"] = self._should_hide_ai_report()
+        return context
+
+    def _should_hide_ai_report(self) -> bool:
+        # An AI prompt subscription's delivered report is query-derived, so reading it requires query
+        # access — mirroring the create/test-delivery gate. Non-AI deliveries are unaffected.
+        subscription_id = self.kwargs.get("parent_lookup_subscription_id")
+        if not subscription_id:
+            return True  # nested route always supplies this; fail closed (scrub) if it ever doesn't
+        if not _subscription_is_ai_prompt(subscription_id, self.team_id):
+            return False
+        return not self.user_access_control.check_access_level_for_resource("query", "viewer")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")

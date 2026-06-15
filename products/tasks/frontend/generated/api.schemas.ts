@@ -12,6 +12,17 @@ export interface CodeInviteRedeemRequestApi {
     code: string
 }
 
+/**
+ * * `burst` - burst
+ * * `sustained` - sustained
+ */
+export type LimitTypeEnumApi = (typeof LimitTypeEnumApi)[keyof typeof LimitTypeEnumApi]
+
+export const LimitTypeEnumApi = {
+    Burst: 'burst',
+    Sustained: 'sustained',
+} as const
+
 export interface TaskRunErrorResponseApi {
     /** Human-readable validation error */
     detail?: string
@@ -25,12 +36,21 @@ export interface TaskRunErrorResponseApi {
     attr?: string
     /** Artifact ids that could not be resolved for the run */
     missing_artifact_ids?: string[]
+    /** Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)
+     *
+     * * `burst` - burst
+     * * `sustained` - sustained */
+    limit_type?: LimitTypeEnumApi
+    /** ISO 8601 timestamp when the hit usage limit resets, when known */
+    reset_at?: string
+    /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
+    is_pro?: boolean
 }
 
 /**
  * * `trusted` - Trusted
- * `full` - Full
- * `custom` - Custom
+ * * `full` - Full
+ * * `custom` - Custom
  */
 export type NetworkAccessLevelEnumApi = (typeof NetworkAccessLevelEnumApi)[keyof typeof NetworkAccessLevelEnumApi]
 
@@ -42,13 +62,13 @@ export const NetworkAccessLevelEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -100,9 +120,15 @@ export interface SandboxEnvironmentListApi {
     /** @maxLength 255 */
     name: string
     network_access_level?: NetworkAccessLevelEnumApi
-    /** List of allowed domains for custom network access */
+    /**
+     * List of allowed domains for custom network access
+     * @items.maxLength 255
+     */
     allowed_domains?: string[]
-    /** List of repositories this environment applies to (format: org/repo) */
+    /**
+     * List of repositories this environment applies to (format: org/repo)
+     * @items.maxLength 255
+     */
     repositories?: string[]
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
@@ -127,11 +153,17 @@ export interface SandboxEnvironmentApi {
     /** @maxLength 255 */
     name: string
     network_access_level?: NetworkAccessLevelEnumApi
-    /** List of allowed domains for custom network access */
+    /**
+     * List of allowed domains for custom network access
+     * @items.maxLength 255
+     */
     allowed_domains?: string[]
     /** Whether to include default trusted domains (GitHub, npm, PyPI) */
     include_default_domains?: boolean
-    /** List of repositories this environment applies to (format: org/repo) */
+    /**
+     * List of repositories this environment applies to (format: org/repo)
+     * @items.maxLength 255
+     */
     repositories?: string[]
     /** Encrypted environment variables (write-only, never returned in responses) */
     environment_variables?: unknown
@@ -153,11 +185,17 @@ export interface PatchedSandboxEnvironmentApi {
     /** @maxLength 255 */
     name?: string
     network_access_level?: NetworkAccessLevelEnumApi
-    /** List of allowed domains for custom network access */
+    /**
+     * List of allowed domains for custom network access
+     * @items.maxLength 255
+     */
     allowed_domains?: string[]
     /** Whether to include default trusted domains (GitHub, npm, PyPI) */
     include_default_domains?: boolean
-    /** List of repositories this environment applies to (format: org/repo) */
+    /**
+     * List of repositories this environment applies to (format: org/repo)
+     * @items.maxLength 255
+     */
     repositories?: string[]
     /** Encrypted environment variables (write-only, never returned in responses) */
     environment_variables?: unknown
@@ -251,14 +289,14 @@ export interface PatchedTaskAutomationApi {
 
 /**
  * * `error_tracking` - Error Tracking
- * `eval_clusters` - Eval Clusters
- * `user_created` - User Created
- * `automation` - Automation
- * `slack` - Slack
- * `support_queue` - Support Queue
- * `session_summaries` - Session Summaries
- * `signal_report` - Signal Report
- * `signals_scout` - Signals Scout
+ * * `eval_clusters` - Eval Clusters
+ * * `user_created` - User Created
+ * * `automation` - Automation
+ * * `slack` - Slack
+ * * `support_queue` - Support Queue
+ * * `session_summaries` - Session Summaries
+ * * `signal_report` - Signal Report
+ * * `signals_scout` - Signals Scout
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -304,16 +342,16 @@ export interface TaskApi {
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-
-  * `error_tracking` - Error Tracking
-  * `eval_clusters` - Eval Clusters
-  * `user_created` - User Created
-  * `automation` - Automation
-  * `slack` - Slack
-  * `support_queue` - Support Queue
-  * `session_summaries` - Session Summaries
-  * `signal_report` - Signal Report
-  * `signals_scout` - Signals Scout */
+     *
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `automation` - Automation
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -386,16 +424,16 @@ export interface PatchedTaskApi {
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-
-  * `error_tracking` - Error Tracking
-  * `eval_clusters` - Eval Clusters
-  * `user_created` - User Created
-  * `automation` - Automation
-  * `slack` - Slack
-  * `support_queue` - Support Queue
-  * `session_summaries` - Session Summaries
-  * `signal_report` - Signal Report
-  * `signals_scout` - Signals Scout */
+     *
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `automation` - Automation
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -441,13 +479,13 @@ export interface PatchedTaskApi {
 
 /**
  * Request body for the presence beacon and beacon-leave endpoints.
-
-`device_id` is the UUID of the caller's `UserPushToken` row, which the
-client received when it registered for push via `/api/users/@me/push_tokens/`.
-The client is expected to use the same identifier on the beacon and leave
-calls; if the user has unregistered the underlying push token, the value
-won't resolve and the call returns 404 — at which point pushes were
-already not going there anyway.
+ *
+ * `device_id` is the UUID of the caller's `UserPushToken` row, which the
+ * client received when it registered for push via `/api/users/@me/push_tokens/`.
+ * The client is expected to use the same identifier on the beacon and leave
+ * calls; if the user has unregistered the underlying push token, the value
+ * won't resolve and the call returns 404 — at which point pushes were
+ * already not going there anyway.
  */
 export interface TaskPresenceBeaconRequestApi {
     /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
@@ -456,7 +494,7 @@ export interface TaskPresenceBeaconRequestApi {
 
 /**
  * * `interactive` - interactive
- * `background` - background
+ * * `background` - background
  */
 export type TaskExecutionModeEnumApi = (typeof TaskExecutionModeEnumApi)[keyof typeof TaskExecutionModeEnumApi]
 
@@ -467,7 +505,7 @@ export const TaskExecutionModeEnumApi = {
 
 /**
  * * `user` - user
- * `bot` - bot
+ * * `bot` - bot
  */
 export type PrAuthorshipModeEnumApi = (typeof PrAuthorshipModeEnumApi)[keyof typeof PrAuthorshipModeEnumApi]
 
@@ -478,7 +516,7 @@ export const PrAuthorshipModeEnumApi = {
 
 /**
  * * `manual` - manual
- * `signal_report` - signal_report
+ * * `signal_report` - signal_report
  */
 export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
 
@@ -498,10 +536,10 @@ export const ClaudeRuntimeAdapterEnumApi = {
 
 /**
  * * `low` - low
- * `medium` - medium
- * `high` - high
- * `xhigh` - xhigh
- * `max` - max
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
  */
 export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
 
@@ -515,10 +553,10 @@ export const ReasoningEffortEnumApi = {
 
 /**
  * * `default` - default
- * `acceptEdits` - acceptEdits
- * `plan` - plan
- * `bypassPermissions` - bypassPermissions
- * `auto` - auto
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
  */
 export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
@@ -536,9 +574,9 @@ export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  */
 export interface ClaudeTaskRunCreateSchemaApi {
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
-
-  * `interactive` - interactive
-  * `background` - background */
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
     mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
@@ -550,45 +588,48 @@ export interface ClaudeTaskRunCreateSchemaApi {
     resume_from_run_id?: string
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
-    /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+    /**
+     * Identifiers for staged task artifacts that should be attached to the initial run prompt.
+     * @items.maxLength 128
+     */
     pending_user_artifact_ids?: string[]
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
-
-  * `user` - user
-  * `bot` - bot */
+     *
+     * * `user` - user
+     * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
-
-  * `manual` - manual
-  * `signal_report` - signal_report */
+     *
+     * * `manual` - manual
+     * * `signal_report` - signal_report */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
     /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
-
-  * `claude` - claude */
+     *
+     * * `claude` - claude */
     runtime_adapter: ClaudeRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Claude runtime. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.
-
-  * `low` - low
-  * `medium` - medium
-  * `high` - high
-  * `xhigh` - xhigh
-  * `max` - max */
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
-
-  * `default` - default
-  * `acceptEdits` - acceptEdits
-  * `plan` - plan
-  * `bypassPermissions` - bypassPermissions
-  * `auto` - auto */
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
     initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
@@ -603,8 +644,8 @@ export const CodexRuntimeAdapterEnumApi = {
 
 /**
  * * `auto` - auto
- * `read-only` - read-only
- * `full-access` - full-access
+ * * `read-only` - read-only
+ * * `full-access` - full-access
  */
 export type CodexTaskRunCreateSchemaInitialPermissionModeEnumApi =
     (typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof CodexTaskRunCreateSchemaInitialPermissionModeEnumApi]
@@ -620,9 +661,9 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  */
 export interface CodexTaskRunCreateSchemaApi {
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
-
-  * `interactive` - interactive
-  * `background` - background */
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
     mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
@@ -634,51 +675,54 @@ export interface CodexTaskRunCreateSchemaApi {
     resume_from_run_id?: string
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
-    /** Identifiers for staged task artifacts that should be attached to the initial run prompt. */
+    /**
+     * Identifiers for staged task artifacts that should be attached to the initial run prompt.
+     * @items.maxLength 128
+     */
     pending_user_artifact_ids?: string[]
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
-
-  * `user` - user
-  * `bot` - bot */
+     *
+     * * `user` - user
+     * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
-
-  * `manual` - manual
-  * `signal_report` - signal_report */
+     *
+     * * `manual` - manual
+     * * `signal_report` - signal_report */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
     /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
-
-  * `codex` - codex */
+     *
+     * * `codex` - codex */
     runtime_adapter: CodexRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Codex runtime. */
     model: string
     /** Reasoning effort to request for models that expose an effort control.
-
-  * `low` - low
-  * `medium` - medium
-  * `high` - high
-  * `xhigh` - xhigh
-  * `max` - max */
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
-
-  * `auto` - auto
-  * `read-only` - read-only
-  * `full-access` - full-access */
+     *
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
 export interface TaskRunResumeRequestSchemaApi {
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
-
-  * `interactive` - interactive
-  * `background` - background */
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
     mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
@@ -693,14 +737,14 @@ export interface TaskRunResumeRequestSchemaApi {
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
-
-  * `user` - user
-  * `bot` - bot */
+     *
+     * * `user` - user
+     * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
-
-  * `manual` - manual
-  * `signal_report` - signal_report */
+     *
+     * * `manual` - manual
+     * * `signal_report` - signal_report */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -715,12 +759,12 @@ export type TaskRunCreateRequestSchemaApi =
 
 /**
  * * `plan` - plan
- * `context` - context
- * `reference` - reference
- * `output` - output
- * `artifact` - artifact
- * `tree_snapshot` - tree_snapshot
- * `user_attachment` - user_attachment
+ * * `context` - context
+ * * `reference` - reference
+ * * `output` - output
+ * * `artifact` - artifact
+ * * `tree_snapshot` - tree_snapshot
+ * * `user_attachment` - user_attachment
  */
 export type TaskRunArtifactTypeEnumApi = (typeof TaskRunArtifactTypeEnumApi)[keyof typeof TaskRunArtifactTypeEnumApi]
 
@@ -743,14 +787,14 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      */
     name: string
     /** Classification for the artifact
-
-  * `plan` - plan
-  * `context` - context
-  * `reference` - reference
-  * `output` - output
-  * `artifact` - artifact
-  * `tree_snapshot` - tree_snapshot
-  * `user_attachment` - user_attachment */
+     *
+     * * `plan` - plan
+     * * `context` - context
+     * * `reference` - reference
+     * * `output` - output
+     * * `artifact` - artifact
+     * * `tree_snapshot` - tree_snapshot
+     * * `user_attachment` - user_attachment */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -805,14 +849,14 @@ export interface TaskStagedArtifactPrepareUploadApi {
      */
     name: string
     /** Classification for the artifact
-
-  * `plan` - plan
-  * `context` - context
-  * `reference` - reference
-  * `output` - output
-  * `artifact` - artifact
-  * `tree_snapshot` - tree_snapshot
-  * `user_attachment` - user_attachment */
+     *
+     * * `plan` - plan
+     * * `context` - context
+     * * `reference` - reference
+     * * `output` - output
+     * * `artifact` - artifact
+     * * `tree_snapshot` - tree_snapshot
+     * * `user_attachment` - user_attachment */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -877,11 +921,11 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
 
 /**
  * * `not_started` - Not Started
- * `queued` - Queued
- * `in_progress` - In Progress
- * `completed` - Completed
- * `failed` - Failed
- * `cancelled` - Cancelled
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
  */
 export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
 
@@ -896,7 +940,7 @@ export const TaskRunStatusEnumApi = {
 
 /**
  * * `local` - Local
- * `cloud` - Cloud
+ * * `cloud` - Cloud
  */
 export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
 
@@ -907,7 +951,7 @@ export const TaskRunEnvironmentEnumApi = {
 
 /**
  * * `claude` - claude
- * `codex` - codex
+ * * `codex` - codex
  */
 export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
 
@@ -941,9 +985,9 @@ export interface TaskRunDetailApi {
     branch?: string | null
     status?: TaskRunStatusEnumApi
     /** Execution environment
-
-  * `local` - Local
-  * `cloud` - Cloud */
+     *
+     * * `local` - Local
+     * * `cloud` - Cloud */
     environment?: TaskRunEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
     readonly runtime_adapter: RuntimeAdapterEnumApi | null
@@ -988,7 +1032,7 @@ export interface PaginatedTaskRunDetailListApi {
 
 /**
  * * `local` - local
- * `cloud` - cloud
+ * * `cloud` - cloud
  */
 export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
     (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
@@ -1000,12 +1044,12 @@ export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
 
 /**
  * * `default` - default
- * `acceptEdits` - acceptEdits
- * `plan` - plan
- * `bypassPermissions` - bypassPermissions
- * `auto` - auto
- * `read-only` - read-only
- * `full-access` - full-access
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
+ * * `read-only` - read-only
+ * * `full-access` - full-access
  */
 export type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi =
     (typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi)[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi]
@@ -1025,14 +1069,14 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  */
 export interface TaskRunBootstrapCreateRequestApi {
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
-
-  * `local` - local
-  * `cloud` - cloud */
+     *
+     * * `local` - local
+     * * `cloud` - cloud */
     environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
-
-  * `interactive` - interactive
-  * `background` - background */
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
     mode?: TaskExecutionModeEnumApi
     /**
      * Git branch to checkout in the sandbox
@@ -1043,53 +1087,53 @@ export interface TaskRunBootstrapCreateRequestApi {
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
     /** Whether pull requests for this run should be authored by the user or the bot.
-
-  * `user` - user
-  * `bot` - bot */
+     *
+     * * `user` - user
+     * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
-
-  * `manual` - manual
-  * `signal_report` - signal_report */
+     *
+     * * `manual` - manual
+     * * `signal_report` - signal_report */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
     /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
-
-  * `claude` - claude
-  * `codex` - codex */
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
     runtime_adapter?: RuntimeAdapterEnumApi
     /** LLM model identifier to run in the selected runtime. */
     model?: string
     /** Reasoning effort to request for models that expose an effort control.
-
-  * `low` - low
-  * `medium` - medium
-  * `high` - high
-  * `xhigh` - xhigh
-  * `max` - max */
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
     /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
-
-  * `default` - default
-  * `acceptEdits` - acceptEdits
-  * `plan` - plan
-  * `bypassPermissions` - bypassPermissions
-  * `auto` - auto
-  * `read-only` - read-only
-  * `full-access` - full-access */
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
 }
 
 /**
  * * `not_started` - not_started
- * `queued` - queued
- * `in_progress` - in_progress
- * `completed` - completed
- * `failed` - failed
- * `cancelled` - cancelled
+ * * `queued` - queued
+ * * `in_progress` - in_progress
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
  */
 export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
 
@@ -1114,13 +1158,13 @@ export const TaskRunUpdateEnvironmentEnumApi = {
 
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
-
-  * `not_started` - not_started
-  * `queued` - queued
-  * `in_progress` - in_progress
-  * `completed` - completed
-  * `failed` - failed
-  * `cancelled` - cancelled */
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
     status?: TaskRunUpdateStatusEnumApi
     /**
      * Git branch name to associate with the task
@@ -1144,8 +1188,8 @@ export interface PatchedTaskRunUpdateApi {
      */
     error_message?: string | null
     /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-
-  * `local` - local */
+     *
+     * * `local` - local */
     environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
@@ -1158,7 +1202,7 @@ export interface TaskRunAppendLogRequestApi {
 
 /**
  * * `utf-8` - utf-8
- * `base64` - base64
+ * * `base64` - base64
  */
 export type ContentEncodingEnumApi = (typeof ContentEncodingEnumApi)[keyof typeof ContentEncodingEnumApi]
 
@@ -1174,14 +1218,14 @@ export interface TaskRunArtifactUploadApi {
      */
     name: string
     /** Classification for the artifact
-
-  * `plan` - plan
-  * `context` - context
-  * `reference` - reference
-  * `output` - output
-  * `artifact` - artifact
-  * `tree_snapshot` - tree_snapshot
-  * `user_attachment` - user_attachment */
+     *
+     * * `plan` - plan
+     * * `context` - context
+     * * `reference` - reference
+     * * `output` - output
+     * * `artifact` - artifact
+     * * `tree_snapshot` - tree_snapshot
+     * * `user_attachment` - user_attachment */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1191,9 +1235,9 @@ export interface TaskRunArtifactUploadApi {
     /** Artifact contents encoded according to content_encoding */
     content: string
     /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
-
-  * `utf-8` - utf-8
-  * `base64` - base64 */
+     *
+     * * `utf-8` - utf-8
+     * * `base64` - base64 */
     content_encoding?: ContentEncodingEnumApi
     /**
      * Optional MIME type for the artifact
@@ -1229,14 +1273,14 @@ export interface TaskRunArtifactFinalizeUploadApi {
      */
     name: string
     /** Classification for the artifact
-
-  * `plan` - plan
-  * `context` - context
-  * `reference` - reference
-  * `output` - output
-  * `artifact` - artifact
-  * `tree_snapshot` - tree_snapshot
-  * `user_attachment` - user_attachment */
+     *
+     * * `plan` - plan
+     * * `context` - context
+     * * `reference` - reference
+     * * `output` - output
+     * * `artifact` - artifact
+     * * `tree_snapshot` - tree_snapshot
+     * * `user_attachment` - user_attachment */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1272,14 +1316,14 @@ export interface TaskRunArtifactPrepareUploadApi {
      */
     name: string
     /** Classification for the artifact
-
-  * `plan` - plan
-  * `context` - context
-  * `reference` - reference
-  * `output` - output
-  * `artifact` - artifact
-  * `tree_snapshot` - tree_snapshot
-  * `user_attachment` - user_attachment */
+     *
+     * * `plan` - plan
+     * * `context` - context
+     * * `reference` - reference
+     * * `output` - output
+     * * `artifact` - artifact
+     * * `tree_snapshot` - tree_snapshot
+     * * `user_attachment` - user_attachment */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1353,10 +1397,10 @@ export const JsonrpcEnumApi = {
 
 /**
  * * `user_message` - user_message
- * `cancel` - cancel
- * `close` - close
- * `permission_response` - permission_response
- * `set_config_option` - set_config_option
+ * * `cancel` - cancel
+ * * `close` - close
+ * * `permission_response` - permission_response
+ * * `set_config_option` - set_config_option
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -1373,16 +1417,16 @@ export const MethodEnumApi = {
  */
 export interface TaskRunCommandRequestApi {
     /** JSON-RPC version, must be '2.0'
-
-  * `2.0` - 2.0 */
+     *
+     * * `2.0` - 2.0 */
     jsonrpc: JsonrpcEnumApi
     /** Command method to execute on the agent server
-
-  * `user_message` - user_message
-  * `cancel` - cancel
-  * `close` - close
-  * `permission_response` - permission_response
-  * `set_config_option` - set_config_option */
+     *
+     * * `user_message` - user_message
+     * * `cancel` - cancel
+     * * `close` - close
+     * * `permission_response` - permission_response
+     * * `set_config_option` - set_config_option */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
@@ -1442,7 +1486,10 @@ export interface PatchedTaskRunSetOutputRequestApi {
 export interface TaskRunStartRequestApi {
     /** Initial or follow-up user message to include in the run prompt. */
     pending_user_message?: string
-    /** Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox. */
+    /**
+     * Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.
+     * @items.maxLength 128
+     */
     pending_user_artifact_ids?: string[]
 }
 
@@ -1453,11 +1500,11 @@ export interface TaskRepositoriesResponseApi {
 
 /**
  * * `needs_setup` - needs_setup
- * `detected` - detected
- * `waiting_for_data` - waiting_for_data
- * `ready` - ready
- * `not_applicable` - not_applicable
- * `unknown` - unknown
+ * * `detected` - detected
+ * * `waiting_for_data` - waiting_for_data
+ * * `ready` - ready
+ * * `not_applicable` - not_applicable
+ * * `unknown` - unknown
  */
 export type CapabilityStateStateEnumApi = (typeof CapabilityStateStateEnumApi)[keyof typeof CapabilityStateStateEnumApi]
 
@@ -1477,13 +1524,13 @@ export type CapabilityStateApiEvidence = { [key: string]: unknown }
 
 export interface CapabilityStateApi {
     /** Current state of the capability
-
-  * `needs_setup` - needs_setup
-  * `detected` - detected
-  * `waiting_for_data` - waiting_for_data
-  * `ready` - ready
-  * `not_applicable` - not_applicable
-  * `unknown` - unknown */
+     *
+     * * `needs_setup` - needs_setup
+     * * `detected` - detected
+     * * `waiting_for_data` - waiting_for_data
+     * * `ready` - ready
+     * * `not_applicable` - not_applicable
+     * * `unknown` - unknown */
     state: CapabilityStateStateEnumApi
     /** Whether the state is estimated from static analysis */
     estimated: boolean
@@ -1582,10 +1629,10 @@ export interface SlackThreadContextTaskApi {
 
 /**
  * The internal sandbox run the discovery agent used to pick this run's repo.
-
-Only present when the originating mention was ambiguous (multiple candidate
-repos, no explicit mention) — that's the only path that spins up a research
-sandbox. Null otherwise.
+ *
+ * Only present when the originating mention was ambiguous (multiple candidate
+ * repos, no explicit mention) — that's the only path that spins up a research
+ * sandbox. Null otherwise.
  */
 export interface SlackThreadContextRepoResearchApi {
     /** UUID of the internal repo-research Task. */
@@ -1744,13 +1791,13 @@ export type TaskAutomationsListParams = {
 
 export type TasksListParams = {
     /**
- * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
-
-* `true` - true
-* `false` - false
-* `all` - all
- * @minLength 1
- */
+     * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+     *
+     * * `true` - true
+     * * `false` - false
+     * * `all` - all
+     * @minLength 1
+     */
     archived?: TasksListArchived
     /**
      * Filter by creator user ID
@@ -1796,16 +1843,16 @@ export type TasksListParams = {
      */
     stage?: string
     /**
- * Filter tasks by the status of their most recent run.
-
-* `not_started` - not_started
-* `queued` - queued
-* `in_progress` - in_progress
-* `completed` - completed
-* `failed` - failed
-* `cancelled` - cancelled
- * @minLength 1
- */
+     * Filter tasks by the status of their most recent run.
+     *
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled
+     * @minLength 1
+     */
     status?: TasksListStatus
 }
 

@@ -17,6 +17,7 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -86,6 +87,7 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
+    triggerVariant = 'button',
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -185,6 +187,7 @@ export function TaxonomicPropertyFilter({
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
+            collapseUrlsToContainsRow
         />
     )
 
@@ -323,16 +326,18 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
+            triggerVariant={triggerVariant}
             triggerButtonProps={{
                 type: 'secondary',
                 size,
                 truncate: true,
                 sideIcon: null,
+                fullWidth: triggerVariant === 'input',
                 icon: !valuePresent ? <IconPlusSmall /> : undefined,
             }}
         />
     ) : (
-        <span className="relative inline-flex max-w-full min-w-0">
+        <span className={taxonomicTriggerWrapperClassName()}>
             {legacyDropdown}
             <TaxonomicMenuToggle />
         </span>

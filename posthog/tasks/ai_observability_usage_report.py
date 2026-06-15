@@ -9,8 +9,6 @@ from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from retry import retry
 
-from posthog.schema import AIEventType
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -18,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
+from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region, get_previous_day
@@ -675,7 +674,9 @@ def _get_all_ai_observability_reports(
     try:
         team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception("[AIO Usage Error] teams query failed", phase="teams")
+        logger.exception(
+            "[AIO Usage Error] teams query failed", phase="teams", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
 
@@ -690,7 +691,9 @@ def _get_all_ai_observability_reports(
     try:
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] metrics query failed", phase="metrics")
+        logger.exception(
+            "[AIO Usage Error] metrics query failed", phase="metrics", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
@@ -710,7 +713,11 @@ def _get_all_ai_observability_reports(
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] breakdowns query failed", phase="breakdowns")
+        logger.exception(
+            "[AIO Usage Error] breakdowns query failed",
+            phase="breakdowns",
+            event_source="ai_observability_usage_report",
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
@@ -720,7 +727,9 @@ def _get_all_ai_observability_reports(
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] surveys query failed", phase="surveys")
+        logger.exception(
+            "[AIO Usage Error] surveys query failed", phase="surveys", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
@@ -894,6 +903,7 @@ def capture_ai_observability_report(
             "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
             organization_id=organization_id,
             error=str(err),
+            event_source="ai_observability_usage_report",
         )
 
         try:
@@ -909,6 +919,7 @@ def capture_ai_observability_report(
                 "[AIO Usage Error] Failed to capture error event",
                 organization_id=organization_id,
                 error=str(capture_err),
+                event_source="ai_observability_usage_report",
             )
 
         raise
@@ -1000,6 +1011,7 @@ def send_ai_observability_usage_reports(
                 "[AIO Usage Error] Failed to queue AI observability report for organization",
                 organization_id=org_id,
                 error=str(err),
+                event_source="ai_observability_usage_report",
             )
             capture_exception(err)
 

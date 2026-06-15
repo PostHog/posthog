@@ -52,7 +52,7 @@ import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -125,8 +125,6 @@ interface DataTableProps {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
-    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
-    tabId?: string
 }
 
 const eventGroupTypes = [
@@ -148,7 +146,6 @@ export function DataTable({
     readOnly,
     dataAttr,
     attachTo,
-    tabId,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -205,7 +202,6 @@ export function DataTable({
         dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
-        tabId,
     }
     const {
         dataTableRows,
@@ -897,7 +893,10 @@ export function DataTable({
                     {showResultsTable && (
                         <div className="relative">
                             {usedWebAnalyticsLazyPrecompute ? (
-                                <PreAggregatedBadge variant="precomputed" />
+                                <PreAggregatedBadge
+                                    variant="precomputed"
+                                    onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
                             ) : null}
@@ -948,14 +947,9 @@ export function DataTable({
                                         ? context.expandable
                                         : expandable && columnsInResponse?.includes('*')
                                           ? {
-                                                ...(tabId !== undefined
-                                                    ? {
-                                                          isRowExpanded: (_, rowIndex) =>
-                                                              expandedRows.includes(rowIndex),
-                                                          onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                          onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
-                                                      }
-                                                    : {}),
+                                                isRowExpanded: (_, rowIndex) => expandedRows.includes(rowIndex),
+                                                onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
                                                 expandedRowRender: function renderExpand({ result }) {
                                                     if (
                                                         (isEventsQuery(query.source) ||

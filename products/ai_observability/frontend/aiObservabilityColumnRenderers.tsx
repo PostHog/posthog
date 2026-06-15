@@ -23,10 +23,11 @@ import { EventData, useAIData } from './hooks/useAIData'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
-import { normalizeMessages, parseJSONPreview } from './utils'
+import { parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -289,7 +290,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let inputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(input)
-        inputNormalized = normalizeMessages(parsed, 'user')
+        inputNormalized = normalizeMessages(parsed, 'user').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
     }
@@ -311,7 +312,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let outputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(output)
-        outputNormalized = normalizeMessages(parsed, 'assistant')
+        outputNormalized = normalizeMessages(parsed, 'assistant').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
     }

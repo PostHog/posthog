@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -24,6 +24,7 @@ import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDa
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -32,17 +33,16 @@ import {
     findTraceOccurrences,
 } from './searchUtils'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, normalizeMessages } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
     query?: DataTableNode | null
     cachedResults?: AnyResponseType | null
     searchQuery: string
-    tabId?: string
 }
 
-function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
     const fallbackTraceQuery: TraceQuery = {
         kind: NodeKind.TraceQuery,
         traceId,
@@ -52,17 +52,15 @@ function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDa
         },
     }
 
-    const tabScope = tabId ?? 'default'
-    const scopedTraceId = `${traceId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Trace.${scopedTraceId}`,
-        dataNodeCollectionId: scopedTraceId,
+        dashboardItemId: `new-Trace.${traceId}`,
+        dataNodeCollectionId: traceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query?.source ?? fallbackTraceQuery,
         key: vizKey,
-        dataNodeCollectionId: scopedTraceId,
+        dataNodeCollectionId: traceId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -166,20 +164,39 @@ function findEventWithParents(
     return parentChain
 }
 
+// Generations should always be conversations, so one whose input or output no recipe
+// recognizes is a parse gap worth surfacing. Spans/embeddings carry opaque state and
+// are skipped. Runs once per trace load over every generation, viewed or not.
+export function reportTraceNormalizationFailures(trace: LLMTrace): void {
+    for (const event of trace.events) {
+        if (event.event !== '$ai_generation') {
+            continue
+        }
+        const input = event.properties.$ai_input
+        const output = event.properties.$ai_output_choices ?? event.properties.$ai_output
+        if (!normalizeMessages(input, 'user', event.properties.$ai_tools).recognized) {
+            captureNormalizationFailure(input)
+        }
+        if (!normalizeMessages(output, 'assistant').recognized) {
+            captureNormalizationFailure(output)
+        }
+    }
+}
+
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceDataLogic']),
     props({} as TraceDataLogicProps),
-    key((props) => `${props.traceId}:${props.tabId ?? 'default'}`),
+    key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
         values: [
-            aiObservabilityTraceLogic({ tabId: props.tabId }),
+            aiObservabilityTraceLogic,
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [aiObservabilityTraceLogic({ tabId: props.tabId }), ['setEventId']],
+        actions: [aiObservabilityTraceLogic, ['setEventId']],
     })),
     actions({
         reportSingleTraceLoadIfReady: true,
@@ -448,6 +465,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 organization_name: appContext?.current_user?.organization?.name ?? null,
                 ...timing,
             })
+
+            reportTraceNormalizationFailures(trace)
         },
     })),
     subscriptions(({ actions, props, values }) => ({
@@ -485,7 +504,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         },
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
-                aiObservabilityTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
+                aiObservabilityTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
             if (trace?.distinctId) {

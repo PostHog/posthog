@@ -92,6 +92,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         current_url: str | None = None,
         distinct_id: str = "user_distinct_id",
         team_id: int | None = None,
+        pointer_target_fixed: bool = True,
     ) -> None:
         if team_id is None:
             team_id = self.team.pk
@@ -113,7 +114,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewport_width": round(viewport_width / 16),
                 "viewport_height": round(viewport_height / 16),
                 "type": type,
-                "pointer_target_fixed": True,
+                "pointer_target_fixed": pointer_target_fixed,
                 "current_url": current_url if current_url else "http://posthog.com",
             },
         )
@@ -147,7 +148,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_can_get_empty_response(self) -> None:
         response = self.client.get("/api/heatmap/?date_from=2024-05-03")
         assert response.status_code == 200
-        self.assertEqual(response.data, {"results": []})
+        self.assertEqual(
+            response.data,
+            {
+                "results": [],
+                "fold": {
+                    "total_count": 0,
+                    "below_fold_count": 0,
+                    "pct_below_fold": 0.0,
+                    "median_viewport_height": None,
+                },
+            },
+        )
 
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries
@@ -156,6 +168,24 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_2", "click")
 
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08"}, 2)
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_returns_below_the_fold_summary(self) -> None:
+        # Non-fixed clicks against a 640px-tall viewport: one above the fold, two below it.
+        self._create_heatmap_event("s1", "click", viewport_height=640, y=320, pointer_target_fixed=False)
+        self._create_heatmap_event("s2", "click", viewport_height=640, y=960, pointer_target_fixed=False)
+        self._create_heatmap_event("s3", "click", viewport_height=640, y=1280, pointer_target_fixed=False)
+        # A fixed-position click below the fold is always on screen — excluded from the fold summary.
+        self._create_heatmap_event("s4", "click", viewport_height=640, y=960, pointer_target_fixed=True)
+
+        response = self.client.get("/api/heatmap/?date_from=2023-03-08&type=click")
+        assert response.status_code == 200
+        assert response.data["fold"] == {
+            "total_count": 3,
+            "below_fold_count": 2,
+            "pct_below_fold": 66.7,
+            "median_viewport_height": 640,
+        }
 
     @freezegun.freeze_time("2025-03-31")
     def test_cannot_query_across_teams(self) -> None:
@@ -417,7 +447,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             [
                 "min_150",
                 {"date_from": "2023-03-08", "viewport_width_min": "150"},
-                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1), heatmap_result(0.11, 2)],
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 2), heatmap_result(0.11, 2)],
             ],
             [
                 "min_161",
@@ -425,7 +455,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 [
                     heatmap_result(0.08, 1),
                     heatmap_result(0.09, 1),
-                    heatmap_result(0.1, 1),
+                    heatmap_result(0.1, 2),
                 ],
             ],
             [
@@ -440,7 +470,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             [
                 "min_161_and_max_192",
                 {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192},
-                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1)],
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 2)],
             ],
         ]
     )
@@ -455,7 +485,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # viewport widths that scale to 10
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
+        self._create_heatmap_event("session_4", "click", "2023-03-08T08:01:00", 161)
 
         # viewport width that scales to 11
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)

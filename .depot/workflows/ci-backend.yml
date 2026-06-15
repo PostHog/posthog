@@ -25,6 +25,13 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .depot/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
+# Every job is gated on the CI_ENABLE_DEPOT_SHADOW Depot CI variable (see the `changes`
+# job): `true` runs the shadow, anything else (incl. unset) skips it. This is a Depot
+# variable, NOT a GitHub one — Depot CI reads its own `vars` store. Toggle with:
+#   depot ci vars add CI_ENABLE_DEPOT_SHADOW=true --repo PostHog/posthog    (enable)
+#   depot ci vars remove CI_ENABLE_DEPOT_SHADOW --repo PostHog/posthog      (disable)
+# The companion drift check (.github/workflows/ci-backend-shadow-drift.yml) runs on
+# GitHub Actions and reads a same-named GitHub repository variable — set both.
 on:
     push:
         branches:
@@ -88,6 +95,10 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
+        # Shadow on/off switch. `changes` is the root of the `needs` graph, so gating
+        # it skips every downstream job. `django_tests` repeats the gate because its
+        # `always()` would otherwise survive the skip cascade.
+        if: vars.CI_ENABLE_DEPOT_SHADOW == 'true'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
@@ -344,6 +355,12 @@ jobs:
               run: |
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+            - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Start services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -372,7 +389,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
             - name: Install uv
               id: setup-uv
@@ -462,7 +479,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
@@ -502,6 +519,12 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+            - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -514,7 +537,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -688,7 +711,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -701,7 +724,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": true,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -714,7 +737,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Temporal",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -731,7 +754,7 @@ jobs:
                       | .value + {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.12.12",
+                          "python-version": "3.13.13",
                           compat: true,
                           artifact_key: ("compat-" + ((.key + 1)|tostring))
                         }
@@ -799,6 +822,12 @@ jobs:
                   echo "✅ No stray Python files or migrations found at product roots."
             # Pre-tests
             # Copies the fully versioned UDF xml file for use in CI testing
+            - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Stop/Start stack with Docker Compose
               shell: bash
               env:
@@ -1146,48 +1175,51 @@ jobs:
         name: Django Tests Pass
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
-        if: always()
+        # always() collates skipped/failed matrix jobs; gated so it doesn't spin up a
+        # lone runner when the shadow is off.
+        if: always() && vars.CI_ENABLE_DEPOT_SHADOW == 'true'
         steps:
-            - name: Check matrix outcome
+            - name: Summarize dependency results
               run: |
-                  # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
-                  # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
-                    echo "One or more jobs in the Django test matrix failed."
-                    exit 1
-                  fi
+                  {
+                    echo "### Backend CI dependency results"
+                    echo "| Dependency | Result |"
+                    echo "| --- | --- |"
+                    echo "| django | ${{ needs.django.result }} |"
+                    echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| async-migrations | ${{ needs.async-migrations.result }} |"
+                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
+                    echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
-                  # Check migration validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
-                    echo "Migration checks failed."
-                    exit 1
-                  fi
+            - name: Check dependency results
+              run: |
+                  check_required_result() {
+                    local label="$1"
+                    local result="$2"
 
-                  # Check async migrations - must pass for Django Tests to be green
-                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
-                    echo "Async migrations tests failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+                      return
+                    fi
 
-                  # Check repo checks (product lint, IDOR, operator parity, tach)
-                  if [[ "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ]]; then
-                    echo "Repo checks failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "cancelled" ]]; then
+                      echo "::error::$label was cancelled or timed out."
+                    else
+                      echo "::error::$label failed with result '$result'."
+                    fi
 
-                  # Check Turbo discover - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ]]; then
-                    echo "Turbo discover failed."
                     exit 1
-                  fi
+                  }
 
-                  # Check Turbo tests (products) - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
-                    echo "Turbo tests failed."
-                    exit 1
-                  fi
+                  check_required_result "Django test matrix" "${{ needs.django.result }}"
+                  check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
+                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
+                  check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
-                  echo "All checks passed."
+                  echo "All backend and product checks passed."
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
         needs: [changes, turbo-discover, get_clickhouse_versions]
@@ -1215,6 +1247,12 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+            - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml

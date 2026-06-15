@@ -16,7 +16,10 @@ from posthog.schema import (
 
 from posthog.hogql.ai import hit_openai
 
+from posthog.event_usage import groups
 from posthog.models import Team
+
+from products.product_analytics.backend.api.ai_billing import billable_ai_properties
 
 
 class InsightMetadata(BaseModel):
@@ -495,10 +498,8 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/generate-insight-metadata",
-            posthog_properties={
-                "ai_product": "product_analytics",
-                "ai_feature": "insight-ai-metadata-generation",
-            },
+            posthog_properties=billable_ai_properties(team.id, "insight-ai-metadata-generation"),
+            posthog_groups=groups(),
         )
 
         parsed = json.loads(content.strip())

@@ -32,70 +32,28 @@ export const LogsAlertsCreateParams = /* @__PURE__ */ zod.object({
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourTypeDefault = `element`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveTypeDefault = `event_metadata`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixTypeDefault = `session`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenCohortNameDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenKeyDefault = `id`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenOperatorDefault = `in`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenTypeDefault = `cohort`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightTypeDefault = `recording`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineTypeDefault = `log_entry`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupKeyNamesDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupTypeIndexDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `group`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `feature`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `flag`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `hogql`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeValueDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `empty`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `data_warehouse`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightLabelDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineLabelDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneLabelDefault = null
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneTypeDefault = `workflow_variable`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneValueDefault = null
-export const logsAlertsCreateBodyFiltersOneFilterGroupDefault = null
-export const logsAlertsCreateBodyFiltersOneServiceNamesDefault = null
-export const logsAlertsCreateBodyFiltersOneSeverityLevelsDefault = null
 export const logsAlertsCreateBodyThresholdCountDefault = 100
 export const logsAlertsCreateBodyThresholdCountMin = 0
 
@@ -134,11 +92,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                         zod.unknown(),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .union([
                                                     zod.enum([
@@ -196,17 +150,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -257,17 +205,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -317,17 +259,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -377,17 +313,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -437,26 +367,16 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
-                                            cohort_name: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenCohortNameDefault
-                                                ),
+                                            cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
                                                 .default(
                                                     logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenKeyDefault
                                                 ),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .union([
                                                     zod.enum([
@@ -512,11 +432,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                 zod.string(),
                                             ]),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -566,17 +482,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -626,27 +536,15 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             group_key_names: zod
                                                 .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupKeyNamesDefault
-                                                ),
-                                            group_type_index: zod
-                                                .union([zod.number(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupTypeIndexDefault
-                                                ),
+                                                .optional(),
+                                            group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -696,17 +594,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -757,17 +649,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string().describe('The key should be the flag ID'),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .literal('flag_evaluates_to')
                                                 .default(
@@ -788,11 +674,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             type: zod
                                                 .literal('hogql')
                                                 .default(
@@ -806,9 +688,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             type: zod
@@ -819,11 +699,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -873,17 +749,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -933,17 +803,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -993,17 +857,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1049,17 +907,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1105,17 +957,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1165,17 +1011,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1225,9 +1065,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                     ])
                                 ),
@@ -1236,13 +1074,11 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .default(logsAlertsCreateBodyFiltersOneFilterGroupDefault),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .default(logsAlertsCreateBodyFiltersOneServiceNamesDefault),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .default(logsAlertsCreateBodyFiltersOneSeverityLevelsDefault),
+                .optional(),
         })
         .optional()
         .describe(
@@ -1309,70 +1145,28 @@ export const LogsAlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourTypeDefault = `element`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveTypeDefault = `event_metadata`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixTypeDefault = `session`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenCohortNameDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenKeyDefault = `id`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenOperatorDefault = `in`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenTypeDefault = `cohort`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightTypeDefault = `recording`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineTypeDefault = `log_entry`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupKeyNamesDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupTypeIndexDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `group`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `feature`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `flag`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `hogql`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeValueDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `empty`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `data_warehouse`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightLabelDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineLabelDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneLabelDefault = null
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneTypeDefault = `workflow_variable`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneValueDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneServiceNamesDefault = null
-export const logsAlertsPartialUpdateBodyFiltersOneSeverityLevelsDefault = null
 export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
@@ -1405,11 +1199,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         zod.unknown(),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .union([
                                                     zod.enum([
@@ -1467,17 +1257,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1528,17 +1312,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1588,17 +1366,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1648,17 +1420,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1708,26 +1474,16 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
-                                            cohort_name: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenCohortNameDefault
-                                                ),
+                                            cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
                                                 .default(
                                                     logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenKeyDefault
                                                 ),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .union([
                                                     zod.enum([
@@ -1783,11 +1539,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                 zod.string(),
                                             ]),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1837,17 +1589,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1897,27 +1643,15 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             group_key_names: zod
                                                 .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupKeyNamesDefault
-                                                ),
-                                            group_type_index: zod
-                                                .union([zod.number(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupTypeIndexDefault
-                                                ),
+                                                .optional(),
+                                            group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -1967,17 +1701,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2028,17 +1756,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string().describe('The key should be the flag ID'),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .literal('flag_evaluates_to')
                                                 .default(
@@ -2059,11 +1781,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             type: zod
                                                 .literal('hogql')
                                                 .default(
@@ -2077,9 +1795,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             type: zod
@@ -2090,11 +1806,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2144,17 +1856,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2204,17 +1910,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2264,17 +1964,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2320,17 +2014,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2376,17 +2064,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2436,17 +2118,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2496,9 +2172,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                     ])
                                 ),
@@ -2507,13 +2181,11 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .default(logsAlertsPartialUpdateBodyFiltersOneFilterGroupDefault),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .default(logsAlertsPartialUpdateBodyFiltersOneServiceNamesDefault),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .default(logsAlertsPartialUpdateBodyFiltersOneSeverityLevelsDefault),
+                .optional(),
         })
         .optional()
         .describe(
@@ -2583,16 +2255,21 @@ export const LogsAlertsDestinationsCreateParams = /* @__PURE__ */ zod.object({
 
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook'])
-        .describe('* `slack` - slack\n* `webhook` - webhook')
-        .describe('Destination type — slack or webhook.\n\n* `slack` - slack\n* `webhook` - webhook'),
+        .enum(['slack', 'webhook', 'teams'])
+        .describe('* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams')
+        .describe(
+            'Destination type — slack, webhook, or teams.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod.url().optional().describe('HTTPS endpoint to POST to. Required when type=webhook.'),
+    webhook_url: zod
+        .url()
+        .optional()
+        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
 })
 
 /**
@@ -2642,70 +2319,28 @@ export const LogsAlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoOperatorDefault = `exact`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoTypeDefault = `event`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeTypeDefault = `person`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourTypeDefault = `element`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveTypeDefault = `event_metadata`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixTypeDefault = `session`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenCohortNameDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenKeyDefault = `id`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenOperatorDefault = `in`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenTypeDefault = `cohort`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightTypeDefault = `recording`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineTypeDefault = `log_entry`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupKeyNamesDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupTypeIndexDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroTypeDefault = `group`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneTypeDefault = `feature`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoTypeDefault = `flag`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeTypeDefault = `hogql`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeValueDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefourTypeDefault = `empty`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveTypeDefault = `data_warehouse`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightLabelDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineLabelDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneLabelDefault = null
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneTypeDefault = `workflow_variable`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneValueDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneServiceNamesDefault = null
-export const logsAlertsSimulateCreateBodyFiltersOneSeverityLevelsDefault = null
 export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
 
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
@@ -2735,11 +2370,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         zod.unknown(),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .union([
                                                     zod.enum([
@@ -2797,17 +2428,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwoValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2858,17 +2483,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemThreeValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2918,17 +2537,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFourValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -2978,17 +2591,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemFiveValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3038,26 +2645,16 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSixValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
-                                            cohort_name: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenCohortNameDefault
-                                                ),
+                                            cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
                                                 .default(
                                                     logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenKeyDefault
                                                 ),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemSevenLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .union([
                                                     zod.enum([
@@ -3113,11 +2710,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                 zod.string(),
                                             ]),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3167,17 +2760,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemEightValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3227,27 +2814,15 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemNineValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             group_key_names: zod
                                                 .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupKeyNamesDefault
-                                                ),
-                                            group_type_index: zod
-                                                .union([zod.number(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroGroupTypeIndexDefault
-                                                ),
+                                                .optional(),
+                                            group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3297,17 +2872,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnezeroValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3358,17 +2927,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneoneValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string().describe('The key should be the flag ID'),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnetwoLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
                                                 .literal('flag_evaluates_to')
                                                 .default(
@@ -3389,11 +2952,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             type: zod
                                                 .literal('hogql')
                                                 .default(
@@ -3407,9 +2966,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnethreeValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             type: zod
@@ -3420,11 +2977,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3474,17 +3027,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnefiveValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3534,17 +3081,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesixValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3594,17 +3135,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnesevenValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3650,17 +3185,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3706,17 +3235,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOnenineValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3766,17 +3289,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                         zod.object({
                                             key: zod.string(),
-                                            label: zod
-                                                .union([zod.string(), zod.null()])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneLabelDefault
-                                                ),
+                                            label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
                                                 'exact',
                                                 'is_not',
@@ -3826,9 +3343,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                     zod.boolean(),
                                                     zod.null(),
                                                 ])
-                                                .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwooneValueDefault
-                                                ),
+                                                .optional(),
                                         }),
                                     ])
                                 ),
@@ -3837,13 +3352,11 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.null(),
                 ])
-                .default(logsAlertsSimulateCreateBodyFiltersOneFilterGroupDefault),
-            serviceNames: zod
-                .union([zod.array(zod.string()), zod.null()])
-                .default(logsAlertsSimulateCreateBodyFiltersOneServiceNamesDefault),
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
             severityLevels: zod
                 .union([zod.array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])), zod.null()])
-                .default(logsAlertsSimulateCreateBodyFiltersOneSeverityLevelsDefault),
+                .optional(),
         })
         .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
     threshold_count: zod
@@ -4204,6 +3717,7 @@ export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
+export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -4293,6 +3807,12 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters for the query.'),
             limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
+            excludeAttributes: zod
+                .boolean()
+                .default(logsQueryCreateBodyQueryOneExcludeAttributesDefault)
+                .describe(
+                    'Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.'
+                ),
         })
         .describe('The logs query to execute.'),
 })
