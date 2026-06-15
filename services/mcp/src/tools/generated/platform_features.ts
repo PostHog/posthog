@@ -221,7 +221,7 @@ const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas
                 requester: params.requester,
                 resource_id: params.resource_id,
                 resource_type: params.resource_type,
-                state: params.state?.length ? params.state.join(',') : undefined,
+                state: Array.isArray(params.state) ? params.state.join(',') || undefined : params.state,
             },
         })
         return result

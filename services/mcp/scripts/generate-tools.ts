@@ -1021,8 +1021,10 @@ function generateToolCode(
                 // explode: false params are comma-joined here because
                 // ApiClient.request() JSON-stringifies raw arrays (the
                 // json.loads()-style contract), which DRF CSV filters can't parse.
+                // Callers may pass either the array shape or a single string, so
+                // only join when it's actually an array; an empty array is omitted.
                 if (composition.csvQueryParamNames.has(qn)) {
-                    return `                ${qn}: params.${qn}?.length ? params.${qn}.join(',') : undefined,`
+                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
                 }
                 return `                ${qn}: params.${qn},`
             })

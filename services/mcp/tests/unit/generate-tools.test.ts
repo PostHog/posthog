@@ -424,7 +424,9 @@ describe('generateToolCode without input_schema', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain("type: params.type?.length ? params.type.join(',') : undefined,")
+        expect(result.code).toContain(
+            "type: Array.isArray(params.type) ? params.type.join(',') || undefined : params.type,"
+        )
     })
 
     it('forwards array query params without explode:false untouched (json.loads()-style backends)', () => {

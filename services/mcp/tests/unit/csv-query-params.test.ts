@@ -60,6 +60,18 @@ describe('comma-separated (explode: false) query params in generated handlers', 
         expect(call.query?.type).toBeUndefined()
     })
 
+    it('cdp-functions-list passes a single string type through unchanged', async () => {
+        const { context, request } = createMockContext()
+        const tool = CDP_TOOLS['cdp-functions-list']!()
+
+        // Callers (and the integration suite) may pass a bare string instead of
+        // an array — it must not hit Array.prototype.join.
+        await tool.handler(context, { type: 'destination' } as never)
+
+        const call = request.mock.calls[0]![0] as RequestArgs
+        expect(call.query?.type).toBe('destination')
+    })
+
     it('logs-attribute-values-list keeps JSON-style array params as arrays', async () => {
         const { context, request } = createMockContext()
         const tool = LOGS_TOOLS['logs-attribute-values-list']!()
