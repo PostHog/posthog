@@ -83,6 +83,7 @@ APIScopeObject = Literal[
     "property_definition",
     "query",  # Covers query and events endpoints
     "query_performance",
+    "reminder",
     "replay_scanner",
     "revenue_analytics",
     "session_recording",
