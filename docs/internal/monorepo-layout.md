@@ -61,11 +61,15 @@ Nest because tooling boundaries become path-scoped (`products/<product>/**` for 
 
 ### Packages
 
-A package's location doesn't gate who can import it — pnpm resolves by name, so location is an ownership signal, not access control. Place by current ownership:
+This covers **pnpm workspace packages** (JS/TS). Python and Rust differ — there, location and import name matter directly (a top-level Python package can even shadow a stdlib module, which is why there's no top-level `platform/`), so these rules don't apply.
+
+For pnpm packages, location doesn't gate who can import them (pnpm resolves by name), so location is an ownership signal, not access control. Place by current ownership:
 
 - Owned by one product → `products/<product>/packages/<name>/` (the default — keeps the product self-contained).
-- Genuinely shared across more than one product/service → top-level `packages/<name>/` (e.g. `quill`).
+- Genuinely shared across more than one product/service → top-level `packages/<name>/` (e.g. `packages/quill/`).
 - Promote nested → root only when a second consumer actually depends on it — on real usage, not intent. It's a path rename with a stable package name (no import churn), so don't pay the "shared" cost before it's true.
+
+`pnpm-workspace.yaml` globs are explicit (`products/*`, `packages/quill`, …) and don't yet match nested `products/<product>/packages/*` or a new top-level `packages/<name>/` — so register the package's path there when you add it, or `workspace:*` deps, filters, and scripts won't resolve.
 
 ### Services
 
