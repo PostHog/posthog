@@ -1,7 +1,6 @@
 from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.utils import timezone
 
@@ -50,37 +49,10 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
 
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
-    # Gateway this key binds to; its slug is the $ai_gateway_slug attribution value.
-    # SET_NULL: deleting a gateway (or its team) just unbinds; the "drain bindings
-    # first" rule is enforced at the gateway destroy endpoint, not the DB.
-    gateway = models.ForeignKey(
-        "posthog.Gateway",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="project_secret_api_keys",
-    )
-
     class Meta:
         db_table = "posthog_projectsecretapikey"
         indexes = [models.Index(fields=["team", "created_at"])]
         constraints = [models.UniqueConstraint(fields=["team", "label"], name="unique_team_label")]
-
-    def save(self, *args, **kwargs):
-        # A gateway is project-scoped (bound to the canonical/parent team), so a
-        # key in a child environment may bind its project's gateway, but a key
-        # must never route through another team's gateway and misattribute spend.
-        if self.gateway_id is not None:
-            try:
-                gateway = self.gateway
-            except ObjectDoesNotExist:
-                gateway = None
-            if gateway is None:
-                raise ValueError(f"Gateway {self.gateway_id} does not exist.")
-            key_canonical_team_id = self.team.parent_team_id or self.team_id
-            if gateway.team_id != key_canonical_team_id:
-                raise ValueError("A project secret key and its gateway must belong to the same team.")
-        super().save(*args, **kwargs)
 
 
 def find_project_secret_api_key(token: str) -> Optional["ProjectSecretAPIKey"]:

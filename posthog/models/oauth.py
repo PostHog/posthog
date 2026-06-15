@@ -24,7 +24,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
-    from posthog.models import Gateway, Organization, User
+    from posthog.models import Organization, User
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -120,18 +120,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             "When an admin last force-revoked every session for this app. Tokens issued before this "
             "are rejected on refresh, forcing re-authorization."
         ),
-    )
-
-    # Bound on the application, not the rotating access token. The gateway's slug
-    # is the $ai_gateway_slug attribution value; one gateway holds many keys.
-    # SET_NULL: deleting a gateway (or its team) just unbinds; the "drain bindings
-    # first" rule is enforced at the gateway destroy endpoint, not the DB.
-    gateway: "Gateway | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        "posthog.Gateway",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="oauth_applications",
     )
 
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
