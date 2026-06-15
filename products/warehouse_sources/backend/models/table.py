@@ -218,6 +218,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
 
+    def _is_known_user_config_error(self, err: Exception) -> bool:
+        # Errors already mapped in ExtractErrors are user-configuration problems (bad S3 URI,
+        # missing file, denied access). They're surfaced to the user via _safe_expose_ch_error,
+        # so they're expected bad input — not system faults worth an error-tracking issue.
+        message = str(err)
+        return any(key in message for key in ExtractErrors)
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -257,7 +264,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             reader = csv.reader(StringIO(str(chdb_result)))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            if self._is_suppressed_chdb_error(chdb_error):
+            if self._is_suppressed_chdb_error(chdb_error) or self._is_known_user_config_error(chdb_error):
                 logger.debug(chdb_error)
             else:
                 capture_exception(chdb_error)
@@ -289,7 +296,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     break
                 except Exception as err:
                     if i >= attempts - 1:
-                        capture_exception(err)
+                        if self._is_known_user_config_error(err):
+                            logger.debug(err)
+                        else:
+                            capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
                         else:

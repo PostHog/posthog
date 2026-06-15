@@ -27,6 +27,23 @@ def test_db_table_preserved_across_split(model: type[Model], expected_db_table: 
 
 
 @pytest.mark.parametrize(
+    "error_message,expected",
+    [
+        # Known user-config errors mapped in ExtractErrors must be suppressed.
+        ("Code: 36. DB::Exception: Bucket or key name are invalid in S3 URI", True),
+        ("The AWS Access Key Id you provided does not exist", True),
+        ("The specified key does not exist", True),
+        # Genuine system faults are still captured.
+        ("Code: 999. DB::Exception: ZooKeeper session expired", False),
+        ("some unexpected internal error", False),
+    ],
+)
+def test_is_known_user_config_error(error_message: str, expected: bool) -> None:
+    table = DataWarehouseTable()
+    assert table._is_known_user_config_error(RuntimeError(error_message)) is expected
+
+
+@pytest.mark.parametrize(
     "clickhouse_type,expected",
     [
         ("String", "String"),
