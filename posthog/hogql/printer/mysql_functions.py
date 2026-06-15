@@ -26,6 +26,8 @@ MYSQL_FUNCTION_RENAMES: dict[str, str] = {
     # parameter, so its '%' characters never appear in the printed SQL.
     "formatDateTime": "DATE_FORMAT",
     "now": "NOW",
+    # MySQL has no arbitrary-value aggregate; MIN is deterministic and already used
+    # by the Postgres direct path as the closest portable fallback.
     "any": "MIN",
     "rand": "RAND",
     "toLastDayOfMonth": "LAST_DAY",
@@ -317,6 +319,7 @@ MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "avgIf": _make_if_combinator_handler("AVG"),
     "minIf": _make_if_combinator_handler("MIN"),
     "maxIf": _make_if_combinator_handler("MAX"),
+    # Keep the same deterministic fallback as any().
     "anyIf": _make_if_combinator_handler("MIN"),
     "uniqIf": _handle_uniq_if,
     "uniqExactIf": _handle_uniq_if,

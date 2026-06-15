@@ -93,6 +93,9 @@ class MySQLPrinter(PostgresPrinter):
     def _assert_with_ties_supported(self) -> None:
         raise QueryError("WITH TIES is not supported in the MySQL dialect")
 
+    def _dialect_error_suffix(self) -> str:
+        return "in the MySQL dialect"
+
     def _validate_within_group_for_aggregation(self, node: ast.Call, func_meta) -> None:
         raise QueryError(f"Aggregation '{node.name}' (WITHIN GROUP) is not supported in the MySQL dialect")
 
@@ -209,16 +212,6 @@ class MySQLPrinter(PostgresPrinter):
         if node.name.lower() == "date_trunc":
             return self._visit_date_trunc(node)
 
-        if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
-            if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in the MySQL dialect")
-            minute_bucket_sizes: dict[str, int] = {
-                "toStartOfFiveMinutes": 5,
-                "toStartOfTenMinutes": 10,
-                "toStartOfFifteenMinutes": 15,
-            }
-            return self._render_minute_bucket(self.visit(node.args[0]), minute_bucket_sizes[node.name])
-
         return super().visit_call(node)
 
     def _constant_string_arg(self, node: ast.Call, index: int, what: str) -> str:
@@ -270,52 +263,10 @@ class MySQLPrinter(PostgresPrinter):
             return f"DATE_ADD(MAKEDATE(YEAR({arg}), 1), INTERVAL (QUARTER({arg}) - 1) QUARTER)"
         if unit == "year":
             return f"MAKEDATE(YEAR({arg}), 1)"
-        raise ImpossibleASTError(f"Unknown date truncation unit: {unit}")
-
-    def _visit_to_start_of_call(self, node: ast.Call) -> str:
-        if len(node.args) == 0:
-            raise QueryError(f"{node.name} expects at least 1 argument in the MySQL dialect")
-
-        truncated_arg = self.visit(node.args[0])
-
-        simple_units: dict[str, str] = {
-            "toStartOfSecond": "second",
-            "toStartOfMinute": "minute",
-            "toStartOfHour": "hour",
-            "toStartOfMonth": "month",
-            "toStartOfQuarter": "quarter",
-            "toStartOfYear": "year",
-        }
-
-        if node.name in simple_units:
-            if len(node.args) != 1:
-                raise QueryError(f"{node.name} expects exactly 1 argument in the MySQL dialect")
-            return self._render_start_of(simple_units[node.name], truncated_arg)
-
-        if node.name == "toStartOfDay":
-            if len(node.args) == 1:
-                return self._render_start_of("day", truncated_arg)
-            raise QueryError("toStartOfDay with a timezone override is not supported in the MySQL dialect")
-
-        if node.name == "toStartOfWeek":
-            if len(node.args) == 1:
-                week_mode = 0 if self._get_week_start_day().name == "SUNDAY" else 3
-            elif len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
-                week_mode = node.args[1].value
-            else:
-                raise QueryError("toStartOfWeek only supports literal week modes in the MySQL dialect")
-            return self._render_start_of("week", truncated_arg, week_mode=week_mode)
-
-        if node.name == "toStartOfISOYear":
-            if len(node.args) != 1:
-                raise QueryError("toStartOfISOYear expects exactly 1 argument in the MySQL dialect")
-            jan4 = f"MAKEDATE(FLOOR(YEARWEEK({truncated_arg}, 3) / 100), 4)"
+        if unit == "isoyear":
+            jan4 = f"MAKEDATE(FLOOR(YEARWEEK({arg}, 3) / 100), 4)"
             return f"DATE_SUB({jan4}, INTERVAL WEEKDAY({jan4}) DAY)"
-
-        if len(node.args) != 1:
-            raise QueryError(f"{node.name} expects exactly 1 argument in the MySQL dialect")
-
-        return self._render_start_of("day", truncated_arg)
+        raise ImpossibleASTError(f"Unknown date truncation unit: {unit}")
 
     def _render_minute_bucket(self, arg: str, bucket_size: int) -> str:
         return (

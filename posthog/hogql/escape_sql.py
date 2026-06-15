@@ -185,16 +185,16 @@ DUCKDB_EXTRA_RESERVED_KEYWORDS = {
 }
 
 
-# MySQL allows almost anything inside backticks; the characters below are the only hard
-# exclusions. ``%`` is rejected for parity with the other dialects (PyMySQL interprets it
-# as the start of a parameter placeholder when scanning SQL passed to
-# ``cursor.execute(sql, params)``), and NUL bytes are invalid in MySQL identifiers.
+# Simple lowercase identifiers can stay unquoted; everything else is backtick-quoted
+# unless rejected by escape_mysql_identifier's hard exclusions.
 MYSQL_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
 
 
 def escape_mysql_identifier(v: str) -> str:
     if len(v) > 64:
         raise QueryError(f'The MySQL identifier "{v}" is too long. Maximum length is 64 characters.')
+    # MySQL allows almost anything inside backticks, but ``%`` would be interpreted
+    # as a parameter placeholder by PyMySQL and NUL bytes are invalid identifiers.
     if "%" in v:
         raise QueryError(f'The MySQL identifier "{v}" is not permitted as it contains the "%" character')
     if "\0" in v:

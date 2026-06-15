@@ -347,7 +347,7 @@ def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any]
     return False
 
 
-def get_direct_postgres_connection_metadata(
+def get_direct_connection_metadata(
     *,
     source_impl: Any,
     source_config: Config,
@@ -932,7 +932,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 raise ValidationError(credentials_error or "Invalid credentials")
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(source_config, instance.team_id)
-                validated_data["connection_metadata"] = get_direct_postgres_connection_metadata(
+                validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
                     team_id=instance.team_id,
@@ -1390,7 +1390,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         source_schemas = source.get_schemas(source_config, self.team_id)
         if is_direct_query:
-            new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
+            new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
                 source_config=source_config,
                 team_id=self.team_id,
@@ -1948,7 +1948,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # upstream resources (e.g. Slack channels) appear immediately.
             schemas = source.get_schemas(config, self.team_id, force_refresh=True)
             connection_metadata = (
-                get_direct_postgres_connection_metadata(
+                get_direct_connection_metadata(
                     source_impl=source,
                     source_config=config,
                     team_id=self.team_id,
