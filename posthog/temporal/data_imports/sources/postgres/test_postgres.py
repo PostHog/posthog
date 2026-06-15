@@ -1326,86 +1326,72 @@ class TestIsPartitionedTable:
             assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
 
 
+@pytest.fixture
+def autocommit_pg_connection():
+    # Raw autocommit connection to the test DB — mirrors how discovery connects in production
+    # (no shared transaction). The default django_db cursor runs inside a transaction and can't
+    # exercise the isolation path.
+    sd = django_connection.settings_dict
+    conn = psycopg.connect(
+        host=sd["HOST"] or None,
+        port=sd["PORT"] or None,
+        dbname=sd["NAME"],
+        user=sd["USER"] or None,
+        password=sd["PASSWORD"] or None,
+        autocommit=True,
+    )
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 class TestGetTableChunkSize:
     @pytest.mark.django_db
-    def test_failing_probe_isolated_by_autocommit(self):
-        # Discovery runs the probes on an autocommit connection (no shared transaction), so a
-        # failing probe falls back to DEFAULT_CHUNK_SIZE and — crucially — doesn't poison the
-        # connection for later probes. A raw autocommit connection mirrors production here; the
-        # default django_db cursor runs inside a transaction and wouldn't exercise that path.
+    def test_failing_probe_isolated_by_autocommit(self, autocommit_pg_connection):
+        # A failing probe falls back to DEFAULT_CHUNK_SIZE and, under autocommit, doesn't poison
+        # the connection for later probes.
         logger = structlog.get_logger()
+        with autocommit_pg_connection.cursor() as cursor:
+            inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
 
-        sd = django_connection.settings_dict
-        conn = psycopg.connect(
-            host=sd["HOST"] or None,
-            port=sd["PORT"] or None,
-            dbname=sd["NAME"],
-            user=sd["USER"] or None,
-            password=sd["PASSWORD"] or None,
-            autocommit=True,
-        )
-        try:
-            with conn.cursor() as cursor:
-                inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
+            chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger)
+            assert chunk_size == DEFAULT_CHUNK_SIZE
 
-                chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger)
-                assert chunk_size == DEFAULT_CHUNK_SIZE
-
-                # No poisoning: the next probe on the same connection still works.
-                cursor.execute("SELECT 1")
-                assert cursor.fetchone()[0] == 1
-        finally:
-            conn.close()
+            cursor.execute("SELECT 1")
+            assert cursor.fetchone()[0] == 1
 
 
 class TestGetRowsToSync:
+    # Mirrors a misconfigured incremental field: COUNT(*) over a column that doesn't exist.
+    _FAILING_COUNT_QUERY = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
+        table=sql.Identifier("information_schema", "tables"),
+        col=sql.Identifier("does_not_exist_count_col"),
+    )
+
     @pytest.mark.django_db
     def test_failing_count_query_falls_back_to_zero_without_capturing(self):
         logger = structlog.get_logger()
 
-        # Count query references a column that doesn't exist — mirrors a misconfigured
-        # incremental field (e.g. djstripe_updated on a table that lacks it).
-        count_query = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
-            table=sql.Identifier("information_schema", "tables"),
-            col=sql.Identifier("does_not_exist_count_col"),
-        )
-
         with django_connection.cursor() as dj_cursor:
             with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
-                rows = _get_rows_to_sync(cast(Any, dj_cursor), count_query, logger)
+                rows = _get_rows_to_sync(cast(Any, dj_cursor), self._FAILING_COUNT_QUERY, logger)
 
         # Best-effort estimate falls back to 0 and never reports the handled failure.
         assert rows == 0
         mock_capture.assert_not_called()
 
     @pytest.mark.django_db
-    def test_failing_count_isolated_by_autocommit(self):
-        # Regression for the reported incident: on a read replica the COUNT(*) for rows-to-sync
-        # gets cancelled ("conflict with recovery"). Under the autocommit discovery connection
-        # that failure must stay contained — return 0 and leave the connection usable for the
-        # remaining probes — rather than poisoning a shared transaction.
+    def test_failing_count_isolated_by_autocommit(self, autocommit_pg_connection):
+        # Regression for the reported incident: a read-replica recovery conflict cancels the
+        # rows-to-sync COUNT(*). Under autocommit the failure stays contained — returns 0 and
+        # leaves the connection usable — instead of poisoning a shared transaction.
         logger = structlog.get_logger()
-        sd = django_connection.settings_dict
-        conn = psycopg.connect(
-            host=sd["HOST"] or None,
-            port=sd["PORT"] or None,
-            dbname=sd["NAME"],
-            user=sd["USER"] or None,
-            password=sd["PASSWORD"] or None,
-            autocommit=True,
-        )
-        count_query = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
-            table=sql.Identifier("information_schema", "tables"),
-            col=sql.Identifier("does_not_exist_count_col"),
-        )
-        try:
-            with conn.cursor() as cursor:
-                assert _get_rows_to_sync(cast(Any, cursor), count_query, logger) == 0
+        with autocommit_pg_connection.cursor() as cursor:
+            assert _get_rows_to_sync(cast(Any, cursor), self._FAILING_COUNT_QUERY, logger) == 0
 
-                cursor.execute("SELECT 1")
-                assert cursor.fetchone()[0] == 1
-        finally:
-            conn.close()
+            cursor.execute("SELECT 1")
+            assert cursor.fetchone()[0] == 1
 
     def test_temp_file_limit_error_still_raises(self):
         logger = structlog.get_logger()

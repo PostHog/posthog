@@ -1132,9 +1132,8 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
-        # Debug-only and best-effort: a query may use syntax the source DB rejects (e.g.
-        # TABLESAMPLE on CockroachDB). Discovery runs autocommit, so a failed EXPLAIN is
-        # isolated to its own statement and can't poison later probes.
+        # Debug-only, best-effort: EXPLAIN may use syntax the source rejects (e.g. TABLESAMPLE
+        # on CockroachDB), so swallow failures.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
         cursor.execute(query_with_explain)
         rows = cursor.fetchall()
@@ -1283,8 +1282,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             ) as subquery
         """).format(inner_query)
 
-        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB). Discovery
-        # runs autocommit, so a failure falls back to DEFAULT_CHUNK_SIZE without affecting later probes.
+        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB); fall back.
         _explain_query(cursor, query, logger)
         logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
@@ -1376,8 +1374,7 @@ def _get_partition_settings(
     # parent would scan every child partition / return 0. Use catalog
     # estimates instead.
     try:
-        # Reuse the partition flag the caller already computed when available; only fall back
-        # to detecting it here when it wasn't passed. Saves a redundant catalog round trip.
+        # Reuse the caller's partition flag when given; saves a redundant catalog round trip.
         if is_partitioned is None:
             is_partitioned = _is_partitioned_table(cursor, schema, table_name)
         if is_partitioned:
@@ -1625,10 +1622,8 @@ def _get_table(
     # already materialized on disk and behave like tables here.
     if unconstrained_numeric_columns and probe_unconstrained_numeric_scale and not is_view:
         try:
-            # Wrap the probe in its own transaction purely to scope the 30s `SET LOCAL
-            # statement_timeout` below to this one aggregation (it auto-resets on exit).
-            # Discovery runs autocommit, so this is a self-contained BEGIN/COMMIT — a probe
-            # failure rolls back cleanly and can't poison later probes.
+            # Own transaction so the 30s `SET LOCAL statement_timeout` below scopes to this
+            # aggregation and auto-resets (a self-contained BEGIN/COMMIT under autocommit).
             with cursor.connection.transaction():
                 # Scope a short statement_timeout to the probe so a pathologically large table
                 # or slow aggregation can't hang schema discovery. The outer 10-minute
@@ -1810,12 +1805,9 @@ def postgres_source(
                 ) from e
             raise
 
-        # Schema discovery runs a series of best-effort probes (row counts, RLS, partition
-        # detection, numeric-scale). Run them in autocommit so each probe is its own implicit
-        # transaction: a probe that fails — e.g. a read-replica recovery conflict on a slow
-        # COUNT(*), a statement timeout, a permission error — can't leave an aborted transaction
-        # that poisons every subsequent probe with `InFailedSqlTransaction`. This replaces the
-        # per-probe savepoint wrappers that previously guarded against that poisoning.
+        # Autocommit so each best-effort probe is its own transaction: one that fails — a
+        # read-replica recovery conflict on a slow COUNT(*), or syntax the source rejects like
+        # TABLESAMPLE on CockroachDB — can't poison the rest. Replaces the per-probe savepoints.
         connection.autocommit = True
 
         with connection:
@@ -1836,9 +1828,7 @@ def postgres_source(
                     probe_unconstrained_numeric_scale=fresh_schema_being_created,
                 )
 
-                # Session-level (not LOCAL): under autocommit there's no surrounding transaction
-                # for a LOCAL setting to bind to, so it would be a no-op. A session SET persists
-                # across the autocommit probes below until the connection closes.
+                # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
                 cursor.execute(
                     sql.SQL("SET statement_timeout = {timeout}").format(
                         timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
