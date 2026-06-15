@@ -23,6 +23,24 @@ export const isHogQLAlertConfig = (config: AlertConfig | null | undefined): conf
 export const isFunnelsAlertConfig = (config: AlertConfig | null | undefined): config is FunnelsAlertConfig =>
     config?.type === 'FunnelsAlertConfig'
 
+// Capability helpers — read at call sites instead of bare `isTrendsAlertConfig`/`isHogQLAlertConfig`
+// checks, so the intent ("does this alert kind support X") is explicit. Kept separate even where
+// they coincide today (all trends-only) because the capabilities are independent and may diverge.
+
+/** Trends alerts evaluate a time-bucketed series, so they can check the current (incomplete)
+ * interval. SQL and funnel alerts evaluate whatever the query returns — no partial interval.
+ * Type guard so call sites can read the trends-only `check_ongoing_interval` after the check. */
+export const supportsOngoingInterval = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
+    isTrendsAlertConfig(config)
+
+/** Trends and funnel alerts evaluate over the insight's time window/interval; SQL alerts own their
+ * own window inside the query, so there's no interval to echo in the UI. */
+export const supportsTimeWindow = (config: AlertConfig | null | undefined): boolean => !isHogQLAlertConfig(config)
+
+/** Anomaly detection currently only has a trends detector extractor. */
+export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
+    isTrendsAlertConfig(config)
+
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
 /** Quiet hours / blocked local periods; times are HH:MM in the project timezone. */

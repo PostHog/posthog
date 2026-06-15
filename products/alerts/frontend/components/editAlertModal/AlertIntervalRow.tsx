@@ -2,7 +2,7 @@ import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertType, isHogQLAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
+import { AlertType, isHogQLAlertConfig, isTrendsAlertConfig, supportsTimeWindow } from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -32,6 +32,7 @@ export function AlertIntervalRow({
     guardAvailableFeature,
     nextPlannedEvaluationStale,
 }: AlertIntervalRowProps): JSX.Element {
+    const hogqlAnyRow = isHogQLAlertConfig(alertForm.config) && alertForm.config.evaluation === 'any_row'
     return (
         <>
             <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
@@ -57,13 +58,11 @@ export function AlertIntervalRow({
                         />
                     )}
                 </LemonField>
-                {isHogQLAlertConfig(alertForm?.config) ? (
+                {!supportsTimeWindow(alertForm.config) ? (
                     // SQL queries own their time window — there is no insight interval to echo here,
                     // so state what is actually evaluated instead of a trends-style "check last day".
                     <div>
-                        {alertForm.config.evaluation === 'any_row'
-                            ? 'and check every row of the result'
-                            : "and evaluate the query's latest row"}
+                        {hogqlAnyRow ? 'and check every row of the result' : "and evaluate the query's latest row"}
                     </div>
                 ) : (
                     <>

@@ -35,7 +35,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
-import { isTrendsAlertConfig } from '../types'
+import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -162,7 +162,7 @@ export function EditAlertModal({
                           schedule_restriction: alert.schedule_restriction,
                           skip_weekend: alert.skip_weekend,
                           // Only trends alerts have an ongoing-interval concept; SQL/funnel alerts don't.
-                          config: isTrendsAlertConfig(alert.config)
+                          config: supportsOngoingInterval(alert.config)
                               ? { check_ongoing_interval: alert.config.check_ongoing_interval }
                               : null,
                       }
@@ -171,7 +171,7 @@ export function EditAlertModal({
                     calculation_interval: alertForm.calculation_interval,
                     schedule_restriction: alertForm.schedule_restriction,
                     skip_weekend: alertForm.skip_weekend,
-                    config: isTrendsAlertConfig(alertForm.config)
+                    config: supportsOngoingInterval(alertForm.config)
                         ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
                         : null,
                 }
@@ -190,7 +190,7 @@ export function EditAlertModal({
         let n = 0
         if (
             can_check_ongoing_interval &&
-            isTrendsAlertConfig(alertForm.config) &&
+            supportsOngoingInterval(alertForm.config) &&
             alertForm.config.check_ongoing_interval
         ) {
             n += 1
@@ -276,7 +276,7 @@ export function EditAlertModal({
                                         hogqlValueColumnOptions={hogqlValueColumnOptions}
                                         hogqlLabelColumnOptions={hogqlLabelColumnOptions}
                                         anomalyDetectionEnabled={
-                                            anomalyDetectionEnabled && insightAlertKind === 'trends'
+                                            anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
                                         }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}

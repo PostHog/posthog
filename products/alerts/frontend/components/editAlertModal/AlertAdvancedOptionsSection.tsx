@@ -4,7 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { isTrendsAlertConfig } from 'lib/components/Alerts/types'
+import { supportsOngoingInterval } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -56,7 +56,7 @@ export function AlertAdvancedOptionsSection({
                             <div className="space-y-2">
                                 {/* Ongoing-period checks only exist for trends — SQL and funnel alerts
                                     evaluate whatever the query returns, so there's no partial interval. */}
-                                {isTrendsAlertConfig(alertForm?.config) && (
+                                {supportsOngoingInterval(alertForm?.config) && (
                                     <Group name={['config']}>
                                         <div className="flex gap-1">
                                             <LemonField name="check_ongoing_interval">
