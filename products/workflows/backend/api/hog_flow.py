@@ -75,8 +75,8 @@ DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 # and there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
 MCP_ACTIVE_EDIT_REJECTION = (
     "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
-    "scheduled or in flight, and there's no revision history to roll back. Don't disable and "
-    "re-enable it to work around this. If you need different behavior, create a new draft workflow."
+    "scheduled or in flight, and there's no revision history to roll back. If you need different "
+    "behavior, create a new draft workflow."
 )
 
 
@@ -200,10 +200,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
-            "conditional_branch: {conditions: [{filters: {properties: [<cond>], events?: [...]}}, ...]}. Each "
-            "condition MUST wrap its conditions in a 'filters' key (same shape as trigger.config.filters); a bare "
-            "{properties: [...]} saves but compiles to always-false and errors in the UI. Index N matches the "
-            "'branch' edge with index:N. "
+            "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). "
             "exit: {reason}."
         ),
@@ -342,21 +339,38 @@ class HogFlowActionSerializer(serializers.Serializer):
         if single_condition:
             conditions = [single_condition]
 
+        is_conditional_branch = data.get("type") == "conditional_branch"
         if conditions:
             for condition in conditions:
                 filters = condition.get("filters")
-                if filters is not None:
-                    if "events" in filters:
-                        if strict:
-                            raise serializers.ValidationError("Event filters are not allowed in conditionals")
-                    else:
-                        serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                        if not strict:
-                            if serializer.is_valid():
-                                condition["filters"] = serializer.validated_data
-                        else:
-                            serializer.is_valid(raise_exception=True)
+                if filters is None:
+                    # A conditional_branch condition without a 'filters' wrapper (e.g. a bare {properties: [...]})
+                    # has nothing to compile, so it silently becomes always-false and the branch never matches.
+                    # Reject it for strict callers with a fixable message; web-builder drafts stay lenient
+                    # (incomplete mid-edit). wait_until_condition waits on `events` instead, so a null condition
+                    # filter is legitimate there — only enforce this for conditional_branch.
+                    if strict and is_conditional_branch:
+                        raise serializers.ValidationError(
+                            {
+                                "config": (
+                                    "Each conditional_branch condition must wrap its filters in a 'filters' key, e.g. "
+                                    "{conditions: [{filters: {properties: [...]}}]} (same shape as a trigger's "
+                                    "filters). A condition without 'filters' compiles to always-false and never matches."
+                                )
+                            }
+                        )
+                    continue
+                if "events" in filters:
+                    if strict:
+                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
+                else:
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    if not strict:
+                        if serializer.is_valid():
                             condition["filters"] = serializer.validated_data
+                    else:
+                        serializer.is_valid(raise_exception=True)
+                        condition["filters"] = serializer.validated_data
 
         if data.get("type") == "wait_until_condition":
             wait_events = data.get("config", {}).get("events") or []
@@ -852,10 +866,8 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         write_only=True,
         required=False,
         help_text=(
-            "Start execution from this action ID instead of the trigger. Test runs execute ONE node per call and "
-            "return nextActionId — they do not traverse the whole graph. To test a specific branch, set this to that "
-            "node's ID; to verify a full path end-to-end, chain calls (pass each returned nextActionId as the next "
-            "current_action_id). delay nodes aren't simulated — jump to the action after them."
+            "Start execution from this action ID instead of the trigger. Each test run executes a single node and "
+            "returns the next action id."
         ),
     )
 

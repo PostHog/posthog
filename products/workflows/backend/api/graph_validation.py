@@ -83,14 +83,21 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
 def _reachability_warnings(
     action_ids: list[Optional[str]], actions_by_id: dict, edges: list[dict], trigger_ids: list[Optional[str]]
 ) -> list[str]:
+    # A workflow always runs from its single trigger, so any action you can't reach by following edges
+    # from the trigger is dead — it'll never execute. We surface that as a warning (not an error: a
+    # half-wired draft is legitimate mid-build). Needs exactly one trigger to have a well-defined start.
     if len(trigger_ids) != 1:
         return []
+
+    # Adjacency list: action id -> list of action ids its outgoing edges point to.
     adjacency: dict[Optional[str], list[Optional[str]]] = {aid: [] for aid in action_ids}
     for edge in edges:
         src = edge.get("from")
         if src in adjacency:
             adjacency[src].append(edge.get("to"))
 
+    # Breadth-first walk from the trigger, collecting every node we can get to. The `reachable` set
+    # both records the answer and prevents us from re-processing a node (so cycles terminate).
     reachable: set[Optional[str]] = set()
     queue: deque = deque([trigger_ids[0]])
     while queue:
@@ -100,6 +107,7 @@ def _reachability_warnings(
         reachable.add(node)
         queue.extend(adjacency.get(node, []))
 
+    # Anything defined in the graph but never visited by the walk is unreachable.
     unreachable = sorted(str(aid) for aid in actions_by_id if aid not in reachable)
     if unreachable:
         return [f"Action(s) not reachable from the trigger: {', '.join(unreachable)}."]

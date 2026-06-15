@@ -237,9 +237,7 @@ tools:
             nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result
             fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise
             nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned,
-            so you don't need to re-fetch before the next edit. conditional_branch conditions must wrap their
-            conditions in a 'filters' key — {conditions: [{filters: {properties: [<cond>], ...}}]}, same shape as
-            trigger.config.filters; a bare {properties: [...]} saves but compiles to always-false and errors in the UI.
+            so you don't need to re-fetch before the next edit.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
@@ -269,10 +267,7 @@ tools:
         description: >
             Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async
             actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects.
-            Returns the execution trace. Each call executes ONE node and returns nextActionId — it does not traverse the
-            whole graph. To test a specific branch, set current_action_id to that node's ID; to verify a full path,
-            chain calls (feed each returned nextActionId back as the next current_action_id). delay nodes aren't
-            simulated, so jump to the action after them.
+            Optional current_action_id starts from a specific node. Returns the execution trace.
         exclude_params:
             - configuration
     workflows-update:

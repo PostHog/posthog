@@ -453,6 +453,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
+    def test_hog_flow_conditional_branch_condition_missing_filters_rejected(self):
+        # A bare {properties: [...]} (no 'filters' wrapper) compiles to always-false; reject it in strict mode.
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {"properties": [{"key": "plan", "type": "person", "value": "enterprise", "operator": "exact"}]}
+                ]
+            },
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "status": "active", "actions": [trigger_action, conditional_action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "filters" in response.json()["detail"]
+
+    def test_hog_flow_conditional_branch_missing_filters_allowed_for_web_draft(self):
+        # Web-builder drafts stay lenient — an incomplete condition mid-edit must still save.
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "conditional_branch",
+            "config": {"conditions": [{"properties": []}]},
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        # Default test client uses session auth → EventSource.WEB → lenient draft validation.
+        hog_flow = {"name": "Test Flow", "status": "draft", "actions": [trigger_action, conditional_action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
             "id": "trigger_node",

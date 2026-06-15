@@ -7313,7 +7313,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit. conditional_branch conditions must wrap their conditions in a 'filters' key — {conditions: [{filters: {properties: [<cond>], ...}}]}, same shape as trigger.config.filters; a bare {properties: [...]} saves but compiles to always-false and errors in the UI.",
+        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -7383,7 +7383,7 @@
         }
     },
     "workflows-test-run": {
-        "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the execution trace. Each call executes ONE node and returns nextActionId — it does not traverse the whole graph. To test a specific branch, set current_action_id to that node's ID; to verify a full path, chain calls (feed each returned nextActionId back as the next current_action_id). delay nodes aren't simulated, so jump to the action after them.",
+        "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Optional current_action_id starts from a specific node. Returns the execution trace.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",
