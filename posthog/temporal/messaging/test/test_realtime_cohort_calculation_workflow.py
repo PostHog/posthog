@@ -1487,9 +1487,10 @@ class TestBatchUpdateCohortMetrics:
 
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort.cohort import Cohort, CohortType
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
 
         # Create test organization and team
         organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
@@ -1558,9 +1559,10 @@ class TestBatchUpdateCohortMetrics:
         """Test that first calculation always updates duration regardless of threshold."""
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort.cohort import Cohort, CohortType
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
 
         # Create test organization and team
         organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
@@ -1600,9 +1602,10 @@ class TestBatchUpdateCohortMetrics:
         """Test that cohorts with zero previous duration always get updated."""
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort.cohort import Cohort, CohortType
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
 
         # Create test organization and team
         organization = await sync_to_async(Organization.objects.create)(name="Test Organization")

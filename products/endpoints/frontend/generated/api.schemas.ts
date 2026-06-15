@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -428,6 +428,8 @@ export interface MaterializationPreviewRequestApi {
 export interface EndpointRunResponseApi {
     /** URL-safe endpoint name that was executed. */
     name: string
+    /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+    execution_id?: string
     /** Query result rows. Each row is a list of values matching the columns order. */
     results?: unknown[]
     /** Column names from the query SELECT clause. */
@@ -440,14 +442,14 @@ export interface EndpointRunResponseApi {
 
 /**
  * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
-
-For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
-
-For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-
-For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
-
-Unknown variable names will return a 400 error.
+ *
+ * For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+ *
+ * For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+ *
+ * For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+ *
+ * Unknown variable names will return a 400 error.
  */
 export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null
 
@@ -792,14 +794,14 @@ export interface EndpointRunRequestApi {
     offset?: number | null
     refresh?: EndpointRefreshModeApi | null
     /** Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
-
-  For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
-
-  For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-
-  For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
-
-  Unknown variable names will return a 400 error. */
+     *
+     * For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+     *
+     * For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     *
+     * For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+     *
+     * Unknown variable names will return a 400 error. */
     variables?: EndpointRunRequestApiVariables
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: number | null
@@ -866,6 +868,38 @@ export type EndpointsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
 }
 
 export type EndpointsOpenapiSpecRetrieveParams = {

@@ -39,7 +39,6 @@ class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
             name=SchemaExternalDataSourceType.TWILIO,
             label="Twilio",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Twilio credentials to pull your Twilio data into the PostHog Data warehouse.
 
 Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently — alternatively you can use your Account SID and Auth Token.""",

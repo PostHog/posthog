@@ -69,7 +69,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",
-            docsUrl="https://posthog.com/docs/cdp/sources/azure-db",
+            docsUrl="https://posthog.com/docs/cdp/sources/microsoft-sql-server",
             fields=cast(
                 list[FieldType],
                 [
@@ -125,8 +125,8 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="dbo",
+                        required=False,
+                        placeholder="Leave blank to import all schemas",
                         secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),

@@ -40,6 +40,7 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -192,6 +193,16 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         integration = UserIntegration.objects.filter(user=user, kind="github", integration_id=installation_id).first()
         if integration is None:
             raise exceptions.NotFound("No GitHub integration found for this installation.")
+
+        # Notify GitHub to uninstall the App, but only if no other PostHog team or user
+        # still relies on this installation (uninstalling breaks it for everyone sharing it).
+        try:
+            UserGitHubIntegration.uninstall_if_last_reference(
+                installation_id, exclude_user_integration_id=integration.id
+            )
+        except Exception as e:
+            capture_exception(e)
+
         integration.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

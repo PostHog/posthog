@@ -227,9 +227,6 @@ pub struct Config {
     pub ai_s3_access_key_id: Option<String>,
     pub ai_s3_secret_access_key: Option<String>,
 
-    // if set in env, will configure a request timeout on the server's Axum router
-    pub request_timeout_seconds: Option<u64>,
-
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.

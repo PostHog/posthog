@@ -6,8 +6,9 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey, get_organization_personal_api_keys
-from posthog.permissions import OrganizationAdminReadPermissions
+from posthog.permissions import OrganizationAdminReadPermissions, PremiumFeaturePermission
 
 
 class OrganizationPersonalAPIKeyOwnerSerializer(serializers.Serializer):
@@ -83,7 +84,8 @@ class OrganizationPersonalAPIKeyViewSet(
 ):
     scope_object = "INTERNAL"
     serializer_class = OrganizationPersonalAPIKeySerializer
-    permission_classes = [OrganizationAdminReadPermissions]
+    permission_classes = [OrganizationAdminReadPermissions, PremiumFeaturePermission]
+    premium_feature = AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
     queryset = PersonalAPIKey.objects.none()
     # PersonalAPIKey has no organization_id; the parent lookup resolves through the owner's membership.
     filter_rewrite_rules = {"organization_id": "user__organization_membership__organization_id"}

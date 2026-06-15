@@ -82,7 +82,9 @@ function VisualReviewSnapshotsContent({
 
                 const result = await app.callServerTool({ name: toolName, arguments: args })
                 if (result.isError) {
-                    const message = result.content?.find((c) => c.type === 'text')?.text ?? `${action} failed.`
+                    const message =
+                        result.content?.find((c): c is { type: 'text'; text: string } => c.type === 'text')?.text ??
+                        `${action} failed.`
                     updateState(snapshot.id, { loadingAs: null, error: message })
                     return
                 }

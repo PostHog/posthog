@@ -135,7 +135,7 @@ def export_provider_credentials(settings: Settings) -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     settings = get_settings()
     export_provider_credentials(settings)
 

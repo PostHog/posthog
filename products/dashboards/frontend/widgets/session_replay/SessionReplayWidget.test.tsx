@@ -43,11 +43,18 @@ describe('SessionReplayWidget', () => {
                 tileId={1}
                 config={{ limit: 10 }}
                 loading={false}
-                result={{ results: [recording], hasMore: false, limit: 10 }}
+                result={{
+                    results: [recording],
+                    hasMore: false,
+                    limit: 10,
+                    totalCount: 1,
+                    totalCountCapped: false,
+                }}
             />
         )
 
         expect(screen.getByText('recording-1')).toBeInTheDocument()
+        expect(screen.getByText('1 of 1 recording')).toBeInTheDocument()
     })
 
     it('renders an empty state when there are no recordings', () => {

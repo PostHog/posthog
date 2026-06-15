@@ -25,6 +25,7 @@ from llm_gateway.metrics.prometheus import (
     BEDROCK_FALLBACK_FAILURE,
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
+    BEDROCK_PARAM_STRIPPED,
     REQUEST_COUNT,
     REQUEST_LATENCY,
 )
@@ -62,6 +63,60 @@ def _get_use_bedrock_fallback_from_headers(request: Request) -> bool:
         return extract_posthog_use_bedrock_fallback_from_headers(request) or False
     except ValueError as exc:
         raise _invalid_header_exception(str(exc)) from exc
+
+
+# Params that are safe to forward on the Bedrock path. This is an allowlist on purpose:
+# litellm forwards request params to Bedrock verbatim (the anthropic_messages request type is a
+# TypedDict, so unknown keys pass straight through), and Bedrock hard-rejects unknown top-level
+# fields with a 400 ("Extra inputs are not permitted"). Anything outside this set is dropped, not
+# forwarded, so new Anthropic-only params (context_management, inference_geo, speed, mcp_servers,
+# …) degrade gracefully on the fallback path instead of breaking it. The BEDROCK_PARAM_STRIPPED
+# metric is the early-warning signal: extend this set when a dropped param turns out to be
+# Bedrock-supported. Cross-checked against litellm's bedrock anthropic_messages transform.
+BEDROCK_SUPPORTED_PARAMS: frozenset[str] = frozenset(
+    {
+        # Routing / protocol — consumed or rewritten by litellm before it hits Bedrock.
+        "model",
+        "stream",
+        "anthropic_version",
+        "anthropic_beta",
+        # Anthropic Messages body params that Bedrock-hosted Claude accepts natively.
+        "messages",
+        "system",
+        "max_tokens",
+        "stop_sequences",
+        "temperature",
+        "top_p",
+        "top_k",
+        "tools",
+        "tool_choice",
+        "thinking",
+        "metadata",
+        # Structured outputs — litellm's bedrock transform converts these to a Bedrock-compatible
+        # form, so dropping them would silently disable structured outputs on fallback.
+        "output_format",
+        "output_config",
+    }
+)
+
+
+def sanitize_for_bedrock(data: dict[str, Any], *, model: str, product: str) -> dict[str, Any]:
+    """Adapt an Anthropic Messages request for the Bedrock path.
+
+    Returns a new dict containing only Bedrock-supported top-level params; unsupported params are
+    dropped (with a warning + metric) so they can't 400 the request. Nested server-side tools that
+    Bedrock doesn't support are stripped too.
+    """
+    sanitized: dict[str, Any] = {}
+    for key, value in data.items():
+        if key in BEDROCK_SUPPORTED_PARAMS:
+            sanitized[key] = value
+            continue
+        logger.warning("Stripping unsupported param for Bedrock", param=key, model=model, product=product)
+        BEDROCK_PARAM_STRIPPED.labels(param=key, product=product).inc()
+
+    strip_server_side_tools(sanitized, model=model, product=product)
+    return sanitized
 
 
 def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -> None:
@@ -111,7 +166,7 @@ async def _send_bedrock_messages(
     if anthropic_beta:
         data["anthropic_beta"] = [h.strip() for h in anthropic_beta.split(",") if h.strip()]
 
-    strip_server_side_tools(data, model=bedrock_model, product=product)
+    data = sanitize_for_bedrock(data, model=bedrock_model, product=product)
 
     return await handle_llm_request(
         request_data=data,
@@ -382,6 +437,7 @@ async def _bedrock_count_tokens_impl(
     bedrock_region_name = ensure_bedrock_configured(settings)
 
     bedrock_model = map_to_bedrock_model(model, region_name=bedrock_region_name)
+    data = sanitize_for_bedrock(data, model=bedrock_model, product=product)
     start_time = time.monotonic()
     status_code = "200"
 

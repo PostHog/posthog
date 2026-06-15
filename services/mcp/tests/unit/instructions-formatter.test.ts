@@ -34,7 +34,8 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true },
+    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    renderUiEnabled: true,
 }
 
 describe('InstructionsFormatter', () => {
@@ -200,6 +201,22 @@ describe('InstructionsFormatter', () => {
                     { stripEnvContext }
                 )
                 expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
+            }
+        })
+
+        it('includes the rendering section only when render-ui is available for the client', () => {
+            const formatter = new InstructionsFormatter()
+            for (const stripEnvContext of [true, false]) {
+                const withRendering = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
+                expect(withRendering).toContain('### Rendering visualizations')
+
+                // The raw flag being on isn't enough — a non-UI-host client (e.g. Claude Code)
+                // resolves `renderUiEnabled` to false and must not see the rendering section.
+                const withoutRendering = formatter.buildExecCommandReference(
+                    { ...fullCtx, renderUiEnabled: false },
+                    { stripEnvContext }
+                )
+                expect(withoutRendering).not.toContain('### Rendering visualizations')
             }
         })
     })

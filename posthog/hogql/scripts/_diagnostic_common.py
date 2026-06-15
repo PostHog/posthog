@@ -399,6 +399,44 @@ def _shape_for(
     return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
 
 
+# ---------------------------------------------------------------------------
+# Minimiser — reduce a divergence to its smallest still-diverging repro
+# ---------------------------------------------------------------------------
+
+
+def shrink_to_shape(
+    query: str,
+    rule: str,
+    oracle_backend: str,
+    candidate_backend: str,
+    target_shape: DivergenceShape,
+) -> str:
+    """Reduce `query` to the smallest variant that still produces
+    `target_shape` against the two backends, via shrinkray (see `_shrink`).
+    The interestingness predicate is exactly "same divergence shape", so the
+    reduction can't wander onto a different bug.
+
+    Returns the original query unchanged on any ordinary (`Exception`)
+    failure — a bad reduction must never abort the grind. A `BaseException`
+    (a shadow-mismatch `SystemExit`, a Ctrl-C) intentionally still
+    propagates."""
+
+    def is_interesting(candidate: str) -> bool:
+        return _shape_for(candidate, rule, oracle_backend, candidate_backend) == target_shape
+
+    # Imported lazily: shrinkray is the optional `hogql-parser-parity` group,
+    # and this module is on the import path of `test_diagnostic_common.py`,
+    # `parser_bench.py`, and `pbt_corpus.py` — none of which shrink. A
+    # module-level import would break their (CI-collected) import without the
+    # group. Only this shrink path requires it.
+    from posthog.hogql.scripts import _shrink  # noqa: PLC0415
+
+    try:
+        return _shrink.shrink(query, is_interesting)
+    except Exception:
+        return query
+
+
 # ===========================================================================
 # Corpus diagnostic machinery
 # ===========================================================================
@@ -644,6 +682,56 @@ class Failure:
     query: str
     detail: str  # rejection message, crash traceback, or formatted diff path
     n_occurrences: int
+    shrunk_from: int | None = None  # original char length if `shrink_failures` reduced `query`, else None
+
+
+def shrink_failures(
+    failures: list[Failure],
+    *,
+    rule: str,
+    oracle: str,
+    candidate: str,
+) -> list[Failure]:
+    """Reduce each shrinkable failure's query to its minimal still-diverging
+    form via shrinkray, returning a new list. `ast_mismatch` and
+    `candidate_reject` shrink toward their recomputed `DivergenceShape`;
+    crashes (`candidate_crash` / `oracle_crash`) are left verbatim — a crash
+    isn't a stable shape to reduce toward (same limitation as the PBT path).
+    Progress goes to stderr because shrinking a large failure set is slow."""
+    out: list[Failure] = []
+    shrinkable = {"candidate_reject", "ast_mismatch"}
+    # Count only the shrinkable failures so the progress bar reflects work
+    # actually done — crashes are passed through verbatim, not shrunk.
+    shrinkable_total = sum(1 for fa in failures if fa.kind in shrinkable)
+    done = 0
+    for i, fa in enumerate(failures):
+        try:
+            if fa.kind in shrinkable:
+                done += 1
+                sys.stderr.write(f"\r  [shrink] {done}/{shrinkable_total} …")
+                sys.stderr.flush()
+                shape = _shape_for(fa.query, rule, oracle, candidate)
+                if shape is not None:
+                    shrunk = shrink_to_shape(fa.query, rule, oracle, candidate, shape)
+                    if shrunk != fa.query:
+                        out.append(dataclasses.replace(fa, query=shrunk, shrunk_from=len(fa.query)))
+                        continue
+            out.append(fa)
+        except KeyboardInterrupt:
+            # Ctrl-C during the (slow) shrink phase must not discard the
+            # completed grind's failures — emit the current and remaining
+            # ones un-shrunk so the caller still writes a full dump. Each
+            # iteration appends exactly once, so `len(out) == i` iff this
+            # failure hasn't been appended yet; that guards against a double
+            # entry when the interrupt lands after the append but before the
+            # `continue`, wherever in the iteration it strikes.
+            sys.stderr.write(f"\r  [shrink] interrupted at {done}/{shrinkable_total} — keeping the rest un-shrunk\n")
+            if len(out) == i:
+                out.append(fa)
+            out.extend(failures[i + 1 :])
+            return out
+    sys.stderr.write("\r" + " " * 40 + "\r")
+    return out
 
 
 def write_failures(path: Path, failures: list[Failure], repo_root: Path, *, title: str) -> None:
@@ -661,8 +749,10 @@ def write_failures(path: Path, failures: list[Failure], repo_root: Path, *, titl
         f.write("-- Each block: occurrences count, failure kind + detail, then the entry.\n\n")
         for i, fa in enumerate(failures):
             f.write("-- " + "=" * 76 + "\n")
-            f.write(f"-- [{i + 1}/{len(failures)}] seen {fa.n_occurrences}x in last 7d\n")
+            f.write(f"-- [{i + 1}/{len(failures)}] seen {fa.n_occurrences}x\n")
             f.write(f"-- kind: {fa.kind}\n")
+            if fa.shrunk_from is not None:
+                f.write(f"-- shrunk: {fa.shrunk_from} -> {len(fa.query)} chars\n")
             for line in fa.detail.splitlines() or [""]:
                 f.write(f"-- {line}\n" if line else "--\n")
             f.write("\n")

@@ -45,6 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -298,10 +299,11 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return ["task:write"]
 
     def _get_config(self) -> SignalTeamConfig:
-        try:
-            return SignalTeamConfig.objects.get(team=self.team)
-        except SignalTeamConfig.DoesNotExist:
-            raise exceptions.NotFound("No signal config exists for this team.")
+        # Singleton per team with safe defaults. A post_save signal creates it on team
+        # creation, but teams predating that signal (or where it failed) have no row, so
+        # lazily create it here — otherwise the first read/write (e.g. connecting a default
+        # notification channel) would 404.
+        return get_or_create_team_extension(self.team, SignalTeamConfig)
 
     @extend_schema(exclude=True)
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -422,10 +424,23 @@ class SignalReportViewSet(
         # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
         return queryset.exclude(status=SignalReport.Status.DELETED)
 
+    # `deleted` is in the model but always stripped upstream by `_exclude_deleted_signal_reports`,
+    # so it is never a valid filter target.
+    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
         if status_filter:
-            return queryset.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
+            statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
+            invalid = [s for s in statuses if s not in self._FILTERABLE_STATUSES]
+            if invalid:
+                accepted = ", ".join(sorted(self._FILTERABLE_STATUSES))
+                raise serializers.ValidationError(
+                    {
+                        "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
+                    }
+                )
+            return queryset.filter(status__in=statuses)
         # The `state` action reopens dismissed reports, so it must be able to reach a suppressed
         # report by ID — otherwise transitioning one back to "potential" would 404. Everywhere
         # else suppressed reports stay hidden unless an explicit `status` filter asks for them.
@@ -693,7 +708,7 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Comma-separated list of statuses to include. "
-                    "Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. "
+                    "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
                     "Defaults to all statuses except suppressed."
                 ),
             ),

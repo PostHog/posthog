@@ -54,13 +54,38 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "description": "Custom exposure event name.",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                        },
+                                        "id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Action ID. Required when kind is 'ActionsNode'."
                                         },
                                         "kind": {
-                                            "const": "ExperimentEventExposureConfig",
-                                            "default": "ExperimentEventExposureConfig",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                         },
                                         "properties": {
                                             "description": "Event property filters. Pass an empty array if no filters needed.",
@@ -171,7 +196,7 @@
                                             "type": "array"
                                         }
                                     },
-                                    "required": ["event", "properties"],
+                                    "required": ["properties"],
                                     "type": "object"
                                 },
                                 {
@@ -1849,7 +1874,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
         },
         "metrics_secondary": {
             "anyOf": [

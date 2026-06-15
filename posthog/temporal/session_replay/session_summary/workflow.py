@@ -69,10 +69,11 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     collect_session_problems,
 )
 
+from products.replay.backend.models.session_summaries import SingleSessionSummary
+
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -815,7 +816,7 @@ async def execute_summarize_session_video_stream(
     custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     force_restart: bool = False,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Start the video-based summarization workflow and stream progress events.
 
     Yields SSE-formatted ``session-summary-progress`` events every few seconds
