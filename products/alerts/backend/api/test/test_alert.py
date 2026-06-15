@@ -436,7 +436,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     "insight": hogql_insight["id"],
                     "subscribed_users": [self.user.id],
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "HogQLAlertConfig"},
+                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
                     "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                     "name": "sql alert",
                 },
@@ -1287,7 +1287,7 @@ class TestAlertEventProperties(APIBaseTest):
             ),
             (
                 "hogql_default",
-                {"type": "HogQLAlertConfig"},
+                {"type": "HogQLAlertConfig", "evaluation": "last_row"},
                 {
                     "config_type": "HogQLAlertConfig",
                     "hogql_evaluation": "last_row",
