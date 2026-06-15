@@ -99,6 +99,15 @@ describe('slackTextFromContent', () => {
         expect(text).toBe('first\n\nsecond')
     })
 
+    it('drops whitespace-only blocks that sit between meaningful blocks', () => {
+        const text = slackTextFromContent([
+            { type: 'text', text: 'first' },
+            { type: 'text', text: '   ' },
+            { type: 'text', text: 'second' },
+        ])
+        expect(text).toBe('first\n\nsecond')
+    })
+
     it('returns empty string for a pure tool-call turn', () => {
         expect(slackTextFromContent([{ type: 'toolCall' }])).toBe('')
     })

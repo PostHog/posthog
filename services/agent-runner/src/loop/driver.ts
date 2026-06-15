@@ -636,21 +636,25 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     if (slackReply) {
                         const replyText = slackTextFromContent(msg.content)
                         if (replyText) {
-                            // Drop the "working" status so the reply is the latest
-                            // message; a subsequent turn re-posts it.
-                            await slackStatus?.clear()
+                            const posted = await postSlackReply(deps.http, {
+                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                                channel: slackReply.channel,
+                                thread_ts: slackReply.thread_ts,
+                                text: replyText,
+                                sessionId: session.id,
+                                logger: {
+                                    warn: (meta, m) => log('warn', m, meta),
+                                    info: (meta, m) => log('info', m, meta),
+                                },
+                            })
+                            // Only drop the "working" status once the reply is
+                            // visibly in the thread — otherwise a failed post
+                            // would leave the thread with neither status nor
+                            // reply. A subsequent turn re-posts the status.
+                            if (posted) {
+                                await slackStatus?.clear()
+                            }
                         }
-                        await postSlackReply(deps.http, {
-                            token: deps.secrets[SLACK_BOT_TOKEN_KEY],
-                            channel: slackReply.channel,
-                            thread_ts: slackReply.thread_ts,
-                            text: replyText,
-                            sessionId: session.id,
-                            logger: {
-                                warn: (meta, m) => log('warn', m, meta),
-                                info: (meta, m) => log('info', m, meta),
-                            },
-                        })
                     }
 
                     // Gateway settled-cost recovery: pi-ai's `usage.cost.*` numbers

@@ -37,10 +37,12 @@ export function isSlackTriggerMetadata(meta: unknown): meta is SlackTriggerMetad
 /** Join the text blocks of an assistant message into one Slack message body. */
 export function slackTextFromContent(content: ReadonlyArray<{ type: string; text?: string }>): string {
     return content
-        .filter((b): b is { type: string; text: string } => b.type === 'text' && typeof b.text === 'string')
-        .map((b) => b.text)
+        .filter(
+            (b): b is { type: string; text: string } =>
+                b.type === 'text' && typeof b.text === 'string' && b.text.trim().length > 0
+        )
+        .map((b) => b.text.trim())
         .join('\n\n')
-        .trim()
 }
 
 export interface SlackReplyLogger {
