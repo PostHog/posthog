@@ -190,6 +190,7 @@ product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
+
 # Per-product SSL for the migration DIRECT_URL only. Runtime writer/reader route
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
