@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
+from unittest import TestCase
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -90,6 +91,66 @@ def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
             stack.extend(current)
         elif isinstance(current, (tuple, frozenset)):
             stack.extend(current)
+
+
+class TestBuildDatabaseRootNode(TestCase):
+    # The static catalog build touches no database, so these run on a plain TestCase (no Postgres).
+
+    @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
+    def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
+        # build_database_root_node reconstructs the static catalog from a cached pickle blob; it must be
+        # equivalent to constructing it from scratch, and a fresh object (deep independence is covered by
+        # test_build_database_root_node_loads_are_deeply_independent).
+        cached = build_database_root_node(include_posthog_tables=include_posthog_tables)
+        fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
+
+        assert cached == fresh
+        assert cached is not fresh
+        if include_posthog_tables:
+            assert "events" in cached.children
+
+    def test_build_database_root_node_catalog_stays_picklable(self):
+        # The pickle-backed cache requires every node in the static catalog to be picklable. If a future
+        # field introduces an unpicklable value (a closure, lock, etc.), this fails loudly here rather
+        # than at request time.
+        fresh = _construct_database_root_node(include_posthog_tables=True)
+        restored = pickle.loads(pickle.dumps(fresh, protocol=pickle.HIGHEST_PROTOCOL))
+
+        assert restored == fresh
+        assert restored.children["events"].table is not fresh.children["events"].table
+
+    def test_build_database_root_node_loads_are_deeply_independent(self):
+        # Two builds must share zero mutable objects anywhere in the tree, so per-request mutation can
+        # never leak between teams. This is the guarantee the previous model_copy(deep=True) gave.
+        # Keep both trees referenced while walking — otherwise a GC'd first tree can have its id()s
+        # recycled by the second, producing a false overlap.
+        first = build_database_root_node()
+        second = build_database_root_node()
+        first_ids: set[int] = set()
+        second_ids: set[int] = set()
+        _collect_mutable_object_ids(first, first_ids)
+        _collect_mutable_object_ids(second, second_ids)
+
+        assert first_ids and second_ids
+        assert first_ids.isdisjoint(second_ids)
+
+    def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
+        # Common case takes the slim path: field values survive, bookkeeping resets to the trivial case.
+        field = StringDatabaseField(name="col")
+        restored = pickle.loads(pickle.dumps(field, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored == field and restored.name == "col"
+
+        # Defensive: a model actually carrying private or extra state must fall back to pydantic's full
+        # state so that data is never dropped by the slim representation.
+        with_private = StringDatabaseField(name="col")
+        object.__setattr__(with_private, "__pydantic_private__", {"secret": 1})
+        restored_private = pickle.loads(pickle.dumps(with_private, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored_private.__pydantic_private__ == {"secret": 1}
+
+        with_extra = StringDatabaseField(name="col")
+        object.__setattr__(with_extra, "__pydantic_extra__", {"extra_key": "value"})
+        restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
@@ -310,62 +371,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         first_database.tables.children["events"].table = None
 
         assert second_database.tables.children["events"].table is not None
-
-    @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
-    def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
-        # build_database_root_node reconstructs the static catalog from a cached pickle blob; it must be
-        # equivalent to constructing it from scratch, and a fresh object (deep independence is covered by
-        # test_build_database_root_node_loads_are_deeply_independent).
-        cached = build_database_root_node(include_posthog_tables=include_posthog_tables)
-        fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
-
-        assert cached == fresh
-        assert cached is not fresh
-        if include_posthog_tables:
-            assert "events" in cached.children
-
-    def test_build_database_root_node_catalog_stays_picklable(self):
-        # The pickle-backed cache requires every node in the static catalog to be picklable. If a future
-        # field introduces an unpicklable value (a closure, lock, etc.), this fails loudly here rather
-        # than at request time.
-        fresh = _construct_database_root_node(include_posthog_tables=True)
-        restored = pickle.loads(pickle.dumps(fresh, protocol=pickle.HIGHEST_PROTOCOL))
-
-        assert restored == fresh
-        assert restored.children["events"].table is not fresh.children["events"].table
-
-    def test_build_database_root_node_loads_are_deeply_independent(self):
-        # Two builds must share zero mutable objects anywhere in the tree, so per-request mutation can
-        # never leak between teams. This is the guarantee the previous model_copy(deep=True) gave.
-        # Keep both trees referenced while walking — otherwise a GC'd first tree can have its id()s
-        # recycled by the second, producing a false overlap.
-        first = build_database_root_node()
-        second = build_database_root_node()
-        first_ids: set[int] = set()
-        second_ids: set[int] = set()
-        _collect_mutable_object_ids(first, first_ids)
-        _collect_mutable_object_ids(second, second_ids)
-
-        assert first_ids and second_ids
-        assert first_ids.isdisjoint(second_ids)
-
-    def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
-        # Common case takes the slim path: field values survive, bookkeeping resets to the trivial case.
-        field = StringDatabaseField(name="col")
-        restored = pickle.loads(pickle.dumps(field, protocol=pickle.HIGHEST_PROTOCOL))
-        assert restored == field and restored.name == "col"
-
-        # Defensive: a model actually carrying private or extra state must fall back to pydantic's full
-        # state so that data is never dropped by the slim representation.
-        with_private = StringDatabaseField(name="col")
-        object.__setattr__(with_private, "__pydantic_private__", {"secret": 1})
-        restored_private = pickle.loads(pickle.dumps(with_private, protocol=pickle.HIGHEST_PROTOCOL))
-        assert restored_private.__pydantic_private__ == {"secret": 1}
-
-        with_extra = StringDatabaseField(name="col")
-        object.__setattr__(with_extra, "__pydantic_extra__", {"extra_key": "value"})
-        restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
-        assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
 
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(
