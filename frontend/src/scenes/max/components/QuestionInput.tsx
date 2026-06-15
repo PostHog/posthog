@@ -362,7 +362,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         minRows={1}
                                         maxRows={10}
                                         className={cn(
-                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none max-h-[30vh] overflow-y-auto',
+                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none max-h-[30vh]',
                                             handsFreeFlagEnabled ? 'pr-20' : 'pr-12'
                                         )}
                                         hideFocus
