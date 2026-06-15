@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import {
     buildLabelPositions,
     buildPointClickData,
     buildTooltipContext,
-    dragRectToLabelRange,
     findNearestIndexFromPositions,
     isInPlotArea,
 } from '../interaction'
@@ -19,10 +18,9 @@ import type {
     ResolveValueFn,
     TooltipContext,
 } from '../types'
+import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
-
-const DRAG_THRESHOLD_PX = 4
 
 interface UseChartInteractionOptions<Meta> {
     scales: ChartScales | null
@@ -145,73 +143,20 @@ export function useChartInteraction<Meta = unknown>({
         [labels, scales, labelToCoord]
     )
 
-    const [dragRect, setDragRect] = useState<DragRect | null>(null)
-    const dragOriginRef = useRef<{ x: number; y: number; active: boolean } | null>(null)
-    const dragJustCompletedRef = useRef(false)
-    const labelsRef = useLatest(labels)
-    const labelPositionsRef = useLatest(labelPositions)
-    const onDateRangeZoomRef = useLatest(onDateRangeZoom)
-
-    const completeDrag = useCallback(
-        (mouseX: number) => {
-            const origin = dragOriginRef.current
-            if (!origin) {
-                return
-            }
-            if (origin.active) {
-                const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
-                if (range && onDateRangeZoomRef.current) {
-                    const ls = labelsRef.current
-                    onDateRangeZoomRef.current({
-                        startLabel: ls[range.startIndex],
-                        endLabel: ls[range.endIndex],
-                        startIndex: range.startIndex,
-                        endIndex: range.endIndex,
-                    })
-                }
-                dragJustCompletedRef.current = true
-                setTimeout(() => {
-                    dragJustCompletedRef.current = false
-                }, 0)
-            }
-            dragOriginRef.current = null
-            setDragRect(null)
-        },
-        [labelPositionsRef, labelsRef, onDateRangeZoomRef]
-    )
-
-    // Global mouseup catches gestures that end outside the chart wrapper.
-    useEffect(() => {
-        if (!onDateRangeZoom) {
-            return
-        }
-        const handler = (e: MouseEvent): void => {
-            if (!dragOriginRef.current) {
-                return
-            }
-            const wrapper = wrapperRef.current
-            const mouseX = wrapper ? e.clientX - wrapper.getBoundingClientRect().left : 0
-            completeDrag(mouseX)
-        }
-        window.addEventListener('mouseup', handler)
-        return () => window.removeEventListener('mouseup', handler)
-    }, [onDateRangeZoom, wrapperRef, completeDrag])
-
-    const onMouseDown = useCallback(
-        (e: React.MouseEvent<HTMLDivElement>) => {
-            if (!onDateRangeZoom || !scales || !dimensions || e.button !== 0) {
-                return
-            }
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            const mouseX = e.clientX - rect.left
-            const mouseY = e.clientY - rect.top
-            if (!isInPlotArea(mouseX, mouseY, dimensions)) {
-                return
-            }
-            dragOriginRef.current = { x: mouseX, y: mouseY, active: false }
-        },
-        [onDateRangeZoom, scales, dimensions]
-    )
+    const {
+        dragRect,
+        onMouseDown,
+        handleMouseMove: handleDragMouseMove,
+        shouldSwallowClick,
+    } = useDragToZoom({
+        onDateRangeZoom,
+        scales,
+        dimensions,
+        labels,
+        labelPositions,
+        wrapperRef,
+        onDragActivate: clearTooltip,
+    })
 
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -223,16 +168,9 @@ export function useChartInteraction<Meta = unknown>({
             const mouseX = e.clientX - rect.left
             const mouseY = e.clientY - rect.top
 
-            const origin = dragOriginRef.current
-            if (origin) {
-                if (!origin.active && Math.hypot(mouseX - origin.x, mouseY - origin.y) >= DRAG_THRESHOLD_PX) {
-                    origin.active = true
-                    clearTooltip()
-                }
-                if (origin.active) {
-                    setDragRect({ x0: origin.x, x1: mouseX })
-                    return
-                }
+            // An active drag-to-zoom owns the gesture — skip hover handling.
+            if (handleDragMouseMove(mouseX, mouseY)) {
+                return
             }
 
             if (isPinned) {
@@ -281,6 +219,7 @@ export function useChartInteraction<Meta = unknown>({
             canvasRef,
             isPinned,
             clearTooltip,
+            handleDragMouseMove,
             labelPositions,
             labelToCoord,
             interactionAxis,
@@ -297,8 +236,8 @@ export function useChartInteraction<Meta = unknown>({
     }, [isPinned, clearTooltip])
 
     const onClick = useCallback(() => {
-        if (dragJustCompletedRef.current) {
-            dragJustCompletedRef.current = false
+        // A click that closes out a drag-to-zoom gesture must not also pin/unpin or fire onPointClick.
+        if (shouldSwallowClick()) {
             return
         }
         const currentIndex = hoverIndexRef.current
@@ -336,6 +275,7 @@ export function useChartInteraction<Meta = unknown>({
         isPinned,
         clearTooltip,
         pin,
+        shouldSwallowClick,
         hoverIndexRef,
         hoverPositionRef,
         wrapClickData,
