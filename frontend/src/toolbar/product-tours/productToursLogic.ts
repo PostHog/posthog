@@ -191,12 +191,19 @@ export const productToursLogic = kea<productToursLogicType>([
             [] as ProductTour[],
             {
                 loadTours: async () => {
-                    const response = await toolbarFetch('/api/projects/@current/product_tours/')
-                    if (!response.ok) {
+                    try {
+                        const response = await toolbarFetch('/api/projects/@current/product_tours/')
+                        if (!response.ok) {
+                            return []
+                        }
+                        const data = await response.json()
+                        return data.results ?? data
+                    } catch {
+                        // A network-level failure (offline, CORS, ad blocker, or a fetch
+                        // wrapper rejecting) makes `toolbarFetch` throw. Degrade gracefully
+                        // instead of surfacing transient noise to error tracking.
                         return []
                     }
-                    const data = await response.json()
-                    return data.results ?? data
                 },
             },
         ],
