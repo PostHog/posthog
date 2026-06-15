@@ -65,6 +65,15 @@ class TestTikTokAdsSource:
             f"TikTok non-retryable error '{error_message}' does not match any non-retryable pattern"
         )
 
+    def test_deleted_integration_error_is_non_retryable(self):
+        """A deleted/disconnected integration raises "Integration not found: <id>" from the OAuth
+        lookup; it must be classified as non-retryable since retrying cannot recreate it."""
+        error_message = "Integration not found: 173586"
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"Deleted-integration error '{error_message}' does not match any non-retryable pattern"
+        )
+
     def test_retryable_paginator_error_does_not_match_source_pattern(self):
         """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
         paginator = TikTokAdsPaginator()
