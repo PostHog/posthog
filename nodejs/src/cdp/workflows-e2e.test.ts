@@ -690,9 +690,12 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             const jobs = await queryCyclotronJobs()
             const jobId = jobs[0].id
+            // A running job was necessarily dequeued, so its scheduled time is in
+            // the past — set it so replay (which preserves scheduled) re-runs it
+            // immediately rather than waiting out the original parked poll window.
             await cyclotronPool.query(
                 `UPDATE cyclotron_jobs
-                 SET status = 'running', lock_id = $2,
+                 SET status = 'running', lock_id = $2, scheduled = NOW() - INTERVAL '1 second',
                      last_heartbeat = NOW() - INTERVAL '60 seconds', janitor_touch_count = 3
                  WHERE id = $1`,
                 [jobId, new UUIDT().toString()]

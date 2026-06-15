@@ -256,6 +256,15 @@ export class CyclotronV2Manager {
      * so they run again. Pass explicit ids, or omit to replay everything in
      * the dead-letter table. The DELETE + INSERT runs as one statement, so a
      * conflicting live row aborts the whole replay and the DLQ row survives.
+     *
+     * The original `scheduled` is preserved: a job that was deliberately
+     * scheduled in the future and stalled before its window keeps that delay
+     * rather than firing immediately. Poison pills were `running` (scheduled in
+     * the past), so they become available at once anyway.
+     *
+     * Deliberately skips `insertGuard()` — replay is an explicit operator
+     * recovery action, so it must not be blocked by the queue-depth backpressure
+     * that gates normal enqueues, which would otherwise strand jobs in the DLQ.
      */
     async replayDeadLetterJobs(ids?: string[]): Promise<string[]> {
         const result = await this.pool.query<{ id: string }>(
@@ -268,7 +277,7 @@ export class CyclotronV2Manager {
                 (id, team_id, function_id, queue_name, status, priority, scheduled, created,
                  lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
                  parent_run_id, state, distinct_id, person_id, action_id)
-            SELECT id, team_id, function_id, original_queue_name, 'available', priority, NOW(), created,
+            SELECT id, team_id, function_id, original_queue_name, 'available', priority, scheduled, created,
                    NULL, NULL, 0, transition_count, NOW(),
                    parent_run_id, state, distinct_id, person_id, action_id
             FROM to_replay

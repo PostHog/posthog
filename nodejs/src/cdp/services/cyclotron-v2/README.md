@@ -50,7 +50,7 @@ It's enabled via `CDP_CYCLOTRON_NODE_ENABLED=true` and routed alongside the exis
 
 ## Dead-letter queue (poison pills only)
 
-Jobs that *fail* are deleted by the janitor along with completed and canceled jobs —
+Jobs that _fail_ are deleted by the janitor along with completed and canceled jobs —
 there is no failure DLQ, since failed jobs often produce more failed jobs on retry,
 and errors are captured via logs and metrics before the job reaches terminal status.
 
