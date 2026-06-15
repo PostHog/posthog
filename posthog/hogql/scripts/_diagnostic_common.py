@@ -616,10 +616,15 @@ def shrink_failures(
     isn't a stable shape to reduce toward (same limitation as the PBT path).
     Progress goes to stderr because shrinking a large failure set is slow."""
     out: list[Failure] = []
-    total = len(failures)
-    for i, fa in enumerate(failures):
-        if fa.kind in ("candidate_reject", "ast_mismatch"):
-            sys.stderr.write(f"\r  [shrink] {i + 1}/{total} …")
+    shrinkable = {"candidate_reject", "ast_mismatch"}
+    # Count only the shrinkable failures so the progress bar reflects work
+    # actually done — crashes are passed through verbatim, not shrunk.
+    shrinkable_total = sum(1 for fa in failures if fa.kind in shrinkable)
+    done = 0
+    for fa in failures:
+        if fa.kind in shrinkable:
+            done += 1
+            sys.stderr.write(f"\r  [shrink] {done}/{shrinkable_total} …")
             sys.stderr.flush()
             shape = _shape_for(fa.query, rule, oracle, candidate)
             if shape is not None:

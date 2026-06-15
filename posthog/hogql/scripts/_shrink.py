@@ -58,7 +58,10 @@ def shrink(initial: str, is_interesting: Callable[[str], bool], *, parallelism: 
             return False
         if not text.strip():
             return False
-        return is_interesting(text)
+        # is_interesting parses with both backends — CPU-bound and blocking.
+        # Run it on a worker thread so the trio event loop stays free if a
+        # caller ever raises parallelism above 1.
+        return await trio.to_thread.run_sync(is_interesting, text)
 
     async def drive() -> bytes:
         # Random(0) + parallelism=1 → deterministic repros; the predicate is CPU-bound and synchronous, so concurrency wouldn't help anyway.
