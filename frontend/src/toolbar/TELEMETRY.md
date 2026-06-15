@@ -71,6 +71,11 @@ Fired after a token refresh attempt (triggered automatically on 401 responses).
 | `duration_ms` | `number`               | Time taken for the refresh        |
 | `http_status` | `number`               | Only on `error`: HTTP status code |
 
+This analytics event fires on every failed refresh regardless of cause. A captured
+exception is only reported for genuine failures (5xx, network) — a 4xx means the refresh
+token is no longer valid (expired/revoked/rotated), which is an expected re-auth signal
+that triggers the re-auth flow without being surfaced to error tracking.
+
 **File:** `toolbarAuth.ts`
 
 ### `toolbar token expired`
