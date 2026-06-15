@@ -39,6 +39,10 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         return {
             "401 Client Error": "Your Webflow API token is invalid or expired. Please generate a new token and reconnect.",
             "403 Client Error": "Your Webflow API token is missing a required scope. Grant the read scopes for the resources you want to sync and reconnect.",
+            # Webflow returns 409 Conflict from the ecommerce list endpoints (products, orders)
+            # when the site does not have ecommerce enabled. This is a permanent per-site
+            # condition, so retrying never succeeds.
+            "409 Client Error": "This Webflow site does not have ecommerce enabled, so the products and orders resources can't be synced. Enable ecommerce in Webflow, or remove those resources from this source.",
         }
 
     def get_schemas(
