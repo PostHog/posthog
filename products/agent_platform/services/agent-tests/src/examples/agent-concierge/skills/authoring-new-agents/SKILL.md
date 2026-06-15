@@ -37,7 +37,7 @@ will throw away.
 ## Phase 1 — discover
 
 ```text
-agent-native-tools-list                  → built-in tool catalog
+@posthog/agent-applications-native-tools-list                → built-in tool catalog
 agent-applications-list                  → existing agents (clone target?)
 ```
 
@@ -76,9 +76,10 @@ calling any create endpoint. Cover:
   See `skills/secrets-and-integrations` → "Trigger-required secrets".
 - **`limits`** — usually defaults are fine. Tighten if the user
   needs a hard cost cap.
-- **`auth`** — for chat/mcp triggers, almost always `pat` or
-  `posthog_internal`. For webhook triggers, usually `shared_secret`.
-  `public` is unsafe unless the agent is genuinely B2C.
+- **`auth`** — per-trigger (`triggers[].auth.modes`). For chat/mcp
+  triggers, almost always `posthog` or `posthog_internal`. For webhook
+  triggers, usually `shared_secret`. `public` is unsafe unless the
+  agent is genuinely B2C.
 - **`reasoning`** — start unset (provider default). Bump to
   `medium` if the agent reasons hard; `high` if it does long
   triage; rarely `xhigh`.
@@ -97,7 +98,13 @@ on the first try.
 ```json
 {
   "model": "anthropic/claude-sonnet-4-6",
-  "triggers": [{ "type": "chat", "config": { "require_auth": true } }],
+  "triggers": [
+    {
+      "type": "chat",
+      "config": { "allow_restart": true },
+      "auth": { "modes": [{ "type": "posthog", "scopes": ["agent:read"] }] }
+    }
+  ],
   "tools": [
     { "kind": "native", "id": "@posthog/web-fetch" },
     { "kind": "custom", "id": "my-tool", "path": "tools/my-tool" }
@@ -106,18 +113,19 @@ on the first try.
   "secrets": ["MY_API_KEY"],
   "integrations": [],
   "limits": { "max_turns": 40, "max_tool_calls": 80, "max_wall_seconds": 600 },
-  "entrypoint": "agent.md",
-  "auth": { "modes": [{ "type": "pat" }] }
+  "entrypoint": "agent.md"
 }
 ```
 
 Field gotchas the model gets wrong every time:
 
-- **`auth`** is `{"modes": [{"type": "<mode>"}]}`, NOT `{"mode": "..."}`,
-  NOT `{"kind": "..."}`, NOT `"none"`. Valid types: `pat`,
-  `posthog_internal`, `oauth` (with `issuer` + `scopes`),
-  `shared_secret` (with `header`), `jwt` (with `issuer_secret_ref`),
-  `public` (with `acknowledge_public_exposure: true`).
+- **`auth`** is per-trigger: `triggers[].auth` is
+  `{"modes": [{"type": "<mode>"}]}`, NOT `{"mode": "..."}`,
+  NOT `{"kind": "..."}`, NOT `"none"`. There is no top-level
+  `spec.auth`. Valid types: `posthog` (with optional `scopes`),
+  `posthog_internal`, `shared_secret` (with `header`), `jwt`
+  (with `issuer_secret_ref`), `public` (with
+  `acknowledge_public_exposure: true`).
 - **Custom tool refs** require `{kind: "custom", id, path}` — all
   three fields. The `path` points at a directory under the bundle
   containing `source.ts` + `schema.json`. Without `path` the validator
@@ -205,15 +213,14 @@ never write a path; you upsert a typed object via one of these calls:
 | Resource      | Tool                                           | Body shape                                         |
 | ------------- | ---------------------------------------------- | -------------------------------------------------- |
 | System prompt | `agent-applications-revisions-agent-md-update` | `{ content }`                                      |
-| Spec          | `agent-applications-revisions-spec-update`     | `{ spec }` (author-facing slice — no skills/tools) |
+| Spec          | `agent-applications-revisions-partial-update`  | `{ spec }` (author-facing slice — no skills/tools) |
 | One skill     | `agent-applications-revisions-skills-update`   | `{ description, body, files? }`                    |
 | Delete skill  | `agent-applications-revisions-skills-destroy`  | (no body)                                          |
 | One tool      | `agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`             |
 | Delete tool   | `agent-applications-revisions-tools-destroy`   | (no body)                                          |
-| Whole bundle  | `agent-applications-revisions-bundle-update`   | `{ agent_md, skills, tools, spec }` — full replace |
 
 **`spec.skills[]` and `spec.tools[]` are server-derived at freeze.**
-You can't write them via `spec-update`. The janitor scans the typed
+You can't write them via `partial-update`. The janitor scans the typed
 resources in the bundle and emits the spec entries automatically.
 Orphan skills, dangling tool refs, and renaming-without-spec-patch
 are structurally impossible.
@@ -302,28 +309,26 @@ by tweaking the export style; the contract is `{actions: {default:
 fn}}` and nothing else.
 
 Use the **single-resource** typed PUTs (`skills-update`,
-`tools-update`, `agent-md-update`) for individual edits. Use the
-full **`bundle-update`** ONLY when you have authoritative state for
-the whole bundle and want to wipe-and-replace — it deletes anything
-not in the payload.
+`tools-update`, `agent-md-update`) for individual edits. There is no
+bulk bundle-replace verb — edit the one resource that changed rather
+than rewriting the whole bundle.
 
 ## Phase 6 — validate
 
 `agent-applications-revisions-validate-create`. Returns
-`{ ok, errors, warnings, resolved_natives }`. Fix every error before
-freeze — they block. Then walk every warning and decide what to do;
-they don't block but they're usually the bug.
+`{ ok, revision_id, revision_state, errors, resolved_natives }`. Fix
+every error before freeze — they block.
 
-### Why the orphan warnings went away
+### Why orphan diagnostics went away
 
 In the legacy file-grain world the validator emitted
 `orphan_custom_tool_dir` / `orphan_skill_file` when bundle files
 existed but no spec entry referenced them. With the typed authoring
-API those warnings are impossible: `spec.skills[]` and `spec.tools[]`
+API those diagnostics are impossible: `spec.skills[]` and `spec.tools[]`
 are **derived** from the typed resources at freeze, so a resource
 that exists ALWAYS has a matching spec entry. You can't drift them.
 
-If you see leftover orphan-warning prose in older docs, it's stale.
+If you see leftover orphan-diagnostic prose in older docs, it's stale.
 
 ## Phase 7 — freeze + test
 
@@ -360,12 +365,12 @@ revision before promoting.
   assistant for X". Will work for trivial cases, fail for
   anything specific. Push depth into skills.
 - **Premature custom tooling.** User reaches for a custom tool
-  before checking native ones. Cross-check `agent-native-tools-list`
+  before checking native ones. Cross-check `@posthog/agent-applications-native-tools-list`
   first — half the time the native tool exists.
 - **Secrets in `agent.md`.** Comes up often. Refuse hard, load
   `skills/secrets-and-integrations`.
 - **Public auth on a chat trigger.** Will be abused. Default to
-  `pat` and explain why.
+  `posthog` and explain why.
 
 ## What "good" looks like at v1
 

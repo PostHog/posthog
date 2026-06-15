@@ -1,9 +1,20 @@
 # Skill — designing MCP tool surfaces
 
-How to design the MCP surface an agent **exposes** (the
-`spec.mcp.tools[]` block). This is about agents-as-MCP-servers,
-not about consuming MCPs at runtime (that's `spec.mcps[]` — load
-`platform-mental-model` to keep the two straight).
+> **DESIGN-STAGE — NOT SHIPPED YET.** There is no `spec.mcp.tools[]`
+> authoring field today. The `mcp` trigger config is just
+> `{ allow_restart }`, and an MCP-enabled agent exposes exactly one
+> tool — the default `ask` — over its `/mcp` endpoint. Everything
+> below about curating `spec.mcp.tools[]` is forward-looking design
+> guidance: use it to _reason about_ what a curated surface should
+> look like, but **do not author a `spec.mcp.tools[]` block** — the
+> spec parser doesn't accept one, and it would fail validation. The
+> only field you set today is `triggers[].config.allow_restart` on
+> the `mcp` trigger.
+
+How to design the MCP surface an agent **exposes**. This is about
+agents-as-MCP-servers, not about consuming MCPs at runtime (that's
+`spec.mcps[]` — load `platform-mental-model` to keep the two
+straight).
 
 ## When this skill applies
 
@@ -23,10 +34,14 @@ This is enough for most agents. Don't over-engineer.
 
 ## When to add curated tools
 
-`spec.mcp.tools[]` (status: v1 work in
-`agent-as-mcp-server.md` §7 — currently the default `ask` is
-the only thing exposed) lets the author declare typed entry
-points beyond `ask`. Worth adding when:
+> **NOT SHIPPED.** `spec.mcp.tools[]` is design-stage only (v1 work
+> in `agent-as-mcp-server.md` §7) — currently the default `ask` is
+> the only thing exposed and the spec parser rejects a `tools[]`
+> block. Treat this section as a design rubric for when curated
+> tools _would_ be worth it, not as something you can author today.
+
+Once it ships, `spec.mcp.tools[]` will let the author declare typed
+entry points beyond `ask`. It would be worth adding when:
 
 - The agent has **distinct workflows**, each with a known input
   shape. A refund-processing agent has `request_refund({ order_id,
@@ -182,8 +197,11 @@ When you're helping the user design their MCP surface:
 
 ## Surfacing the connect snippet
 
-After designing the MCP surface, surface the
-`agent-applications-mcp-connect-info` output (status: shipped per
-`agent-as-mcp-server.md` v0) so the user can paste it into their
-client. Don't try to set up the client yourself — the user does
-that locally.
+After designing the MCP surface, point the user at where the connect
+snippet lives — it is **not** a callable tool. The ingress serves it
+as a public HTTP route, `GET /agents/<slug>/mcp/connect-info`, which
+returns the URL + auth instructions + paste-ready Claude Code / mcp.json
+snippets (the console's Connections tab renders the same thing). So
+either send them to the agent's **Connections** tab in the console or
+hand them the connect-info URL. Don't try to set up the client
+yourself — the user does that locally.

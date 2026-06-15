@@ -1,19 +1,20 @@
 # Skill — working outside the console
 
-How to be useful when there is no UI — load when `client.kind` is
-`mcp:*` (Claude Code, Cursor, MCP Inspector) or any other shape
-that doesn't declare `@posthog/ui/focus` in its handles. Without
-client tools, every navigation has to happen in text.
+How to be useful when there is no UI — load when the session
+reports a non-console client kind (Claude Code, Cursor, MCP
+Inspector, or any unknown shape) or when none of the `focus_*` /
+`toast` client tools are in your tool surface. Without client
+tools, every navigation has to happen in text.
 
 ## What changes vs the console
 
-| Capability                               | Console                                    | MCP / IDE                                   |
-| ---------------------------------------- | ------------------------------------------ | ------------------------------------------- |
-| User sees the artifact you're working on | Yes — `@posthog/ui/focus` drives the panel | No — the user sees only your text           |
-| User can context-switch by clicking      | Yes — they can wander                      | No — the conversation IS the navigation     |
-| Status notifications                     | `@posthog/ui/toast`                        | A short line in the chat                    |
-| Streaming partial output                 | Sometimes rendered nicely                  | Usually rendered as plain text              |
-| Approval requests                        | Inline buttons in the dock                 | A text instruction to take action elsewhere |
+| Capability                               | Console                               | MCP / IDE                                   |
+| ---------------------------------------- | ------------------------------------- | ------------------------------------------- |
+| User sees the artifact you're working on | Yes — `focus_*` tools drive the panel | No — the user sees only your text           |
+| User can context-switch by clicking      | Yes — they can wander                 | No — the conversation IS the navigation     |
+| Status notifications                     | `toast`                               | A short line in the chat                    |
+| Streaming partial output                 | Sometimes rendered nicely             | Usually rendered as plain text              |
+| Approval requests                        | Inline buttons in the dock            | A text instruction to take action elsewhere |
 
 The biggest shift: **the user has zero visibility into the
 artifacts you call MCP tools against unless you put them in
@@ -73,17 +74,20 @@ that has to summarize all 5. Prefer:
 
 ## Detecting that you're outside the console
 
-Look at the session-start info event. It includes `client.kind`.
+Look at the session-start info event — it reports the client
+kind. Treat it as a hint, not a contract:
 
-- `agent-console@1`, `agent-console-dock@*` → console
-- `mcp:claude-code`, `mcp:cursor`, `mcp:inspector`, `mcp:*` → IDE
-- `slack-adapter@*` → Slack (use the slack flow instead, not this
+- A console client (web app, dock) → console
+- An IDE / MCP client (Claude Code, Cursor, MCP Inspector, etc.)
+  → text-only mode
+- A Slack client → Slack (use the slack flow instead, not this
   skill — but slack isn't in v0 spec, so this won't fire today)
-- `unknown` or missing → assume MCP — text-only is the safer
-  default
+- Unknown or missing → assume non-console / MCP, since text-only
+  is the safer default
 
-You can also tell from your tool surface: if `@posthog/ui/focus`
-is missing, you're not in the console.
+The reliable signal is your own tool surface: if the `focus_*`
+and `toast` client tools are present you're in the console; if
+they're absent, you're not.
 
 ## MCP-specific affordances you DO have
 
@@ -116,8 +120,8 @@ direct:
 > - skills/slack-thread-protocol.md
 > - tests/happy-path.json
 >
-> Or, if you want the visual view, open the console at
-> console.agents.posthog.com → weekly-digest → bundle.
+> Or, if you want the visual view, open your PostHog agent console
+> → weekly-digest → bundle.
 
 Don't pretend you can drive a UI that isn't there.
 
