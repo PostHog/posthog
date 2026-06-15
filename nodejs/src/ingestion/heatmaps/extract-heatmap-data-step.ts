@@ -14,8 +14,8 @@ import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'
 
 export interface ExtractHeatmapDataStepInput {
     preparedEvent: PreIngestionEvent
-    headers?: EventHeaders
-    message?: Message
+    headers: EventHeaders
+    message: Message
 }
 
 /**
@@ -32,7 +32,7 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
 
         // When capture has already redirected heatmap data to the heatmaps topic,
         // skip extraction here — capture strips $heatmap_data before publishing.
-        if (headers?.skip_heatmap_processing) {
+        if (headers.skip_heatmap_processing) {
             return Promise.resolve(ok({ ingested: [] }))
         }
 
@@ -40,10 +40,11 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
         const ingested: Promise<IngestedEventInfo | null>[] = []
         const warnings: PipelineWarning[] = []
 
-        const ingestedInfo: IngestedEventInfo | undefined =
-            message !== undefined
-                ? { capturedAt: headers?.now, topic: message.topic, partition: message.partition }
-                : undefined
+        const ingestedInfo: IngestedEventInfo = {
+            capturedAt: headers.now,
+            topic: message.topic,
+            partition: message.partition,
+        }
 
         try {
             const extractResult = extractScrollDepthHeatmapData(preparedEvent)
@@ -65,17 +66,15 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
                     }))
                 )
                 acks.push(ack)
-                if (ingestedInfo !== undefined) {
-                    // Self-handle the lag-tracking branch so a produce failure can never surface
-                    // as an unhandled rejection: a failed produce resolves to null (no lag sample).
-                    // The raw `ack` in side effects still carries the error for normal handling.
-                    ingested.push(
-                        ack.then(
-                            () => ingestedInfo,
-                            () => null
-                        )
+                // Self-handle the lag-tracking branch so a produce failure can never surface
+                // as an unhandled rejection: a failed produce resolves to null (no lag sample).
+                // The raw `ack` in side effects still carries the error for normal handling.
+                ingested.push(
+                    ack.then(
+                        () => ingestedInfo,
+                        () => null
                     )
-                }
+                )
             }
         } catch {
             warnings.push({
