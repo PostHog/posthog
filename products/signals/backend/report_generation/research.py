@@ -101,7 +101,9 @@ class PriorityAssessment(BaseModel):
     explanation: str = Field(
         description=(
             "2-3 sentence justification for the priority level. "
-            "Reference quantified user impact, error frequency, or scope of affected code paths."
+            "Cite a quantified figure from your research — error frequency, affected user/session count, "
+            "or scope of affected code paths. If impact could not be measured, say so explicitly and explain "
+            "why the priority is not lowered further."
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
@@ -143,7 +145,7 @@ An Axios-style summary in four brief paragraphs:
 - A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
 - '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
 - '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
-- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly. Skip if the report is not actionable.
+- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly and resolves the symptom described in **What's happening** (not merely an adjacent issue). Skip if the report is not actionable.
 
 Principles:
 - Be direct and specific. Every sentence must carry information.

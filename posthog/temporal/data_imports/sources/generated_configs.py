@@ -115,7 +115,8 @@ class ActiveCampaignSourceConfig(config.Config):
 
 @config.config
 class AdRollSourceConfig(config.Config):
-    pass
+    client_id: str
+    personal_access_token: str
 
 
 @config.config
@@ -156,11 +157,39 @@ class AirtableSourceConfig(config.Config):
 
 @config.config
 class AmazonAdsSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    refresh_token: str
+    region: Literal["na", "eu", "fe"] = config.value(default="na")
+
+
+@config.config
+class AmazonCloudWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonEventBridgeSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonKinesisSourceConfig(config.Config):
     pass
 
 
 @config.config
 class AmazonS3SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSNSSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSQSSourceConfig(config.Config):
     pass
 
 
@@ -178,7 +207,7 @@ class AmplitudeSourceConfig(config.Config):
 
 @config.config
 class ApolloSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -188,7 +217,8 @@ class AppleSearchAdsSourceConfig(config.Config):
 
 @config.config
 class AppsFlyerSourceConfig(config.Config):
-    pass
+    app_id: str
+    api_token: str
 
 
 @config.config
@@ -203,7 +233,7 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AttentiveSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -262,7 +292,9 @@ class BoxSourceConfig(config.Config):
 
 @config.config
 class BraintreeSourceConfig(config.Config):
-    pass
+    public_key: str
+    private_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -320,7 +352,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class CheckoutComSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -336,7 +370,8 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class ClariSourceConfig(config.Config):
-    pass
+    api_key: str
+    forecast_id: str
 
 
 @config.config
@@ -370,7 +405,7 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudflareSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -380,7 +415,7 @@ class CockroachDBSourceConfig(config.Config):
 
 @config.config
 class CodaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -429,7 +464,9 @@ class CosmosDBSourceConfig(config.Config):
 
 @config.config
 class CoupaSourceConfig(config.Config):
-    pass
+    instance_url: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -444,7 +481,9 @@ class CrunchbaseSourceConfig(config.Config):
 
 @config.config
 class CultureAmpSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    account_id: str
 
 
 @config.config
@@ -482,7 +521,7 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DeelSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -497,7 +536,7 @@ class DisplayVideo360SourceConfig(config.Config):
 
 @config.config
 class DixaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -591,7 +630,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FullStorySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -609,7 +648,9 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GladlySourceConfig(config.Config):
-    pass
+    organization: str
+    agent_email: str
+    api_token: str
 
 
 @config.config
@@ -702,7 +743,8 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HiBobSourceConfig(config.Config):
-    pass
+    service_user_id: str
+    service_user_token: str
 
 
 @config.config
@@ -773,7 +815,8 @@ class LeverSourceConfig(config.Config):
 
 @config.config
 class LightspeedRetailSourceConfig(config.Config):
-    pass
+    domain_prefix: str
+    api_token: str
 
 
 @config.config
@@ -828,7 +871,9 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MatomoSourceConfig(config.Config):
-    pass
+    host: str
+    site_id: str
+    api_token: str
 
 
 @config.config
@@ -858,7 +903,7 @@ class MollieSourceConfig(config.Config):
 
 @config.config
 class MondaySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -906,6 +951,11 @@ class OneDriveSourceConfig(config.Config):
 
 
 @config.config
+class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class OpsgenieSourceConfig(config.Config):
     pass
 
@@ -932,12 +982,14 @@ class OracleSourceConfig(config.Config):
 
 @config.config
 class OrttoSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["global", "au", "eu"] = config.value(default="global")
 
 
 @config.config
 class OutbrainSourceConfig(config.Config):
-    pass
+    username: str
+    password: str
 
 
 @config.config
@@ -1013,7 +1065,10 @@ class PipedriveSourceConfig(config.Config):
 
 @config.config
 class PlaidSourceConfig(config.Config):
-    pass
+    client_id: str
+    secret: str
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -1065,7 +1120,9 @@ class QuickBooksSourceConfig(config.Config):
 
 @config.config
 class RampSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -1280,7 +1337,9 @@ class SurveyMonkeySourceConfig(config.Config):
 
 @config.config
 class TaboolaSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    account_id: str
 
 
 @config.config
@@ -1396,7 +1455,17 @@ class ZoomSourceConfig(config.Config):
 
 @config.config
 class ZuoraSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal[
+        "us_production",
+        "us_api_sandbox",
+        "us_cloud_production",
+        "us_cloud_sandbox",
+        "eu_production",
+        "eu_sandbox",
+        "central_sandbox",
+    ] = config.value(default="us_production")
 
 
 def get_config_for_source(source: ExternalDataSourceType):
@@ -1411,7 +1480,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AIRCALL: AircallSourceConfig,
         ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
         ExternalDataSourceType.AMAZONADS: AmazonAdsSourceConfig,
+        ExternalDataSourceType.AMAZONCLOUDWATCH: AmazonCloudWatchSourceConfig,
+        ExternalDataSourceType.AMAZONEVENTBRIDGE: AmazonEventBridgeSourceConfig,
+        ExternalDataSourceType.AMAZONKINESIS: AmazonKinesisSourceConfig,
         ExternalDataSourceType.AMAZONS3: AmazonS3SourceConfig,
+        ExternalDataSourceType.AMAZONSNS: AmazonSNSSourceConfig,
+        ExternalDataSourceType.AMAZONSQS: AmazonSQSSourceConfig,
         ExternalDataSourceType.AMAZONSELLINGPARTNER: AmazonSellingPartnerSourceConfig,
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
@@ -1543,6 +1617,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
         ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+        ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
         ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
         ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
         ExternalDataSourceType.ORACLE: OracleSourceConfig,

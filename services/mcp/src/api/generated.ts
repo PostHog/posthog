@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -11572,6 +11572,22 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
+    export interface ContextGeneration {
+      /**
+         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ContextGenerationSet {
+      /**
+         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
     export type ConversationMessagesItem = { [key: string]: unknown };
 
     export type ConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -13595,6 +13611,12 @@ export namespace Schemas {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -13827,6 +13849,12 @@ export namespace Schemas {
       SapSuccessFactors: 'SapSuccessFactors',
       OracleEbs: 'OracleEbs',
       OracleFusion: 'OracleFusion',
+      AmazonSNS: 'AmazonSNS',
+      AmazonEventBridge: 'AmazonEventBridge',
+      AmazonSQS: 'AmazonSQS',
+      AmazonKinesis: 'AmazonKinesis',
+      AmazonCloudWatch: 'AmazonCloudWatch',
+      OpenAIAds: 'OpenAIAds',
       Custom: 'Custom',
     } as const;
 
@@ -14066,6 +14094,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -14781,6 +14815,15 @@ export namespace Schemas {
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
       design?: EmailTemplateDesign;
     }
+
+    export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
+
+
+    export const EmbeddingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Disabled: 'disabled',
+    } as const;
 
     /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
@@ -18183,6 +18226,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -22220,6 +22269,8 @@ export namespace Schemas {
       readonly next_refresh_at: string | null;
       /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
       readonly has_unsafe_documents: boolean;
+      /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+      readonly embedding_status: EmbeddingStatusEnum;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -24124,6 +24175,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -24137,6 +24189,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -26074,6 +26127,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       archived?: boolean;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedProductTourList {
@@ -27698,6 +27753,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       form_content?: unknown;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedSurveyList {
@@ -29084,7 +29141,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -34093,6 +34150,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -40622,18 +40683,13 @@ export namespace Schemas {
     export interface SourceConnectLink {
       /** The source type the link is for. */
       source_type: string;
-      /** 'oauth' = the user authorizes in their browser; 'credentials' = the user enters credentials in the PostHog UI. Either way secrets never pass through the agent.
+      /** What the user will do on the connect page: 'oauth' = authorize an account in their browser; 'credentials' = enter connection details (or pick OAuth where the source offers both). Either way secrets never pass through the agent, and the result is always a stored credential id.
        *
        * * `oauth` - oauth
        * * `credentials` - credentials */
       auth_method: AuthMethodEnum;
-      /** Full URL to share with the user. They open it in a browser to authorize or enter credentials directly in PostHog — credentials never pass through the agent or the chat. */
+      /** Full URL to share with the user. It opens the source's connection form in PostHog — credentials never pass through the agent or the chat. */
       connect_url: string;
-      /**
-         * The payload key to pass to data-warehouse-source-setup: for OAuth sources, the source's integration id key (e.g. 'hubspot_integration_id'); for credential sources, 'credential_id' referencing the credentials the user stored via the connect page.
-         * @nullable
-         */
-      integration_field: string | null;
       /** Next steps for the agent to relay to the user. */
       instructions: string;
     }
@@ -40883,6 +40939,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -40915,7 +40977,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
      */
     export type SourceSetupPayload = { [key: string]: unknown };
 
@@ -41148,9 +41210,15 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
-      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
          * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -43866,7 +43934,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *
@@ -44258,6 +44326,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsConversationsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -44270,6 +44349,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsCoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -45369,6 +45459,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type EnvironmentsGroupsRelatedRetrieveParams = {
@@ -47218,6 +47312,62 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsMaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMcpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsMcpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -47710,6 +47860,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsPropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type EnvironmentsPropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -47851,6 +48023,27 @@ export namespace Schemas {
     export const EnvironmentsSubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+    } as const;
+
+    export type EnvironmentsSubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: EnvironmentsSubscriptionsDeliveriesListStatus;
+    };
+
+    export type EnvironmentsSubscriptionsDeliveriesListStatus = typeof EnvironmentsSubscriptionsDeliveriesListStatus[keyof typeof EnvironmentsSubscriptionsDeliveriesListStatus];
+
+
+    export const EnvironmentsSubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
     } as const;
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
@@ -48252,127 +48445,6 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
-
-    export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
-
-    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
-
-    export type McpAnalyticsFeedbackListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsMissingCapabilitiesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsSessionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
-     */
-    order_by?: string;
-    /**
-     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
-     */
-    search?: string;
-    };
-
-    export type McpAnalyticsSessionsToolCallsParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PropertyAccessControlsRetrieveParams = {
-    /**
-     * The property definition ID to fetch access control rules for.
-     */
-    property_definition_id: string;
-    };
-
-    export type PropertyAccessControlsDestroyParams = {
-    /**
-     * The organization member UUID whose override should be deleted.
-     */
-    organization_member?: string;
-    /**
-     * The property definition ID the rule applies to.
-     */
-    property_definition_id: string;
-    /**
-     * The role UUID whose override should be deleted.
-     */
-    role?: string;
-    };
-
-    export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus;
-    };
-
-    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
-
-
-    export const SubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
-    } as const;
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
@@ -48919,6 +48991,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -48998,6 +49071,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -49063,6 +49137,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -49130,6 +49205,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -49557,6 +49633,17 @@ export namespace Schemas {
       Task: 'task',
     } as const;
 
+    export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsTicketsListParams = {
     /**
      * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
@@ -49681,6 +49768,17 @@ export namespace Schemas {
     };
 
     export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -51211,6 +51309,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type GroupsRelatedRetrieveParams = {
@@ -53190,6 +53292,62 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -53741,6 +53899,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type PropertyDefinitionsListParams = {
     /**
      * If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded
@@ -54217,6 +54397,27 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+    } as const;
+
+    export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus;
+    };
+
+    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
+
+
+    export const SubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
     } as const;
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {

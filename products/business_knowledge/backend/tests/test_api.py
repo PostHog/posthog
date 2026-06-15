@@ -1,11 +1,15 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.business_knowledge.backend import logic
+from products.business_knowledge.backend.constants import CLASSIFY_MAX_ATTEMPTS
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 
 
@@ -109,6 +113,55 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         response = self.client.post(self.url, {"name": "Docs", "text": "hello"}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["source_type"] == "text"
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestEmbeddingStatusAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
+
+    def _create_source(self) -> str:
+        response = self.client.post(self.url, {"name": "Docs", "text": "Some content."}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        return response.json()["id"]
+
+    def test_fresh_source_is_pending(self, _ff) -> None:
+        # The doc starts UNKNOWN — classification + embedding are still ahead,
+        # and that must be visible from the create response already.
+        response = self.client.post(self.url, {"name": "Docs", "text": "Some content."}, format="json")
+        assert response.json()["embedding_status"] == "pending"
+
+    @parameterized.expand(
+        [
+            ("awaiting_classification", SafetyVerdict.UNKNOWN, 0, False, "pending"),
+            # Past the attempt cap the coordinator stops re-queuing — the doc
+            # will never embed, so the source must not look pending forever.
+            ("classification_gave_up", SafetyVerdict.UNKNOWN, CLASSIFY_MAX_ATTEMPTS, False, "completed"),
+            ("awaiting_embedding_emit", SafetyVerdict.SAFE, 0, False, "pending"),
+            ("embedded", SafetyVerdict.SAFE, 0, True, "completed"),
+            ("unsafe_never_embeds", SafetyVerdict.UNSAFE, 0, False, "completed"),
+        ]
+    )
+    def test_embedding_status_reflects_document_state(self, _ff, name, verdict, attempts, emitted, expected) -> None:
+        source_id = self._create_source()
+        KnowledgeDocument.objects.unscoped().filter(source_id=source_id).update(
+            safety_verdict=verdict,
+            classification_attempts=attempts,
+            embeddings_emitted_at=timezone.now() if emitted else None,
+        )
+        retrieve = self.client.get(f"{self.url}{source_id}/").json()
+        assert retrieve["embedding_status"] == expected, name
+        listed = self.client.get(self.url).json()["results"]
+        assert listed[0]["embedding_status"] == expected, name
+
+    @parameterized.expand([("declined", False), ("undecided", None)])
+    def test_disabled_when_org_has_not_approved_ai_processing(self, _ff, _name, approved) -> None:
+        source_id = self._create_source()
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        response = self.client.get(f"{self.url}{source_id}/").json()
+        assert response["embedding_status"] == "disabled"
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
