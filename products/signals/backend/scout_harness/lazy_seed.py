@@ -276,7 +276,7 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     SHA-256 is overkill cryptographically but content-addressable hashes are cheap and we want
     no false positives.
     """
-    payload = {
+    payload: dict[str, object] = {
         "description": canonical.description,
         "body": canonical.body,
         "allowed_tools": sorted(canonical.allowed_tools),
@@ -292,7 +292,7 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
 def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
     """Hash a team's `LLMSkill` row in the same shape as `_compute_canonical_hash` so the two
     can be compared directly. Caller must pre-fetch `files` to avoid an N+1 inside the hash."""
-    payload = {
+    payload: dict[str, object] = {
         "description": skill.description,
         "body": skill.body,
         "allowed_tools": sorted(skill.allowed_tools or []),
