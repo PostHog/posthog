@@ -141,12 +141,12 @@ export const generateEmailTrackingCode = (invocation: TrackingInvocation, isTest
 // Unsigned tracking code for the SES `EmailTags` carrier. Omitting the signature keeps the
 // value short enough to stay within the 256-char tag cap; the tag arrives via the SNS webhook,
 // which is already integrity-protected by SNS signing, so it does not need its own signature.
-export const generateShortEmailTrackingCode = (invocation: TrackingInvocation, isTest = false): string => {
+// This is a legacy backwards-compat carrier only — new fields (e.g. isTest) live on the signed
+// code in generateEmailTrackingCode, which the webhook reads first.
+export const generateShortEmailTrackingCode = (invocation: TrackingInvocation): string => {
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
-    return toBase64UrlSafe(
-        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}`
-    )
+    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`)
 }
 
 export const generateEmailTrackingPixelUrl = (invocation: TrackingInvocation, isTest = false): string => {

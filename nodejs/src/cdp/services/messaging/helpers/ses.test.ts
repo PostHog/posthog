@@ -111,8 +111,10 @@ describe('SesWebhookHandler', () => {
     it('skips metrics for test sends (isTest tracking code)', async () => {
         const testMail = {
             ...baseMail,
+            // isTest rides on the signed header code (preferred by the webhook); the short tag
+            // code stays legacy-shaped without it.
             headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
-            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation, true)] },
+            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
         }
         const body = [
             {
@@ -129,8 +131,10 @@ describe('SesWebhookHandler', () => {
     it('still opts out recipients on a permanent bounce even for test sends', async () => {
         const testMail = {
             ...baseMail,
+            // isTest rides on the signed header code (preferred by the webhook); the short tag
+            // code stays legacy-shaped without it.
             headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
-            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation, true)] },
+            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
         }
         const body = [
             {

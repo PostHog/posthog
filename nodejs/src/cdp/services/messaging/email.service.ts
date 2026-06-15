@@ -201,8 +201,9 @@ export class EmailService {
         }
         const trackingCode = generateEmailTrackingCode(result.invocation, isTest)
         // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
-        // limit. The full signed code rides in the header below.
-        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation, isTest)
+        // limit. Legacy backwards-compat carrier only; the full signed code (with isTest) rides in
+        // the header below, which the webhook reads first.
+        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
 
         const htmlBody = params.html
             ? {
