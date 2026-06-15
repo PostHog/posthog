@@ -62,6 +62,13 @@ export default defineConfig({
             // resolved via the `products` alias can't find it. Pin to this
             // package's installed copy (matches the version Quill expects).
             { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            // Same reason for react/react-dom: Vite 7 resolves the plugin-react
+            // jsx-runtime import relative to the importing file, and files reached
+            // via the `products` alias have no react in their node_modules tree
+            // (products/ isn't a dep of this package). Pin both, plus subpaths
+            // like react/jsx-runtime, to this package's installed copy.
+            { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
+            { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
             { find: '@common', replacement: resolve(__dirname, '../../common') },
         ],
     },
