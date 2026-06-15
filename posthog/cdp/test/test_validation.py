@@ -606,3 +606,106 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert "bracket notation" in error_msg
         else:
             compile_hog(hog_code, "destination")
+
+    def test_non_failure_status_codes_schema_type_is_valid(self):
+        inputs_schema = [
+            {
+                "key": "non_failure_status_codes",
+                "type": "non_failure_status_codes",
+                "label": "Ignored response codes",
+                "required": False,
+            }
+        ]
+        validated = validate_inputs_schema(inputs_schema)
+        assert validated[0]["type"] == "non_failure_status_codes"
+        assert validated[0]["key"] == "non_failure_status_codes"
+
+    @parameterized.expand(
+        [
+            ("exact_numbers", [400, 429]),
+            ("wildcards", ["4xx", "5xx"]),
+            ("mixed", ["4xx", 500]),
+            ("single_number", [400]),
+            ("single_wildcard", ["4xx"]),
+            ("empty_list", []),
+        ]
+    )
+    def test_validate_non_failure_status_codes_accepts_valid_values(self, _name, value):
+        inputs_schema = [{"key": "non_failure_status_codes", "type": "non_failure_status_codes", "required": False}]
+        inputs = {"non_failure_status_codes": {"value": value}}
+        validated = validate_inputs(inputs_schema, inputs)
+        # Empty list short-circuits (falsy value path), but anything truthy round-trips intact
+        if value:
+            assert validated["non_failure_status_codes"]["value"] == value
+
+    @parameterized.expand(
+        [
+            ("non_list_string", "4xx"),
+            ("non_list_number", 400),
+            ("non_list_dict", {"foo": "bar"}),
+            ("invalid_wildcard_9xx", ["9xx"]),
+            ("informational_wildcard_1xx", ["1xx"]),
+            ("success_wildcard_2xx", ["2xx"]),
+            ("redirect_wildcard_3xx", ["3xx"]),
+            ("invalid_string", ["foo"]),
+            ("out_of_range_low_negative", [-1]),
+            ("out_of_range_low_below_400", [200]),
+            ("out_of_range_low_399", [399]),
+            ("out_of_range_high", [1000]),
+            ("mixed_invalid", [400, "9xx"]),
+            ("mixed_with_2xx", [500, "2xx"]),
+            ("float_value", [400.5]),
+            ("bool_value", [True]),
+        ]
+    )
+    def test_validate_non_failure_status_codes_rejects_invalid_values(self, _name, value):
+        inputs_schema = [{"key": "non_failure_status_codes", "type": "non_failure_status_codes", "required": False}]
+        inputs = {"non_failure_status_codes": {"value": value}}
+        with self.assertRaises(ValidationError):
+            validate_inputs(inputs_schema, inputs)
+
+    def test_posthog_ticket_tags_schema_type_is_valid(self):
+        inputs_schema = [
+            {
+                "key": "tags",
+                "type": "posthog_ticket_tags",
+                "label": "Tags",
+                "required": False,
+            }
+        ]
+        validated = validate_inputs_schema(inputs_schema)
+        assert validated[0]["type"] == "posthog_ticket_tags"
+        assert validated[0]["key"] == "tags"
+
+    @parameterized.expand(
+        [
+            # Reproduces the original user report: a mixed literal prefix plus a workflow variable.
+            ("template_workflow_variable", ["zendesk/{variables.zendesk_ticketid}"]),
+            # Pure event-property substitution.
+            ("template_event_property", ["{event.properties.region}"]),
+            # Literal-only list still gets per-element bytecode — back-compat path.
+            ("literal_only", ["top_20"]),
+            # Mix of literal and templated tags in a single list.
+            ("mixed_literal_and_templated", ["plan_enterprise", "{event.properties.region}"]),
+        ]
+    )
+    def test_posthog_ticket_tags_compiles_per_element_bytecode(self, _name, value):
+        # Regression guard for the InputsItemSerializer opt-in. Before posthog_ticket_tags
+        # was added to the list of types that go through generate_template_bytecode, list
+        # values shipped without a `bytecode` field, so the Node runtime had nothing to
+        # interpolate against and tags ended up containing the literal placeholder text
+        # (e.g. a tag literally named `zendesk/{variables.zendesk_ticketid}`).
+        inputs_schema = [{"key": "tags", "type": "posthog_ticket_tags", "required": False}]
+        inputs = {"tags": {"value": value}}
+        validated = validate_inputs(inputs_schema, inputs)
+
+        bytecode = validated["tags"].get("bytecode")
+        assert bytecode is not None, "tags input must have bytecode after the opt-in"
+        assert isinstance(bytecode, list), "list values compile to a list of per-element bytecode"
+        assert len(bytecode) == len(value), "one bytecode entry per tag element"
+        for entry in bytecode:
+            assert isinstance(entry, list) and entry[:2] == ["_H", HOGQL_BYTECODE_VERSION], (
+                "each element is itself a Hog bytecode array"
+            )
+        # The original value round-trips so the UI can still render the templated source string.
+        assert validated["tags"]["value"] == value

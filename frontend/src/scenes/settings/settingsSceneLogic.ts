@@ -97,6 +97,11 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                         activity_scope: ActivityScope.PERSONAL_API_KEY,
                     }
                 }
+                if (selectedSectionId === 'user-connected-apps') {
+                    return {
+                        activity_scope: ActivityScope.OAUTH_APPLICATION,
+                    }
+                }
                 return null
             },
         ],

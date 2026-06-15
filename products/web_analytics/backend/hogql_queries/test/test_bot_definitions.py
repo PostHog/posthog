@@ -69,15 +69,19 @@ class TestBotDefinitionsDataStructure:
             # Search Crawlers
             ("Googlebot", "Googlebot", "search_crawler", "Bot"),
             ("bingbot", "Bingbot", "search_crawler", "Bot"),
+            ("YisouSpider", "Yisou", "search_crawler", "Bot"),
             # SEO Tools
             ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
+            ("MeltwaterNews", "Meltwater", "seo_crawler", "Bot"),
             # Social Crawlers
             ("FacebookBot", "Facebook Bot", "social_crawler", "Bot"),
             ("facebookexternalhit", "Facebook", "social_crawler", "Bot"),
             # Monitoring
             ("Datadog", "Datadog", "monitoring", "Bot"),
+            ("GrafanaSyntheticMonitoring", "Grafana Synthetic", "monitoring", "Bot"),
             # HTTP Clients
             ("curl/", "curl", "http_client", "Automation"),
+            ("AmazonProductDiscovery", "Amazon Product Discovery", "http_client", "Bot"),
             # Headless Browsers
             ("HeadlessChrome", "Headless Chrome", "headless_browser", "Automation"),
         ],

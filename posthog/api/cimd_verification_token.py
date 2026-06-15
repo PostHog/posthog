@@ -56,7 +56,7 @@ class CIMDVerificationTokenWithValueSerializer(CIMDVerificationTokenSerializer):
         read_only_fields = [*CIMDVerificationTokenSerializer.Meta.read_only_fields, "value"]
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class CIMDVerificationTokenViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -67,10 +67,11 @@ class CIMDVerificationTokenViewSet(
 ):
     """Manage CIMD verification tokens for an organization.
 
-    A partner embeds the plaintext token in their CIMD metadata document under
-    `posthog_verification_token`. When PostHog fetches the metadata, matching
-    the token links the partner app to this organization and grants a higher
-    default rate limit for account provisioning.
+    A partner embeds the plaintext token in their CIMD metadata document as
+    `verification_token` inside the `com.posthog` object (the legacy top-level
+    `posthog_verification_token` field still works as a fallback). When PostHog fetches
+    the metadata, matching the token links the partner app to this organization and
+    grants a higher default rate limit for account provisioning.
 
     The plaintext value is only available on creation; we store a hash.
     """

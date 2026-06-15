@@ -5,15 +5,15 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
+from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.event_usage import EventSource, report_user_action
-from posthog.models import Insight
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -170,7 +170,18 @@ class UpsertDashboardTool(MaxTool):
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
-        await self._report_dashboard_action(dashboard, "dashboard created")
+        # AI dashboards are always built from scratch (no template, no duplicate); set the same provenance
+        # props the serializer create() path emits so `from_template`/`duplicated` filters include AI traffic.
+        await self._report_dashboard_action(
+            dashboard,
+            "dashboard created",
+            {
+                "from_template": False,
+                "template_key": None,
+                "duplicated": False,
+                "duplicated_from_dashboard_id": None,
+            },
+        )
         await self._report_new_insights(validated_artifacts, insights)
         output = await self._format_dashboard_output(dashboard, insights)
 
@@ -224,7 +235,10 @@ class UpsertDashboardTool(MaxTool):
                 content = result.content
                 # Coerce query to the QuerySchema union
                 coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
-                if isinstance(coerced_query, HogQLQuery):
+                if isinstance(coerced_query, DataVisualizationNode):
+                    # SQL-backed insight: already a top-level query node, keep its display/chart settings as-is.
+                    converted = coerced_query.model_dump(exclude_none=True)
+                elif isinstance(coerced_query, HogQLQuery):
                     converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
                 else:
                     converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
@@ -241,13 +255,16 @@ class UpsertDashboardTool(MaxTool):
 
         return resolved
 
-    async def _report_dashboard_action(self, dashboard: Dashboard, event: str) -> None:
+    async def _report_dashboard_action(
+        self, dashboard: Dashboard, event: str, extra_properties: dict[str, Any] | None = None
+    ) -> None:
         await database_sync_to_async(report_user_action)(
             self._user,
             event,
             {
                 **await database_sync_to_async(dashboard.get_analytics_metadata)(),
                 "source": EventSource.POSTHOG_AI,
+                **(extra_properties or {}),
             },
             team=self._team,
         )

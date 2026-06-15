@@ -1,14 +1,23 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
+
+import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLogic'
+import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
+import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
@@ -190,51 +199,201 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
     )
 }
 
-function NewCollectionModal(): JSX.Element {
-    const { isNewCollectionDialogOpen, selectedRecordingsIds, newCollectionName } =
-        useValues(sessionRecordingsPlaylistLogic)
-    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
-        useActions(sessionRecordingsPlaylistLogic)
+export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Element {
+    const {
+        isAddToCollectionModalOpen,
+        selectedRecordingsIds,
+        addToCollectionSearch,
+        collectionsForBulkAdd,
+        collectionsForBulkAddLoading,
+        isCreatingNewCollectionInModal,
+        newCollectionName,
+    } = useValues(sessionRecordingsPlaylistLogic)
+    const {
+        setIsAddToCollectionModalOpen,
+        setAddToCollectionSearch,
+        setIsCreatingNewCollectionInModal,
+        setNewCollectionName,
+        handleBulkAddToPlaylist,
+        handleCreateNewCollectionBulkAdd,
+    } = useActions(sessionRecordingsPlaylistLogic)
     const { loadPlaylists } = useActions(sessionRecordingCollectionsLogic)
 
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SessionRecording,
+        AccessControlLevel.Editor
+    )
+
     const handleClose = (): void => {
-        setIsNewCollectionDialogOpen(false)
-        setNewCollectionName('')
+        setIsAddToCollectionModalOpen(false)
     }
 
+    const recordingCountSuffix = `${selectedRecordingsIds.length} recording${
+        selectedRecordingsIds.length > 1 ? 's' : ''
+    }`
+
+    const collections = (collectionsForBulkAdd?.results ?? []).filter((p) => (shortId ? p.short_id !== shortId : true))
+
     return (
-        <LemonModal isOpen={isNewCollectionDialogOpen} onClose={handleClose} title="Create collection" maxWidth="500px">
-            <div className="space-y-4">
-                <p>
-                    Collections help you organize and save recordings for later analysis. This will create a new
-                    collection with the {selectedRecordingsIds.length} selected recording
-                    {selectedRecordingsIds.length > 1 ? 's' : ''}.
-                </p>
-                <div className="space-y-2">
-                    <label className="text-sm font-medium">Collection name</label>
+        <LemonModal
+            isOpen={isAddToCollectionModalOpen}
+            onClose={handleClose}
+            title={isCreatingNewCollectionInModal ? 'Create collection' : 'Add to collection'}
+            maxWidth="500px"
+        >
+            {!isCreatingNewCollectionInModal ? (
+                <div className="space-y-3">
+                    <p className="mb-0 text-secondary">Add {recordingCountSuffix} to an existing collection.</p>
                     <LemonInput
-                        value={newCollectionName}
-                        onChange={setNewCollectionName}
-                        placeholder="e.g., Bug reports, User onboarding, Feature usage"
-                        className="w-full"
+                        type="search"
+                        placeholder="Search collections"
+                        value={addToCollectionSearch}
+                        onChange={setAddToCollectionSearch}
+                        fullWidth
                         autoFocus
                     />
+                    <div className="border border-primary rounded overflow-hidden">
+                        <div className="max-h-80 overflow-y-auto">
+                            {collectionsForBulkAddLoading ? (
+                                <div className="p-4 text-center">
+                                    <Spinner textColored />
+                                </div>
+                            ) : collections.length === 0 ? (
+                                <div className="p-4 text-center text-secondary">
+                                    {addToCollectionSearch ? 'No collections match your search' : 'No collections yet'}
+                                </div>
+                            ) : (
+                                <ul className="m-0 p-0 list-none">
+                                    {collections.map((playlist) => (
+                                        <li key={playlist.short_id}>
+                                            <LemonButton
+                                                fullWidth
+                                                size="small"
+                                                disabledReason={accessControlDisabledReason}
+                                                onClick={() => {
+                                                    handleBulkAddToPlaylist(playlist.short_id)
+                                                    handleClose()
+                                                }}
+                                                data-attr="add-to-existing-collection-item"
+                                            >
+                                                <div className="flex flex-col items-start w-full">
+                                                    <span className="truncate w-full">
+                                                        {playlist.name || playlist.derived_name || 'Unnamed'}
+                                                    </span>
+                                                    {playlist.last_modified_at ? (
+                                                        <span className="text-xs text-secondary">
+                                                            Updated {dayjs(playlist.last_modified_at).fromNow()}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </LemonButton>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex justify-between items-center gap-2 mt-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            onClick={() => setIsCreatingNewCollectionInModal(true)}
+                            disabledReason={accessControlDisabledReason}
+                            data-attr="add-to-new-collection"
+                        >
+                            New collection
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={handleClose}>
+                            Cancel
+                        </LemonButton>
+                    </div>
                 </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-8">
-                <LemonButton type="secondary" onClick={handleClose}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
-                    onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
-                >
-                    Create collection
-                </LemonButton>
-            </div>
+            ) : (
+                <div className="space-y-4">
+                    <p>
+                        Collections help you organize and save recordings for later analysis. This will create a new
+                        collection with the {recordingCountSuffix}.
+                    </p>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Collection name</label>
+                        <LemonInput
+                            value={newCollectionName}
+                            onChange={setNewCollectionName}
+                            placeholder="e.g., Bug reports, User onboarding, Feature usage"
+                            className="w-full"
+                            autoFocus
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2 mt-8">
+                        <LemonButton type="secondary" onClick={() => setIsCreatingNewCollectionInModal(false)}>
+                            Back
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
+                            onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
+                        >
+                            Create collection
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
         </LemonModal>
+    )
+}
+
+/** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
+function BulkScanMenuItem(): JSX.Element {
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
+    const { scanRecordings } = useActions(bulkScanLogic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+
+    const submenuItems: LemonMenuItem[] = scannersLoading
+        ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]
+        : scanners.length === 0
+          ? [
+                {
+                    label: 'No scanners yet — create one',
+                    onClick: () => router.actions.push(urls.replayVision()),
+                    'data-attr': 'vision-bulk-scan-create-scanner',
+                },
+            ]
+          : scanners.map((scanner) => ({
+                label: scanner.name,
+                onClick: () => scanRecordings(scanner.id, selectedRecordingsIds),
+                'data-attr': 'vision-bulk-scan-scanner-item',
+            }))
+
+    return (
+        <LemonMenu
+            items={submenuItems}
+            placement="right-start"
+            trigger="hover"
+            buttonSize="xsmall"
+            closeOnClickInside
+            closeParentPopoverOnClickInside
+        >
+            <LemonButton
+                fullWidth
+                role="menuitem"
+                size="xsmall"
+                icon={<IconEye />}
+                sideIcon={<IconChevronRight />}
+                disabledReason={
+                    scanning
+                        ? 'Starting scans…'
+                        : selectedRecordingsIds.length === 0
+                          ? 'Select recordings to scan'
+                          : quotaDisabledReason
+                }
+                tooltip={quotaTooltip}
+                data-attr="vision-bulk-scan-recordings"
+            >
+                Scan these recordings
+            </LemonButton>
+        </LemonMenu>
     )
 }
 
@@ -251,21 +410,20 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
-    const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
     const {
         selectedRecordingsIds,
         otherRecordings,
         visiblePinnedRecordings: pinnedRecordings,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
-        handleBulkAddToPlaylist,
         handleBulkDeleteFromPlaylist,
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
-        setIsNewCollectionDialogOpen,
+        setIsAddToCollectionModalOpen,
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -275,37 +433,17 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlLevel.Editor
     )
 
+    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
+
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
             {
-                label: 'Add to new collection...',
-                onClick: () => setIsNewCollectionDialogOpen(true),
-                'data-attr': 'add-to-new-collection',
+                label: 'Add to collection...',
+                onClick: () => setIsAddToCollectionModalOpen(true),
+                'data-attr': 'add-to-collection',
                 disabledReason: accessControlDisabledReason,
             },
         ]
-
-        const collections =
-            type === 'collection' && shortId
-                ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
-                : playlists.results
-
-        menuItems.push({
-            label: 'Add to collection',
-            items: playlistsLoading
-                ? [
-                      {
-                          label: <Spinner textColored={true} />,
-                          onClick: () => {},
-                      },
-                  ]
-                : collections.map((playlist) => ({
-                      label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                      onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                  })),
-            disabledReason: collections.length === 0 ? 'There are no collections' : accessControlDisabledReason,
-            'data-attr': 'add-to-collection',
-        })
 
         if (type === 'collection' && shortId) {
             menuItems.push({
@@ -327,6 +465,15 @@ export function SessionRecordingsPlaylistTopSettings({
             onClick: () => handleBulkMarkAsNotViewed(shortId),
             'data-attr': 'mark-as-not-viewed',
         })
+
+        if (visionEnabled) {
+            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+            menuItems.push({
+                key: 'bulk-scan-recordings',
+                label: () => <BulkScanMenuItem />,
+                custom: true,
+            })
+        }
 
         menuItems.push({
             label: 'Delete',
@@ -405,7 +552,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
-            <NewCollectionModal />
+            <AddToCollectionModal shortId={shortId} />
         </SettingsBar>
     )
 }

@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1018,6 +1019,25 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.q).toEqual('SELECT 1')
             expect(router.values.hashParams.output_tab).toEqual(OutputTab.Both)
         })
+
+        it('coerces a numeric query hash param to a string instead of crashing splitQueryRanges', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // kea-router decodes `q=42` back to the number 42, which used to reach queryInput unchanged
+            router.actions.push(urls.sqlEditor(), undefined, { q: 42 })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(logic.values.queryInput).toEqual('42')
+            // Reading splitQueryRanges threw "e.trim is not a function" when queryInput was the number 42
+            expect(() => logic.values.splitQueryRanges).not.toThrow()
+            expect(logic.values.splitQueryRanges).toHaveLength(1)
+        })
     })
 
     describe('source URL parameter', () => {
@@ -1356,6 +1376,202 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
 
             performQuerySpy.mockRestore()
+        })
+    })
+
+    describe('AI suggestion undo', () => {
+        const ORIGINAL = 'SELECT 1'
+        const ACCEPTED = 'SELECT 2 FROM events'
+
+        // A Monaco model that records pushEditOperations as if it had a real undo stack,
+        // so we can assert the accepted query is applied as an undoable edit rather than a
+        // model.setValue (which would wipe history).
+        function createUndoTrackingModel(initialValue: string): any {
+            let value = initialValue
+            return {
+                getValue: () => value,
+                getFullModelRange: () => ({
+                    startLineNumber: 1,
+                    startColumn: 1,
+                    endLineNumber: 1,
+                    endColumn: value.length + 1,
+                }),
+                pushStackElement: jest.fn(),
+                pushEditOperations: jest.fn((_before: any, ops: any[]) => {
+                    value = ops[0].text
+                    return null
+                }),
+                setValue: jest.fn((next: string) => {
+                    value = next
+                }),
+                onDidChangeContent: jest.fn(() => ({ dispose: jest.fn() })),
+                dispose: jest.fn(),
+            }
+        }
+
+        function createMonacoWithModel(model: any): any {
+            const monaco = createMockMonaco()
+            monaco.editor.getModel = () => model
+            monaco.editor.createModel = () => model
+            return monaco
+        }
+
+        function mountWithModel(model: any): any {
+            const monaco = createMonacoWithModel(model)
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco, editor: createMockEditor() })
+            logic.mount()
+            // Establish an active tab so accept/reject can resolve the model URI.
+            logic.actions.updateTab({ uri: monaco.Uri.parse(`tab-${TAB_ID}`), name: 'SQL' } as any)
+            return monaco
+        }
+
+        it('applies an accepted suggestion to the persistent model as an undoable edit', () => {
+            const model = createUndoTrackingModel(ORIGINAL)
+            mountWithModel(model)
+
+            logic.actions.setQueryInput(ORIGINAL)
+            logic.actions._setSuggestionPayload({
+                suggestedValue: ACCEPTED,
+                originalValue: ORIGINAL,
+                source: 'max_ai',
+                onAccept: (_shouldRun, actions) => actions.setQueryInput(ACCEPTED),
+                onReject: () => {},
+            })
+            logic.actions.onAcceptSuggestedQueryInput()
+
+            // Undoable edit, not setValue — preserves the existing undo history.
+            expect(model.pushEditOperations).toHaveBeenCalledWith(
+                [],
+                [expect.objectContaining({ text: ACCEPTED })],
+                expect.any(Function)
+            )
+            expect(model.setValue).not.toHaveBeenCalled()
+            expect(model.getValue()).toEqual(ACCEPTED)
+        })
+
+        // Both cases leave the model already holding the target query, so no undoable edit
+        // should be pushed (the no-op guard in applyUndoableModelEdit).
+        it.each([
+            {
+                name: 'the accepted query already matches the model',
+                payload: {
+                    suggestedValue: ORIGINAL,
+                    onAccept: (_shouldRun: boolean, actions: any) => actions.setQueryInput(ORIGINAL),
+                    onReject: () => {},
+                },
+                act: () => logic.actions.onAcceptSuggestedQueryInput(),
+            },
+            {
+                name: 'a suggestion is rejected',
+                payload: {
+                    suggestedValue: ACCEPTED,
+                    onAccept: () => {},
+                    onReject: (actions: any) => actions.setQueryInput(ORIGINAL),
+                },
+                act: () => logic.actions.onRejectSuggestedQueryInput(),
+            },
+        ])('does not push an undoable edit when $name', ({ payload, act }) => {
+            const model = createUndoTrackingModel(ORIGINAL)
+            mountWithModel(model)
+
+            logic.actions.setQueryInput(ORIGINAL)
+            logic.actions._setSuggestionPayload({ originalValue: ORIGINAL, source: 'max_ai', ...payload })
+            act()
+
+            expect(model.pushEditOperations).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('attaching the dashboard when saving from a dashboard flow', () => {
+        const DASHBOARD_ID = 99
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            { name: 'passes dashboards to insightsApi.create when a dashboardId is set', dashboardId: DASHBOARD_ID },
+            { name: 'does not pass dashboards to insightsApi.create when no dashboardId is set', dashboardId: null },
+        ])('$name', async ({ dashboardId }) => {
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT count() FROM events')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            if (dashboardId !== null) {
+                logic.actions.setDashboardId(dashboardId)
+            }
+
+            logic.actions.saveAsInsightSubmit('My SQL insight')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            const createPayload = createSpy.mock.calls[0][0]
+            expect(createPayload).toMatchObject({ name: 'My SQL insight', saved: true })
+            if (dashboardId !== null) {
+                expect(createPayload.dashboards).toEqual([dashboardId])
+            } else {
+                expect(createPayload).not.toHaveProperty('dashboards')
+            }
+        })
+
+        // The update path unions the target dashboard with the insight's existing links, read
+        // from both dashboard_tiles (preferred) and the legacy dashboards field, deduped.
+        it.each([
+            {
+                name: 'merges the dashboard with existing legacy dashboards links',
+                dashboards: [7],
+                dashboardTiles: [],
+                expected: [7, DASHBOARD_ID],
+            },
+            {
+                name: 'merges the dashboard with existing dashboard_tiles links',
+                dashboards: [],
+                dashboardTiles: [{ id: 1, dashboard_id: 7, deleted: null }],
+                expected: [7, DASHBOARD_ID],
+            },
+            {
+                name: 'does not duplicate a dashboard the insight is already linked to',
+                dashboards: [],
+                dashboardTiles: [{ id: 1, dashboard_id: DASHBOARD_ID, deleted: null }],
+                expected: [DASHBOARD_ID],
+            },
+        ])('$name', async ({ dashboards, dashboardTiles, expected }) => {
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const insightOnDashboards = {
+                ...MOCK_INSIGHT,
+                dashboards,
+                dashboard_tiles: dashboardTiles,
+            } as QueryBasedInsightModel
+            logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'updateTab'])
+                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+
+            logic.actions.setDashboardId(DASHBOARD_ID)
+            logic.actions.updateInsight()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const [, updatePayload] = updateSpy.mock.calls[0]
+            // Order-independent: only the set of linked dashboards matters.
+            expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
         })
     })
 })

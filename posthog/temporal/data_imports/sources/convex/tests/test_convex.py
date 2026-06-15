@@ -43,12 +43,29 @@ class TestValidateDeployUrl:
             ("uppercase", "HTTPS://Swift-Lemur-123.CONVEX.CLOUD", "https://swift-lemur-123.convex.cloud"),
             ("leading_space", "  https://swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
             ("with_path", "https://swift-lemur-123.convex.cloud/some/path", "https://swift-lemur-123.convex.cloud"),
+            (
+                "regional_eu_west_1",
+                "https://breezy-otter-42.eu-west-1.convex.cloud",
+                "https://breezy-otter-42.eu-west-1.convex.cloud",
+            ),
+            (
+                "regional_us_east_1",
+                "https://clever-falcon-77.us-east-1.convex.cloud",
+                "https://clever-falcon-77.us-east-1.convex.cloud",
+            ),
+            # missing scheme — normalized by prepending https://
+            ("no_scheme", "swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
+            (
+                "no_scheme_regional",
+                "breezy-otter-42.eu-west-1.convex.cloud",
+                "https://breezy-otter-42.eu-west-1.convex.cloud",
+            ),
+            ("no_scheme_trailing_slash", "swift-lemur-123.convex.cloud/", "https://swift-lemur-123.convex.cloud"),
             # invalid — should raise
             ("http", "http://swift-lemur-123.convex.cloud", None),
             ("ftp", "ftp://swift-lemur-123.convex.cloud", None),
-            ("no_scheme", "swift-lemur-123.convex.cloud", None),
             ("wrong_tld", "https://swift-lemur-123.convex.io", None),
-            ("extra_subdomain", "https://extra.swift-lemur-123.convex.cloud", None),
+            ("two_extra_subdomains", "https://extra.foo.swift-lemur-123.convex.cloud", None),
             ("lookalike", "https://convex.cloud.evil.com", None),
             ("bare_domain", "https://convex.cloud", None),
             ("ip_literal", "https://1.2.3.4", None),

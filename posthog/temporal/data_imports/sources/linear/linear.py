@@ -60,6 +60,13 @@ def _make_paginated_request(
         if response.status_code >= 500:
             raise LinearRetryableError(f"Linear: server error {response.status_code}")
 
+        # Linear answers HTTP-level rate limits with a 429 and an HTML body (not GraphQL JSON),
+        # so this must be caught before the JSON parse below. Otherwise response.json() raises a
+        # JSONDecodeError that escalates to a plain, non-retryable Exception instead of being
+        # retried with backoff like the GraphQL-level RATELIMITED case.
+        if response.status_code == 429:
+            raise LinearRetryableError("Linear: rate limited (429)")
+
         try:
             payload = response.json()
         except Exception:

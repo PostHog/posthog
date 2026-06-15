@@ -9,11 +9,10 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.models.insight_variable import InsightVariable
-
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -200,7 +199,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        self.assertEqual(response.json()["attr"], "query_override")
 
     def test_hogql_endpoint_rejects_filters_override(self):
         endpoint = create_endpoint_with_version(
@@ -344,7 +343,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        self.assertEqual(response.json()["attr"], "query_override")
 
     def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
         endpoint = create_endpoint_with_version(
@@ -2187,7 +2186,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
 
         with mock.patch(
-            "products.signals.backend.api.emit_signal",
+            "products.signals.backend.facade.api.emit_signal",
             side_effect=RuntimeError("signal layer exploded"),
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)

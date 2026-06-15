@@ -37,11 +37,18 @@ pub fn extract_token(body: &Bytes) -> Option<String> {
         })
 }
 
+/// Decode and parse a /flags request body.
+///
+/// Returns the parsed [`FlagRequest`] along with the **decoded** body bytes
+/// — post gzip-decompression and post base64-decoding when those apply, or
+/// the raw body for plain JSON. Callers that want to log or otherwise reuse
+/// the parsed-form bytes (e.g. body logging) can avoid a second decompress
+/// pass by reusing the returned `Bytes`.
 pub fn decode_request(
     headers: &HeaderMap,
     body: Bytes,
     query: &FlagsQueryParams,
-) -> Result<FlagRequest, FlagError> {
+) -> Result<(FlagRequest, Bytes), FlagError> {
     let content_type = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -69,7 +76,13 @@ pub fn decode_request(
     }
 }
 
-fn decode_body(
+/// Decode a request body to its raw JSON bytes.
+///
+/// Handles gzip explicitly via `Compression::Gzip`, the `Content-Encoding`
+/// header, or auto-detection from magic bytes. `Compression::Base64` is left
+/// to `try_parse_with_fallbacks`; this function returns the body unchanged in
+/// that case.
+pub(crate) fn decode_body(
     body: Bytes,
     compression: Option<Compression>,
     headers: &HeaderMap,
@@ -158,13 +171,21 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
     Ok(Bytes::from(decoded))
 }
 
+/// Parse a request body that has already been gzip-decompressed (if it was
+/// gzipped). Falls back to base64-decoding when the body is not direct JSON
+/// — some SDKs send base64-wrapped JSON via `application/json` rather than
+/// the form-urlencoded path.
+///
+/// Returns the parsed [`FlagRequest`] along with the bytes that successfully
+/// parsed: the input bytes when direct JSON parsing wins, or the
+/// base64-decoded bytes when the fallback wins.
 pub fn try_parse_with_fallbacks(
     body: Bytes,
     user_agent: Option<&str>,
-) -> Result<FlagRequest, FlagError> {
+) -> Result<(FlagRequest, Bytes), FlagError> {
     // Strategy 1: Try parsing as JSON directly
     if let Ok(request) = FlagRequest::from_bytes(body.clone()) {
-        return Ok(request);
+        return Ok((request, body));
     }
 
     // Strategy 2: Try base64 decode then JSON
@@ -175,7 +196,7 @@ pub fn try_parse_with_fallbacks(
         "Direct JSON parsing failed, trying base64 decode fallback"
     );
     match decode_base64(body.clone()) {
-        Ok(decoded) => match FlagRequest::from_bytes(decoded) {
+        Ok(decoded) => match FlagRequest::from_bytes(decoded.clone()) {
             Ok(request) => {
                 inc(
                     FLAG_REQUEST_KLUDGE_COUNTER,
@@ -189,7 +210,7 @@ pub fn try_parse_with_fallbacks(
                     client_type = client_type,
                     "Successfully parsed request after base64 fallback decoding"
                 );
-                return Ok(request);
+                return Ok((request, decoded));
             }
             Err(e) => {
                 tracing::warn!("Base64 decode succeeded but JSON parsing failed: {}", e);
@@ -207,7 +228,7 @@ pub fn decode_form_data(
     body: Bytes,
     compression: Option<Compression>,
     user_agent: Option<&str>,
-) -> Result<FlagRequest, FlagError> {
+) -> Result<(FlagRequest, Bytes), FlagError> {
     // Convert bytes to string first so we can manipulate it
     let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
         tracing::warn!("Invalid UTF-8 in form data: {}", e);
@@ -288,11 +309,15 @@ pub fn decode_form_data(
         lossy_str.into_owned()
     };
 
-    // Parse JSON into FlagRequest
-    serde_json::from_str(&json_str).map_err(|e| {
+    // Parse JSON into FlagRequest. Return the decoded JSON bytes alongside
+    // the parsed request so callers (e.g. body logging) don't have to redo
+    // the URL-decode + base64-decode dance to recover them.
+    let json_bytes = Bytes::from(json_str.into_bytes());
+    let request = serde_json::from_slice(&json_bytes).map_err(|e| {
         tracing::warn!("failed to parse JSON: {}", e);
         FlagError::RequestDecodingError("invalid JSON structure".into())
-    })
+    })?;
+    Ok((request, json_bytes))
 }
 
 #[cfg(test)]
@@ -320,9 +345,12 @@ mod tests {
         let result = decode_request(&headers, gzipped_body, &query);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let (request, decoded) = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
+        // Decoded body is the post-gzip JSON, not the gzipped bytes.
+        assert!(decoded.starts_with(b"{"));
+        assert!(decoded.windows(11).any(|w| w == b"distinct_id"));
     }
 
     #[test]
@@ -338,7 +366,7 @@ mod tests {
         let result = decode_request(&headers, gzipped_body, &query);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let (request, _decoded) = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
     }
@@ -411,7 +439,7 @@ mod tests {
         let result = decode_request(&headers, gzipped_body, &query);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let (request, _decoded) = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
     }
@@ -424,12 +452,14 @@ mod tests {
         let headers = HeaderMap::new();
         let query = FlagsQueryParams::default();
 
-        let result = decode_request(&headers, body, &query);
+        let result = decode_request(&headers, body.clone(), &query);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let (request, decoded) = result.unwrap();
         assert_eq!(request.distinct_id, Some("test".to_string()));
         assert_eq!(request.token, Some("test_token".to_string()));
+        // Plain-JSON path returns the input bytes unchanged.
+        assert_eq!(decoded, body);
     }
 
     #[test]
@@ -449,9 +479,12 @@ mod tests {
         let result = decode_request(&headers, body, &query);
         assert!(result.is_ok());
 
-        let request = result.unwrap();
+        let (request, decoded) = result.unwrap();
         assert_eq!(request.distinct_id, Some("user".to_string()));
         assert_eq!(request.token, Some("test".to_string()));
+        // Base64 fallback returns the *decoded* JSON bytes, not the base64 string.
+        assert!(decoded.starts_with(b"{"));
+        assert!(!decoded.windows(7).any(|w| w == b"eyJ0b2t"));
     }
 
     #[test]
@@ -542,6 +575,7 @@ mod tests {
         #[case(Some("posthog-node/2.2.0"), "posthog-node")]
         #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
         #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
+        #[case(Some("posthog-rs/0.10.0"), "posthog-rs")]
         #[case(
             Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
             "browser"

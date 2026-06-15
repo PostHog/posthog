@@ -41,6 +41,13 @@ tools:
             - active
             - tags
             - evaluation_contexts
+            - is_remote_configuration
+        param_overrides:
+            is_remote_configuration:
+                description:
+                    Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the
+                    delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded
+                    string. There is no dedicated payload parameter.
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true
@@ -141,8 +148,8 @@ tools:
             with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active
             experiments, early access features, or that other flags depend on are skipped and reported in `errors`.
             Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.
-    feature-flags-bulk-keys-create:
-        operation: feature_flags_bulk_keys_create
+    feature-flags-bulk-keys-retrieve:
+        operation: feature_flags_bulk_keys_retrieve
         enabled: true
         scopes:
             - feature_flag:read
@@ -222,9 +229,6 @@ tools:
             Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups
             to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match,
             no_condition_match, disabled).
-    feature-flags-local-evaluation-retrieve:
-        operation: feature_flags_local_evaluation_retrieve
-        enabled: false
     feature-flags-matching-ids-retrieve:
         operation: feature_flags_matching_ids_retrieve
         enabled: false
@@ -301,6 +305,9 @@ tools:
             optionally a group_type_index to see how many users would be affected relative to the total user count.
     feature-flags-versions-retrieve:
         operation: feature_flags_versions_retrieve
+        enabled: false
+    flag-value-values-retrieve:
+        operation: flag_value_values_retrieve
         enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
@@ -406,6 +413,12 @@ tools:
             - active
             - tags
             - evaluation_contexts
+            - is_remote_configuration
         param_overrides:
             id:
                 cast: string-int
+            is_remote_configuration:
+                description:
+                    Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the
+                    delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded
+                    string. There is no dedicated payload parameter.

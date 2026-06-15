@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -40,32 +42,26 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
 
     # Imported lazily: HogQL pulls in the full schema graph, which we don't want
     # to load for every model import (admin registration, migrations, etc.).
-    from posthog.hogql import ast
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.hogql import translate_hogql
     from posthog.hogql.parser import parse_expr
-    from posthog.hogql.visitor import TraversingVisitor
-
-    class _RejectSubqueries(TraversingVisitor):
-        def visit_select_query(self, node: ast.SelectQuery) -> None:
-            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
-
-        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-            raise ValidationError({"hogql_predicate": "Subqueries are not allowed in a data deletion predicate."})
 
     try:
-        parsed = parse_expr(predicate)
+        parse_expr(predicate)
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not parse HogQL: {exc}"}) from exc
-
-    _RejectSubqueries().visit(parsed)
 
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
+    # Subqueries are allowed (e.g. ``person_id IN (SELECT id FROM persons WHERE …)``).
+    # HogQL's table resolver injects ``team_id`` guards into each referenced table,
+    # so cross-team data cannot leak through a subquery — the team-scoping test
+    # in test_data_deletion_request.py is the regression net for that invariant.
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
-    # references — both for regular fields and for materialized-column shortcuts.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
+    # references for the outer expression so the fragment splices into both the
+    # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
+    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:
@@ -96,6 +92,27 @@ def event_match_params(obj) -> dict:
     if not getattr(obj, "delete_all_events", False):
         params["events"] = obj.events
     return params
+
+
+_EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
+
+
+def event_removal_where(obj) -> tuple[str, dict]:
+    """Full WHERE predicate + params for event-removal queries.
+
+    Combines the mandatory team/timestamp bounds, the events filter (skipped
+    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
+    compiled HogQL fragment uses unqualified column references, so the result
+    is safe to splice into queries against either the Distributed ``events``
+    proxy or the local ``sharded_events`` MergeTree.
+    """
+    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
+    params = event_match_params(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if hogql_sql:
+        parts.append(f"AND ({hogql_sql})")
+        params.update(hogql_values)
+    return " ".join(p for p in parts if p), params
 
 
 class RequestType(models.TextChoices):
@@ -346,3 +363,59 @@ class DataDeletionRequest(UUIDModel):
             )
         if self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings:
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
+
+
+def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
+    """Count events still matching an event-removal request's criteria in ClickHouse."""
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    predicate, params = event_removal_where(request)
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_queued",
+    ):
+        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
+        result = sync_execute(
+            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
+            params,
+            team_id=request.team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    return int(result[0][0]) if result else 0
+
+
+@dataclass
+class VerifyOutcome:
+    remaining: int
+    promoted: bool
+
+
+# Statuses from which verification may promote an event-removal request to COMPLETED. QUEUED is the
+# normal deferred path; FAILED is included so the ClickHouse Team can confirm a request whose job
+# errored after the events were actually deleted (e.g. a failure in the finalize step) without
+# re-running the whole deletion.
+VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
+
+
+def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
+    """Verify an event-removal request and promote it to COMPLETED when its events are gone.
+
+    Counts events still matching the request in ClickHouse. When zero remain and the request is in a
+    verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED via a status-guarded
+    update. Idempotent; safe to call from both the Dagster sweep job and the Django admin button.
+    """
+    remaining = count_remaining_matching_events(request)
+    if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
+        return VerifyOutcome(remaining=remaining, promoted=False)
+    promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(
+        status=RequestStatus.COMPLETED, updated_at=timezone.now()
+    )
+    return VerifyOutcome(remaining=remaining, promoted=bool(promoted))

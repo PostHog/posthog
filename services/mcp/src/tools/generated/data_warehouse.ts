@@ -16,6 +16,8 @@ import {
     ExternalDataSchemasResyncCreateBody,
     ExternalDataSchemasResyncCreateParams,
     ExternalDataSchemasRetrieveParams,
+    ExternalDataSourcesConnectLinkRetrieveQueryParams,
+    ExternalDataSourcesConnectionsListQueryParams,
     ExternalDataSourcesCreateBody,
     ExternalDataSourcesCreateWebhookCreateBody,
     ExternalDataSourcesCreateWebhookCreateParams,
@@ -30,6 +32,8 @@ import {
     ExternalDataSourcesReloadCreateBody,
     ExternalDataSourcesReloadCreateParams,
     ExternalDataSourcesRetrieveParams,
+    ExternalDataSourcesSetupCreateBody,
+    ExternalDataSourcesStoredCredentialsListQueryParams,
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
@@ -71,6 +75,82 @@ const dataWarehouseDataHealthIssuesRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/data_health_issues/`,
         })
         return result
+    },
+})
+
+const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const dataWarehouseSourceConnectLink = (): ToolBase<
+    typeof DataWarehouseSourceConnectLinkSchema,
+    Schemas.SourceConnectLink
+> => ({
+    name: 'data-warehouse-source-connect-link',
+    schema: DataWarehouseSourceConnectLinkSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceConnectLinkSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceConnectLink>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connect_link/`,
+            query: {
+                source_type: params.source_type,
+            },
+        })
+        return result
+    },
+})
+
+const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend({
+    source_type: ExternalDataSourceTypeSchema,
+})
+
+const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSchema, Schemas.SourceSetupResponse> => ({
+    name: 'data-warehouse-source-setup',
+    schema: DataWarehouseSourceSetupSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        if (params.prefix !== undefined) {
+            body['prefix'] = params.prefix
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.SourceSetupResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DataWarehouseStoredCredentialsListSchema = ExternalDataSourcesStoredCredentialsListQueryParams
+
+const dataWarehouseStoredCredentialsList = (): ToolBase<
+    typeof DataWarehouseStoredCredentialsListSchema,
+    WithPostHogUrl<Schemas.SourceCredential[]>
+> => ({
+    name: 'data-warehouse-stored-credentials-list',
+    schema: DataWarehouseStoredCredentialsListSchema,
+    handler: async (context: Context, params: z.infer<typeof DataWarehouseStoredCredentialsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceCredential[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/stored_credentials/`,
+            query: {
+                search: params.search,
+                source_type: params.source_type,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -388,6 +468,29 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const ExternalDataSourcesConnectionsListSchema = ExternalDataSourcesConnectionsListQueryParams
+
+const externalDataSourcesConnectionsList = (): ToolBase<
+    typeof ExternalDataSourcesConnectionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExternalDataSourceConnectionOptionList>
+> => ({
+    name: 'external-data-sources-connections-list',
+    schema: ExternalDataSourcesConnectionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExternalDataSourceConnectionOptionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connections/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -1103,6 +1206,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
+    'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
+    'data-warehouse-source-setup': dataWarehouseSourceSetup,
+    'data-warehouse-stored-credentials-list': dataWarehouseStoredCredentialsList,
     'external-data-schemas-cancel': externalDataSchemasCancel,
     'external-data-schemas-delete-data': externalDataSchemasDeleteData,
     'external-data-schemas-incremental-fields-create': externalDataSchemasIncrementalFieldsCreate,
@@ -1112,6 +1218,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-sources-check-cdc-prerequisites-create': externalDataSourcesCheckCdcPrerequisitesCreate,
+    'external-data-sources-connections-list': externalDataSourcesConnectionsList,
     'external-data-sources-create': externalDataSourcesCreate,
     'external-data-sources-create-webhook-create': externalDataSourcesCreateWebhookCreate,
     'external-data-sources-delete-webhook-create': externalDataSourcesDeleteWebhookCreate,

@@ -16,9 +16,13 @@ to change when that table lands — swap its body to read from the new source.
 
 import math
 import asyncio
+import hashlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
+
+from django.utils import timezone
 
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering
@@ -30,8 +34,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
+from posthog.sync import database_sync_to_async
 
-from products.mcp_analytics.backend.models import MCPSession
+from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
 
 # Constants
 EMBEDDING_MODEL = "text-embedding-3-small-1536"
@@ -40,6 +45,19 @@ DEFAULT_LOOKBACK_DAYS = 7
 DEFAULT_TOP_N_INTENTS = 500
 DEFAULT_DISTANCE_THRESHOLD = 0.2
 MAX_SAMPLE_INTENTS_PER_CLUSTER = 3
+
+# Placeholder previously written by the (now-removed) summariser job for sessions with no
+# recordable tool-call intents. Still filtered out of the corpus so it doesn't form a
+# meaningless pseudo-cluster of "empty" sessions.
+NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
+
+# Embedding cache + concurrency
+# 1536-d float32 embedding = 6144 bytes. 500-intent corpus × 6144 ≈ 3 MB/team.
+# Cap concurrent embedding worker requests so we don't dogpile when a team's
+# corpus has hundreds of misses on first run. 20 matches the trace_clustering
+# precedent (SENTIMENT_MAX_CONCURRENT) and stays well under any per-team
+# rate limit on the embedding provider.
+EMBED_CONCURRENCY = 20
 
 # How many tool-call steps to show in the per-cluster Sankey before the
 # outcome column. Sessions with fewer steps pad with None so the column
@@ -119,16 +137,27 @@ def fetch_intent_corpus(
 
     ``intent_by_session`` is exposed so callers can later join session-level
     data (e.g. journey aggregation) back to the cluster a session belongs to.
+
+    ``lookback_days`` bounds both stores to the same window: session intent
+    rows are filtered by ``created_at`` (when the intent was generated, since
+    intents are produced on demand), and the joined ClickHouse query filters by
+    event timestamp.
     """
-    session_rows = list(MCPSession.objects.filter(team=team).values_list("session_id", "intent"))
+    window_start = timezone.now() - timedelta(days=lookback_days)
+    session_rows = list(
+        MCPSession.objects.filter(team=team, created_at__gte=window_start).values_list("session_id", "intent")
+    )
     if not session_rows:
         return [], {}
 
     # Map session_id -> intent_text (last write wins per session).
+    # Skip the summariser's "no intents recorded" placeholder — clustering
+    # it produces a meaningless pseudo-cluster of sessions with nothing in
+    # common except that their tool calls had no $mcp_intent property.
     intent_by_session: dict[str, str] = {}
     for session_id, intent_text in session_rows:
         text = (intent_text or "").strip()
-        if not session_id or not text:
+        if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text
 
@@ -276,38 +305,122 @@ def aggregate_journeys_per_cluster(
 # Embeddings --------------------------------------------------------------
 
 
-async def _embed_one(team: Team, text: str) -> EmbeddingResponse | None:
+def _content_hash(text: str) -> str:
+    """SHA-256 of the prefixed text — what we actually embed."""
+    return hashlib.sha256((EMBEDDING_PREFIX + text).encode("utf-8")).hexdigest()
+
+
+def _encode_embedding(vector: list[float]) -> bytes:
+    """Encode an embedding to compact bytes for cache storage."""
+    return np.asarray(vector, dtype=np.float32).tobytes()
+
+
+def _decode_embedding(blob: bytes) -> np.ndarray:
+    """Decode cached bytes back into a 1-D float32 vector."""
+    return np.frombuffer(blob, dtype=np.float32)
+
+
+@database_sync_to_async
+def _load_cached_embeddings(team: Team, hashes: list[str], model: str) -> dict[str, np.ndarray]:
+    """Return ``{content_hash: embedding}`` for cache hits."""
+    if not hashes:
+        return {}
+    rows = MCPIntentEmbeddingCache.objects.filter(
+        team=team,
+        content_hash__in=hashes,
+        model=model,
+    ).values_list("content_hash", "embedding")
+    return {content_hash: _decode_embedding(bytes(blob)) for content_hash, blob in rows}
+
+
+@database_sync_to_async
+def _persist_embedding(team: Team, content_hash: str, model: str, vector: list[float]) -> None:
+    """Insert (or no-op) a single cache row. Concurrent identical inserts are tolerated.
+
+    Uses ``get_or_create`` rather than ``update_or_create`` because the content hash
+    deterministically maps to the embedding bytes — there is nothing to update if the
+    row already exists. ``get_or_create`` avoids the spurious UPDATE that
+    ``update_or_create`` would issue on a creation race.
+    """
+    MCPIntentEmbeddingCache.objects.get_or_create(
+        team=team,
+        content_hash=content_hash,
+        model=model,
+        defaults={"embedding": _encode_embedding(vector)},
+    )
+
+
+async def _embed_one_with_cache(
+    team: Team,
+    text: str,
+    content_hash: str,
+    semaphore: asyncio.Semaphore,
+    cached: dict[str, np.ndarray],
+) -> np.ndarray | None:
+    """Return the embedding for ``text``, hitting the cache when possible.
+
+    Concurrency is bounded by ``semaphore``; cache reads come pre-loaded in
+    ``cached`` so the hot path is a dict lookup. Misses go through
+    ``async_generate_embedding`` and write back on success.
+    """
+    hit = cached.get(content_hash)
+    if hit is not None:
+        return hit
+    async with semaphore:
+        try:
+            response: EmbeddingResponse = await async_generate_embedding(
+                team, EMBEDDING_PREFIX + text, model=EMBEDDING_MODEL
+            )
+        except Exception:
+            return None
     try:
-        return await async_generate_embedding(team, EMBEDDING_PREFIX + text, model=EMBEDDING_MODEL)
+        await _persist_embedding(team, content_hash, EMBEDDING_MODEL, response.embedding)
     except Exception:
-        return None
+        # A concurrent insert for the same (team, hash, model) is fine —
+        # the unique constraint guarantees the row exists. Don't fail the
+        # whole batch over a race.
+        pass
+    return np.asarray(response.embedding, dtype=np.float32)
 
 
 async def embed_intents_async(team: Team, texts: list[str]) -> tuple[np.ndarray, list[int]]:
-    """Embed a list of intent texts concurrently.
+    """Embed a list of intent texts concurrently, with a per-team cache.
 
     Returns (embeddings, valid_indices) where ``valid_indices`` are the indices
     into ``texts`` for which embedding succeeded. Skipped indices have no row
     in the returned matrix. Callers must align downstream data structures with
     ``valid_indices``.
+
+    Cache key is ``(team, sha256(prefix + text), model)``. Hits return the
+    stored bytes; misses call the embedding worker and write back. Worker
+    concurrency is capped at ``EMBED_CONCURRENCY``.
     """
     if not texts:
         return np.zeros((0, 0), dtype=np.float32), []
 
-    responses = await asyncio.gather(*[_embed_one(team, t) for t in texts])
+    hashes = [_content_hash(t) for t in texts]
+    cached = await _load_cached_embeddings(team, hashes, EMBEDDING_MODEL)
+    semaphore = asyncio.Semaphore(EMBED_CONCURRENCY)
 
-    vectors: list[list[float]] = []
+    results = await asyncio.gather(
+        *[
+            _embed_one_with_cache(team, text, content_hash, semaphore, cached)
+            for text, content_hash in zip(texts, hashes)
+        ]
+    )
+
+    vectors: list[np.ndarray] = []
     valid_indices: list[int] = []
-    for i, response in enumerate(responses):
-        if response is None:
+    for i, vector in enumerate(results):
+        if vector is None:
             continue
-        vectors.append(response.embedding)
+        vectors.append(vector)
         valid_indices.append(i)
 
     if not vectors:
         return np.zeros((0, 0), dtype=np.float32), []
 
-    return np.asarray(vectors, dtype=np.float32), valid_indices
+    return np.stack(vectors).astype(np.float32, copy=False), valid_indices
 
 
 # Clustering --------------------------------------------------------------

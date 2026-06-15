@@ -333,6 +333,13 @@ class TestFstringSafeComputedFragments:
         # ok: hogql-fstring-audit
         parse_expr(f"{metric_value_field}")
 
+    def test_value_field(self):
+        value_field = "numerator_value"
+        # ok: hogql-fstring-audit
+        parse_expr(f"min(entity_metrics.{value_field})")
+        # ok: hogql-fstring-audit
+        parse_expr(f"max(entity_metrics.{value_field})")
+
     def test_default_breakdown_selector(self):
         default_breakdown_selector = "breakdown_value"
         # ok: hogql-fstring-audit

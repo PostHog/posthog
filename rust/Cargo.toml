@@ -35,6 +35,8 @@ members = [
   "cyclotron-node",
   "cyclotron-janitor",
   "cymbal",
+  "cymbal-proto",
+  "cymbal-resolution",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
@@ -50,6 +52,7 @@ members = [
   "personhog-proto",
   "personhog-replica",
   "personhog-router",
+  "affected-services",
   "property-vals-rs",
 ]
 
@@ -86,14 +89,17 @@ debug = "line-tables-only"
 [workspace.dependencies]
 aho-corasick = "1.1"
 anyhow = "1.0"
+arc-swap = "1.7"
 assert-json-diff = "2.0.2"
 async-compression = { version = "0.4", features = [
   "tokio",
   "gzip",
   "deflate",
+  "zlib",
   "brotli",
   "zstd",
 ] }
+async-stream = "0.3"
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
@@ -111,6 +117,8 @@ futures-timer = "3.0"
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
+http-body = "1.0"
+http-body-util = "0.1"
 httpmock = "0.7.0"
 mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
@@ -179,6 +187,7 @@ redis = { version = "0.32.7", features = [
 regex = "1.11.1"
 fancy-regex = "0.17"
 lz-str = "0.2.1"
+lz4 = "1.28"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = { version = "0.12.3", features = ["zstd"] }
 tonic-build = "0.12"

@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -9,13 +9,12 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 
 AnyScannerOutput = Annotated[
-    ClassifierOutput | IndexerOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
 
@@ -42,21 +41,11 @@ class ScannerSnapshot(BaseModel, frozen=True):
             ) from exc
 
 
-class EventCitation(BaseModel, frozen=True):
-    """One entry in `event_id_mapping`: enough metadata for a UI to render a deep-link to the cited event."""
-
-    uuid: str = Field(description="Real PostHog event UUID; use with `/api/.../events/{uuid}` to fetch the event.")
-    timestamp_ms: int = Field(
-        ge=0, description="Milliseconds since session start; use to seek the session replay player to the moment."
-    )
-
-
 class ScannerResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
-    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -79,19 +68,42 @@ class CreateObservationInputs(BaseModel, frozen=True):
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
-    """`was_created=False` means the row already existed; the caller should no-op."""
-
-    observation_id: UUID
+    # `was_created=False` means no row was persisted (either the row already existed, or the org's monthly quota is exhausted); the caller should no-op.
+    observation_id: UUID | None
     was_created: bool
+    scanner_type: ScannerType
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
     observation_id: UUID
 
 
+# Coarse progress phases, surfaced live via ApplyScannerWorkflow's `get_progress` query and streamed over SSE.
+OBSERVATION_PHASE_ORDER = ("queued", "fetching", "rendering", "uploading", "analyzing", "finalizing")
+OBSERVATION_PHASE_INDEX = {phase: index for index, phase in enumerate(OBSERVATION_PHASE_ORDER)}
+
+
+class ObservationProgress(TypedDict):
+    """Live progress snapshot returned by ApplyScannerWorkflow's `get_progress` query, streamed to the client over SSE."""
+
+    phase: str  # one of OBSERVATION_PHASE_ORDER
+    step: int  # index of `phase` in OBSERVATION_PHASE_ORDER
+    total_steps: int  # len(OBSERVATION_PHASE_ORDER)
+    rasterizer_workflow_id: str | None  # set while rendering, so the stream can read the child's frame heartbeats
+
+
 class MarkObservationFailedInputs(BaseModel, frozen=True):
     observation_id: UUID
+    # `kind:message` — kind is one of FailureKind values.
     error_reason: str
+    scanner_type: ScannerType
+
+
+class MarkObservationIneligibleInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    # `kind:message` — kind is one of IneligibleSessionKind values.
+    error_reason: str
+    scanner_type: ScannerType
 
 
 class FetchSessionEventsInputs(BaseModel, frozen=True):
@@ -157,7 +169,7 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
-    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
+    event_timestamps: dict[str, int] = Field(default_factory=dict)
     metadata: SessionMetadata
 
 
@@ -191,21 +203,30 @@ class ScannerCallOutput(BaseModel, frozen=True):
     """Result of one `call_scanner_provider` invocation."""
 
     model_output: AnyScannerOutput
-    # Short event_id (LLM-facing) -> citation metadata, propagated from `ScannerLlmInputs` for downstream resolution.
-    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
-class EmbedIndexerObservationInputs(BaseModel, frozen=True):
-    """Input to the indexer-side-effect activity that emits per-facet embedding requests."""
+class EmbedObservationInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits embedding requests for an observation's reasoning/summary."""
 
     team_id: int
     session_id: str
     observation_id: UUID
-    indexer_output: IndexerOutput
+    scanner_id: UUID
+    model_output: AnyScannerOutput
+
+
+class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
+    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
+    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    summarizer_output: SummarizerOutput
 
 
 class EmitClassifierTagsInputs(BaseModel, frozen=True):
@@ -220,6 +241,7 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
 class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
     scanner_result: ScannerResult
+    scanner_type: ScannerType
 
 
 class EmitObservationEventInputs(BaseModel, frozen=True):

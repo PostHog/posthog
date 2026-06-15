@@ -13,6 +13,7 @@ import type {
     MCPFeedbackCreateApi,
     MCPIntentClusterSnapshotApi,
     MCPMissingCapabilityCreateApi,
+    MCPSessionIntentApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
     McpAnalyticsSessionsListParams,
@@ -27,15 +28,15 @@ export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAn
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/mcp_analytics/feedback/?${stringifiedParams}`
-        : `/api/environments/${projectId}/mcp_analytics/feedback/`
+        ? `/api/projects/${projectId}/mcp_analytics/feedback/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/feedback/`
 }
 
 /**
@@ -53,7 +54,7 @@ export const mcpAnalyticsFeedbackList = async (
 }
 
 export const getMcpAnalyticsFeedbackCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/mcp_analytics/feedback/`
+    return `/api/projects/${projectId}/mcp_analytics/feedback/`
 }
 
 /**
@@ -73,7 +74,7 @@ export const mcpAnalyticsFeedbackCreate = async (
 }
 
 export const getMcpAnalyticsIntentClustersRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/mcp_analytics/intent_clusters/`
+    return `/api/projects/${projectId}/mcp_analytics/intent_clusters/`
 }
 
 /**
@@ -90,7 +91,7 @@ export const mcpAnalyticsIntentClustersRetrieve = async (
 }
 
 export const getMcpAnalyticsIntentClustersRecomputeUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/mcp_analytics/intent_clusters/recompute/`
+    return `/api/projects/${projectId}/mcp_analytics/intent_clusters/recompute/`
 }
 
 /**
@@ -114,15 +115,15 @@ export const getMcpAnalyticsMissingCapabilitiesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/mcp_analytics/missing_capabilities/?${stringifiedParams}`
-        : `/api/environments/${projectId}/mcp_analytics/missing_capabilities/`
+        ? `/api/projects/${projectId}/mcp_analytics/missing_capabilities/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/missing_capabilities/`
 }
 
 /**
@@ -143,7 +144,7 @@ export const mcpAnalyticsMissingCapabilitiesList = async (
 }
 
 export const getMcpAnalyticsMissingCapabilitiesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/mcp_analytics/missing_capabilities/`
+    return `/api/projects/${projectId}/mcp_analytics/missing_capabilities/`
 }
 
 /**
@@ -167,19 +168,19 @@ export const getMcpAnalyticsSessionsListUrl = (projectId: string, params?: McpAn
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/mcp_analytics/sessions/?${stringifiedParams}`
-        : `/api/environments/${projectId}/mcp_analytics/sessions/`
+        ? `/api/projects/${projectId}/mcp_analytics/sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/sessions/`
 }
 
 /**
- * List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by most recent activity first by default.
+ * List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.
  */
 export const mcpAnalyticsSessionsList = async (
     projectId: string,
@@ -192,6 +193,24 @@ export const mcpAnalyticsSessionsList = async (
     })
 }
 
+export const getMcpAnalyticsSessionsGenerateIntentUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/`
+}
+
+/**
+ * Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return the stored summary.
+ */
+export const mcpAnalyticsSessionsGenerateIntent = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MCPSessionIntentApi> => {
+    return apiMutator<MCPSessionIntentApi>(getMcpAnalyticsSessionsGenerateIntentUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMcpAnalyticsSessionsToolCallsUrl = (
     projectId: string,
     id: string,
@@ -201,15 +220,15 @@ export const getMcpAnalyticsSessionsToolCallsUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/mcp_analytics/sessions/${id}/tool_calls/?${stringifiedParams}`
-        : `/api/environments/${projectId}/mcp_analytics/sessions/${id}/tool_calls/`
+        ? `/api/projects/${projectId}/mcp_analytics/sessions/${id}/tool_calls/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/sessions/${id}/tool_calls/`
 }
 
 /**

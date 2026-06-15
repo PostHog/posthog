@@ -39,6 +39,10 @@ export interface QuickFilterItem {
     propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
+    /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
+     *  measure contains-shortcut adoption, matching the rebuild menu's
+     *  `wasUrlContainsShortcut`. */
+    isContainsShortcut?: boolean
 }
 
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
@@ -86,10 +90,9 @@ export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOp
 /**
  * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
  * value IS the answer, no operator+value pair alongside it. Used when a
- * specific filter type's operator is implicit (e.g. feature flag release
- * conditions accept any operator on event properties but treat cohort rows
- * as key-only because the cohort *is* the value and the operator is
- * implicitly `in`).
+ * specific filter type's operator is implicit (e.g. workflow event triggers
+ * accept any operator on event properties but treat cohort rows as key-only
+ * because the cohort *is* the value and the operator is implicitly `in`).
  *
  * - `true` — every row in this `PropertyFilters` is key-only.
  * - `Partial<Record<TaxonomicFilterGroupType, boolean>>` — per-group switch.
@@ -178,6 +181,14 @@ export interface TaxonomicFilterProps {
      *  - `TaxonomicPropertyFilter` hides the operator+value pair on rows whose group is key-only.
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
+    /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
+     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
+     *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
+     *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
+     *  behind it) opts in — that covers every current pageview-URL consumer — so the paths
+     *  picker keeps its full URL list. */
+    collapseUrlsToContainsRow?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -261,6 +272,15 @@ export interface TaxonomicFilterGroup {
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    /**
+     * Pre-fetch the first page (empty-query) once, cache it, and filter
+     * subsequent typed queries client-side via Fuse rather than firing a
+     * fresh request per keystroke. Used by groups whose total population
+     * comfortably fits in a single page (e.g. Cohorts) where the snappy
+     * local feel is worth losing access to results past the first page.
+     * Per-keystroke remote fetches are suppressed when this is on.
+     */
+    clientFilterFirstPage?: boolean
 }
 
 export enum TaxonomicFilterGroupType {

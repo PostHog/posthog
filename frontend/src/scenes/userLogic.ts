@@ -110,6 +110,8 @@ export const userLogic = kea<userLogicType>([
             types,
             enabled,
         }),
+        updatePipelineNotification: (pipelineId: string, enabled: boolean) => ({ pipelineId, enabled }),
+        updatePipelineNotificationForAll: (pipelineIds: string[], enabled: boolean) => ({ pipelineIds, enabled }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -148,15 +150,11 @@ export const userLogic = kea<userLogicType>([
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
-                    try {
-                        const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback?.()
-                        return response
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                        return values.user
-                    }
+                    // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
+                    // user here would be treated as a success, silently masking backend errors.
+                    const response = await api.update<UserType>('api/users/@me/', user)
+                    successCallback?.()
+                    return response
                 },
                 cancelEmailChangeRequest: async () => {
                     if (!values.user) {
@@ -349,8 +347,9 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
-        updateUserFailure: () => {
-            lemonToast.error(`Error saving preferences`, {
+        updateUserFailure: ({ errorObject }) => {
+            lemonToast.dismiss('updateUser')
+            lemonToast.error(errorObject?.detail || 'Error saving preferences', {
                 toastId: 'updateUser',
             })
         },
@@ -546,6 +545,40 @@ export const userLogic = kea<userLogicType>([
                         data_pipeline_error_threshold: threshold / 100,
                     },
                 })
+        },
+        updatePipelineNotification: ({ pipelineId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: {
+                        ...values.user.notification_settings.pipeline_notifications_disabled,
+                        [pipelineId]: !enabled,
+                    },
+                },
+            })
+        },
+        updatePipelineNotificationForAll: ({ pipelineIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const pipelineNotificationsDisabled = {
+                ...values.user.notification_settings.pipeline_notifications_disabled,
+            }
+            pipelineIds.forEach((id) => {
+                pipelineNotificationsDisabled[id] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    pipeline_notifications_disabled: pipelineNotificationsDisabled,
+                },
+            })
         },
     })),
     selectors({

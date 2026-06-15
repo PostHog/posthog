@@ -45,9 +45,12 @@ def ph_scoped_capture():
         if is_cloud() and ph_client:
             ph_client.capture(*args, **kwargs)
 
-    yield capture_ph_event
-
-    ph_client.shutdown()
+    # Flush even when the caller's block raises — events already captured
+    # before the exception shouldn't be dropped with the buffer.
+    try:
+        yield capture_ph_event
+    finally:
+        ph_client.shutdown()
 
 
 def get_client(region: str = "US", **kwargs: Any):

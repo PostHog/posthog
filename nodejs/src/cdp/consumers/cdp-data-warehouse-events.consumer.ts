@@ -150,8 +150,8 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
             url: projectUrl,
         },
         event: {
-            uuid: 'data-warehouse-table-uuid-do-not-use',
-            event: 'data-warehouse-table-event-do-not-use',
+            uuid: event.event_id,
+            event: '$warehouse_source_row',
             elements_chain: '', // Not applicable but left here for compatibility
             distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
             properties: data,
