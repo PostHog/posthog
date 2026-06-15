@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 
@@ -177,7 +180,7 @@ def test_google_sheets_source_reads_blank_cells_as_null():
         ),
     ):
         response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
 
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
 
