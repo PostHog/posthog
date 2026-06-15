@@ -21,6 +21,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Element
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
@@ -214,7 +215,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
             # works correctly. Worth considering other approaches as we generally like to
             # avoid truncating tables in tests for speed.
-            sync_execute("TRUNCATE TABLE sharded_events")
+            sync_execute(f"TRUNCATE TABLE {EVENTS_INSERT_DATA_TABLE()}")
             with freeze_time("2012-01-01T03:21:34.000Z"):
                 funnel = self._basic_funnel()
 

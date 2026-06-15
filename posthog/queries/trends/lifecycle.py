@@ -6,6 +6,7 @@ from posthog.schema import PersonsOnEventsMode
 
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.mixins.utils import cached_property
@@ -154,6 +155,7 @@ class LifecycleEventQuery(EventQuery):
                 entity_prop_query=entity_prop_query,
                 interval=self._filter.interval,
                 sample_clause=sample_clause,
+                events_table=EVENTS_QUERY_TABLE(),
             ),
             self.params,
         )

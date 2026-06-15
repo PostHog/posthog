@@ -2,7 +2,10 @@ import json
 import datetime
 from typing import Optional
 
+from django.conf import settings
+
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 
@@ -65,7 +68,7 @@ def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
 def _get_events_last_seen_at(team_id: int) -> dict[str, datetime.datetime]:
     from posthog.clickhouse.client import sync_execute
 
-    return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id}))
+    return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT.format(events_table=EVENTS_QUERY_TABLE()), {"team_id": team_id}))
 
 
 InferredPropertyKey = tuple[PropertyDefinition.Type, str, Optional[int]]
@@ -79,7 +82,11 @@ def _get_property_types(team_id: int) -> InferredProperties:
     property_types: InferredProperties = {
         (PropertyDefinition.Type.EVENT, property_key, None): _infer_property_type(sample_json_value)
         for property_key, sample_json_value in sync_execute(
-            _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}
+            _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES.format(
+                events_table=EVENTS_QUERY_TABLE(),
+                event_properties_expr=_event_properties_expr(),
+            ),
+            {"team_id": team_id},
         )
     }
 
@@ -117,20 +124,33 @@ def _get_event_property_pairs(team_id: int) -> list[tuple[str, str]]:
     """Determine which properties have been since with which events based on ClickHouse data."""
     from posthog.clickhouse.client import sync_execute
 
-    return [row[0] for row in sync_execute(_GET_EVENT_PROPERTIES, {"team_id": team_id})]
+    return [
+        row[0]
+        for row in sync_execute(
+            _GET_EVENT_PROPERTIES.format(
+                events_table=EVENTS_QUERY_TABLE(),
+                event_properties_expr=_event_properties_expr(),
+            ),
+            {"team_id": team_id},
+        )
+    ]
+
+
+def _event_properties_expr() -> str:
+    return "toJSONString(properties)" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
 
 
 _GET_EVENTS_LAST_SEEN_AT = """
 SELECT event, max(timestamp) AS last_seen_at
-FROM events
+FROM {events_table}
 WHERE team_id = %(team_id)s
 GROUP BY event
 """
 
 _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
 WITH property_tuples AS (
-    SELECT DISTINCT ON (property_tuple.1) arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_tuple
-    FROM events
+    SELECT DISTINCT ON (property_tuple.1) arrayJoin(JSONExtractKeysAndValuesRaw({event_properties_expr})) AS property_tuple
+    FROM {events_table}
     WHERE team_id = %(team_id)s
 )
 SELECT property_tuple.1 AS property_key, property_tuple.2 AS sample_json_value FROM property_tuples
@@ -155,6 +175,6 @@ _GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES = _GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.
 )
 
 _GET_EVENT_PROPERTIES = """
-SELECT DISTINCT (event, arrayJoin(JSONExtractKeys(properties))) FROM events
+SELECT DISTINCT (event, arrayJoin(JSONExtractKeys({event_properties_expr}))) FROM {events_table}
 WHERE team_id = %(team_id)s
 """

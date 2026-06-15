@@ -1,5 +1,6 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 
 WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME = "web_pre_aggregated_teams"
@@ -32,7 +33,7 @@ FROM (
         team_id,
         toDate(timestamp) AS day,
         count() AS daily_pageviews
-    FROM events
+    FROM {EVENTS_QUERY_TABLE()}
     WHERE timestamp >= now() - INTERVAL 30 DAY
       AND event = '$pageview'
     GROUP BY
@@ -67,7 +68,7 @@ FROM (
         team_id,
         toStartOfWeek(timestamp, 1) AS week_start,
         count() AS weekly_pageviews
-    FROM events
+    FROM {EVENTS_QUERY_TABLE()}
     WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 4 WEEK
       AND timestamp < toStartOfWeek(now(), 1)
       AND event = '$pageview'

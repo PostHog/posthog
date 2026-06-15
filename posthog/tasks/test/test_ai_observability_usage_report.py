@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.event.util import create_event
 from posthog.tasks.ai_observability_usage_report import (
     AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS,
@@ -41,7 +42,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         sync_execute("SYSTEM STOP MERGES")
 
         # Clear existing data
-        sync_execute("TRUNCATE TABLE events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_INSERT_DATA_TABLE()}")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE person_distinct_id")
 

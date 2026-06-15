@@ -35,7 +35,8 @@ class Migration(AsyncMigrationDefinition):
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
 
     def is_required(self):
-        return "kafka_timestamp_minmax" not in self.get_table_definition()
+        table_definition = self.get_table_definition()
+        return bool(table_definition) and "kafka_timestamp_minmax" not in table_definition
 
     def get_table_definition(self) -> str:
         result = sync_execute(

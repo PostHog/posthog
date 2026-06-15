@@ -9,6 +9,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.conf import settings as django_settings
+
 from parameterized import parameterized
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -39,6 +41,9 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
     "$session_id",
     "$window_id",
 ]
+
+EVENT_MATERIALIZED_COLUMNS_DISABLED = django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON = "event materialized columns are disabled for the JSON events schema"
 
 
 class TestMaterializedColumnDetails(TestCase):
@@ -99,6 +104,11 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert {} == get_materialized_columns("some weird string")
 
     def test_get_columns_default(self):
+        if EVENT_MATERIALIZED_COLUMNS_DISABLED:
+            assert get_materialized_columns("events") == {}
+            assert sorted(get_materialized_columns("person")) == sorted([])
+            return
+
         assert sorted([property_name for property_name, _ in get_materialized_columns("events")]) == sorted(
             EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
         )
@@ -111,12 +121,21 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("events", "$bar", create_minmax_index=True)
             materialize("person", "$zeta", create_minmax_index=True)
 
+            expected_event_properties = (
+                []
+                if EVENT_MATERIALIZED_COLUMNS_DISABLED
+                else [
+                    "$foo",
+                    "$bar",
+                    *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+                ]
+            )
             assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ]
-            ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+            ) == sorted(expected_event_properties)
             assert sorted(get_enabled_materialized_columns("person", use_cache=True).keys()) == sorted(
                 [("$zeta", "properties")]
             )
@@ -128,18 +147,28 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ]
-            ) == sorted(["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+            ) == sorted(expected_event_properties)
 
         # The cache is updated in the background, so we need to poll for cache update with retry
         # otherwise this flakes
         @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=2), stop=stop_after_attempt(5))
         def check_cache_updated():
+            expected_event_properties = (
+                []
+                if EVENT_MATERIALIZED_COLUMNS_DISABLED
+                else [
+                    "$foo",
+                    "$bar",
+                    "abc",
+                    *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+                ]
+            )
             assert sorted(
                 [
                     property_name
                     for property_name, _ in get_enabled_materialized_columns("events", use_cache=True).keys()
                 ]
-            ) == sorted(["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
+            ) == sorted(expected_event_properties)
 
         with freeze_time(base_time + timedelta(minutes=59)):
             check_cache_updated()
@@ -147,6 +176,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     @patch("secrets.choice", return_value="X")
     def test_materialized_column_naming(self, mock_choice):
         assert materialize("events", "$foO();--sqlinject", create_minmax_index=True).name == "mat_$foO_____sqlinject"
+
+        if EVENT_MATERIALIZED_COLUMNS_DISABLED:
+            assert materialize("person", "SoMePrOp", create_minmax_index=True).name == "pmat_SoMePrOp"
+            return
 
         mock_choice.return_value = "Y"
         assert (
@@ -160,6 +193,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         assert materialize("person", "SoMePrOp", create_minmax_index=True).name == "pmat_SoMePrOp"
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_backfilling_data(self):
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_another")
@@ -248,6 +282,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             ("", "7"),
         ]
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_column_types(self):
         columns = [
             materialize("events", "myprop", create_minmax_index=True),
@@ -309,6 +344,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             },
         )[0]
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_lifecycle(self):
         table: TablesWithMaterializedColumns = "events"
         property_names = ["foo", "bar"]
@@ -434,6 +470,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         mutations_ran = self._get_mutations_since_id(table, latest_mutation_id_before_drop)
         assert not any("DROP COLUMN" in mutation for mutation in mutations_ran)
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_minmax_index_usage(self):
         property_name = "numeric_prop"
         _create_event(
@@ -451,6 +488,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"MinMax index {index_name} should appear in EXPLAIN output"
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_bloom_filter_index_usage(self):
         property_name = "category_prop"
         _create_event(
@@ -468,6 +506,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"Bloom filter index {index_name} should appear in EXPLAIN output"
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_ngram_lower_index_usage_non_nullable(self):
         property_name = "text_prop"
         _create_event(
@@ -485,6 +524,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"N-gram index {index_name} should appear in EXPLAIN output"
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_ngram_lower_index_usage_nullable(self):
         property_name = "text_prop"
         _create_event(
@@ -504,6 +544,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("non_nullable", False), ("nullable", True)])
     def test_bloom_filter_lower_index_usage(self, _name, is_nullable):
+        if EVENT_MATERIALIZED_COLUMNS_DISABLED:
+            return
+
         property_name = "ci_category_prop"
         _create_event(
             team=self.team,
@@ -521,6 +564,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         index_info = get_index_from_explain(query, index_name)
         assert index_info is not None, f"Bloom filter lower index {index_name} should appear in EXPLAIN output"
 
+    @pytest.mark.skipif(EVENT_MATERIALIZED_COLUMNS_DISABLED, reason=EVENT_MATERIALIZED_COLUMNS_DISABLED_REASON)
     def test_get_all_returns_index_flags(self):
         """Test that get_materialized_columns returns correct index flags from ClickHouse."""
         prop_all = "prop_all"

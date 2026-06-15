@@ -1,7 +1,10 @@
 from typing import Union
 
+from django.conf import settings
+
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
 from posthog.queries.query_date_range import QueryDateRange
@@ -35,14 +38,15 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
 
     entity_query = f"AND event IN %(events_list)s"
     entity_params = {"events_list": sorted(events)}
+    properties_expr = "toJSONString(properties)" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
 
     # nosemgrep: clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
     events_result = sync_execute(
         f"""
         SELECT
             event,
-            groupArraySample(%(limit)s)(properties)
-        FROM events
+            groupArraySample(%(limit)s)({properties_expr})
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE
         team_id = %(team_id)s
         {entity_query}

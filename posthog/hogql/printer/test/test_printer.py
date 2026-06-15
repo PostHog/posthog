@@ -123,6 +123,8 @@ class TestPrinter(BaseTest):
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
+        if "%" in property_name:
+            return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(toString({root}), %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         field = f"{root}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
         return f"if(isNull({field}), NULL, toString({field}))"
 
@@ -5404,30 +5406,20 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert result.clickhouse
 
-        # Note: When columns are materialized, empty strings become NULL due to nullIf(nullIf(..., ''), 'null') wrapping - this is known inconsistent behaviour for materialized properties
-        if (
-            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            and poe_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-        ):
-            expected_results = {
-                (distinct_id_with_email, "test@example.com", 0, 0),
-                (distinct_id_with_empty, None, 1, 1),
-                (distinct_id_with_null, None, 1, 1),
-                (distinct_id_without, None, 1, 1),
-            }
-        else:
-            expected_results = {
-                (distinct_id_with_email, "test@example.com", 0, 0),
-                # Empty string behavior differs: becomes null when materialized
-                (
-                    distinct_id_with_empty,
-                    None if is_materialized else "",
-                    1 if is_materialized else 0,
-                    1 if is_materialized else 0,
-                ),
-                (distinct_id_with_null, None, 1, 1),
-                (distinct_id_without, None, 1, 1),
-            }
+        # Note: When legacy columns are materialized, empty strings become NULL due to
+        # nullIf(nullIf(..., ''), 'null') wrapping - this is known inconsistent behaviour for materialized properties.
+        legacy_materialized_column = is_materialized and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        expected_results = {
+            (distinct_id_with_email, "test@example.com", 0, 0),
+            (
+                distinct_id_with_empty,
+                None if legacy_materialized_column else "",
+                1 if legacy_materialized_column else 0,
+                1 if legacy_materialized_column else 0,
+            ),
+            (distinct_id_with_null, None, 1, 1),
+            (distinct_id_without, None, 1, 1),
+        }
         self.assertEqual(set(result.results), expected_results)
 
         # The query should never touch the json properties object if we are using the materialized column, these asserts protect against regression of the performance the bug fixed in

@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from opentelemetry import trace
 
-from posthog.models.event.sql import SELECT_PROP_VALUES_SQL_WITH_FILTER
+from posthog.models.event.sql import EVENTS_QUERY_TABLE, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.person.sql import SELECT_PERSON_PROP_VALUES_SQL, SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
@@ -65,6 +65,7 @@ def get_property_values_for_key(
             SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
                 parsed_date_from=parsed_date_from,
                 parsed_date_to=parsed_date_to,
+                events_table=EVENTS_QUERY_TABLE(),
                 property_field=property_field,
                 event_filter=event_filter,
                 value_filter=value_filter,

@@ -5,6 +5,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.hogql import translate_hogql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
 from posthog.queries.event_query import EventQuery
@@ -111,7 +112,7 @@ class FunnelEventQuery(EventQuery):
         # things like this for now but should do a larger refactor to get rid of it
         query = f"""
             SELECT {all_fields}
-            FROM events {self.EVENT_TABLE_ALIAS}
+            FROM {EVENTS_QUERY_TABLE()} {self.EVENT_TABLE_ALIAS}
             {sample_clause}
             {self._get_person_ids_query(relevant_events_conditions=f"{entity_query} {date_query}")}
             {person_query}

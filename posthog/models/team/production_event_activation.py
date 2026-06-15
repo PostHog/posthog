@@ -65,6 +65,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -266,6 +267,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     current_url_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
     device_id_expr, _ = get_property_string_expr("events", "$device_id", "'$device_id'", "properties")
     lib_expr, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+    properties_expr = "toJSONString(properties)" if EVENTS_QUERY_TABLE() == "events_json" else "properties"
 
     # Internal background job, not a customer-facing query — tag it so it's
     # attributed to growth in ClickHouse query analytics (and so it doesn't trip
@@ -300,10 +302,10 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                     1,
                     %(host_length_cap)s
                 ) AS host,
-                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
+                JSONExtractRaw({properties_expr}, '$is_emulator') AS is_emulator_raw,
                 {device_id_expr} AS device_id,
                 {lib_expr} AS lib
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )

@@ -7,6 +7,7 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_EVENTS_JSON,
+    CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON,
     CONSUMER_GROUP_EVENTS_JSON_WS,
     KAFKA_COLUMNS,
     STORAGE_POLICY,
@@ -51,6 +52,7 @@ def WRITABLE_EVENTS_DATA_TABLE():
 EVENTS_JSON_DATA_TABLE = "sharded_events_json"
 WRITABLE_EVENTS_JSON_TABLE = "writable_events_json"
 DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
+KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 
 
 def EVENTS_INSERT_DATA_TABLE() -> str:
@@ -59,6 +61,10 @@ def EVENTS_INSERT_DATA_TABLE() -> str:
 
 def EVENTS_QUERY_TABLE() -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
+
+
+def EVENTS_PROPERTIES_COLUMN() -> str:
+    return "toJSONString(properties) AS properties" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
 
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
@@ -507,8 +513,9 @@ def EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
     return (
         EVENTS_JSON_TABLE_BASE_SQL
         + """PARTITION BY toYYYYMM(timestamp)
-PRIMARY KEY (team_id, toDate(timestamp), event, timestamp)
-ORDER BY (team_id, toDate(timestamp), event, timestamp, distinct_id, uuid)
+PRIMARY KEY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id))
+ORDER BY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id), distinct_id, uuid)
+SAMPLE BY cityHash64(distinct_id)
 SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', object_shared_data_serialization_version_for_zero_level_parts = 'map', merge_max_block_size = 131072, merge_max_block_size_bytes = 67108864, vertical_merge_algorithm_min_rows_to_activate = 0
 """
     ).format(
@@ -604,6 +611,23 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     )
 
 
+def KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100
+"""
+    ).format(
+        table_name=KAFKA_EVENTS_NATIVE_JSON_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON),
+        extra_fields="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        materialized_columns="",
+        indexes="",
+    )
+
+
 # NOTE: All parameters must have defaults - zero-argument calls must remain valid.
 # 8+ frozen migrations and schema.py reference this function without parameters.
 #
@@ -672,16 +696,15 @@ FROM {database}.{kafka_table}
     )
 
 
-# Second materialized view on the same Kafka stream that dual-writes events into the native-JSON
-# schema (writable_events_json). The Kafka engine pushes each consumed block to every attached MV,
-# so this populates the JSON table in lockstep with the legacy events_json_mv above regardless of
-# CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA. The string properties/person_properties payloads are
+# Dual-write materialized view that writes events into the native-JSON schema
+# (writable_events_json). It reads from a dedicated Kafka consumer group so JSON-table retries do not
+# replay legacy writes through events_json_mv. The string properties/person_properties payloads are
 # implicitly cast to the destination JSON columns on insert. Unlike the legacy MV this does not
 # project the dmat_string_* columns — they don't exist on the JSON table, whose property reads come
 # from JSON subcolumns instead.
 def EVENTS_JSON_TABLE_MV_SQL(
     mv_name="events_json_table_mv",
-    kafka_table="kafka_events_json",
+    kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
     target_table=None,
     on_cluster=True,
 ):
@@ -1035,7 +1058,7 @@ SELECT_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT
     DISTINCT {property_field}
 FROM
-    events
+    {events_table} AS events
 WHERE
     team_id = %(team_id)s
     {property_exists_filter}
@@ -1051,14 +1074,14 @@ SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
 SELECT
     uuid,
     event,
-    properties,
+    {properties_column},
     timestamp,
     team_id,
     distinct_id,
     elements_chain,
     created_at
 FROM
-    events
+    {events_table} AS events
 where team_id = %(team_id)s
 {conditions}
 ORDER BY timestamp {order} {limit}
@@ -1074,7 +1097,7 @@ SELECT
     distinct_id,
     elements_chain,
     created_at
-FROM events
+FROM {events_table} AS events
 WHERE
 team_id = %(team_id)s
 {conditions}
@@ -1086,13 +1109,13 @@ SELECT_ONE_EVENT_SQL = """
 SELECT
     uuid,
     event,
-    properties,
+    {properties_column},
     timestamp,
     team_id,
     distinct_id,
     elements_chain,
     created_at
-FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+FROM {events_table} AS events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 """
 
 NULL_SQL = """
@@ -1126,11 +1149,20 @@ SELECT toUInt16(0) AS total, {date_from_truncated}
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON {event_table_alias}.distinct_id = pdi.distinct_id
 """
 
 GET_EVENTS_WITH_PROPERTIES = """
-SELECT * FROM events WHERE
+SELECT
+    uuid,
+    event,
+    {properties_column},
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    created_at
+FROM {events_table} AS events WHERE
 team_id = %(team_id)s
 {filters}
 {order_by}
@@ -1143,15 +1175,15 @@ ELEMENT_TAG_COUNT = """
 SELECT concat('<', {tag_regex}, '> ', {text_regex}) AS tag_name,
        events.elements_chain,
        count(*) as tag_count
-FROM events
+FROM {events_table} AS events
 WHERE events.team_id = %(team_id)s AND event = '$autocapture'
 GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
-""".format(tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX)
+""".format(tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX, events_table="{events_table}")
 
 GET_CUSTOM_EVENTS = """
-SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
+SELECT DISTINCT event FROM {events_table} AS events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
 #
@@ -1159,7 +1191,9 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 #
 
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
-    table_name=WRITABLE_EVENTS_DATA_TABLE(),
+    table_name=WRITABLE_EVENTS_JSON_TABLE
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+    else WRITABLE_EVENTS_DATA_TABLE(),
     columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
      group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",

@@ -116,6 +116,13 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
+        events_table_exists = sync_execute(
+            "SELECT 1 FROM system.tables WHERE database = %(database)s AND name = 'events'",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+        if not events_table_exists:
+            return False
+
         # we don't check groupX_created_at columns as they are 0 by default
         rows_to_backfill_check = sync_execute(
             """

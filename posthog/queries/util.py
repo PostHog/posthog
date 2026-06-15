@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.insight import insight_sync_execute
 from posthog.schema_enums import PersonsOnEventsMode
@@ -55,7 +56,7 @@ def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None
 EARLIEST_TIMESTAMP = "2015-01-01"
 
 GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
+SELECT timestamp from {events_table} WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
 """
 
 TIME_IN_SECONDS: dict[str, Any] = {
@@ -95,7 +96,7 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
 @cache_for(timedelta(seconds=2))
 def get_earliest_timestamp(team_id: int) -> datetime:
     results = insight_sync_execute(
-        GET_EARLIEST_TIMESTAMP_SQL,
+        GET_EARLIEST_TIMESTAMP_SQL.format(events_table=EVENTS_QUERY_TABLE()),
         {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
         query_type="get_earliest_timestamp",
         team_id=team_id,

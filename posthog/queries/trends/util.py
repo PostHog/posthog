@@ -19,6 +19,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +69,10 @@ def process_math(
             join_condition = ""
             aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
         else:
-            join_condition = EVENT_JOIN_PERSON_SQL
+            join_condition = EVENT_JOIN_PERSON_SQL.format(
+                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
+                event_table_alias=event_table_alias or "events",
+            )
             aggregate_operation = f"count(DISTINCT {person_id_alias})"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)

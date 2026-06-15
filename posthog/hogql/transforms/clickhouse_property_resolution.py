@@ -426,6 +426,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     _record_property_usage(context, source.kind if source is not None else None)
     if source is None:
         return None
+    if source.kind == "json_subcolumn" and any(isinstance(key, str) and "%" in key for key in node.keys):
+        return None
 
     if source.kind == "json_subcolumn" and deeper_keys:
         subcolumn_keys = [first_key]

@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterable
+from datetime import date, datetime
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
@@ -285,6 +286,25 @@ class TaxonomyAgentToolkit:
 
         return prop_values
 
+    @staticmethod
+    def _normalize_datetime_sample_values(sample_values: list) -> list:
+        normalized_values = []
+        for value in sample_values:
+            if isinstance(value, datetime):
+                normalized_values.append(value.isoformat())
+                continue
+            if isinstance(value, date):
+                normalized_values.append(value.isoformat())
+                continue
+            if isinstance(value, str):
+                try:
+                    normalized_values.append(datetime.fromisoformat(value).isoformat())
+                    continue
+                except ValueError:
+                    pass
+            normalized_values.append(value)
+        return normalized_values
+
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:
             property_definition = PropertyDefinition.objects.get(
@@ -303,8 +323,12 @@ class TaxonomyAgentToolkit:
         if not prop:
             return f"The property {property_name} does not exist in the taxonomy for the {verbose_name}."
 
+        sample_values = prop.sample_values
+        if property_definition.property_type == PropertyType.Datetime:
+            sample_values = self._normalize_datetime_sample_values(sample_values)
+
         return self._format_property_values(
-            prop.sample_values,
+            sample_values,
             prop.sample_count,
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
@@ -395,8 +419,12 @@ class TaxonomyAgentToolkit:
         else:
             unpacked_results = response.results
 
+        sample_values = unpacked_results.sample_values
+        if property_definition.property_type == PropertyType.Datetime:
+            sample_values = self._normalize_datetime_sample_values(sample_values)
+
         return self._format_property_values(
-            unpacked_results.sample_values,
+            sample_values,
             unpacked_results.sample_count,
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )

@@ -20,6 +20,8 @@ from posthog.schema import RecordingOrder, RecordingsQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Comment, Team, User
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
@@ -320,20 +322,22 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
         now_ts = datetime.now(UTC)
         date_from = now_ts - timedelta(days=FrustrationSignalsPlaylistSource.LOOKBACK_DAYS)
 
-        query = """
+        session_id_expr, _ = get_property_string_expr("events", "$session_id", "'$session_id'", "properties")
+
+        query = f"""
             SELECT
-                `$session_id` AS session_id,
+                {session_id_expr} AS session_id,
                 countIf(event = '$rageclick') * 3
                     + countIf(event = '$exception') * 2
                     AS frustration_score
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE
                 team_id = %(team_id)s
                 AND event IN ('$rageclick', '$exception')
                 AND timestamp >= %(date_from)s
                 AND timestamp <= %(date_to)s
-                AND notEmpty(`$session_id`)
-            GROUP BY `$session_id`
+                AND notEmpty({session_id_expr})
+            GROUP BY session_id
             HAVING frustration_score > %(min_frustration_score)s
             ORDER BY frustration_score DESC
             LIMIT 1000

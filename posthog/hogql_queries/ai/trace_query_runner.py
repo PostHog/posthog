@@ -2,8 +2,6 @@ from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
-import orjson
-
 from posthog.schema import (
     CachedTraceQueryResponse,
     IntervalType,
@@ -19,7 +17,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
-from posthog.hogql_queries.ai.utils import merge_heavy_properties
+from posthog.hogql_queries.ai.utils import merge_heavy_properties, parse_ai_properties, parse_ai_property_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -158,6 +156,9 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 argMinIf(output_state,
                          timestamp, event = '$ai_trace'
                 ) AS output_state,
+                argMinIf(properties,
+                         timestamp, event = '$ai_trace'
+                ) AS trace_properties,
                 ifNull(
                     argMinIf(
                         ifNull(nullIf(span_name, ''), nullIf(trace_name, '')),
@@ -248,14 +249,15 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             "created_at": created_at.isoformat(),
             "events": generations,
         }
-        for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
-            raw = trace_dict.get(raw_key) or None
+        trace_properties = parse_ai_properties(trace_dict.get("trace_properties"))
+        for raw_key, parsed_key, prop_key in [
+            ("input_state", "input_state_parsed", "$ai_input_state"),
+            ("output_state", "output_state_parsed", "$ai_output_state"),
+        ]:
+            raw = trace_dict.get(raw_key) or trace_properties.get(prop_key) or None
             trace_dict[raw_key] = raw
             if raw is not None:
-                try:
-                    trace_dict[parsed_key] = orjson.loads(raw)
-                except (TypeError, orjson.JSONDecodeError):
-                    trace_dict[parsed_key] = raw
+                trace_dict[parsed_key] = parse_ai_property_value(raw)
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
         )

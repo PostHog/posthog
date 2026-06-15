@@ -21,7 +21,7 @@ from posthog.constants import (
     PropertyOperatorType,
 )
 from posthog.models.entity import Entity
-from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
+from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL, EVENTS_QUERY_TABLE
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
@@ -246,6 +246,7 @@ class TrendsBreakdown:
 
         sample_clause = "SAMPLE %(sampling_factor)s" if self.filter.sampling_factor else ""
         sampling_params = {"sampling_factor": self.filter.sampling_factor}
+        events_table = EVENTS_QUERY_TABLE()
 
         self.params = {
             **self.params,
@@ -288,6 +289,7 @@ class TrendsBreakdown:
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
                     sample_clause=sample_clause,
+                    events_table=events_table,
                     **active_user_format_params,
                     **breakdown_filter_params,
                 )
@@ -303,6 +305,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL.format(
@@ -314,6 +317,7 @@ class TrendsBreakdown:
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                 )
             else:
                 content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
@@ -324,6 +328,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                 )
             time_range = enumerate_time_range(self.filter, seconds_in_interval)
 
@@ -357,6 +362,7 @@ class TrendsBreakdown:
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
                     sample_clause=sample_clause,
+                    events_table=events_table,
                     **active_user_format_params,
                     **breakdown_filter_params,
                 )
@@ -375,6 +381,7 @@ class TrendsBreakdown:
                     timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                     **breakdown_filter_params,
                 )
             elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
@@ -390,6 +397,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                     **breakdown_filter_params,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
@@ -403,6 +411,7 @@ class TrendsBreakdown:
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                     **breakdown_filter_params,
                 )
             else:
@@ -415,6 +424,7 @@ class TrendsBreakdown:
                     timestamp_truncated=get_start_of_interval_sql(self.filter.interval, team=self.team),
                     breakdown_value=breakdown_value,
                     sample_clause=sample_clause,
+                    events_table=events_table,
                     **breakdown_filter_params,
                 )
 
@@ -752,7 +762,8 @@ class TrendsBreakdown:
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
         event_join = EVENT_JOIN_PERSON_SQL.format(
-            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id)
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+            event_table_alias=self.EVENT_TABLE_ALIAS,
         )
         if person_query.is_used:
             query, params = person_query.get_query()

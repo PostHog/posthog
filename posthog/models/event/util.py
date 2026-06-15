@@ -20,6 +20,28 @@ from posthog.models.team import Team
 from posthog.settings import TEST
 
 ZERO_DATE = datetime(1970, 1, 1)
+CLICKHOUSE_JSON_MIN_INT = -(2**63)
+CLICKHOUSE_JSON_MAX_UINT = 2**64 - 1
+
+
+def _normalize_clickhouse_json_value(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        if CLICKHOUSE_JSON_MIN_INT <= value <= CLICKHOUSE_JSON_MAX_UINT:
+            return value
+        return float(value)
+    if isinstance(value, list):
+        return [_normalize_clickhouse_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_clickhouse_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_clickhouse_json_value(nested_value) for key, nested_value in value.items()}
+    return value
+
+
+def _json_dumps_for_clickhouse(value: dict[str, Any]) -> str:
+    return json.dumps(_normalize_clickhouse_json_value(value))
 
 
 def create_event(
@@ -60,7 +82,7 @@ def create_event(
     data = {
         "uuid": str(event_uuid),
         "event": event,
-        "properties": json.dumps(properties),
+        "properties": _json_dumps_for_clickhouse(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.id,
         "project_id": team.project_id,
@@ -68,13 +90,13 @@ def create_event(
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
-        "person_properties": json.dumps(person_properties) if person_properties is not None else "",
+        "person_properties": _json_dumps_for_clickhouse(person_properties) if person_properties is not None else "{}",
         "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE),
-        "group0_properties": json.dumps(group0_properties) if group0_properties is not None else "",
-        "group1_properties": json.dumps(group1_properties) if group1_properties is not None else "",
-        "group2_properties": json.dumps(group2_properties) if group2_properties is not None else "",
-        "group3_properties": json.dumps(group3_properties) if group3_properties is not None else "",
-        "group4_properties": json.dumps(group4_properties) if group4_properties is not None else "",
+        "group0_properties": _json_dumps_for_clickhouse(group0_properties) if group0_properties is not None else "{}",
+        "group1_properties": _json_dumps_for_clickhouse(group1_properties) if group1_properties is not None else "{}",
+        "group2_properties": _json_dumps_for_clickhouse(group2_properties) if group2_properties is not None else "{}",
+        "group3_properties": _json_dumps_for_clickhouse(group3_properties) if group3_properties is not None else "{}",
+        "group4_properties": _json_dumps_for_clickhouse(group4_properties) if group4_properties is not None else "{}",
         "group0_created_at": format_clickhouse_timestamp(group0_created_at, ZERO_DATE),
         "group1_created_at": format_clickhouse_timestamp(group1_created_at, ZERO_DATE),
         "group2_created_at": format_clickhouse_timestamp(group2_created_at, ZERO_DATE),
@@ -228,22 +250,34 @@ def bulk_create_events(
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
-            "properties": json.dumps(properties),
+            "properties": _json_dumps_for_clickhouse(properties),
             "timestamp": timestamp,
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
             "created_at": timestamp,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
-            "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
+            "person_properties": (
+                _json_dumps_for_clickhouse(event["person_properties"]) if event.get("person_properties") else "{}"
+            ),
             "person_created_at": (
                 event["person_created_at"] if event.get("person_created_at") else datetime64_default_timestamp
             ),
-            "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
-            "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
-            "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
-            "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
-            "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
+            "group0_properties": (
+                _json_dumps_for_clickhouse(event["group0_properties"]) if event.get("group0_properties") else "{}"
+            ),
+            "group1_properties": (
+                _json_dumps_for_clickhouse(event["group1_properties"]) if event.get("group1_properties") else "{}"
+            ),
+            "group2_properties": (
+                _json_dumps_for_clickhouse(event["group2_properties"]) if event.get("group2_properties") else "{}"
+            ),
+            "group3_properties": (
+                _json_dumps_for_clickhouse(event["group3_properties"]) if event.get("group3_properties") else "{}"
+            ),
+            "group4_properties": (
+                _json_dumps_for_clickhouse(event["group4_properties"]) if event.get("group4_properties") else "{}"
+            ),
             "group0_created_at": (
                 event["group0_created_at"] if event.get("group0_created_at") else datetime64_default_timestamp
             ),

@@ -6,6 +6,8 @@ from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
+from posthog.models.property.util import get_property_string_expr
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
@@ -414,13 +416,38 @@ def get_date_filters(date_start: str, date_end: str, timezone: str, granularity:
     }
 
 
+def _event_property_expr(property_name: str) -> str:
+    expression, _ = get_property_string_expr(
+        "events", property_name, f"'{property_name}'", "properties", table_alias="e"
+    )
+    return expression
+
+
+def get_event_property_expressions() -> dict[str, str]:
+    return {
+        "host_expr": _event_property_expr("$host"),
+        "device_type_expr": _event_property_expr("$device_type"),
+        "browser_expr": _event_property_expr("$browser"),
+        "os_expr": _event_property_expr("$os"),
+        "viewport_width_expr": _event_property_expr("$viewport_width"),
+        "viewport_height_expr": _event_property_expr("$viewport_height"),
+        "country_code_expr": _event_property_expr("$geoip_country_code"),
+        "city_name_expr": _event_property_expr("$geoip_city_name"),
+        "region_code_expr": _event_property_expr("$geoip_subdivision_1_code"),
+        "pathname_expr": _event_property_expr("$pathname"),
+        "session_id_expr": _event_property_expr("$session_id"),
+    }
+
+
 def get_mat_custom_fields_expressions() -> dict[str, str]:
     if is_eu_cluster():
+        logged_in_expr = _event_property_expr("metadata.loggedIn")
+        backend_expr = _event_property_expr("metadata.backend")
         return {
             "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
-            "mat_metadata_loggedIn_inner_expr": "any(IF(e.mat_metadata_loggedIn IS NULL, NULL, e.mat_metadata_loggedIn = 'true')) AS mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": f"any(if(empty(ifNull({logged_in_expr}, '')), NULL, {logged_in_expr} = 'true')) AS mat_metadata_loggedIn",
             "mat_metadata_backend_expr": "mat_metadata_backend",
-            "mat_metadata_backend_inner_expr": "any(e.mat_metadata_backend) AS mat_metadata_backend",
+            "mat_metadata_backend_inner_expr": f"any(nullIf({backend_expr}, '')) AS mat_metadata_backend",
             "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
         }
     else:
@@ -444,6 +471,7 @@ def get_all_filters(
 ) -> dict[str, str]:
     team_filters = get_team_filters(team_ids)
     date_filters = get_date_filters(date_start, date_end, timezone, granularity)
+    event_property_expressions = get_event_property_expressions()
     mat_custom_fields_expressions = get_mat_custom_fields_expressions()
 
     time_bucket_func = "toStartOfHour" if granularity == "hourly" else "toStartOfDay"
@@ -458,7 +486,9 @@ def get_all_filters(
         "timezone": timezone,
         "date_start": date_start,
         "date_end": date_end,
+        "events_query_table": EVENTS_QUERY_TABLE(),
         **date_filters,
+        **event_property_expressions,
         **mat_custom_fields_expressions,
         "mat_custom_fields_outer_group_by_placeholder": (
             f",\n        {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
@@ -514,18 +544,18 @@ def WEB_STATS_INSERT_SQL(
     FROM
     (
         SELECT
-            any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS session_person_id,
+            any(if(NOT empty(events__override.distinct_id), events__override.person_id, e.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
-            e.mat_$host AS host,
-            e.mat_$device_type AS device_type,
-            e.mat_$browser AS browser,
-            e.mat_$os AS os,
-            accurateCastOrNull(e.mat_$viewport_width, 'Int64') AS viewport_width,
-            accurateCastOrNull(e.mat_$viewport_height, 'Int64') AS viewport_height,
-            e.mat_$geoip_country_code AS country_code,
-            e.mat_$geoip_city_name AS city_name,
-            e.mat_$geoip_subdivision_1_code AS region_code,
-            e.mat_$pathname AS pathname,
+            {host_expr} AS host,
+            {device_type_expr} AS device_type,
+            {browser_expr} AS browser,
+            {os_expr} AS os,
+            accurateCastOrNull({viewport_width_expr}, 'Int64') AS viewport_width,
+            accurateCastOrNull({viewport_height_expr}, 'Int64') AS viewport_height,
+            {country_code_expr} AS country_code,
+            {city_name_expr} AS city_name,
+            {region_code_expr} AS region_code,
+            {pathname_expr} AS pathname,
             events__session.entry_utm_source AS utm_source,
             events__session.entry_utm_medium AS utm_medium,
             events__session.entry_utm_campaign AS utm_campaign,
@@ -543,7 +573,7 @@ def WEB_STATS_INSERT_SQL(
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
-        FROM events AS e
+        FROM {events_query_table} AS e
         LEFT JOIN
         (
             SELECT
@@ -572,7 +602,7 @@ def WEB_STATS_INSERT_SQL(
             GROUP BY
                 raw_sessions.session_id_v7
             {settings_clause}
-        ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
+        ) AS events__session ON toUInt128(accurateCastOrNull({session_id_expr}, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
             SELECT
@@ -586,7 +616,7 @@ def WEB_STATS_INSERT_SQL(
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
-            AND (e.`$session_id` IS NOT NULL)
+            AND notEmpty({session_id_expr})
             AND toTimeZone(e.timestamp, '{timezone}') >= {event_start_filter}
             AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY
@@ -705,7 +735,7 @@ def WEB_BOUNCES_INSERT_SQL(
     FROM
     (
         SELECT
-            argMax(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id), e.timestamp) AS person_id,
+            argMax(if(NOT empty(events__override.distinct_id), events__override.person_id, e.person_id), e.timestamp) AS person_id,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             any(events__session.entry_pathname) AS entry_pathname,
             any(events__session.end_pathname) AS end_pathname,
@@ -719,12 +749,12 @@ def WEB_BOUNCES_INSERT_SQL(
             any(events__session.city_name) AS city_name,
             any(events__session.region_code) AS region_code,
             any(events__session.region_name) AS region_name,
-            any(e.mat_$host) AS host,
-            any(e.mat_$device_type) AS device_type,
-            any(e.mat_$browser) AS browser,
-            any(e.mat_$os) AS os,
-            accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
-            accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
+            any({host_expr}) AS host,
+            any({device_type_expr}) AS device_type,
+            any({browser_expr}) AS browser,
+            any({os_expr}) AS os,
+            accurateCastOrNull(any({viewport_width_expr}), 'Int64') AS viewport_width,
+            accurateCastOrNull(any({viewport_height_expr}), 'Int64') AS viewport_height,
             any(events__session.has_gclid) AS has_gclid,
             any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
             any(events__session.has_fbclid) AS has_fbclid,
@@ -736,7 +766,7 @@ def WEB_BOUNCES_INSERT_SQL(
             events__session.session_id AS session_id,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
-        FROM events AS e
+        FROM {events_query_table} AS e
         LEFT JOIN
         (
             SELECT
@@ -772,7 +802,7 @@ def WEB_BOUNCES_INSERT_SQL(
                 AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= {session_start_filter}
                 AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= {session_end_filter}
             GROUP BY raw_sessions.session_id_v7
-        ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
+        ) AS events__session ON toUInt128(accurateCastOrNull({session_id_expr}, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
             SELECT
@@ -785,7 +815,7 @@ def WEB_BOUNCES_INSERT_SQL(
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
-            AND (e.`$session_id` IS NOT NULL)
+            AND notEmpty({session_id_expr})
             AND toTimeZone(e.timestamp, '{timezone}') >= {event_start_filter}
             AND toTimeZone(e.timestamp, '{timezone}') < {event_end_filter}
         GROUP BY

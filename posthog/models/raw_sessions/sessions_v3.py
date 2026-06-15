@@ -289,7 +289,7 @@ LEGACY_PROPERTIES = f"""
         JSONExtractString(person_properties, 'email') as _person_email,
         mapSort(
             mapFilter(
-                (key, _) -> key like '$feature/%',
+                (key, _) -> key like '$feature/%%',
                 CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')
             )
         ) as properties_group_feature_flags,
@@ -361,7 +361,7 @@ def _json_properties_sql() -> str:
         -- enumeration until the cluster supports reading JSON path values without serializing.
         mapSort(
             mapFilter(
-                (key, _) -> key like '$feature/%',
+                (key, _) -> key like '$feature/%%',
                 CAST(JSONExtractKeysAndValues(toJSONString(properties), 'String'), 'Map(String, String)')
             )
         ) as properties_group_feature_flags,

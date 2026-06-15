@@ -4,7 +4,20 @@ from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
+from posthog.test.playwright_setup_functions import _count_events_in_clickhouse
+
+
+def _count_events_by_name_in_clickhouse(team_id: int) -> dict[str, int]:
+    return {
+        event: int(count)
+        for event, count in sync_execute(
+            f"SELECT event, count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s GROUP BY event",
+            {"team_id": team_id},
+        )
+    }
 
 
 class TestPlaywrightSetup(APIBaseTest):
@@ -64,6 +77,78 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertEqual(api_key.label, "Test API Key")
         self.assertIn("*", api_key.scopes)  # Should have full access
         self.assertTrue(result["personal_api_key"].startswith("phx_"))
+
+    @override_settings(TEST=True)
+    def test_organization_with_team_setup_with_events_writes_exact_clickhouse_count(self):
+        payload = {
+            "organization_name": "Test Org API",
+            "no_demo_data": True,
+            "events": [
+                {
+                    "event": "custom_test_event",
+                    "distinct_id": "user-1",
+                    "timestamp": "2026-06-14T12:00:00Z",
+                    "properties": {"amount": 10},
+                },
+                {
+                    "event": "custom_test_event",
+                    "distinct_id": "user-2",
+                    "timestamp": "2026-06-14T12:01:00Z",
+                    "properties": {"amount": -5},
+                },
+            ],
+        }
+
+        response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        team_id = int(response.json()["result"]["team_id"])
+        self.assertEqual(_count_events_in_clickhouse(team_id), len(payload["events"]))
+
+    @override_settings(TEST=True)
+    def test_organization_with_team_setup_with_trends_fixture_writes_exact_event_counts(self):
+        events = []
+        for days_ago, count in [(6, 10), (5, 8), (4, 6), (3, 5), (2, 4), (1, 3), (0, 2)]:
+            for index in range(count):
+                events.append(
+                    {
+                        "event": "$pageview",
+                        "distinct_id": f"pv-user-{index}",
+                        "timestamp": f"2026-06-{14 - days_ago:02d}T00:01:00Z",
+                        "properties": {"$browser": "Chrome"},
+                    }
+                )
+        for index in range(5):
+            events.append(
+                {
+                    "event": "custom_test_event",
+                    "distinct_id": f"custom-user-{index}",
+                    "timestamp": "2026-06-11T00:01:00Z",
+                    "properties": {"$browser": "Chrome", "amount": 10},
+                }
+            )
+        for index in range(3):
+            events.append(
+                {
+                    "event": "custom_test_event",
+                    "distinct_id": f"custom-user-{index}",
+                    "timestamp": "2026-06-12T00:01:00Z",
+                    "properties": {"$browser": "Firefox", "amount": -5},
+                }
+            )
+
+        payload = {
+            "organization_name": "Test Org API",
+            "no_demo_data": True,
+            "skip_onboarding": True,
+            "events": events,
+        }
+
+        response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        team_id = int(response.json()["result"]["team_id"])
+        self.assertEqual(_count_events_by_name_in_clickhouse(team_id), {"$pageview": 38, "custom_test_event": 8})
 
     @override_settings(DEBUG=True)
     def test_endpoint_allowed_in_debug_mode(self):

@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization
@@ -53,7 +54,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
             **kwargs,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}"
         return sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -797,7 +798,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             """
             params.update(person_join_params)
 
-        final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
+        final_query = f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} AS events {joins} WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field
         self.assertNotIn("json", final_query.lower())
         return sync_execute(
@@ -1798,7 +1799,7 @@ def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, pr
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]
@@ -1824,7 +1825,7 @@ def test_prop_filter_json_extract_materialized(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]
@@ -1854,7 +1855,7 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
             [
                 str(uuid)
                 for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                    f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
                     {"team_id": team.pk, **params},
                 )
             ]
@@ -1888,7 +1889,7 @@ def test_prop_filter_json_extract_person_on_events_materialized(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]

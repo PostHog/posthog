@@ -13,6 +13,8 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
+from posthog.models.property.util import get_property_string_expr
 from posthog.redis import get_client, redis
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -240,6 +242,10 @@ def _enriched_flag_key_expr_sql() -> str:
     columns are coalesced to '' to match JSONExtractString's missing-property
     behavior.
     """
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        expression, _ = get_property_string_expr("events", "feature_flag", "'feature_flag'", "properties")
+        return expression
+
     column = get_materialized_column_for_property("events", "properties", "feature_flag")
     if column is None:
         return "JSONExtractString(properties, 'feature_flag')"
@@ -251,7 +257,7 @@ def _enriched_flag_key_expr_sql() -> str:
 def _build_enriched_analytics_query() -> str:
     return f"""
         SELECT team_id, {_enriched_flag_key_expr_sql()} as flag_key
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE timestamp between %(begin)s AND %(end)s AND event = '$feature_view'
         GROUP BY team_id, flag_key
     """
@@ -290,6 +296,10 @@ def _flag_key_filter_sql() -> str:
     Falls back to JSONExtractString so the query still works when the property
     isn't materialized on this ClickHouse instance.
     """
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        expression, _ = get_property_string_expr("events", "$feature_flag", "'$feature_flag'", "properties")
+        return f"{expression} = %(flag_key)s"
+
     column = get_materialized_column_for_property("events", "properties", "$feature_flag")
     if column is not None:
         # No ifNull for nullable columns: NULL never equals a real flag key,
@@ -302,7 +312,7 @@ def _flag_key_filter_sql() -> str:
 def _build_cross_project_evals_query() -> str:
     return f"""
 SELECT team_id, count() AS evaluations
-FROM events
+FROM {EVENTS_QUERY_TABLE()}
 PREWHERE event = '$feature_flag_called'
 WHERE {_flag_key_filter_sql()}
   AND team_id IN %(team_ids)s

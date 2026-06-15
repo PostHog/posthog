@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterable
+from datetime import date, datetime
 from functools import cached_property
 from typing import Optional, Union, cast
 from uuid import uuid4
@@ -755,15 +756,38 @@ class TaxonomyAgentToolkit:
                     results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
                     continue
 
+            sample_values = prop_result.sample_values
+            if property_definition.property_type == PropertyType.Datetime:
+                sample_values = self._normalize_datetime_sample_values(sample_values)
+
             result = self._format_property_values(
                 property_name,
-                prop_result.sample_values,
+                sample_values,
                 prop_result.sample_count,
                 format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
             )
             results.append(result)
 
         return results
+
+    @staticmethod
+    def _normalize_datetime_sample_values(sample_values: list) -> list:
+        normalized_values = []
+        for value in sample_values:
+            if isinstance(value, datetime):
+                normalized_values.append(value.isoformat())
+                continue
+            if isinstance(value, date):
+                normalized_values.append(value.isoformat())
+                continue
+            if isinstance(value, str):
+                try:
+                    normalized_values.append(datetime.fromisoformat(value).isoformat())
+                    continue
+                except ValueError:
+                    pass
+            normalized_values.append(value)
+        return normalized_values
 
     def _collect_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict:
         """

@@ -3,6 +3,7 @@ from uuid import UUID
 
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.property.util import get_property_string_expr
 
 from products.surveys.backend.models import SurveyResponseArchive
@@ -129,7 +130,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int 
     query = f"""uuid IN (
         SELECT
             argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE event = '{SurveyEventName.SENT}' -- Filter for 'survey sent' events
           AND {get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)} = {escape_clickhouse_string(survey_id)} -- Filter for the specific survey
           {extra_filters}
@@ -190,7 +191,9 @@ def get_unique_survey_event_uuids_sql_subquery(
 
     group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
 
-    return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
+    return (
+        f"(SELECT argMax(uuid, timestamp) FROM {EVENTS_QUERY_TABLE()} WHERE {where_clause} GROUP BY {group_by_clause})"
+    )
 
 
 def get_archived_response_uuids(survey_id: str | UUID | None, team_id: int) -> set[str]:

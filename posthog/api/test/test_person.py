@@ -27,6 +27,7 @@ import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -388,7 +389,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # No async deletion is scheduled
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute(
-            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )[0][0]
         self.assertEqual(ch_events, 3)
@@ -555,7 +556,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # No async deletion is scheduled
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute(
-            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )[0][0]
         self.assertEqual(ch_events, 3)

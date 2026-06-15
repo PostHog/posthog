@@ -155,14 +155,17 @@ class Migration(AsyncMigrationDefinition):
         table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": EVENTS_TABLE},
-        )[0][0]
+        )
 
-        if "Distributed" in table_engine:
+        if not table_engine:
+            return False
+
+        if "Distributed" in table_engine[0][0]:
             return False
 
         return (
             "ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
-            not in table_engine
+            not in table_engine[0][0]
         )
 
     def precheck(self):

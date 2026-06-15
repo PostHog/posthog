@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
-import orjson
 import structlog
 
 from posthog.schema import (
@@ -24,6 +23,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.utils import parse_ai_properties, parse_ai_property_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -431,10 +431,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
             raw = trace_dict.get(raw_key)
             if raw is not None:
-                try:
-                    trace_dict[parsed_key] = orjson.loads(raw)
-                except (TypeError, orjson.JSONDecodeError):
-                    trace_dict[parsed_key] = raw
+                trace_dict[parsed_key] = parse_ai_property_value(raw)
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
@@ -448,7 +445,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "id": str(event_uuid),
             "event": event_name,
             "createdAt": event_timestamp.isoformat(),
-            "properties": orjson.loads(event_properties),
+            "properties": parse_ai_properties(event_properties),
         }
         return LLMTraceEvent.model_validate(generation)
 

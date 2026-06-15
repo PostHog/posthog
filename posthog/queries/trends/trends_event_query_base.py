@@ -5,6 +5,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.event_query import EventQuery
@@ -57,7 +58,7 @@ class TrendsEventQueryBase(EventQuery):
         self.params.update({"sampling_factor": self._filter.sampling_factor})
 
         query = f"""
-            FROM events {self.EVENT_TABLE_ALIAS}
+            FROM {EVENTS_QUERY_TABLE()} {self.EVENT_TABLE_ALIAS}
             {sample_clause}
             {self._get_person_ids_query(relevant_events_conditions=f"{deep_entity_query} {date_query}")}
             {person_query}

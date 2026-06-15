@@ -7,6 +7,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.property import action_to_expr
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.test.test_event_model import filter_by_actions_factory
 
 from products.actions.backend.models.action import Action
@@ -34,7 +35,7 @@ def _get_events_for_action(action: Action) -> list[MockEvent]:
         SELECT
             events.uuid,
             events.distinct_id
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()} AS events
         WHERE {formatted_query}
         AND events.team_id = %(team_id)s
         ORDER BY events.timestamp DESC
@@ -47,7 +48,7 @@ def _get_events_for_action(action: Action) -> list[MockEvent]:
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
-EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"
+EVENT_UUID_QUERY = f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE {{}} AND team_id = %(team_id)s"
 
 
 class TestActions(

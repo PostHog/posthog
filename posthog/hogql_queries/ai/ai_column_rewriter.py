@@ -16,6 +16,8 @@ The rewriter is scope-aware: it only rewrites fields within SELECT queries that 
 `FROM ai_events`. Fields in outer queries (referencing subquery aliases) are left unchanged.
 """
 
+from django.conf import settings as django_settings
+
 from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
@@ -60,6 +62,9 @@ _NUMERIC_COLUMNS: frozenset[str] = frozenset(
 )
 
 _BOOLEAN_COLUMNS: frozenset[str] = frozenset({"is_error"})
+_RAW_JSON_COLUMNS: frozenset[str] = frozenset(
+    {"input", "output", "output_choices", "input_state", "output_state", "tools"}
+)
 
 
 class AiColumnToPropertyRewriter(CloningVisitor):
@@ -197,6 +202,14 @@ def _wrap_for_events_type(col_name: str, prop_name: str, chain: list[str | int])
         )
     if col_name in _NUMERIC_COLUMNS:
         return ast.Call(name="toFloat", args=[ast.Field(chain=chain)])
+    if col_name in _RAW_JSON_COLUMNS and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return ast.Call(
+            name="JSONExtractRaw",
+            args=[
+                ast.Call(name="toJSONString", args=[ast.Field(chain=chain[:-1])]),
+                ast.Constant(value=prop_name),
+            ],
+        )
     return ast.Field(chain=chain)
 
 

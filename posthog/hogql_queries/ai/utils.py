@@ -1,3 +1,4 @@
+import ast as py_ast
 from abc import ABC
 from datetime import datetime
 from typing import Any, Optional
@@ -28,10 +29,80 @@ HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {v: k for k, v in AI_PROPERTY_TO_COLU
 # Keep in sync with the SQL tuple in trace_query_runner.py _build_query().
 HEAVY_COLUMN_NAMES: tuple[str, ...] = tuple(HEAVY_COLUMN_TO_PROPERTY.keys())
 
+_NUMERIC_AI_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "$ai_http_status",
+        "$ai_total_tokens",
+        "$ai_input_tokens",
+        "$ai_output_tokens",
+        "$ai_text_input_tokens",
+        "$ai_text_output_tokens",
+        "$ai_image_input_tokens",
+        "$ai_image_output_tokens",
+        "$ai_audio_input_tokens",
+        "$ai_audio_output_tokens",
+        "$ai_video_input_tokens",
+        "$ai_video_output_tokens",
+        "$ai_reasoning_tokens",
+        "$ai_cache_read_input_tokens",
+        "$ai_cache_creation_input_tokens",
+        "$ai_web_search_count",
+        "$ai_input_cost_usd",
+        "$ai_output_cost_usd",
+        "$ai_total_cost_usd",
+        "$ai_request_cost_usd",
+        "$ai_web_search_cost_usd",
+        "$ai_audio_cost_usd",
+        "$ai_image_cost_usd",
+        "$ai_video_cost_usd",
+        "$ai_latency",
+        "$ai_time_to_first_token",
+    }
+)
+
+
+def parse_ai_property_value(value: Any) -> Any:
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, bytes):
+        value = value.decode()
+
+    if not isinstance(value, str):
+        return value
+
+    try:
+        parsed = orjson.loads(value)
+    except orjson.JSONDecodeError:
+        try:
+            parsed = py_ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return value
+
+    if isinstance(parsed, list):
+        return [parse_ai_property_value(item) for item in parsed]
+
+    return parsed
+
+
+def parse_ai_properties(properties: Any) -> dict[str, Any]:
+    parsed = parse_ai_property_value(properties)
+    if not isinstance(parsed, dict):
+        return {}
+
+    for prop_key in _NUMERIC_AI_PROPERTIES:
+        value = parsed.get(prop_key)
+        if isinstance(value, str):
+            parsed_value = parse_ai_property_value(value)
+            if type(parsed_value) in (int, float):
+                parsed[prop_key] = parsed_value
+
+    return parsed
+
 
 def merge_heavy_properties(
-    properties_json: str,
-    heavy_columns: dict[str, str],
+    properties_json: Any,
+    heavy_columns: dict[str, Any],
 ) -> dict[str, Any]:
     """Take an ai_events row's properties JSON and heavy column values, return a complete properties dict.
 
@@ -43,20 +114,14 @@ def merge_heavy_properties(
     ClickHouse).  Empty strings are skipped (the column default when the
     property was absent).
     """
-    try:
-        props: dict[str, Any] = orjson.loads(properties_json) if properties_json else {}
-    except (orjson.JSONDecodeError, TypeError):
-        props = {}
+    props = parse_ai_properties(properties_json)
     for column_name, raw_value in heavy_columns.items():
         if not raw_value:
             continue
         prop_key = HEAVY_COLUMN_TO_PROPERTY.get(column_name)
         if prop_key is None:
             continue
-        try:
-            props[prop_key] = orjson.loads(raw_value)
-        except (orjson.JSONDecodeError, TypeError):
-            props[prop_key] = raw_value
+        props[prop_key] = parse_ai_property_value(raw_value)
     return props
 
 

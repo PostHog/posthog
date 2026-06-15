@@ -412,10 +412,11 @@ def _create_experiments(
 
 def _count_events_in_clickhouse(team_id: int) -> int:
     from posthog.clickhouse.client import sync_execute
+    from posthog.models.event.sql import EVENTS_QUERY_TABLE
 
     with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         result = sync_execute(
-            "SELECT count() FROM events WHERE team_id = %(team_id)s",
+            f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s",
             {"team_id": team_id},
         )
     return int(result[0][0])
@@ -429,8 +430,10 @@ def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_se
     count = 0
     while time.monotonic() < deadline:
         count = _count_events_in_clickhouse(team_id)
-        if count >= expected_count:
+        if count == expected_count:
             return
+        if count > expected_count:
+            raise ValueError(f"Expected {expected_count} events in ClickHouse for team {team_id}, but found {count}")
         time.sleep(0.5)
     raise TimeoutError(
         f"Expected {expected_count} events in ClickHouse for team {team_id}, "

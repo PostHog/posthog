@@ -87,7 +87,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     count(distinct value) AS total_count
                 FROM {from_query}
                 ARRAY JOIN kv.1 AS key, kv.2 AS value
-                WHERE {filter}
+                WHERE {filter} AND value IS NOT NULL AND value != ''
                 GROUP BY key
                 ORDER BY total_count DESC
             """,

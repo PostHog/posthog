@@ -9,6 +9,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimPerson, SimSessionIntent
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 
 
 class DummySessionIntent(SimSessionIntent):
@@ -67,7 +68,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         manager.reset_master()
 
         # At least one event for each cluster
-        assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
+        assert sync_execute(f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = 0")[0][0] >= 3
 
     def test_create_team(self):
         manager = MatrixManager(self.matrix)
@@ -86,7 +87,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         # At least one event for each cluster
         assert (
             sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s",
                 {"team_id": self.team.pk},
             )[0][0]
             >= 3
@@ -99,10 +100,10 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         manager.run_on_team(self.team, self.user)
 
         # At least one event for each cluster
-        assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
+        assert sync_execute(f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = 0")[0][0] >= 3
         assert (
             sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s",
                 {"team_id": self.team.pk},
             )[0][0]
             >= 3

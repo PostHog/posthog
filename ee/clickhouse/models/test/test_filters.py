@@ -6,7 +6,7 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
-from posthog.models.event.sql import GET_EVENTS_WITH_PROPERTIES
+from posthog.models.event.sql import EVENTS_PROPERTIES_COLUMN, EVENTS_QUERY_TABLE, GET_EVENTS_WITH_PROPERTIES
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -32,6 +32,8 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
     events = query_with_columns(
         GET_EVENTS_WITH_PROPERTIES.format(
             filters=prop_filters,
+            events_table=EVENTS_QUERY_TABLE(),
+            properties_column=EVENTS_PROPERTIES_COLUMN(),
             order_by="ORDER BY {}".format(order_by) if order_by else "",
         ),
         params,

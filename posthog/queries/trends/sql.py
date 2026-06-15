@@ -101,7 +101,7 @@ TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
     SELECT
         {breakdown_expression},
         {aggregate_operation} as count
-    FROM events e
+    FROM {events_table} e
     {sample_clause}
     {person_join_clauses}
     {groups_join_clauses}
@@ -118,7 +118,7 @@ SELECT {bucketing_expression} FROM (
     SELECT
         {breakdown_expression},
         {aggregate_operation} as count
-    FROM events e
+    FROM {events_table} e
     {sample_clause}
     {person_join_clauses}
     {groups_join_clauses}
@@ -196,7 +196,7 @@ SELECT
     {aggregate_operation} as total,
     {timestamp_truncated} as day_start,
     {breakdown_value} as breakdown_value
-FROM events e
+FROM {events_table} e
 {sample_clause}
 {person_join}
 {groups_join}
@@ -215,7 +215,7 @@ FROM (
         {aggregator},
         {timestamp_truncated} AS day_start,
         {breakdown_value} as breakdown_value
-    FROM events AS e
+    FROM {events_table} AS e
     {sample_clause}
     {person_join}
     {groups_join}
@@ -233,7 +233,7 @@ FROM (
     SELECT
         COUNT(*) AS intermediate_count,
         {aggregator}, {breakdown_value} AS breakdown_value
-    FROM events AS e
+    FROM {events_table} AS e
     {sample_clause}
     {person_join}
     {groups_join}
@@ -252,7 +252,7 @@ FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
         SELECT {event_sessions_table_alias}.$session_id, session_duration, {timestamp_truncated} as day_start,
             {breakdown_value} as breakdown_value
-        FROM events AS e
+        FROM {events_table} AS e
         {sample_clause}
         {person_join}
         {groups_join}
@@ -281,7 +281,7 @@ FROM (
         timestamp,
         {breakdown_value} as breakdown_value
         FROM
-        events e
+        {events_table} e
         {sample_clause}
         {person_join}
         {groups_join}
@@ -298,14 +298,14 @@ BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts AS total, timestamp AS day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp FROM {events_table} e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
         SELECT
             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp,
             {person_id_alias} AS person_id,
             {breakdown_value} AS breakdown_value
-        FROM events e
+        FROM {events_table} e
         {sample_clause}
         {person_join}
         {groups_join}
@@ -323,7 +323,7 @@ FROM (
 BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL = """
 SELECT
     {aggregate_operation} AS total, {breakdown_value} as breakdown_value
-FROM events AS e
+FROM {events_table} AS e
 {sample_clause}
 {person_join}
 {groups_join}
@@ -337,7 +337,7 @@ ORDER BY breakdown_value
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
-FROM events e
+FROM {events_table} e
 {sample_clause}
 {person_join}
 {groups_join}
@@ -353,7 +353,7 @@ SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (
         SELECT {event_sessions_table_alias}.$session_id, session_duration, {breakdown_value} AS breakdown_value FROM
-            events e
+            {events_table} e
             {sample_clause}
             {person_join}
             {groups_join}
@@ -418,7 +418,7 @@ SELECT
     period_status_pairs.1 as start_of_period,
     period_status_pairs.2 as status,
     toDateTime(min({created_at_clause}), %(timezone)s) AS created_at
-FROM events AS {event_table_alias}
+FROM {events_table} AS {event_table_alias}
 {sample_clause}
 {distinct_id_query}
 {person_query}

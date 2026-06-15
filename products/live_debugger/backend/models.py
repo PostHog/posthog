@@ -1,6 +1,7 @@
+import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, overload
 
 from django.db import models
 
@@ -10,6 +11,29 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 logger = logging.getLogger(__name__)
+
+
+@overload
+def _parse_json_value(value: Any, default: dict[str, Any]) -> dict[str, Any]: ...
+
+
+@overload
+def _parse_json_value(value: Any, default: list[dict[str, Any]]) -> list[dict[str, Any]]: ...
+
+
+def _parse_json_value(
+    value: Any, default: dict[str, Any] | list[dict[str, Any]]
+) -> dict[str, Any] | list[dict[str, Any]]:
+    if value is None or value == "":
+        return default
+
+    parsed = json.loads(value) if isinstance(value, str) else value
+    if isinstance(default, dict) and isinstance(parsed, dict):
+        return parsed
+    if isinstance(default, list) and isinstance(parsed, list):
+        return parsed
+
+    raise TypeError(f"Expected {type(default).__name__}, got {type(parsed).__name__}")
 
 
 @dataclass
@@ -102,7 +126,7 @@ class LiveDebuggerBreakpoint(UUIDModel):
         if breakpoint_ids:
             # Convert UUIDs to strings for the IN clause
             breakpoint_id_strings = [str(bp_id) for bp_id in breakpoint_ids]
-            where_conditions.append("JSONExtractString(properties, '$breakpoint_id') IN {breakpoint_ids}")
+            where_conditions.append("properties.$breakpoint_id IN {breakpoint_ids}")
             placeholders["breakpoint_ids"] = ast.Constant(value=breakpoint_id_strings)
 
         where_clause = " AND ".join(where_conditions)
@@ -112,12 +136,6 @@ class LiveDebuggerBreakpoint(UUIDModel):
             SELECT
                 uuid,
                 timestamp,
-                properties.$breakpoint_id as breakpoint_id,
-                properties.$line_number as line_number,
-                properties.$file_path as filename,
-                arrayElement(JSONExtractArrayRaw(properties, '$stack_trace'), 1) as stack_first,
-                properties.$locals_variables as locals,
-                properties.$stack_trace as stack_trace,
                 properties
             FROM events
             WHERE {where_clause}
@@ -134,24 +152,23 @@ class LiveDebuggerBreakpoint(UUIDModel):
 
         # Process results to return structured data
         processed_results = []
-        import json
 
         for row in results:
             try:
-                # Extract function name from first stack trace element
-                stack_first = json.loads(row[5]) if row[5] else {}
-                function_name = stack_first.get("function", "") if isinstance(stack_first, dict) else ""
-
-                locals_data = json.loads(row[6]) if row[6] else {}
-                stack_trace_data = json.loads(row[7]) if row[7] else []
+                properties = _parse_json_value(row[2], {})
+                locals_data = _parse_json_value(properties.get("$locals_variables"), {})
+                stack_trace_data = _parse_json_value(properties.get("$stack_trace"), [])
+                stack_first = stack_trace_data[0] if stack_trace_data else {}
+                function_name = stack_first.get("function", "")
+                line_number = properties.get("$line_number")
 
                 processed_results.append(
                     BreakpointHit(
                         id=str(row[0]),
                         timestamp=row[1].isoformat(),
-                        breakpoint_id=row[2],
-                        line_number=int(row[3]) if row[3] else None,
-                        filename=row[4],
+                        breakpoint_id=str(properties.get("$breakpoint_id", "")),
+                        line_number=int(line_number) if line_number not in (None, "") else None,
+                        filename=str(properties.get("$file_path", "")),
                         function_name=function_name,
                         locals=locals_data,
                         stack_trace=stack_trace_data,

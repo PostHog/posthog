@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -873,7 +874,7 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         super().setUp()
         from posthog.clickhouse.client import sync_execute
 
-        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_INSERT_DATA_TABLE()}")
 
     def _get_playlists_response(self, query_params: str = "") -> dict:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"

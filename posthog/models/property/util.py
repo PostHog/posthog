@@ -419,6 +419,14 @@ def prop_filter_json_extract(
     if is_denormalized and transform_expression:
         property_expr = transform_expression(property_expr)
 
+    json_has_expr = (
+        f"toJSONString({prop_var})"
+        if django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        and prop_var in ("properties", "person_properties")
+        and property_table(prop) == "events"
+        else prop_var
+    )
+
     operator = prop.operator
     if prop.negation:
         operator = negate_operator(operator or "exact")
@@ -503,7 +511,7 @@ def prop_filter_json_extract(
             " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=prop_var,
+                prop_var=json_has_expr,
                 property_operator=property_operator,
             ),
             params,
@@ -522,7 +530,7 @@ def prop_filter_json_extract(
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx,
                 prepend=prepend,
-                prop_var=prop_var,
+                prop_var=json_has_expr,
                 left=property_expr,
                 property_operator=property_operator,
             ),
@@ -639,6 +647,7 @@ def get_single_or_multi_property_string_expr(
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
+    use_json_schema_subcolumns: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     """
     When querying for breakdown properties:
@@ -666,6 +675,7 @@ def get_single_or_multi_property_string_expr(
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
+            use_json_schema_subcolumns=use_json_schema_subcolumns,
         )
 
         expression = normalize_url_breakdown(expression, normalize_url)
@@ -681,6 +691,7 @@ def get_single_or_multi_property_string_expr(
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
+                use_json_schema_subcolumns=use_json_schema_subcolumns,
             )
             expressions.append(normalize_url_breakdown(expr, normalize_url))
 
@@ -709,6 +720,7 @@ def get_property_string_expr(
     allow_denormalized_props: bool = True,
     table_alias: Optional[str] = None,
     materialised_table_column: str = "properties",
+    use_json_schema_subcolumns: bool = True,
 ) -> tuple[str, bool]:
     """
 
@@ -745,7 +757,8 @@ def get_property_string_expr(
         )
 
     if (
-        django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        use_json_schema_subcolumns
+        and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
         and table == "events"
         and materialised_table_column in ("properties", "person_properties")
     ):

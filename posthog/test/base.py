@@ -107,6 +107,7 @@ from posthog.models.event.sql import (
     EVENTS_DATA_TABLE,
     EVENTS_JSON_DATA_TABLE,
     EVENTS_JSON_TABLE_SQL,
+    EVENTS_QUERY_TABLE,
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
     WRITABLE_EVENTS_DATA_TABLE,
@@ -2160,7 +2161,7 @@ def create_person_id_override_by_distinct_id(
     person_ids_result = sync_execute(
         f"""
         SELECT DISTINCT person_id
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE team_id = {team_id} AND distinct_id = '{distinct_id_to}'
         """
     )

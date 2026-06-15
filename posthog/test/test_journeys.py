@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Group, Person, PersonDistinctId, Team
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 
 
 def journeys_for(
@@ -159,7 +159,7 @@ def _create_all_events_raw(all_events: list[dict]):
 
     sync_execute(
         f"""
-    INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
+    INSERT INTO {EVENTS_INSERT_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, person_created_at, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, created_at, _timestamp, _offset) VALUES
     {parsed}
     """
     )

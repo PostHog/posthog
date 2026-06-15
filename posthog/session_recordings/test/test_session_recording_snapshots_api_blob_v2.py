@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, PersonalAPIKey, SessionRecording
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -18,7 +19,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     def setUp(self):
         super().setUp()
 
-        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_INSERT_DATA_TABLE()}")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()

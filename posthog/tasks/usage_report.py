@@ -32,6 +32,7 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team, get_group_types_for_team
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
@@ -583,7 +584,7 @@ def get_teams_with_billable_event_count_in_period(
 
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
         GROUP BY team_id
@@ -623,7 +624,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND event NOT IN %(excluded_events)s
             AND person_mode IN ('full', 'force_upgrade')
@@ -639,9 +640,9 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            """
+            f"""
             SELECT team_id, count(1) as count
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
             GROUP BY team_id
@@ -692,7 +693,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 'other'
             ) AS metric,
             count(1) as count
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
@@ -976,9 +977,9 @@ def get_teams_with_feature_flag_requests_count_in_period(
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            """
+            f"""
             SELECT distinct_id as team, sum(JSONExtractInt(properties, 'count')) as sum
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
             AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
             GROUP BY team
@@ -1012,12 +1013,12 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            """
+            f"""
             SELECT
                 distinct_id as team,
                 arrayJoin(JSONExtractKeys(properties, 'sdk_breakdown')) as sdk,
                 sum(JSONExtractInt(JSONExtractRaw(properties, 'sdk_breakdown'), sdk)) as sum
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE team_id = %(team_to_query)s
               AND event = %(target_event)s
               AND timestamp >= %(begin)s AND timestamp < %(end)s
@@ -1071,7 +1072,7 @@ def get_teams_with_survey_responses_count_in_period(
         SELECT
             team_id,
             COUNT() as count
-        FROM events
+        FROM {EVENTS_QUERY_TABLE()}
         WHERE
             event = 'survey sent'
             AND timestamp >= %(begin)s AND timestamp < %(end)s
@@ -1102,9 +1103,9 @@ def get_teams_with_ai_event_count_in_period(
 ) -> list[tuple[int, int]]:
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            """
+            f"""
             SELECT team_id, COUNT() as count
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
         """,
@@ -1218,7 +1219,7 @@ def _get_teams_with_ai_credits_for_products(
         product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
         results = sync_execute(
-            """
+            f"""
             WITH trace_analysis AS (
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
@@ -1265,7 +1266,7 @@ def _get_teams_with_ai_credits_for_products(
                             )
                         ) AS tool_calls,
                         arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
-                    FROM events
+                    FROM {EVENTS_QUERY_TABLE()}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
@@ -1289,7 +1290,7 @@ def _get_teams_with_ai_credits_for_products(
                             5
                         ) AS cost_usd,
                         JSONExtractBool(properties, '$ai_billable') AS ai_billable
-                    FROM events
+                    FROM {EVENTS_QUERY_TABLE()}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
@@ -1559,7 +1560,7 @@ def get_teams_with_exceptions_captured_in_period(
                     'unknown'
                 ) AS library,
                 count(1) as total
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id, library
         """,

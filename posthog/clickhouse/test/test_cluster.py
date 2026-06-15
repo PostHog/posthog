@@ -23,7 +23,7 @@ from posthog.clickhouse.cluster import (
     T,
     get_cluster,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 
 
 @pytest.fixture
@@ -133,12 +133,29 @@ def wait_and_check_mutations_on_shards(
         assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
 
 
+def _insert_events_query(table: str, count: int) -> Query:
+    return Query(
+        f"""
+        INSERT INTO {table}
+            (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties,
+             person_created_at, group0_properties, group1_properties, group2_properties, group3_properties,
+             group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at,
+             group4_created_at, person_mode, created_at, _timestamp, _offset)
+        SELECT
+            generateUUIDv4(), 'test event', '{{}}', now64(), 1, toString(number), '',
+            toUUID('00000000-0000-0000-0000-000000000000'), '{{}}', now64(), '{{}}', '{{}}', '{{}}', '{{}}', '{{}}',
+            now64(), now64(), now64(), now64(), now64(), 'full', now64(), now(), number
+        FROM numbers({count})
+        """
+    )
+
+
 def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     count = 100
 
     # make sure there is some data to play with first
-    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
 
     # construct the runner
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
@@ -189,10 +206,10 @@ def test_cycle_marker_survives_format_query(cluster: ClickhouseCluster) -> None:
     dedup misses. Without that, the dict-backed mutation's SQL would be byte-identical
     across cycles and a fresh cycle would falsely reattach to last week's completed run.
     """
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     count = 100
 
-    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
 
     sentinel_uuid_a = uuid.uuid1()
     sentinel_uuid_b = uuid.uuid1()
@@ -251,10 +268,10 @@ def test_find_existing_mutations_handles_multiline_formatted_command(cluster: Cl
     helper formatted one batched ALTER and split by '\n', so a wrapped command produced more
     rows than `command_list` had entries and the assert at the bottom of the function blew up.
     """
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     count = 100
 
-    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
 
     sentinel_uuid = uuid.uuid1()
     # Marker keeps this run's mutation isolated from prior runs in system.mutations.
@@ -298,11 +315,11 @@ def test_find_existing_mutations_handles_multiline_formatted_command(cluster: Cl
 
 
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     count = 100
 
     # make sure there is some data to play with first
-    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
 
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
 
@@ -639,13 +656,13 @@ def test_satellite_dedup_same_physical_host() -> None:
 
 
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     count = 100
 
     cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
 
     # make sure there is some data to play with first
-    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
 
     [[[eid]]] = cluster.map_all_hosts(Query(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")).result().values()
 
@@ -671,11 +688,11 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
 
 def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     """Test that force=True skips checking for existing mutations"""
-    table = EVENTS_DATA_TABLE()
+    table = EVENTS_INSERT_DATA_TABLE()
     count = 100
 
     # Insert test data
-    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+    cluster.map_one_host_per_shard(_insert_events_query(table, count)).result()
 
     sentinel_uuid = uuid.uuid1()
 

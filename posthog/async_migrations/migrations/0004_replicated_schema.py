@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Optional
 
 from django.conf import settings
 
@@ -58,7 +58,8 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.36.99"
 
     def is_required(self):
-        return "Distributed" not in cast(str, self.get_current_engine("events"))
+        current_engine = self.get_current_engine("events")
+        return current_engine is not None and "Distributed" not in current_engine
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(

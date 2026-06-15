@@ -10,6 +10,7 @@ from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, Pr
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyGroup
@@ -191,6 +192,7 @@ def get_breakdown_prop_values(
             sessions_join_clauses=sessions_join_clause,
             null_person_filter=null_person_filter,
             sample_clause=sample_clause,
+            events_table=EVENTS_QUERY_TABLE(),
             **entity_format_params,
         )
     else:
@@ -205,6 +207,7 @@ def get_breakdown_prop_values(
             sessions_join_clauses=sessions_join_clause,
             null_person_filter=null_person_filter,
             sample_clause=sample_clause,
+            events_table=EVENTS_QUERY_TABLE(),
             **entity_format_params,
         )
 
@@ -341,7 +344,7 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
-            FROM events all_events
+            FROM {EVENTS_QUERY_TABLE()} all_events
             WHERE team_id = {team.pk}
             {parsed_date_from}
             {parsed_date_to}

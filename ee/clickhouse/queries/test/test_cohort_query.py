@@ -20,6 +20,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.filters.filter import Filter
 
 from products.actions.backend.models.action import Action
@@ -65,7 +66,7 @@ def execute(filter: Filter, team: Team):
     # person / events may not be fully merged immediately after the test writes.
     sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
     sync_execute("OPTIMIZE TABLE person FINAL")
-    sync_execute("OPTIMIZE TABLE sharded_events FINAL")
+    sync_execute(f"OPTIMIZE TABLE {EVENTS_INSERT_DATA_TABLE()} FINAL")
 
     cohort_query = CohortQuery(filter=filter, team=team)
     assert ["id"] == cohort_query.hogql_result.columns

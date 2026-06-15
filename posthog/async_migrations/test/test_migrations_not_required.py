@@ -1,8 +1,11 @@
 import pytest
 
+from django.conf import settings as django_settings
+
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.person.sql import COMMENT_DISTINCT_ID_COLUMN_SQL
 
 pytestmark = pytest.mark.async_migrations
@@ -13,10 +16,14 @@ pytestmark = pytest.mark.async_migrations
 # written correctly such that this is the case
 #
 # Note that 0004_replicated_schema is currently an exception for this
+@pytest.mark.skipif(
+    django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+    reason="async migrations target the legacy events storage schema",
+)
 class TestAsyncMigrationsNotRequired(AsyncMigrationBaseTest):
     def setUp(self):
         sync_execute(COMMENT_DISTINCT_ID_COLUMN_SQL())
-        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_INSERT_DATA_TABLE()}")
 
     def test_async_migrations_not_required_on_fresh_instances(self):
         for name, migration in ALL_ASYNC_MIGRATIONS.items():

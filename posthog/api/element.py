@@ -17,6 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
@@ -119,6 +120,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     GET_ELEMENTS.format(
                         date_from=date_from,
                         date_to=date_to,
+                        events_table=EVENTS_QUERY_TABLE(),
                         query=prop_filters,
                         sampling_factor=sampling_factor,
                         limit=limit + 1,
@@ -214,7 +216,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     filter_regex = select_regex
 
             result = sync_execute(
-                GET_VALUES.format(),
+                GET_VALUES.format(events_table=EVENTS_QUERY_TABLE()),
                 {
                     "team_id": self.team.id,
                     "regex": select_regex,

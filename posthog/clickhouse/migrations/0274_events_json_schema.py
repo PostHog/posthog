@@ -4,6 +4,7 @@ from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
     EVENTS_JSON_TABLE_MV_SQL,
     EVENTS_JSON_TABLE_SQL,
+    KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
     WRITABLE_EVENTS_JSON_TABLE_SQL,
 )
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_UPDATE_SQL
@@ -23,9 +24,13 @@ operations = [
         DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
     ),
-    # Dual-write MV: populates the native-JSON events table from the existing events_json Kafka
-    # stream alongside the legacy events_json_mv, so the JSON table stays in lockstep regardless of
-    # CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA.
+    run_sql_with_exceptions(
+        KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster=False),
+        node_roles=[NodeRole.DATA],
+    ),
+    # Dual-write MV: populates the native-JSON events table from the same Kafka topic as the
+    # legacy events_json_mv, but through a dedicated consumer group so JSON-table retries can't
+    # replay legacy writes.
     run_sql_with_exceptions(
         EVENTS_JSON_TABLE_MV_SQL(on_cluster=False),
         node_roles=[NodeRole.DATA],
@@ -33,10 +38,14 @@ operations = [
     run_sql_with_exceptions(
         SESSION_TABLE_UPDATE_SQL(),
         node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         RAW_SESSION_TABLE_UPDATE_SQL(),
         node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         RAW_SESSIONS_TABLE_MV_SQL_V3(),
@@ -45,5 +54,7 @@ operations = [
     run_sql_with_exceptions(
         RAW_SESSION_TABLE_MV_UPDATE_SQL_V3(),
         node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=True,
     ),
 ]

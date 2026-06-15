@@ -42,6 +42,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
+from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.scoping import team_scope
@@ -190,7 +191,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
         sync_execute("SYSTEM STOP MERGES")
 
         # Clear existing data
-        sync_execute("TRUNCATE TABLE events")
+        sync_execute(f"TRUNCATE TABLE {EVENTS_INSERT_DATA_TABLE()}")
         sync_execute("TRUNCATE TABLE person")
         sync_execute("TRUNCATE TABLE person_distinct_id")
 

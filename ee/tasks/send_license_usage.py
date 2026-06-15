@@ -7,6 +7,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import User
+from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.settings import SITE_URL
 
 from ee.models.license import License
@@ -28,7 +29,7 @@ def send_license_usage():
         date_to = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         events_count = sync_execute(
-            "select count(1) from events where timestamp >= %(date_from)s and timestamp < %(date_to)s and not startsWith(event, '$$')",
+            f"select count(1) from {EVENTS_QUERY_TABLE()} where timestamp >= %(date_from)s and timestamp < %(date_to)s and not startsWith(event, '$$')",
             {"date_from": date_from, "date_to": date_to},
         )[0][0]
         response = requests.post(
