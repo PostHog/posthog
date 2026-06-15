@@ -3,7 +3,6 @@ import { PluginsServerConfig } from '~/types'
 import { logger } from '../../utils/logger'
 import { CyclotronV2BatchLimit } from '../services/cyclotron-v2'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
-import { RateLimitedJobQueue } from '../services/job-queue/job-queue-rate-limited'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { createSesRateLimiterValkeyPool } from '../services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from '../services/rate-limiter/rate-limiter.service'
@@ -34,10 +33,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                     'CdpCyclotronWorkerEmail with SES rate limiting requires the Postgres-V2 job queue backend (dynamic batch sizing is not supported on Kafka).'
                 )
             }
-            // Wrap the raw queue with the rate-limit decorator. The parent's
-            // `start()` calls cyclotronJobQueue.startAsConsumer(...), which the
-            // decorator intercepts to install the hook before delegating.
-            this.cyclotronJobQueue = new RateLimitedJobQueue(jobQueue, () => this.claimSesTokens())
+            jobQueue.setDynamicBatchLimit(() => this.claimSesTokens())
         }
     }
 
