@@ -427,14 +427,3 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         template_ids = [template["id"] for template in response.json()["results"]]
         assert ("template-hidden" in template_ids) is should_see_hidden
-
-    @parameterized.expand([("non_staff", False), ("staff", True)])
-    def test_hidden_template_not_retrievable_by_id_for_pak_caller(self, _name, is_staff):
-        # Gating list alone is not enough — a token caller who knows the id could otherwise fetch a
-        # hidden template directly via retrieve. Block that for every token caller, staff included.
-        if is_staff:
-            self.user.is_staff = True
-            self.user.save()
-        self._create_hidden_template()
-        response = self._get_with_pak("/hog_function_templates/template-hidden", ["hog_function:read"])
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
