@@ -36,7 +36,6 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
-from .gateway import Gateway
 from .host_definition import HostDefinition
 from .health_issue import HealthIssue
 from .instance_setting import InstanceSetting
@@ -121,7 +120,6 @@ __all__ = [
     "FileSystemViewLog",
     "PersistedFolder",
     "Filter",
-    "Gateway",
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",

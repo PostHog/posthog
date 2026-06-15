@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1221_backfill_default_gateways"),
+        ("posthog", "1219_filesystemfoldercontextgeneration"),
     ]
 
     operations = [
