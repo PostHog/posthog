@@ -58,17 +58,21 @@ import {
     HttpFetcher,
     IntegrationCredentials,
     isDeltaEventKind,
+    isSlackTriggerMetadata,
     LogLevel,
     LogSink,
     MemoryStore,
     NoopAnalyticsSink,
     parseClientToolResultMarker,
+    postSlackReply,
     Sandbox,
     SecretBroker,
     SessionEvent,
     SessionEventBus,
     SessionEventKind,
     SessionInputsStore,
+    SLACK_BOT_TOKEN_KEY,
+    slackTextFromContent,
     TabularStore,
     toolSpanId,
 } from '@posthog/agent-shared'
@@ -219,8 +223,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     if (!deps.approvals) {
         throw new Error('RunSessionDeps.approvals is required — refusing to run with approval gating disabled.')
     }
+    // Slack-triggered sessions: the runner relays each finalized assistant
+    // message into the thread (see the turn_end handler). The model is told as
+    // much so it replies in natural language instead of forcing everything
+    // through the slack-post-message tool.
+    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
+        slackReplyRelay: slackReply !== null,
     })
     const bus: SessionEventBus = deps.bus
     const logs: LogSink = deps.logs
@@ -595,6 +605,25 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         if (b.type === 'text' && b.text) {
                             await emit('assistant_text', { text: b.text })
                         }
+                    }
+
+                    // Slack relay: post this finalized assistant message into the
+                    // originating thread. The model just replies normally; the
+                    // platform owns Slack delivery (mirrors how chat streams text
+                    // to the console). Never throws — a Slack hiccup must not break
+                    // the loop. Turns with no prose (pure tool calls) post nothing.
+                    if (slackReply) {
+                        await postSlackReply(deps.http, {
+                            token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                            channel: slackReply.channel,
+                            thread_ts: slackReply.thread_ts,
+                            text: slackTextFromContent(msg.content),
+                            sessionId: session.id,
+                            logger: {
+                                warn: (meta, m) => log('warn', m, meta),
+                                info: (meta, m) => log('info', m, meta),
+                            },
+                        })
                     }
 
                     // Gateway settled-cost recovery: pi-ai's `usage.cost.*` numbers

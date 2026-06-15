@@ -1273,4 +1273,107 @@ describe('slack trigger: real e2e', () => {
             }
         })
     })
+
+    describe('assistant reply relay', () => {
+        /** Same http-recorder pattern: intercept the relay's chat.postMessage
+         *  before it hits slack.com so we can assert the reply text lands in the
+         *  thread. */
+        async function recorderCluster(secrets: Record<string, string> = {}): Promise<{
+            cc: Cluster
+            slackCalls: Array<{ url: string; body: Record<string, unknown> }>
+        }> {
+            const slackCalls: Array<{ url: string; body: Record<string, unknown> }> = []
+            const recorder = {
+                fetch: (input: string | URL, init?: RequestInit): Promise<Response> => {
+                    const url = typeof input === 'string' ? input : input.toString()
+                    if (url.includes('slack.com/api/')) {
+                        slackCalls.push({
+                            url,
+                            body: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+                        })
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({ ok: true }),
+                            text: async () => '{"ok":true}',
+                        } as unknown as Response)
+                    }
+                    return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
+                },
+            }
+            // The runner reads the bot token from `deps.secrets` — the same map
+            // `makeEncryptedEnvResolver` decrypts from `encrypted_env` in prod and
+            // that the slack tools read via `ctx.secret`. The harness defaults
+            // resolveSecrets to empty, so wire it explicitly here.
+            const cc = await buildCluster({ http: recorder, resolveSecrets: async () => secrets })
+            return { cc, slackCalls }
+        }
+
+        function slackSpec(): Record<string, unknown> {
+            return {
+                triggers: [
+                    {
+                        type: 'slack',
+                        config: { mention_only: false, auto_resume_threads: false, trusted_workspaces: '*' },
+                    },
+                ],
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+            }
+        }
+
+        it('posts each finalized assistant message into the thread — no tool call needed', async () => {
+            const { cc, slackCalls } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-relayer' })
+            try {
+                cc.setScript([fauxText('the valuable answer')])
+                await cc.deployAgent({
+                    slug: 'relayer',
+                    spec: slackSpec(),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-relayer' },
+                })
+                const res = await cc.slackPost(
+                    'relayer',
+                    'events',
+                    slackEvent({ channel: 'C01', text: 'help', ts: '700.0', thread_ts: '700.0' }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                await cc.drain()
+
+                const posts = slackCalls.filter((c) => c.url.endsWith('chat.postMessage'))
+                expect(posts).toHaveLength(1)
+                expect(posts[0].body).toMatchObject({
+                    channel: 'C01',
+                    thread_ts: '700.0',
+                    text: 'the valuable answer',
+                })
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('does not relay when the bot token is unset (logged, no crash)', async () => {
+            const { cc, slackCalls } = await recorderCluster()
+            try {
+                cc.setScript([fauxText('answer with no token')])
+                await cc.deployAgent({
+                    slug: 'relayer-tokenless',
+                    spec: slackSpec(),
+                    encrypted_env: SLACK_ENV, // signing secret only — no SLACK_BOT_TOKEN
+                })
+                const res = await cc.slackPost(
+                    'relayer-tokenless',
+                    'events',
+                    slackEvent({ channel: 'C01', text: 'help', ts: '710.0', thread_ts: '710.0' }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                await cc.drain()
+                // Session still completes; nothing posted to slack.
+                expect((await cc.queue.get(res.body.session_id))!.state).toBe('completed')
+                expect(slackCalls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(0)
+            } finally {
+                await cc.teardown()
+            }
+        })
+    })
 })
