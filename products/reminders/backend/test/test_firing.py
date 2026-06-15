@@ -12,7 +12,8 @@ class TestProcessDueReminders(BaseTest):
     @freeze_time("2026-06-15T09:00:00Z")
     @patch("products.reminders.backend.firing.create_notification")
     def test_one_off_fires_and_completes(self, mock_create: MagicMock) -> None:
-        reminder = Reminder.objects.unscoped().create(
+        reminder = Reminder.objects.create(
+            organization=self.organization,
             team=self.team,
             created_by=self.user,
             title="Check funnel",
@@ -28,7 +29,8 @@ class TestProcessDueReminders(BaseTest):
     @freeze_time("2026-06-15T09:00:00Z")
     @patch("products.reminders.backend.firing.create_notification")
     def test_recurring_advances_and_stays_active(self, mock_create: MagicMock) -> None:
-        reminder = Reminder.objects.unscoped().create(
+        reminder = Reminder.objects.create(
+            organization=self.organization,
             team=self.team,
             created_by=self.user,
             title="Daily",
@@ -43,7 +45,8 @@ class TestProcessDueReminders(BaseTest):
     @freeze_time("2026-06-15T09:00:00Z")
     @patch("products.reminders.backend.firing.create_notification")
     def test_not_yet_due_is_skipped(self, mock_create: MagicMock) -> None:
-        Reminder.objects.unscoped().create(
+        Reminder.objects.create(
+            organization=self.organization,
             team=self.team,
             created_by=self.user,
             title="Later",
@@ -56,7 +59,8 @@ class TestProcessDueReminders(BaseTest):
     @freeze_time("2026-06-15T09:00:00Z")
     @patch("products.reminders.backend.firing.create_notification")
     def test_recurring_catch_up_fires_once(self, mock_create: MagicMock) -> None:
-        reminder = Reminder.objects.unscoped().create(
+        reminder = Reminder.objects.create(
+            organization=self.organization,
             team=self.team,
             created_by=self.user,
             title="Daily",
@@ -72,7 +76,8 @@ class TestProcessDueReminders(BaseTest):
     @freeze_time("2026-06-15T09:00:00Z")
     @patch("products.reminders.backend.firing.create_notification", side_effect=RuntimeError("boom"))
     def test_one_off_errors_after_retries(self, mock_create: MagicMock) -> None:
-        reminder = Reminder.objects.unscoped().create(
+        reminder = Reminder.objects.create(
+            organization=self.organization,
             team=self.team,
             created_by=self.user,
             title="Boom",
@@ -84,3 +89,22 @@ class TestProcessDueReminders(BaseTest):
         reminder.refresh_from_db()
         self.assertEqual(reminder.status, Reminder.Status.ERRORED)
         self.assertIn("boom", reminder.last_error or "")
+
+    @freeze_time("2026-06-15T09:00:00Z")
+    @patch("products.reminders.backend.firing.create_notification")
+    def test_org_level_fires_and_completes(self, mock_create: MagicMock) -> None:
+        reminder = Reminder.objects.create(
+            organization=self.organization,
+            team=None,
+            created_by=self.user,
+            title="Org-wide",
+            scheduled_at=datetime(2026, 6, 15, 8, 59, tzinfo=UTC),
+            next_fire_at=datetime(2026, 6, 15, 8, 59, tzinfo=UTC),
+        )
+        process_due_reminders()
+        mock_create.assert_called_once()
+        data = mock_create.call_args.args[0]
+        self.assertEqual(data.organization_id, self.organization.id)
+        self.assertIsNone(data.team_id)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.status, Reminder.Status.COMPLETED)

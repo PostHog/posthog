@@ -25,7 +25,7 @@ MAX_CATCHUP_ITERATIONS = 1000
 
 
 def _build_source_url(reminder: Reminder) -> str:
-    if not (reminder.resource_type and reminder.resource_id):
+    if reminder.team is None or not (reminder.resource_type and reminder.resource_id):
         return ""
     mapping = RESOURCE_MODELS.get(reminder.resource_type)
     if not mapping:
@@ -35,8 +35,8 @@ def _build_source_url(reminder: Reminder) -> str:
 
 
 def _fire(reminder: Reminder) -> None:
-    create_notification(
-        NotificationData(
+    if reminder.team_id is not None:
+        data = NotificationData(
             team_id=reminder.team_id,
             notification_type=NotificationType.REMINDER,
             priority=Priority.NORMAL,
@@ -46,7 +46,18 @@ def _fire(reminder: Reminder) -> None:
             target_id=str(reminder.created_by_id),
             source_url=_build_source_url(reminder),
         )
-    )
+    else:
+        data = NotificationData(
+            organization_id=reminder.organization_id,
+            notification_type=NotificationType.REMINDER,
+            priority=Priority.NORMAL,
+            title=reminder.title,
+            body=reminder.message,
+            target_type=TargetType.USER,
+            target_id=str(reminder.created_by_id),
+            source_url="",
+        )
+    create_notification(data)
 
 
 def _advance(reminder: Reminder, now: datetime) -> None:
@@ -77,10 +88,9 @@ def process_due_reminders() -> None:
     try:
         with transaction.atomic():
             due = (
-                Reminder.objects.unscoped()
+                Reminder.objects.filter(status=Reminder.Status.ACTIVE, deleted=False, next_fire_at__lte=timezone.now())
+                .select_related("team", "organization", "created_by")
                 .select_for_update(nowait=True, of=("self",))
-                .filter(status=Reminder.Status.ACTIVE, deleted=False, next_fire_at__lte=timezone.now())
-                .select_related("team", "created_by")
                 .order_by("next_fire_at")[:10000]
             )
             for reminder in due:
