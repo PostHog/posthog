@@ -43,8 +43,17 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
-import { COLLAPSED_TO_CONTAINS_ROW, urlContainsRowLabel } from '../utils/collapsedContainsRow'
+import {
+    OPEN_AS_SELF_ON_REOPEN,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from '../types'
+import {
+    COLLAPSED_TO_CONTAINS_ROW,
+    partitionContainsShortcuts,
+    urlContainsRowLabel,
+} from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
@@ -143,6 +152,15 @@ function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry
     return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
 }
 
+/** Move the element at `index` to the front, preserving the order of the rest.
+ *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1). */
+function floatToFront<T>(list: T[], index: number): T[] {
+    if (index <= 0) {
+        return list
+    }
+    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
+}
+
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
     if (entries.length === 0) {
         return []
@@ -196,19 +214,17 @@ export function MenuFilterCombobox({
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
-    // When opening with chips visible (`drillTo='all'`) and a current
-    // selection exists, start on the matching chip so the user lands on
-    // their selection's category by default — they can still tab back to
-    // "All" or any other chip without leaving the combobox.
-    const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
-        // Collapsed groups (e.g. Pageview URLs) aren't navigable categories, so a
-        // selection from one lands on "All" — its row still surfaces there via the
-        // selected-entry prepend — instead of stranding the user in a hidden scope.
-        if (drillTo === 'all' && selectedEntry && !COLLAPSED_TO_CONTAINS_ROW.has(selectedEntry.group.type)) {
-            return selectedEntry.group.type
-        }
-        return drillTo
-    })
+    // Open on the drill scope ("All" for the default surface). Reopening with a committed
+    // selection used to jump to that item's category; we now lead with "All" so the user
+    // lands on recents/pinned + a cross-category search (the selection still surfaces via
+    // the selected-entry prepend). The exception is config/edit flows (data-warehouse
+    // columns reach the combobox as DataWarehouseProperties) — they reopen on their own
+    // chip so the user can reconfigure, mirroring the legacy `activeTab`.
+    const [activeChip, setActiveChip] = useState<DrillCategory>(() =>
+        drillTo === 'all' && selectedEntry && OPEN_AS_SELF_ON_REOPEN.has(selectedEntry.group.type)
+            ? selectedEntry.group.type
+            : drillTo
+    )
     // The scope the user is actually looking at: the active chip when chips show
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
@@ -343,9 +359,13 @@ export function MenuFilterCombobox({
                 if (trimmedQuery && items.length > 0) {
                     const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
-                        // `isContainsShortcut` tags this synthetic row so the commit
-                        // telemetry can measure adoption of the contains shortcut vs
-                        // the old per-URL value-picker.
+                        // A plain item (not a QuickFilterItem): the commit reads its value via
+                        // `group.getValue` (the query) and the group `type` drives the host's
+                        // expansion — PageviewUrls -> `$current_url IContains`, PageviewEvents ->
+                        // a `$pageview` event with that filter (ActionFilterRow's group-type
+                        // branch). The legacy list reaches the same filter via the QuickFilterItem
+                        // `eventName` path instead — see `buildUrlContainsShortcut`.
+                        // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
                         item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
@@ -522,29 +542,42 @@ export function MenuFilterCombobox({
                     : null
             base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
         }
+        const scope = showChips ? activeChip : drillTo
         // Promote the committed selection to index 0 so base-ui's
-        // `autoHighlight="always"` lands on it the moment the list
-        // mounts — keyboard nav starts on the selected row, the
-        // preview pane shows the right definition, and `Enter` re-commits
-        // without forcing the user to scroll. Skip when the user has
-        // typed a search query — relevance order should win there.
-        if (!q && selectedRowId) {
-            const idx = base.findIndex((e) => rowDomId(e) === selectedRowId)
-            if (idx > 0) {
-                base = [base[idx], ...base.slice(0, idx), ...base.slice(idx + 1)]
-            }
+        // `autoHighlight="always"` lands on it the moment the list mounts — keyboard nav
+        // starts on the selected row, the preview shows the right definition, and `Enter`
+        // re-commits without scrolling. Skip while searching (relevance wins). The All scope
+        // re-floats after its recents/pinned assembly below, so only do it here for drilled scopes.
+        if (!q && selectedRowId && scope !== 'all') {
+            base = floatToFront(
+                base,
+                base.findIndex((e) => rowDomId(e) === selectedRowId)
+            )
         }
         // Default "All" surface leads with recents/pinned (fixed order), then
         // the cross-tab content with `email`/`url` promotion. Recents/pinned
         // stay above the content rows so users can learn the order.
-        const scope = showChips ? activeChip : drillTo
         if (scope === 'all') {
             const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
-            return [
+            // The "URL contains <query>" shortcut leads the whole list — ahead of
+            // recents/pinned/content — because a URL search almost always means the user
+            // wants the contains match. Everything else keeps the recents-then-pinned order.
+            const [shortcuts, rest] = partitionContainsShortcuts(content, (e) => e.item)
+            const assembled = [
+                ...shortcuts,
                 ...recentsPinnedPrefix,
-                ...promoteMatchingBy(content, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
+                ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
+            // Idle (no search): float the committed selection to the very first row so the
+            // user can see/verify what's currently chosen without leaving the All surface.
+            if (!q && selectedRowId) {
+                return floatToFront(
+                    assembled,
+                    assembled.findIndex((e) => rowDomId(e) === selectedRowId)
+                )
+            }
+            return assembled
         }
         return base
     }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])
