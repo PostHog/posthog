@@ -193,8 +193,9 @@ def _build_insert_query(actions: Sequence) -> str:
       `count_<n>` columns (one per action) plus `session_person_id`
     - `arrayJoin` over `[(-1, 0), (action_0_id, count_0), ..., (action_N_id,
       count_N)]` that fans those columns out into rows
-    - outer `GROUP BY toStartOfHour(start_timestamp), action_id` that emits
-      `sumState(action_count)` and `uniqStateIf(session_person_id, ...)`
+    - outer `GROUP BY toStartOfHour(start_timestamp, team_tz), action_id` that
+      emits `sumState(action_count)` and `uniqStateIf(session_person_id, ...)`,
+      bucketing on the team-local hour (stored as the UTC instant)
 
     `action_id = -1` aggregates the per-hour denominator (every session's
     person), giving the global "converting universe" the runner uses to
@@ -236,7 +237,7 @@ def _build_insert_query(actions: Sequence) -> str:
 
     return f"""
 SELECT
-    toStartOfHour(start_timestamp) AS time_window_start,
+    toStartOfHour(start_timestamp, {{team_tz}}) AS time_window_start,
     action_id AS action_id,
     sumState(assumeNotNull(toInt(action_count))) AS count_state,
     uniqStateIf(
@@ -269,8 +270,8 @@ FROM (
         )
         GROUP BY session_id
         HAVING and(
-            toStartOfHour(min(session.$start_timestamp)) >= {{time_window_min}},
-            toStartOfHour(min(session.$start_timestamp)) < {{time_window_max}}
+            toStartOfHour(min(session.$start_timestamp), {{team_tz}}) >= {{time_window_min}},
+            toStartOfHour(min(session.$start_timestamp), {{team_tz}}) < {{time_window_max}}
         )
     )
 )
@@ -292,6 +293,7 @@ def ensure_web_goals_precomputed(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        "team_tz": ast.Constant(value=runner.team.timezone),
     }
     for n, action in enumerate(actions):
         placeholders[f"action_{n}_expr"] = action_to_expr(action)

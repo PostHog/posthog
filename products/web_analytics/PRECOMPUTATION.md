@@ -56,14 +56,14 @@ Partition key on `expires_at` rather than `time_window_start` so `ttl_only_drop_
 
 ### Bucketing and timezones
 
-Buckets are **UTC hourly**. The read converts the team's local request window to UTC and filters bucket boundaries on hour edges. This means:
+Buckets are **team-tz hourly** — keyed on `toStartOfHour(start, team_tz)`, the start of the team-local hour stored as its UTC instant. The read converts the team's local request window to UTC and filters bucket boundaries on those instants. A local day is always a whole number of local hours, so this reconstructs local-day ranges exactly for **every** offset, including half-hour and quarter-hour ones, and across DST transitions:
 
 - **Whole-hour-offset timezones** (UTC, PT, ET, JST, etc. — ~99% of teams) read exact-to-the-hour data.
-- **Half-hour-offset timezones** (IST `+5:30`, Newfoundland `-3:30`, Nepal `+5:45`, Iran `+3:30`) cannot be served correctly by UTC hourly buckets — the `can_use_lazy_precompute` gate refuses them via `is_integer_timezone()`. They fall through to v2/raw.
+- **Half-hour / quarter-hour-offset timezones** (IST `+5:30`, Newfoundland `-3:30`, Nepal `+5:45`, Iran `+3:30`) are now served correctly too — the integer-timezone gate has been removed.
 
 ### Sessions that straddle bucket boundaries
 
-The framework chunks the precompute span into **daily UTC jobs**. Each job's INSERT scans `[time_window_min, time_window_max)` for events, groups by `session_id`, and emits one hourly bucket row per session, keyed on `toStartOfHour(min(session.$start_timestamp))`.
+The framework chunks the precompute span into **daily UTC jobs**. Each job's INSERT scans `[time_window_min, time_window_max)` for events, groups by `session_id`, and emits one hourly bucket row per session, keyed on `toStartOfHour(min(session.$start_timestamp), team_tz)`.
 
 A session that starts at 23:30 UTC with an event at 00:15 UTC the next day spans two daily jobs. Without help, the first job would only see the 23:30 event and miscount that session's pageviews.
 
@@ -206,10 +206,10 @@ Four columns vs. a metric discriminator: ARRAY JOIN would fan one event into fou
 
 **Daily, team-tz aligned.** Bucket key is `toStartOfDay(timestamp, team_tz)` — start of the team's local day. The underlying Unix timestamp stored in `time_window_start` is the UTC instant of that local midnight, so reads filter against the team-tz date range converted to UTC and get exact alignment.
 
-This differs from web overview / web stats which use UTC-hourly buckets:
+This differs from web overview / web stats only in granularity — those use team-tz **hourly** buckets:
 
 - The path-breakdown tile only consumes day-aligned date ranges from the dashboard filter, so a daily bucket is sufficient and ~24× smaller than hourly.
-- Bucketing in the team's tz means **half-hour-offset timezones** (IST +5:30, Newfoundland -3:30, Nepal +5:45, Iran +3:30) are supported too — this runner opts out of the shared `is_integer_timezone` gate.
+- Bucketing in the team's tz means **half-hour-offset timezones** (IST +5:30, Newfoundland -3:30, Nepal +5:45, Iran +3:30) are supported too.
 - A UTC-daily INSERT job typically writes into TWO team-tz day buckets (events in the first hours of UTC day N belong to team-tz day N-1 for non-UTC teams). The `ReplacingMergeTree` key `(team_id, job_id, time_window_start, path)` keeps the rows distinct per job; reads merge them via `quantilesMergeIf` for full team-tz day coverage.
 
 No session join in the raw query, so no `SESSION_FORWARD_PAD_MINUTES` — each event maps to exactly one (team-tz day, path) bucket.
@@ -235,7 +235,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ### Eligibility gate
 
-`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, per-query opt-in not set, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate. The shared gate rejects: org feature flag off, per-query opt-in not set, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
 
 ### Observability
 

@@ -25,7 +25,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models.team import Team
 
@@ -60,10 +59,10 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
     ["family"],
 )
 
-# Bucketing the precompute hourly keeps reads correct for any whole-hour-offset
-# timezone — boundaries line up exactly when the team-local window is converted
-# to UTC before filtering on `time_window_start`. Half-hour-offset timezones
-# (IST, Newfoundland, Nepal, etc.) are explicitly gated out below.
+# Bucketing the precompute in the team-tz hour keeps reads correct for any
+# timezone offset (including half-hour ones like IST) — boundaries line up
+# exactly when the team-local window is converted to UTC before filtering on
+# `time_window_start`.
 LAZY_TTL_SECONDS: dict[str, int] = {
     "0d": 15 * 60,
     "1d": 60 * 60,
@@ -136,10 +135,6 @@ class PerQueryOptInNotSet(LazyPrecomputeIneligible):
     pass
 
 
-class NonIntegerTimezone(LazyPrecomputeIneligible):
-    pass
-
-
 class ConversionGoalUnsupported(LazyPrecomputeIneligible):
     pass
 
@@ -191,7 +186,6 @@ def can_use_lazy_precompute(
     *,
     log_prefix: str,
     extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
-    require_integer_timezone: bool = True,
 ) -> bool:
     """Return True iff the lazy precompute gate is eligible. Logs the rejection
     reason at INFO level so every fall-through can be attributed.
@@ -199,12 +193,10 @@ def can_use_lazy_precompute(
     `log_prefix` differentiates the log event name per runner (e.g.
     `web_overview` / `web_stats`). `extra_check` lets a runner add its own
     eligibility checks — it must raise a `LazyPrecomputeIneligible` subclass on
-    rejection, and runs after the shared checks pass. `require_integer_timezone`
-    can be opted out by runners whose bucket key is computed in the team's
-    timezone (and therefore aligns cleanly for half-hour-offset teams too).
+    rejection, and runs after the shared checks pass.
     """
     try:
-        check_common_eligible(runner, require_integer_timezone=require_integer_timezone)
+        check_common_eligible(runner)
         if extra_check is not None:
             extra_check(runner)
     except LazyPrecomputeIneligible as exc:
@@ -224,13 +216,10 @@ def can_use_lazy_precompute(
     return True
 
 
-def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timezone: bool = True) -> None:
+def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
     the lazy path on grounds that apply to every web analytics runner. Returns
     None on success.
-
-    `require_integer_timezone` defaults to True for hourly-UTC-bucketed runners
-    (overview, stats). Runners that bucket in the team's timezone can opt out.
     """
     query = runner.query
 
@@ -247,13 +236,6 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
 
     if query.useWebAnalyticsPrecompute is not True:
         raise PerQueryOptInNotSet()
-
-    # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
-    # can't be served by UTC hourly buckets without sub-hour precision. Skip them
-    # rather than return wrong totals on the boundary days. Runners that bucket
-    # by team-tz day instead (e.g. web vitals) can opt out of this check.
-    if require_integer_timezone and not is_integer_timezone(runner.team.timezone):
-        raise NonIntegerTimezone()
 
     if query.conversionGoal is not None:
         raise ConversionGoalUnsupported()

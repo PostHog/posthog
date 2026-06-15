@@ -74,9 +74,10 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toStartOfHour": HogQLFunctionMeta(
         "toStartOfHour",
         1,
-        1,
+        2,
         signatures=[
             ((UnknownType(),), DateTimeType()),
+            ((UnknownType(), UnknownType()), DateTimeType()),
         ],
     ),
     "toStartOfMinute": HogQLFunctionMeta(

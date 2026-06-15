@@ -226,9 +226,13 @@ def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # a future extension that admits additional event kinds (e.g. `$autocapture`)
 # automatically rotates the cache key instead of silently colliding on the
 # existing precomputed rows.
+#
+# Sessions are bucketed by the team-tz hour of their start
+# (`toStartOfHour(start, team_tz)` — start of the team-local hour, stored as the
+# UTC instant), so reads align cleanly for every offset, including half-hour ones.
 INSERT_QUERY_TEMPLATE = """
 SELECT
-    toStartOfHour(start_timestamp) AS time_window_start,
+    toStartOfHour(start_timestamp, {team_tz}) AS time_window_start,
     breakdown_value AS breakdown_value,
     uniqState(session_person_id) AS uniq_users_state,
     sumState(assumeNotNull(toInt(filtered_pageview_count))) AS sum_pageviews_state,
@@ -265,8 +269,8 @@ FROM (
     GROUP BY session_id, breakdown_value
     HAVING and(
         breakdown_value IS NOT NULL,
-        toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
-        toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) >= {time_window_min},
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) < {time_window_max}
     )
 )
 GROUP BY time_window_start, breakdown_value
@@ -288,6 +292,7 @@ def ensure_web_stats_paths_precomputed(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
     return ensure_precomputed(

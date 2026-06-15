@@ -202,15 +202,17 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
 # automatically prepends `team_id`, `job_id` and appends `expires_at` to the SELECT.
 #
 # Mirrors the web overview precompute: events are grouped into sessions, each
-# session is attributed to the hour of `min(session.$start_timestamp)`, and the
-# `HAVING` keeps only sessions whose start hour falls in the job window. This
-# matches the raw stats query's compare path, which attributes a session's
-# metrics by session start. The forward pad (`SESSION_FORWARD_PAD_MINUTES`) lets
-# a session starting near the trailing edge of a daily job still see the events
-# that spill past midnight, so its pageview count is complete.
+# session is attributed to the team-tz hour of `min(session.$start_timestamp)`
+# (`toStartOfHour(start, team_tz)` — start of the team-local hour, stored as the
+# UTC instant), and the `HAVING` keeps only sessions whose start hour falls in
+# the job window. This matches the raw stats query's compare path, which
+# attributes a session's metrics by session start. The forward pad
+# (`SESSION_FORWARD_PAD_MINUTES`) lets a session starting near the trailing edge
+# of a daily job still see the events that spill past midnight, so its pageview
+# count is complete.
 INSERT_QUERY_TEMPLATE = """
 SELECT
-    toStartOfHour(start_timestamp) AS time_window_start,
+    toStartOfHour(start_timestamp, {team_tz}) AS time_window_start,
     {breakdown_by} AS breakdown_by,
     breakdown_value AS breakdown_value,
     uniqState(session_person_id) AS uniq_users_state,
@@ -233,8 +235,8 @@ FROM (
     )
     GROUP BY session_id, breakdown_value
     HAVING and(
-        toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
-        toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) >= {time_window_min},
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) < {time_window_max}
     )
 )
 GROUP BY time_window_start, breakdown_by, breakdown_value
@@ -272,6 +274,7 @@ def ensure_web_stats_precomputed(
         "user_filter": user_filter_expr(runner),
         "test_account_filter": test_account_filter_expr(runner),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
     return ensure_precomputed(

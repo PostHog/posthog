@@ -68,9 +68,13 @@ _check_lazy_precompute_eligible = check_common_eligible
 # its events that spill past midnight — the HAVING clause attributes the session
 # to its start hour, but the events scan needs the trailing events to compute
 # correct `$session_duration` / `$pageview_count` / `$is_bounce`.
+#
+# Sessions are bucketed by the team-tz hour of their start
+# (`toStartOfHour(start, team_tz)` — start of the team-local hour, stored as the
+# UTC instant), so reads align cleanly for every offset, including half-hour ones.
 INSERT_QUERY_TEMPLATE = """
 SELECT
-    toStartOfHour(start_timestamp) AS time_window_start,
+    toStartOfHour(start_timestamp, {team_tz}) AS time_window_start,
     uniqState(session_person_id) AS uniq_users_state,
     uniqState(session_id) AS uniq_sessions_state,
     sumState(assumeNotNull(toInt(filtered_pageview_count))) AS sum_pageviews_state,
@@ -95,8 +99,8 @@ FROM (
     )
     GROUP BY session_id
     HAVING and(
-        toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
-        toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) >= {time_window_min},
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) < {time_window_max}
     )
 )
 GROUP BY time_window_start
@@ -114,6 +118,7 @@ def ensure_web_overview_precomputed(
         "user_filter": user_filter_expr(runner),
         "test_account_filter": test_account_filter_expr(runner),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
     return ensure_precomputed(

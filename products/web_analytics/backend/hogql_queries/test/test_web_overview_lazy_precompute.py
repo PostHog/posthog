@@ -351,6 +351,8 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("utc", "UTC"),
             ("pacific", "America/Los_Angeles"),
             ("tokyo", "Asia/Tokyo"),
+            ("kolkata", "Asia/Kolkata"),
+            ("kathmandu", "Asia/Kathmandu"),
         ]
     )
     @unittest.skip(
@@ -360,8 +362,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         "Root cause under investigation."
     )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
-        """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths."""
+    def test_lazy_result_matches_raw_for_any_timezone(self, _name: str, team_tz: str) -> None:
+        """Any offset — including fractional ones (IST +5:30, Nepal +5:45) — must
+        produce the same metrics through the lazy and raw paths, since buckets are
+        keyed in the team timezone."""
         self.team.timezone = team_tz
         self.team.save()
         self._seed_two_sessions()
@@ -381,16 +385,17 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_values == raw_values, f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}"
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_half_hour_offset_timezone_falls_through(self):
-        # IST is UTC+5:30 — hourly UTC buckets can't represent the team-local
-        # midnight, so the gate must refuse.
+    def test_half_hour_offset_timezone_is_eligible(self):
+        # IST is UTC+5:30 — buckets are keyed in the team timezone, so the gate
+        # now accepts it and a precompute job is created.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
         self._seed_two_sessions()
         with self._enable_lazy():
-            self._run(self._build_query())
+            response = self._run(self._build_query())
 
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert response.usedLazyPrecompute is True
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     # --- Group B: gate strictness -------------------------------------------
 

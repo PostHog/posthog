@@ -378,13 +378,17 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("utc", "UTC"),
             ("pacific", "America/Los_Angeles"),
             ("tokyo", "Asia/Tokyo"),
+            ("kolkata", "Asia/Kolkata"),
+            ("kathmandu", "Asia/Kathmandu"),
         ]
     )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
-        # Same flakiness as test_lazy_result_matches_raw_result — lazy returns
-        # empty rows despite READY job on CI. Skipped until the read-after-write
-        # visibility issue tracked alongside #59075 is resolved.
+    def test_lazy_result_matches_raw_for_any_timezone(self, _name: str, team_tz: str) -> None:
+        # Buckets are keyed in the team timezone, so fractional offsets (IST +5:30,
+        # Nepal +5:45) match raw too. Same flakiness as
+        # test_lazy_result_matches_raw_result — lazy returns empty rows despite
+        # READY job on CI. Skipped until the read-after-write visibility issue
+        # tracked alongside #59075 is resolved.
         self.skipTest(
             "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
             "lazy path returns empty rows despite READY job."
@@ -409,13 +413,15 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_by_path == raw_by_path, f"lazy/raw mismatch for {team_tz}: raw={raw_by_path}, lazy={lazy_by_path}"
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_half_hour_offset_timezone_falls_through(self):
+    def test_half_hour_offset_timezone_is_eligible(self):
+        # IST is UTC+5:30 — buckets are keyed in the team timezone, so the gate
+        # now accepts it and a precompute job is created.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query())
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_falls_back_when_current_period_not_ready(self):

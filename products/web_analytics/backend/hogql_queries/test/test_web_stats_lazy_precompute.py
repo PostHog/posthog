@@ -417,16 +417,6 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_half_hour_offset_timezone_falls_through(self):
-        self.team.timezone = "Asia/Kolkata"
-        self.team.save()
-        self._seed()
-        with self._enable_lazy():
-            self._run(self._build_query())
-
-        assert self._job_count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         self._seed()
         self._run(self._build_query(opt_in_precompute=True))
@@ -441,17 +431,29 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0
 
-    @parameterized.expand([("utc", "UTC"), ("pacific", "America/Los_Angeles"), ("tokyo", "Asia/Tokyo")])
+    @parameterized.expand(
+        [
+            ("utc", "UTC"),
+            ("pacific", "America/Los_Angeles"),
+            ("tokyo", "Asia/Tokyo"),
+            ("kolkata", "Asia/Kolkata"),
+            ("kathmandu", "Asia/Kathmandu"),
+        ]
+    )
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_lazy_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str):
+    def test_lazy_matches_raw_for_any_timezone(self, _name: str, team_tz: str):
+        # Buckets are keyed in the team timezone, so fractional offsets (IST +5:30,
+        # Nepal +5:45) are eligible and reconstruct the local-day range exactly.
         self.team.timezone = team_tz
         self.team.save()
         self._seed()
 
         raw = self._metrics(self._run(self._build_query()))
         with self._enable_lazy():
-            lazy = self._metrics(self._run(self._build_query()))
+            lazy_response = self._run(self._build_query())
+        lazy = self._metrics(lazy_response)
 
+        assert lazy_response.usedLazyPrecompute is True
         assert lazy == raw, f"lazy/raw mismatch for {team_tz}: raw={raw}, lazy={lazy}"
 
     @freeze_time("2024-01-15T12:00:00Z")

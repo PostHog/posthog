@@ -163,8 +163,10 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # The inner subquery mirrors the live `FRUSTRATION_METRICS_INNER_QUERY`
 # verbatim (per-session counts of rage / dead / exception events), and the
 # outer aggregation mirrors the live `FrustrationMetricsStrategy.build_query`
-# OUTER (sums collapsed by breakdown) — but bucketed hourly so reads can
-# answer arbitrary date ranges via `sumMergeIf`. `sumState(...)` and `sum(...)`
+# OUTER (sums collapsed by breakdown) — but bucketed by the team-tz hour
+# (`toStartOfHour(start, team_tz)` — start of the team-local hour, stored as the
+# UTC instant) so reads can answer arbitrary date ranges via `sumMergeIf` and
+# align cleanly for every offset, including half-hour ones. `sumState(...)` and `sum(...)`
 # both aggregate over the same grouped rows, so the HAVING can filter on the
 # regular `sum(...)` value while emitting the `sumState(...)` column for
 # storage. The outer HAVING is the state-equivalent of the live
@@ -179,7 +181,7 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # a UTC-day boundary aggregate cleanly — same reasoning as overview/paths.
 INSERT_QUERY_TEMPLATE = """
 SELECT
-    toStartOfHour(start_timestamp) AS time_window_start,
+    toStartOfHour(start_timestamp, {team_tz}) AS time_window_start,
     breakdown_value AS breakdown_value,
     sumState(assumeNotNull(toInt(rage_clicks_count))) AS sum_rage_clicks_state,
     sumState(assumeNotNull(toInt(dead_clicks_count))) AS sum_dead_clicks_state,
@@ -204,8 +206,8 @@ FROM (
     GROUP BY session_id, breakdown_value
     HAVING and(
         breakdown_value IS NOT NULL,
-        toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
-        toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) >= {time_window_min},
+        toStartOfHour(min(session.$start_timestamp), {team_tz}) < {time_window_max}
     )
 )
 GROUP BY time_window_start, breakdown_value
@@ -230,6 +232,7 @@ def ensure_web_stats_frustration_precomputed(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
     return ensure_precomputed(

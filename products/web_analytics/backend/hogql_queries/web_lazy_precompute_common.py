@@ -2,7 +2,7 @@
 
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
 share the same rollout/safety gate (org feature flag + per-query opt-in,
-whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
+no conversion goal, no sampling, no v2 UUID sessions,
 at most one `$host` exact filter, bounded date range) and the same TTL /
 session-pad / UTC-day helpers. Keeping a single source of truth avoids
 the two paths drifting apart.
@@ -23,7 +23,6 @@ from posthog.schema import EventPropertyFilter, PropertyOperator, SessionsV2Join
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models import Team
 
@@ -47,7 +46,7 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
+# Team-tz hourly bucketing TTL schedule. Today gets 15 min so dashboards stay
 # fresh; older buckets get longer TTLs so we don't keep recomputing them.
 LAZY_TTL_SECONDS: dict[str, int] = {
     "0d": 15 * 60,
@@ -88,10 +87,6 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
 
 
 class PerQueryOptInNotSet(LazyPrecomputeIneligible):
-    pass
-
-
-class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
 
 
@@ -201,9 +196,6 @@ def check_common_eligibility(
 
     if use_web_analytics_precompute is not True:
         raise PerQueryOptInNotSet()
-
-    if not is_integer_timezone(team.timezone):
-        raise NonIntegerTimezone()
 
     if conversion_goal is not None:
         raise ConversionGoalUnsupported()

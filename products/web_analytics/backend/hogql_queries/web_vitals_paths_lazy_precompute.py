@@ -114,14 +114,12 @@ def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool
     check on the requested range.
 
     Bucket key is computed in the team's timezone, so half-hour-offset timezones
-    (IST/Newfoundland/Nepal/Iran) are also supported — the integer-timezone gate
-    is opted out.
+    (IST/Newfoundland/Nepal/Iran) are also supported.
     """
     return _can_use_lazy_precompute_shared(
         runner,
         log_prefix=_FAMILY,
         extra_check=_check_vitals_eligible,
-        require_integer_timezone=False,
     )
 
 
@@ -136,8 +134,7 @@ def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool
 # daily bucket is sufficient and ~24× smaller than hourly. The bucket key is
 # `toStartOfDay(timestamp, team_tz)` — start of the team-local day, with the
 # underlying Unix timestamp being the UTC instant of that local midnight. This
-# aligns cleanly for every timezone (including half-hour offsets like IST),
-# which is why this runner opts out of the shared `is_integer_timezone` gate.
+# aligns cleanly for every timezone (including half-hour offsets like IST).
 #
 # Note that a UTC daily INSERT job typically writes into TWO team-tz day
 # buckets — events in the first hours of UTC day N belong to team-tz day N-1
