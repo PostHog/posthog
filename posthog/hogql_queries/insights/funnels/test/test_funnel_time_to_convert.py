@@ -667,8 +667,18 @@ class TestFunnelTimeToConvertCompare(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_returns_two_histograms_on_shared_bins(self, _feature_enabled):
+    @staticmethod
+    def _only_flags(*enabled_flags: str):
+        """Build a `feature_enabled` side effect that returns True only for the listed flags.
+
+        Keeps the union vs anchor binning prototype independently controllable instead of flipping
+        every flag at once with a blanket `return_value=True`.
+        """
+        return lambda flag, *args, **kwargs: flag in enabled_flags
+
+    @patch("posthoganalytics.feature_enabled")
+    def test_compare_returns_two_histograms_on_shared_bins(self, mock_feature_enabled):
+        mock_feature_enabled.side_effect = self._only_flags("product-analytics-funnels-compare")
         # Current window 2021-06-07..06-13: one 600 s conversion.
         # Default previous window 2021-05-31..06-06: one 3600 s conversion.
         journeys_for(
@@ -703,4 +713,46 @@ class TestFunnelTimeToConvertCompare(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([count for _, count in previous["bins"]], [0, 0, 1])
 
         self.assertEqual(current["average_conversion_time"], 600)
+        self.assertEqual(previous["average_conversion_time"], 3600)
+
+    @patch("posthoganalytics.feature_enabled")
+    def test_compare_anchors_bins_on_current_period_when_flagged(self, mock_feature_enabled):
+        # Prototype: with the anchor flag on, bins come from the current period alone.
+        mock_feature_enabled.side_effect = self._only_flags(
+            "product-analytics-funnels-compare",
+            "product-analytics-funnels-compare-anchor-bins",
+        )
+        # Same data as the shared-bin test: current 600 s conversion, previous 3600 s conversion.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 10, 10, 0)},
+                ],
+                "previous_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10, 0, 0)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11, 0, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        current = next(r for r in results if r["compare_label"] == "current")
+        previous = next(r for r in results if r["compare_label"] == "previous")
+
+        # Boundaries are derived from the current period's single 600 s conversion (range collapses
+        # to one fallback-width bin), NOT the union [600, 3600] — that's the no-compare x-axis.
+        current_boundaries = [b[0] for b in current["bins"]]
+        previous_boundaries = [b[0] for b in previous["bins"]]
+        self.assertEqual(current_boundaries, previous_boundaries)
+        self.assertEqual(current_boundaries, [600, 660])
+
+        # Current 600 s conversion still lands in the first bin.
+        self.assertEqual([count for _, count in current["bins"]], [1, 0])
+        # The previous 3600 s conversion is outside the current-anchored range, so it drops out of
+        # the histogram — the documented trade-off of anchoring on the current period.
+        self.assertEqual([count for _, count in previous["bins"]], [0, 0])
+        # The average is computed over the full timings, so it still reflects the clipped conversion.
         self.assertEqual(previous["average_conversion_time"], 3600)

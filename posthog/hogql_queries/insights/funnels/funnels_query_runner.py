@@ -293,7 +293,15 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 lambda timings: self._run_time_to_convert_bounds(previous_funnel, timings),
             ]
         )
-        boundaries = compute_shared_bin_boundaries(current_bounds, previous_bounds, self.context.funnelsFilter.binCount)
+        if self._team_flag_funnels_compare_anchor_bins():
+            # Prototype binning: anchor on the current period alone, so the x-axis matches the
+            # no-compare view. The previous period is bucketed into those boundaries; conversions
+            # outside the current range fall off the histogram (their average is still reported).
+            boundaries = compute_shared_bin_boundaries(current_bounds, None, self.context.funnelsFilter.binCount)
+        else:
+            boundaries = compute_shared_bin_boundaries(
+                current_bounds, previous_bounds, self.context.funnelsFilter.binCount
+            )
 
         current_result, previous_result = self._run_in_parallel(
             [
@@ -400,6 +408,28 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     def _team_flag_funnels_compare(self) -> bool:
         return posthoganalytics.feature_enabled(
             "product-analytics-funnels-compare",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def _team_flag_funnels_compare_anchor_bins(self) -> bool:
+        """Prototype gate for the alternative TIME_TO_CONVERT compare binning strategy.
+
+        When enabled, both periods are bucketed on the *current* period's bin boundaries (matching
+        the no-compare view) instead of the union of both periods. Lets us A/B the two approaches
+        per team; defaults off (flag absent) to the union behaviour.
+        """
+        return posthoganalytics.feature_enabled(
+            "product-analytics-funnels-compare-anchor-bins",
             str(self.team.uuid),
             groups={
                 "organization": str(self.team.organization_id),
