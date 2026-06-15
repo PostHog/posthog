@@ -1253,6 +1253,7 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     )
 
 
+@extend_schema(extensions={"x-product": "cohorts"})
 @extend_schema_view(
     list=extend_schema(
         parameters=[

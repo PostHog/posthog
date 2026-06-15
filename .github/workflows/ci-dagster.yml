@@ -123,6 +123,7 @@ jobs:
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
                         - 'posthog/ducklake/**'
+                        - 'common/hogvm/**'
                         # Test infrastructure used by dagster tests
                         - conftest.py
                         - 'posthog/conftest.py'

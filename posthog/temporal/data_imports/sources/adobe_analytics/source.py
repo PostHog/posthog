@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AdobeAnalyticsSource(SimpleSource[AdobeAnalyticsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ADOBE_ANALYTICS,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Adobe Analytics",
             iconPath="/static/services/adobe_analytics.png",
             fields=cast(list[FieldType], []),

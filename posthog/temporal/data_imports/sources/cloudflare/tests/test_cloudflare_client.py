@@ -4,8 +4,14 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from tenacity import Future, RetryCallState
+
 from posthog.temporal.data_imports.sources.cloudflare.cloudflare import (
+    MAX_RETRY_AFTER_SECONDS,
     PAGE_SIZE,
+    CloudflareRetryableError,
+    _parse_retry_after,
+    _wait_strategy,
     cloudflare_source,
     get_rows,
     validate_credentials,
@@ -24,6 +30,20 @@ def _response(result: list[dict[str, Any]], total_pages: int | None = None, succ
     resp.status_code = 200
     resp.ok = True
     return resp
+
+
+def _rate_limited_response(headers: dict[str, str] | None = None) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = 429
+    resp.ok = False
+    resp.headers = headers or {}
+    return resp
+
+
+def _retry_state(exc: BaseException) -> RetryCallState:
+    state = RetryCallState(retry_object=mock.MagicMock(), fn=None, args=(), kwargs={})
+    state.outcome = Future.construct(1, exc, has_exception=True)
+    return state
 
 
 class TestValidateCredentials:
@@ -108,6 +128,47 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _response([], total_pages=0)
 
         assert list(get_rows("token", "zones", mock.MagicMock())) == []
+
+
+class TestRetryAfterHandling:
+    @pytest.mark.parametrize(
+        "headers, expected",
+        [
+            ({"Retry-After": "30"}, 30.0),
+            ({"Retry-After": "0"}, 0.0),
+            ({"Retry-After": "12.5"}, 12.5),
+            ({}, None),
+            ({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None),
+            ({"Retry-After": "soon"}, None),
+        ],
+    )
+    def test_parse_retry_after(self, headers, expected):
+        assert _parse_retry_after(_rate_limited_response(headers)) == expected
+
+    def test_wait_strategy_honors_retry_after(self):
+        exc = CloudflareRetryableError("rate limited", retry_after=45.0)
+        assert _wait_strategy(_retry_state(exc)) == 45.0
+
+    def test_wait_strategy_caps_retry_after(self):
+        exc = CloudflareRetryableError("rate limited", retry_after=10_000.0)
+        assert _wait_strategy(_retry_state(exc)) == MAX_RETRY_AFTER_SECONDS
+
+    def test_wait_strategy_falls_back_to_backoff_without_retry_after(self):
+        exc = CloudflareRetryableError("server error", retry_after=None)
+        # Jittered exponential backoff for the first attempt stays small and bounded.
+        assert 0 < _wait_strategy(_retry_state(exc)) <= 60
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_429_carries_retry_after_into_exception(self, mock_session):
+        # Retry-After of 0 keeps the test fast while still exercising the honored-wait path.
+        mock_session.return_value.get.return_value = _rate_limited_response({"Retry-After": "0"})
+
+        with pytest.raises(CloudflareRetryableError) as exc_info:
+            list(get_rows("token", "zones", mock.MagicMock()))
+
+        assert exc_info.value.retry_after == 0.0
+        # Exhausts all attempts since every page stays rate-limited.
+        assert mock_session.return_value.get.call_count == 5
 
 
 class TestCloudflareSourceResponse:
