@@ -248,8 +248,7 @@ pub async fn process_replay_events(
         .as_str()
         .is_some_and(|s| s.len() <= 70 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
     if !session_id_valid {
-        // Include the malformed value so teams can spot integration bugs, but
-        // never serialize engineered objects/arrays of arbitrary size.
+        // surface the malformed value for debugging, but never serialize engineered objects/arrays
         let raw_session_id: String = match &session_id {
             Value::String(s) => s.chars().take(100).collect(),
             Value::Object(_) => "(object)".to_string(),
@@ -322,7 +321,6 @@ pub async fn process_replay_events(
     // Start with the first event's snapshot data, then iterate over the rest
     let mut snapshot_items: Vec<Value> = Vec::new();
 
-    // Process first event's snapshot_data, then the remaining events'
     let first_snapshot_data = first_event.properties.snapshot_data.take();
     for snapshot_data in std::iter::once(first_snapshot_data)
         .chain(events_iter.map(|mut event| event.properties.snapshot_data.take()))
@@ -491,10 +489,8 @@ fn replay_message_too_large_warning(
     )
 }
 
-/// Flag the rejected payload with a `replay_message_invalid` warning (best effort,
-/// since the SDK drops the 400 silently), then hand back the error. A token operators
-/// have marked for drop stays silent, so its invalid payloads can't force a warning the
-/// valid path would have shed.
+/// Warn that the payload was rejected (best effort, since the SDK drops the 400 silently),
+/// then return the error. Drop-listed tokens stay silent, matching the valid path's load-shedding.
 #[allow(clippy::too_many_arguments)]
 async fn reject_replay_batch(
     sink: &Arc<dyn sinks::Event + Send + Sync>,
@@ -1461,7 +1457,6 @@ mod tests {
         assert!(props["$$client_ingestion_warning_message"]
             .as_str()
             .is_some_and(|m| m.contains("test-session-123")));
-        // lib is carried in the warning details (the event itself is never stored)
         assert!(props["$$client_ingestion_warning_details"]["lib"].is_string());
     }
 
