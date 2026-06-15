@@ -16,7 +16,7 @@ from products.slack_app.backend.api import (
     _channel_onboarding_cache_key,
     route_posthog_code_event_to_relevant_region,
 )
-from products.slack_app.backend.services.slack_user_info import _bot_user_id_cache_key
+from products.slack_app.backend.services.slack_user_info import bot_user_id_cache_key
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -165,4 +165,4 @@ class TestMemberJoinedChannelRouting(TestCase):
         route_posthog_code_event_to_relevant_region(self._request(), self._event(channel="C_OTHER"), self.SLACK_TEAM_ID)
 
         assert instance.client.auth_test.call_count == 1
-        assert cache.get(_bot_user_id_cache_key(self.integration.id)) == self.BOT_USER_ID
+        assert cache.get(bot_user_id_cache_key(self.integration.id)) == self.BOT_USER_ID

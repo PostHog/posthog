@@ -60,10 +60,10 @@ from products.slack_app.backend.services.integration_resolver import (
 )
 from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
 from products.slack_app.backend.services.slack_user_info import (
-    _get_cached_bot_user_id,
-    _get_slack_user_info,
-    _normalize_slack_response,
-    _persist_slack_user_info,
+    get_cached_bot_user_id,
+    get_slack_user_info,
+    normalize_slack_response,
+    persist_slack_user_info,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
@@ -283,12 +283,12 @@ def resolve_slack_user(
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
     try:
-        slack_user_info = _get_slack_user_info(slack, integration, slack_user_id)
+        slack_user_info = get_slack_user_info(slack, integration, slack_user_id)
         slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
-            fresh_user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
+            fresh_user_info = normalize_slack_response(slack.client.users_info(user=slack_user_id))
             if fresh_user_info:
-                _persist_slack_user_info(integration, slack_user_id, fresh_user_info)
+                persist_slack_user_info(integration, slack_user_id, fresh_user_info)
                 slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")
 
         if not slack_email:
@@ -742,7 +742,7 @@ def _post_repo_picker_message(
     )
 
     if workflow_id:
-        response_data = _normalize_slack_response(response)
+        response_data = normalize_slack_response(response)
         message_ts = response_data.get("ts") if isinstance(response_data.get("ts"), str) else None
         _set_pending_repo_picker(
             integration_id=integration.id,
@@ -872,7 +872,7 @@ def _collect_thread_messages(
     def resolve_user(uid: str) -> str:
         if uid not in user_cache:
             try:
-                user_info = _get_slack_user_info(slack, integration, uid)
+                user_info = get_slack_user_info(slack, integration, uid)
                 profile = user_info.get("user", {}).get("profile", {})
                 user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
             except Exception:
@@ -1381,12 +1381,12 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
     """
     slack_client = SlackIntegration(probe_integration)
     try:
-        user_info = _get_slack_user_info(slack_client, probe_integration, slack_user_id)
+        user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
         slack_email = user_info.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
-            fresh = _normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
+            fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
             if fresh:
-                _persist_slack_user_info(probe_integration, slack_user_id, fresh)
+                persist_slack_user_info(probe_integration, slack_user_id, fresh)
                 slack_email = fresh.get("user", {}).get("profile", {}).get("email")
         return slack_email or None
     except Exception:
@@ -2167,7 +2167,7 @@ def _route_member_joined_channel(
     integration = workspace_result.candidates[0]
     slack = SlackIntegration(integration)
 
-    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    bot_user_id = get_cached_bot_user_id(slack, integration)
     if bot_user_id is None or joined_user != bot_user_id:
         # We only care about our own bot joining a channel. Every other join
         # (humans, third-party bots) is ignored silently — Slack fires this

@@ -59,7 +59,7 @@ def _format_slack_user_info_payload(
     }
 
 
-def _normalize_slack_response(payload: Any) -> dict[str, Any]:
+def normalize_slack_response(payload: Any) -> dict[str, Any]:
     if isinstance(payload, dict):
         return payload
 
@@ -91,7 +91,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
     )
 
 
-def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
+def persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
     user = user_info.get("user", {})
     profile = user.get("profile", {})
     try:
@@ -112,21 +112,21 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
         logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
-def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
+def get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
     cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
     if isinstance(cached_db, dict):
         return cached_db
 
-    user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
+    user_info = normalize_slack_response(slack.client.users_info(user=slack_user_id))
     if user_info:
-        _persist_slack_user_info(integration, slack_user_id, user_info)
+        persist_slack_user_info(integration, slack_user_id, user_info)
         return user_info
     return {}
 
 
 def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
     """Whether the Slack user is a workspace admin or owner."""
-    user_info = _get_slack_user_info(slack, integration, slack_user_id)
+    user_info = get_slack_user_info(slack, integration, slack_user_id)
     slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
     return bool(slack_user.get("is_admin") or slack_user.get("is_owner"))
 
@@ -164,7 +164,7 @@ def lookup_slack_user_id_by_email(
         return slack_user_id
 
     try:
-        user_info = _normalize_slack_response(slack.client.users_lookupByEmail(email=email))
+        user_info = normalize_slack_response(slack.client.users_lookupByEmail(email=email))
     except SlackApiError as exc:
         error_code = exc.response.get("error") if exc.response else None
         if error_code != "users_not_found":
@@ -184,7 +184,7 @@ def lookup_slack_user_id_by_email(
         return None
 
     slack_user_id = str(user["id"])
-    _persist_slack_user_info(integration, slack_user_id, user_info)
+    persist_slack_user_info(integration, slack_user_id, user_info)
     _purge_stale_email_rows(integration, normalized_email, slack_user_id)
     return slack_user_id
 
@@ -205,12 +205,12 @@ def _purge_stale_email_rows(integration: Integration, normalized_email: str, kee
         logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
-def _bot_user_id_cache_key(integration_id: int) -> str:
+def bot_user_id_cache_key(integration_id: int) -> str:
     return f"slack_app:bot_user_id:v1:{integration_id}"
 
 
-def _get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
-    cache_key = _bot_user_id_cache_key(integration.id)
+def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
+    cache_key = bot_user_id_cache_key(integration.id)
     cached = cache.get(cache_key)
     if isinstance(cached, str) and cached:
         return cached

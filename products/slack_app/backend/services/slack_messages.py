@@ -43,17 +43,17 @@ def resolve_user_mentions_text(
     Wire format alone can't distinguish a bot user ID from a human's — both
     are `U…`-prefixed. The flag is the only authoritative signal.
     """
-    # Deferred import: ``_get_slack_user_info`` lives in ``api.py`` alongside a
+    # Deferred import: ``get_slack_user_info`` lives in ``api.py`` alongside a
     # chain of caching helpers; importing it at module load would create a
     # circular import via ``api.py -> services.slack_messages -> api.py``.
-    from products.slack_app.backend.api import _get_slack_user_info  # noqa: PLC0415
+    from products.slack_app.backend.api import get_slack_user_info  # noqa: PLC0415
 
     cache: dict[str, tuple[str, bool]] = {}
 
     def resolve_user(uid: str) -> tuple[str, bool]:
         if uid not in cache:
             try:
-                user_info = _get_slack_user_info(slack, integration, uid)
+                user_info = get_slack_user_info(slack, integration, uid)
                 user = user_info.get("user", {})
                 profile = user.get("profile", {})
                 display = profile.get("display_name") or profile.get("real_name") or "Unknown"
@@ -91,9 +91,9 @@ def decode_slack_event_text(slack: "SlackIntegration", integration: "Integration
     handler can't drift back into the original mention-eating bug.
     """
     # Deferred to break the circular dep between this module and slack_app api.py.
-    from products.slack_app.backend.api import _get_cached_bot_user_id  # noqa: PLC0415
+    from products.slack_app.backend.api import get_cached_bot_user_id  # noqa: PLC0415
 
-    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    bot_user_id = get_cached_bot_user_id(slack, integration)
     return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 

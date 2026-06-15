@@ -166,7 +166,7 @@ class TestExtractMessageText:
         assert _extract_message_text(msg) == expected
 
 
-@patch("products.slack_app.backend.api._get_slack_user_info")
+@patch("products.slack_app.backend.api.get_slack_user_info")
 class TestResolveUserMentionsText:
     def setup_method(self) -> None:
         self.slack = MagicMock(spec=SlackIntegration)
@@ -260,7 +260,7 @@ class TestLabeledMentionsToDisplayNames:
         assert labeled_mentions_to_display_names("just some text") == "just some text"
 
 
-@patch("products.slack_app.backend.api._get_slack_user_info")
+@patch("products.slack_app.backend.api.get_slack_user_info")
 class TestCollectThreadMessages:
     @pytest.fixture(autouse=True)
     def setup(self, db):
