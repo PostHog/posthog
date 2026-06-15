@@ -26,7 +26,6 @@ import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSaved
 export type SessionReplayWidgetTileFiltersProps = DashboardWidgetTileFiltersProps
 
 const NO_SAVED_FILTER_OPTION = { value: null as string | null, label: 'No saved filter' }
-// Sentinel value: selecting it navigates to session replay to create a filter rather than persisting.
 const CREATE_SAVED_FILTER_VALUE = '__create_saved_filter__'
 
 export function SessionReplayWidgetTileFilters({

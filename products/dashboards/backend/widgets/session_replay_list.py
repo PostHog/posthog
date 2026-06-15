@@ -40,7 +40,9 @@ def _build_saved_filter_recordings_query(
 ) -> RecordingsQuery | None:
     # The saved filter (SessionRecordingPlaylist of type "filters") is the source of truth for
     # date range and property filters; the widget only layers its own sort and limit on top.
-    playlist = SessionRecordingPlaylist.objects.filter(team=team, short_id=saved_filter_id, deleted=False).first()
+    playlist = SessionRecordingPlaylist.objects.filter(
+        team=team, short_id=saved_filter_id, deleted=False, type="filters"
+    ).first()
     if playlist is None:
         logger.warning("session_replay_widget_saved_filter_not_found", extra={"short_id": saved_filter_id})
         return None

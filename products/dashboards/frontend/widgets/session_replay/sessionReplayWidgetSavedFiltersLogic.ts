@@ -16,7 +16,7 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
             __default: [] as SessionRecordingPlaylistType[],
             loadSavedFilters: async () => {
                 const response = await api.recordings.listPlaylists(
-                    toParams({ limit: 100, order: '-last_modified_at', type: 'filters' })
+                    toParams({ limit: 300, order: '-last_modified_at', type: 'filters' })
                 )
                 return response.results
             },
@@ -32,7 +32,7 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
                 })),
         ],
         // Single source for resolving a saved-filter short_id to its display label, shared by the
-        // tile filter bar and the card header eyebrow.
+        // tile filter bar and the card header top heading.
         savedFilterLabelById: [
             (s) => [s.savedFilterOptions],
             (savedFilterOptions): Record<string, string> =>

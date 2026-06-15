@@ -13,9 +13,9 @@ import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
 
-/** Per-widget-type eyebrow override (the "Type • meta" row). Lets a widget render meta the generic
- * header can't derive from config alone — e.g. resolving a saved filter's name. */
-export type DashboardWidgetHeaderEyebrowProps = {
+/** Props a widget type's optional TopHeading override receives so it can compose its own
+ * CardTopHeadingRow — e.g. resolving a saved filter's name the generic header can't derive from config. */
+export type DashboardWidgetTopHeadingProps = {
     config: Record<string, unknown>
     widgetTypeLabel?: string
     showWidgetType: boolean
@@ -32,8 +32,8 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
-    /** Optional per-widget-type eyebrow component; falls back to the type + date range when absent. */
-    HeaderEyebrow?: ComponentType<DashboardWidgetHeaderEyebrowProps>
+    /** Optional per-widget-type top heading row; falls back to the type + date range when absent. */
+    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
     description?: string
     showDescription?: boolean
     loading?: boolean
@@ -165,7 +165,7 @@ export function WidgetCardHeader({
     widgetTypeLabel,
     config,
     headerMeta,
-    HeaderEyebrow,
+    TopHeading,
     description,
     showDescription = true,
     loading,
@@ -183,10 +183,11 @@ export function WidgetCardHeader({
             : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText) ? (
-            // A widget type can inject its own eyebrow (e.g. session replay surfaces the active saved filter
-            // name in place of the now-overridden date range); otherwise fall back to the type + date range.
-            HeaderEyebrow ? (
-                <HeaderEyebrow
+            // A widget type can supply its own top heading row (e.g. session replay surfaces the active
+            // saved filter name in place of the now-overridden date range); otherwise fall back to the
+            // type + date range.
+            TopHeading ? (
+                <TopHeading
                     config={config ?? {}}
                     widgetTypeLabel={widgetTypeLabel}
                     showWidgetType={showWidgetType}

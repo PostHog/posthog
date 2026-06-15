@@ -40,7 +40,7 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     })
 
-    it('renders an injected per-widget eyebrow in place of the default date range', () => {
+    it('renders an injected per-widget top heading in place of the default date range', () => {
         render(
             <WidgetCardHeader
                 layout="dashboard_tile"
@@ -48,7 +48,7 @@ describe('WidgetCardHeader', () => {
                 widgetTypeLabel="Session replay"
                 config={{ dateRange: { date_from: '-14d' }, savedFilterId: 'abc123' }}
                 headerMeta={{ showWidgetType: true, showDateRange: true }}
-                HeaderEyebrow={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
+                TopHeading={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
             />
         )
 
