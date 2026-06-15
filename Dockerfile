@@ -398,6 +398,11 @@ COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
+# Ship the top-level `common` package marker so `common` resolves as a real package
+# (like `posthog`), not a namespace package. Without it, `import common.hogvm` fails
+# with `No module named 'common'` in launch contexts where the repo root isn't on
+# sys.path (e.g. the Dagster grpc code location), even though common/hogvm is present.
+COPY --chown=posthog:posthog common/__init__.py common/__init__.py
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
