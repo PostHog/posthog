@@ -72,13 +72,14 @@ class AST:
             return visit_unknown(self)
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
-    def __deepcopy__(self, memo: dict[int, "AST"]) -> "AST":
+    def __deepcopy__(self, memo: dict[int, Any]) -> "AST":
         # copy.deepcopy() dispatches here automatically. The stdlib pickle-protocol
         # path (__reduce_ex__ + _reconstruct) is ~8x slower per node, so we instead run
         # a straight-line clone function generated once per class (exec-codegen, the same
         # technique dataclasses uses for __init__) and cached. Registering `new` in `memo`
-        # before recursing keeps the cyclic resolved-type graph (FieldType <-> SelectQueryType)
-        # and shared subtrees intact, matching stock deepcopy semantics.
+        # before recursing (here and for every container in _clone_value) keeps cyclic
+        # graphs (e.g. the resolved FieldType <-> SelectQueryType type graph) and shared
+        # subtrees intact, matching stock deepcopy semantics.
         cls = self.__class__
         clone = _clone_fn_cache.get(cls)
         if clone is None:
@@ -110,22 +111,39 @@ class AST:
 # --- deep-copy fast path (see AST.__deepcopy__) ---------------------------------
 # Immutable scalars deepcopy returns as-is; everything else is rebuilt.
 _CLONE_ATOMIC_TYPES = frozenset({str, bytes, int, float, bool, complex, type(None)})
-_clone_fn_cache: dict[type, Callable[["AST", dict[int, "AST"]], "AST"]] = {}
+_clone_fn_cache: dict[type, Callable[["AST", dict[int, Any]], "AST"]] = {}
 
 
 def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
     cls = type(value)
     if cls in _CLONE_ATOMIC_TYPES:
         return value
+    # Mirror stdlib deepcopy: dedup via `memo` so shared subobjects clone once and
+    # reference cycles terminate. Containers register before recursing so a self- or
+    # mutually-referential list/dict resolves to the in-progress copy instead of looping.
+    existing = memo.get(id(value))
+    if existing is not None:
+        return existing
     if cls is list:
-        return [_clone_value(v, memo) for v in value]
+        new_list: list = []
+        memo[id(value)] = new_list
+        for item in value:
+            new_list.append(_clone_value(item, memo))
+        return new_list
     if isinstance(value, AST):
-        existing = memo.get(id(value))
-        return existing if existing is not None else value.__deepcopy__(memo)
+        return value.__deepcopy__(memo)  # registers itself in memo before recursing
     if cls is dict:
-        return {k: _clone_value(v, memo) for k, v in value.items()}
+        new_dict: dict = {}
+        memo[id(value)] = new_dict
+        for key, item in value.items():
+            new_dict[key] = _clone_value(item, memo)
+        return new_dict
     if cls is tuple:
-        return tuple(_clone_value(v, memo) for v in value)
+        # A tuple can't be registered before it exists, but any cycle through it must
+        # pass a mutable (list/dict/AST) that already broke the loop, so this terminates.
+        new_tuple = tuple(_clone_value(item, memo) for item in value)
+        memo[id(value)] = new_tuple
+        return new_tuple
     if isinstance(value, Enum):
         return value
     # Sets, embedded non-AST objects (e.g. database Tables): defer to the stdlib,
@@ -133,7 +151,7 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
     return copy.deepcopy(value, memo)
 
 
-def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, "AST"]], "AST"]:
+def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
     # Generate a per-class clone over its dataclass fields. start/end are always
     # Optional[int], so they pass straight through without a dispatch call.
     body = ["def _clone(self, memo):", "    new = _cls.__new__(_cls)", "    memo[id(self)] = new"]
