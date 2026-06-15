@@ -2208,6 +2208,10 @@ snapshots:
         hash: v1.k794b7964.0c70fac4deda9be64c8b0c0d06eb0149e9d11176c31ab5861f6657fa80714836.YqZL0Grf9CN71TbXgR_pGO23EfnukP5X-Doi0-Xy48A
     insights-funnelcorrelationtable--default--light:
         hash: v1.k794b7964.3d6cf3fd19bf7fd2b7f9d822fcd66b7d10557a26bf4bd03b01f32fcc794f880f.jKBKmAVKsMdV2WrUXJtct3l-1dyvr6mOQP_ztF84bk0
+    insights-funnelhistogramchart--compare--dark:
+        hash: v1.k794b7964.243c25013f1c49bd32748e1942907e66a5167645e28f2e4c0cc5afced3c5bba9.A3DQuQNSU2omhbPK9xJY5JUW-d6pbpWCul3DebkL_Ow
+    insights-funnelhistogramchart--compare--light:
+        hash: v1.k794b7964.283dab157709f3a7857d3385fd5cbdb5c603a84adc73672c0f2d403793b10193.TkzfWpRiJQlFpynFeQM1CjcO1TBqsDQa1N1V6u5QJxQ
     insights-funnelhistogramchart--default--dark:
         hash: v1.k794b7964.90451510061b45383bf84c93d7e9b129a40e4e3e219073cf4ff4b3756ffd169c.0bIz7UkRlCxTeeoUjlJAwRFd9XjTzSvukUdcv3qVcX0
     insights-funnelhistogramchart--default--light:
