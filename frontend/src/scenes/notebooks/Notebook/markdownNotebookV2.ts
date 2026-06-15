@@ -33,7 +33,7 @@ export type MarkdownNotebookV2Node = {
 
 const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 
-const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
+export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
     [NotebookNodeType.Query]: 'Query',
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
@@ -143,8 +143,9 @@ export function visualizationArtifactContentToNotebookArtifactContent(
 }
 
 /**
- * Whether any node in a rich (v1) notebook carries an inline comment mark. Markdown has no
- * slot for range-anchored comment marks, so the conversion drops them — callers must warn.
+ * Whether any node in a rich (v1) notebook carries an inline comment mark. The conversion
+ * preserves them as `<ref>` highlights paired with `<Comment ref>` threads — callers can
+ * use this to know whether to fetch the comment threads up front.
  */
 export function notebookContentHasCommentMarks(content: JSONContent | null | undefined): boolean {
     if (!content) {
@@ -156,15 +157,68 @@ export function notebookContentHasCommentMarks(content: JSONContent | null | und
     return (content.content ?? []).some((child) => notebookContentHasCommentMarks(child))
 }
 
-export function convertNotebookContentToMarkdown(content: JSONContent | null | undefined): string {
+export type NotebookMarkdownConversionOptions = {
+    /**
+     * Replies per v1 comment mark id, embedded into the matching `<Comment ref>` tag so
+     * the discussion travels with the markdown. Threads without an entry still get an
+     * empty comment thread — the anchor must never be silently dropped.
+     */
+    commentRepliesByMarkId?: Record<string, NotebookPropValue[]>
+    /** Display label for a mention (e.g. `@Marius`); falls back to `@member`. */
+    getMentionLabel?: (memberId: number) => string | null
+}
+
+export function convertNotebookContentToMarkdown(
+    content: JSONContent | null | undefined,
+    options: NotebookMarkdownConversionOptions = {}
+): string {
     if (isMarkdownNotebookContent(content)) {
         return getMarkdownNotebookMarkdown(content)
     }
 
-    return (content?.content ?? [])
-        .map((node) => serializeRichContentNode(node))
-        .filter((markdown) => markdown.trim().length > 0)
-        .join('\n\n')
+    const blocks: string[] = []
+    const emittedCommentMarkIds = new Set<string>()
+    for (const node of content?.content ?? []) {
+        // Each comment-marked range gets its thread right above the block holding the
+        // highlight, so the margin-anchored thread aligns with the text it is about.
+        for (const markId of collectCommentMarkIds(node)) {
+            if (emittedCommentMarkIds.has(markId)) {
+                continue
+            }
+            emittedCommentMarkIds.add(markId)
+            blocks.push(
+                serializeNode({
+                    id: '',
+                    type: 'component',
+                    tagName: 'Comment',
+                    props: { ref: markId, replies: options.commentRepliesByMarkId?.[markId] ?? [] },
+                })
+            )
+        }
+
+        const markdown = serializeRichContentNode(node, 0, options)
+        if (markdown.trim().length > 0) {
+            blocks.push(markdown)
+        }
+    }
+
+    return blocks.join('\n\n')
+}
+
+function collectCommentMarkIds(node: JSONContent): string[] {
+    const markIds: string[] = []
+    const visit = (current: JSONContent): void => {
+        for (const mark of current.marks ?? []) {
+            if (mark.type === 'comment' && typeof mark.attrs?.id === 'string' && mark.attrs.id) {
+                markIds.push(mark.attrs.id)
+            }
+        }
+        for (const child of current.content ?? []) {
+            visit(child)
+        }
+    }
+    visit(node)
+    return markIds
 }
 
 export function getMarkdownNotebookTextContent(content: JSONContent | null | undefined): string | null {
@@ -287,19 +341,23 @@ function toNotebookPropValue(value: unknown): NotebookPropValue | null {
     return isNotebookPropValue(parsedValue) ? parsedValue : null
 }
 
-function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
+function serializeRichContentNode(
+    node: JSONContent,
+    listDepth = 0,
+    options: NotebookMarkdownConversionOptions = {}
+): string {
     if (node.type === 'heading') {
         const level = typeof node.attrs?.level === 'number' ? Math.min(Math.max(node.attrs.level, 1), 6) : 1
-        return `${'#'.repeat(level)} ${serializeInlineContent(node.content)}`
+        return `${'#'.repeat(level)} ${serializeInlineContent(node.content, options)}`
     }
 
     if (node.type === 'paragraph') {
-        return escapeMarkdownBlockLines(serializeInlineContent(node.content))
+        return escapeMarkdownBlockLines(serializeInlineContent(node.content, options))
     }
 
     if (node.type === 'blockquote') {
         return (node.content ?? [])
-            .map((child) => serializeRichContentNode(child, listDepth))
+            .map((child) => serializeRichContentNode(child, listDepth, options))
             .join('\n')
             .split('\n')
             .map((line) => `> ${line}`)
@@ -307,7 +365,7 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
     }
 
     if (node.type === 'bulletList' || node.type === 'orderedList' || node.type === 'taskList') {
-        return serializeList(node, node.type === 'orderedList', listDepth)
+        return serializeList(node, node.type === 'orderedList', listDepth, options)
     }
 
     if (node.type === 'horizontalRule') {
@@ -325,7 +383,7 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
     }
 
     if (node.type === 'table') {
-        return serializeTable(node)
+        return serializeTable(node, options)
     }
 
     const markdownTagName = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node.type as NotebookNodeType]
@@ -339,7 +397,7 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
     }
 
     const childMarkdown = (node.content ?? [])
-        .map((child) => serializeRichContentNode(child, listDepth))
+        .map((child) => serializeRichContentNode(child, listDepth, options))
         .filter(Boolean)
         .join('\n\n')
     if (childMarkdown || !node.type) {
@@ -356,11 +414,14 @@ function serializeRichContentNode(node: JSONContent, listDepth = 0): string {
     })
 }
 
-function serializeInlineContent(content: JSONContent[] | undefined): string {
-    return (content ?? []).map(serializeInlineNode).join('')
+function serializeInlineContent(
+    content: JSONContent[] | undefined,
+    options: NotebookMarkdownConversionOptions = {}
+): string {
+    return (content ?? []).map((node) => serializeInlineNode(node, options)).join('')
 }
 
-function serializeInlineNode(node: JSONContent): string {
+function serializeInlineNode(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
     if (node.type === 'text') {
         const isCodeText = (node.marks ?? []).some((mark) => mark.type === 'code')
         // Literal `*`/`` ` ``/`[` in legacy text must not become formatting after the upgrade
@@ -371,12 +432,38 @@ function serializeInlineNode(node: JSONContent): string {
         return '\n'
     }
     if (node.type === NotebookNodeType.Mention) {
-        return typeof node.attrs?.label === 'string' ? escapeInlineMarkdownText(node.attrs.label) : ''
+        return serializeMentionNode(node, options)
     }
-    return serializeInlineContent(node.content)
+    return serializeInlineContent(node.content, options)
+}
+
+/** Mentions keep their member id: `<mention id="5">@Marius</mention>`. */
+function serializeMentionNode(node: JSONContent, options: NotebookMarkdownConversionOptions): string {
+    const memberId = typeof node.attrs?.id === 'number' ? node.attrs.id : null
+    const attrLabel = typeof node.attrs?.label === 'string' && node.attrs.label.trim() ? node.attrs.label.trim() : null
+    const lookedUpLabel = memberId !== null ? options.getMentionLabel?.(memberId) : null
+    const label = attrLabel ?? lookedUpLabel ?? '@member'
+    const displayLabel = label.startsWith('@') ? label : `@${label}`
+    if (memberId === null) {
+        return escapeInlineMarkdownText(displayLabel)
+    }
+    return `<mention id=${JSON.stringify(String(memberId))}>${escapeInlineMarkdownText(displayLabel)}</mention>`
 }
 
 function applyMarks(text: string, marks: JSONContent['marks']): string {
+    // Comment marks become `<ref>` anchors and wrap outermost, so the tag encloses the
+    // fully formatted text.
+    const commentMarkIds = (marks ?? [])
+        .filter((mark) => mark.type === 'comment' && typeof mark.attrs?.id === 'string' && mark.attrs.id)
+        .map((mark) => mark.attrs?.id as string)
+    const formattedText = applyFormattingMarks(text, marks)
+    return commentMarkIds.reduce(
+        (markedText, markId) => `<ref id=${JSON.stringify(markId)}>${markedText}</ref>`,
+        formattedText
+    )
+}
+
+function applyFormattingMarks(text: string, marks: JSONContent['marks']): string {
     return (marks ?? []).reduce((markedText, mark) => {
         if (mark.type === 'bold') {
             return `**${markedText}**`
@@ -404,7 +491,12 @@ function applyMarks(text: string, marks: JSONContent['marks']): string {
 const LIST_NODE_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
 const LIST_ITEM_NODE_TYPES = new Set(['listItem', 'taskItem'])
 
-function serializeList(node: JSONContent, ordered: boolean, depth: number): string {
+function serializeList(
+    node: JSONContent,
+    ordered: boolean,
+    depth: number,
+    options: NotebookMarkdownConversionOptions = {}
+): string {
     // The markdown notebook list model only holds one inline line per item, so block content inside a
     // list item (extra paragraphs, code blocks, quotes) is emitted as standalone blocks after the item,
     // splitting the list rather than dropping the content.
@@ -419,7 +511,7 @@ function serializeList(node: JSONContent, ordered: boolean, depth: number): stri
 
     const items = (node.content ?? []).filter((child) => LIST_ITEM_NODE_TYPES.has(child.type ?? ''))
     items.forEach((item, index) => {
-        const { listLines, trailingBlocks } = serializeListItem(item, ordered, depth, index)
+        const { listLines, trailingBlocks } = serializeListItem(item, ordered, depth, index, options)
         pendingListLines.push(...listLines)
         if (trailingBlocks.length) {
             flushListLines()
@@ -435,7 +527,8 @@ function serializeListItem(
     item: JSONContent,
     ordered: boolean,
     depth: number,
-    index: number
+    index: number,
+    options: NotebookMarkdownConversionOptions = {}
 ): { listLines: string[]; trailingBlocks: string[] } {
     const marker = ordered ? `${index + 1}.` : '-'
     const children = item.content ?? []
@@ -444,24 +537,27 @@ function serializeListItem(
     const extraBlocks = children.filter((child) => child !== firstParagraph && !LIST_NODE_TYPES.has(child.type ?? ''))
     const checkbox = item.type === 'taskItem' ? (item.attrs?.checked ? '[x] ' : '[ ] ') : ''
     // List lines cannot contain raw newlines in the markdown notebook model
-    const itemText = (firstParagraph ? serializeInlineContent(firstParagraph.content) : '').replace(/\s*\n\s*/g, ' ')
+    const itemText = (firstParagraph ? serializeInlineContent(firstParagraph.content, options) : '').replace(
+        /\s*\n\s*/g,
+        ' '
+    )
     const listLines = [`${'  '.repeat(depth)}${marker} ${checkbox}${itemText}`.trimEnd()]
 
     for (const nestedList of nestedLists) {
-        const nestedMarkdown = serializeRichContentNode(nestedList, depth + 1)
+        const nestedMarkdown = serializeRichContentNode(nestedList, depth + 1, options)
         if (nestedMarkdown) {
             listLines.push(nestedMarkdown)
         }
     }
 
     const trailingBlocks = extraBlocks
-        .map((child) => serializeRichContentNode(child))
+        .map((child) => serializeRichContentNode(child, 0, options))
         .filter((block) => block.trim().length > 0)
 
     return { listLines, trailingBlocks }
 }
 
-function serializeTable(node: JSONContent): string {
+function serializeTable(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
     const rows = (node.content ?? []).filter((child) => child.type === 'tableRow')
     if (!rows.length) {
         return ''
@@ -472,7 +568,7 @@ function serializeTable(node: JSONContent): string {
             .filter((cell) => cell.type === 'tableCell' || cell.type === 'tableHeader')
             .map((cell) =>
                 (cell.content ?? [])
-                    .map((child) => serializeRichContentNode(child))
+                    .map((child) => serializeRichContentNode(child, 0, options))
                     .join(' ')
                     .replace(/\s*\n\s*/g, ' ')
                     // Plain-text pipes are already escaped inline; only escape the rest (code spans),

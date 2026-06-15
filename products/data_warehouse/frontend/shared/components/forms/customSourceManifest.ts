@@ -86,6 +86,8 @@ export interface StreamForm {
     cursor_path: string
     cursor_type: CursorType
     start_param: string
+    // strftime pattern for the outgoing watermark; empty → ISO-8601 default
+    datetime_format: string
     // Fan-out (parent/child): when `parent_stream` is set, PostHog fetches that
     // stream first and calls this one once per parent row, injecting
     // `parent_resolve_field` into the `{parent_path_param}` placeholder in the
@@ -150,6 +152,7 @@ export function emptyStream(): StreamForm {
         cursor_path: '',
         cursor_type: 'datetime',
         start_param: '',
+        datetime_format: '',
         passthrough_params: {},
         ...EMPTY_PARENT_FIELDS,
     }
@@ -280,6 +283,9 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             // the REST engine builds its Incremental tracker.
             if (stream.cursor_type !== 'datetime') {
                 incremental.cursor_type = stream.cursor_type
+            }
+            if (stream.datetime_format.trim()) {
+                incremental.datetime_format = stream.datetime_format.trim()
             }
             endpoint.incremental = incremental
         }
@@ -482,6 +488,7 @@ function parseStream(resource: unknown): StreamForm {
         cursor_path: asString(incremental.cursor_path),
         cursor_type: cursorType,
         start_param: asString(incremental.start_param),
+        datetime_format: asString(incremental.datetime_format),
         parent_stream: parentStream,
         parent_resolve_field: parentResolveField,
         parent_path_param: parentPathParam,

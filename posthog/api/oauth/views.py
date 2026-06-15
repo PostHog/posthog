@@ -17,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 import posthoganalytics
 from oauth2_provider.compat import login_not_required
-from oauth2_provider.exceptions import OAuthToolkitError
+from oauth2_provider.exceptions import FatalClientError, OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
@@ -48,7 +48,7 @@ from posthog.api.oauth.cimd import (
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken, revoke_oauth_session
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
     downgrade_scopes_to_read_only,
@@ -508,6 +508,87 @@ class OAuthValidator(OAuth2Validator):
         )
         return super().save_bearer_token(token, request, *args, **kwargs)
 
+    def _save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Insert a new access_token row per non-rotating refresh instead of
+        overwriting the previous one. Upstream's non-rotating branch
+        SELECT FOR UPDATEs and writes over a single AccessToken row, so
+        concurrent refreshes for the same RT corrupt each others' response
+        bodies (the losing writers return a token whose DB row was just
+        overwritten by the winner, then upstream's post-grant
+        ``objects.get(token_checksum=...)`` misses and 500s).
+
+        ``OAuthAccessToken.source_refresh_token`` is OneToOne, so only the
+        original ``authorization_code``-issued AT keeps the back-reference;
+        refresh-issued rows pass ``source_refresh_token=None`` and stay
+        addressable by token / token_checksum.
+        """
+        refresh_token_code = token.get("refresh_token")
+        refresh_token_instance = getattr(request, "refresh_token_instance", None)
+
+        is_non_rotating_refresh = (
+            refresh_token_code
+            and not self.rotate_refresh_token(request)
+            and isinstance(refresh_token_instance, OAuthRefreshToken)
+        )
+        if not is_non_rotating_refresh:
+            return super()._save_bearer_token(token, request, *args, **kwargs)
+
+        assert isinstance(refresh_token_instance, OAuthRefreshToken)
+
+        if "scope" not in token:
+            raise FatalClientError("Failed to renew access token: missing scope")
+
+        expires = timezone.now() + timedelta(
+            seconds=token.get("expires_in", oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
+        )
+
+        self._create_access_token(
+            expires,
+            request,
+            token,
+            source_refresh_token=None,
+            scope_source_refresh_token=refresh_token_instance,
+        )
+        logger.info(
+            "oauth_non_rotating_refresh_inserted",
+            client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
+            refresh_token_id=str(refresh_token_instance.pk),
+        )
+
+    def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
+        """
+        Sweep the full ``(user, application)`` access-token family when a
+        non-rotating refresh token is revoked via RFC 7009.
+
+        Upstream's ``RefreshToken.revoke()`` only deletes the AT linked via the
+        OneToOne ``RefreshToken.access_token`` FK. Refresh-issued rows from our
+        non-rotating ``_save_bearer_token`` branch carry
+        ``source_refresh_token=None`` so they would survive that path and stay
+        valid until expiry. ``revoke_oauth_session`` deletes by
+        ``(user, application)``, which is the same semantics the UI revoke flow
+        in ``connected_apps`` uses.
+
+        ``token_type_hint`` is OPTIONAL per RFC 7009 §2.1 and the server MUST
+        fall back to searching all token types when the hint doesn't locate the
+        token. We always probe the refresh-token table so the sweep fires for
+        omitted, ``refresh_token``, and (incorrect) ``access_token`` hints
+        alike; a single indexed lookup is cheap and the cost of getting this
+        wrong is leaving compromised tokens valid.
+
+        The sweep only fires when the presented token belongs to the
+        authenticated client (RFC 7009 §2.1: the server verifies the token was
+        issued to the requesting client). Without that binding, any dynamic
+        client that learned another app's refresh token could revoke that
+        app's entire ``(user, application)`` session instead of just the one
+        token upstream would revoke.
+        """
+        rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
+        if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
+            revoke_oauth_session(refresh_token=rt)
+            return
+        return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,
@@ -517,7 +598,7 @@ class OAuthValidator(OAuth2Validator):
             "sub": str(request.user.uuid),
         }
 
-    def _sessions_revoked_at(self, application_id: int) -> datetime | None:
+    def _sessions_revoked_at(self, application_id: uuid.UUID) -> datetime | None:
         return OAuthApplication.objects.filter(pk=application_id).values_list("sessions_revoked_at", flat=True).first()
 
     def _reject_refresh_racing_revoke(self, request, source_refresh_token):
@@ -566,17 +647,35 @@ class OAuthValidator(OAuth2Validator):
                 request=request,
             )
 
-    def _create_access_token(self, expires, request, token, source_refresh_token=None):
-        if source_refresh_token is not None:
-            self._reject_refresh_racing_revoke(request, source_refresh_token)
+    def _create_access_token(
+        self,
+        expires,
+        request,
+        token,
+        source_refresh_token=None,
+        scope_source_refresh_token=None,
+    ):
+        # A refresh reaches here with the presented token in either ``source_refresh_token``
+        # (rotating) or ``scope_source_refresh_token`` (non-rotating, where the OneToOne FK is
+        # left null so sibling rows stay addressable) — both must be checked against an app-wide
+        # revoke, or a non-rotating refresh could race the revoke and mint a surviving token.
+        # Only a true authorization-code exchange reaches here with neither.
+        refresh_token = source_refresh_token or scope_source_refresh_token
+        if refresh_token is not None:
+            self._reject_refresh_racing_revoke(request, refresh_token)
         else:
             self._reject_code_exchange_racing_revoke(request)
         id_token = token.get("id_token", None)
         if id_token:
             id_token = self._load_id_token(id_token)
 
+        # ``scope_source_refresh_token`` lets the caller inherit scopes from a
+        # refresh_token without taking the OneToOne ``source_refresh_token`` FK
+        # (needed by the non-rotating refresh path, where multiple rows share
+        # one RT but only the original can hold the back-reference).
+        scope_refresh_token = scope_source_refresh_token or source_refresh_token
         scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
-            request, access_token=None, grant=None, refresh_token=source_refresh_token
+            request, access_token=None, grant=None, refresh_token=scope_refresh_token
         )
 
         return OAuthAccessToken.objects.create(

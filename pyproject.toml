@@ -80,6 +80,7 @@ dependencies = [
     "langchain-openai~=0.3.35",
     "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
+    "langgraph-checkpoint==4.1.1",
     "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
@@ -94,6 +95,7 @@ dependencies = [
     "openai==1.109.1",
     "openpyxl==3.1.5",
     "orjson==3.11.9",
+    "ormsgpack~=1.12",
     "pandas~=2.2.2",
     "paramiko~=3.5.0",
     "pillow==12.2.0",
@@ -249,13 +251,13 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.14.11",
+    "ruff~=0.15.16",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
     "types-aioboto3[s3]~=14.3.0",
     "types-aiobotocore~=2.22.0",
-    "types-boto3[essential]==1.37.6",
+    "types-boto3[essential,ses,sesv2]==1.40.49",
     "types-croniter~=6.0.0",
     "types-markdown==3.3.9",
     "types-paramiko==3.4.0.20240423",
@@ -284,9 +286,6 @@ required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
-constraint-dependencies = [
-    "langgraph-checkpoint<3",
-]
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
@@ -327,6 +326,7 @@ ignore = [
     "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
+    "UP042",  # ~28: str+Enum → StrEnum (unsafe: changes str()/format() output)
 ]
 select = [
     "B",

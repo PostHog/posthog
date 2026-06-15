@@ -276,6 +276,11 @@ export interface BarsConfig {
     fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Px of headroom reserved past the bars at the value-axis data end(s), so overlays have room
+     *  beyond the bar tip — e.g. a `ValueLabels` overlay can float beside/above each bar instead of
+     *  being flipped onto it (an on-bar label looks like the bar grows when it lifts on hover). The
+     *  axis range converts px → value units, so the gap stays visually constant. Defaults to 0. */
+    valuePadding?: number
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer

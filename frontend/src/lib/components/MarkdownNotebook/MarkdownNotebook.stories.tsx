@@ -180,6 +180,10 @@ export const ListsAndLinks: Story = {
 - Session replay
 - Feature flags
 
+- [x] Ship the onboarding experiment
+- [ ] Review session recordings
+  - [ ] Share findings with the team
+
 [Open PostHog](https://posthog.com)`,
     },
 }

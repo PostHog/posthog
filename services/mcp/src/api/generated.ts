@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -6239,7 +6239,7 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
-      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently. */
       pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
@@ -6248,10 +6248,6 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
-      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
-      useQueryV2?: boolean | null;
-      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
-      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
@@ -12576,6 +12572,22 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
+    export interface ContextGeneration {
+      /**
+         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ContextGenerationSet {
+      /**
+         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
     export type ConversationMessagesItem = { [key: string]: unknown };
 
     export type ConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -14599,6 +14611,12 @@ export namespace Schemas {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -14831,6 +14849,12 @@ export namespace Schemas {
       SapSuccessFactors: 'SapSuccessFactors',
       OracleEbs: 'OracleEbs',
       OracleFusion: 'OracleFusion',
+      AmazonSNS: 'AmazonSNS',
+      AmazonEventBridge: 'AmazonEventBridge',
+      AmazonSQS: 'AmazonSQS',
+      AmazonKinesis: 'AmazonKinesis',
+      AmazonCloudWatch: 'AmazonCloudWatch',
+      OpenAIAds: 'OpenAIAds',
       Custom: 'Custom',
     } as const;
 
@@ -15070,6 +15094,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -15771,12 +15801,63 @@ export namespace Schemas {
       text?: string | null;
     }
 
+    /**
+     * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+     */
+    export type EmailTemplateDesignCounters = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyRowsItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyHeadersItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyFootersItem = { [key: string]: unknown };
+
+    /**
+     * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+     */
+    export type EmailTemplateDesignBodyValues = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBody = {
+      /** Any unique string. */
+      id?: string;
+      /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+      rows: EmailTemplateDesignBodyRowsItem[];
+      headers?: EmailTemplateDesignBodyHeadersItem[];
+      footers?: EmailTemplateDesignBodyFootersItem[];
+      /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+      values?: EmailTemplateDesignBodyValues;
+    };
+
+    /**
+     * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+     */
+    export type EmailTemplateDesign = {
+      /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+      counters?: EmailTemplateDesignCounters;
+      /** Design schema version, e.g. 16. */
+      schemaVersion: number;
+      body: EmailTemplateDesignBody;
+    };
+
     export interface EmailTemplate {
+      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
+      /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
-      design?: unknown;
+      /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+      design?: EmailTemplateDesign;
     }
+
+    export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
+
+
+    export const EmbeddingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Disabled: 'disabled',
+    } as const;
 
     /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
@@ -19179,6 +19260,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -23216,6 +23303,8 @@ export namespace Schemas {
       readonly next_refresh_at: string | null;
       /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
       readonly has_unsafe_documents: boolean;
+      /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+      readonly embedding_status: EmbeddingStatusEnum;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -24757,24 +24846,50 @@ export namespace Schemas {
       scores: MessageSentimentScores;
     }
 
+    /**
+     * * `liquid` - liquid
+     */
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
+
+
+    export const MessageTemplateContentTemplatingEnum = {
+      Liquid: 'liquid',
+    } as const;
+
     export interface MessageTemplateContent {
-      templating?: HogFunctionTemplatingEnum;
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+       *
+       * * `liquid` - liquid */
+      templating?: MessageTemplateContentTemplatingEnum;
+      /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
 
     export interface MessageTemplate {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -25105,6 +25220,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -25118,6 +25234,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -27073,6 +27190,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       archived?: boolean;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedProductTourList {
@@ -28697,6 +28816,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       form_content?: unknown;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedSurveyList {
@@ -30083,7 +30204,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -33086,17 +33207,29 @@ export namespace Schemas {
 
     export interface PatchedMessageTemplate {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name?: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -35429,6 +35562,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -41981,18 +42118,13 @@ export namespace Schemas {
     export interface SourceConnectLink {
       /** The source type the link is for. */
       source_type: string;
-      /** 'oauth' = the user authorizes in their browser; 'credentials' = the user enters credentials in the PostHog UI. Either way secrets never pass through the agent.
+      /** What the user will do on the connect page: 'oauth' = authorize an account in their browser; 'credentials' = enter connection details (or pick OAuth where the source offers both). Either way secrets never pass through the agent, and the result is always a stored credential id.
        *
        * * `oauth` - oauth
        * * `credentials` - credentials */
       auth_method: AuthMethodEnum;
-      /** Full URL to share with the user. They open it in a browser to authorize or enter credentials directly in PostHog — credentials never pass through the agent or the chat. */
+      /** Full URL to share with the user. It opens the source's connection form in PostHog — credentials never pass through the agent or the chat. */
       connect_url: string;
-      /**
-         * The payload key to pass to data-warehouse-source-setup: for OAuth sources, the source's integration id key (e.g. 'hubspot_integration_id'); for credential sources, 'credential_id' referencing the credentials the user stored via the connect page.
-         * @nullable
-         */
-      integration_field: string | null;
       /** Next steps for the agent to relay to the user. */
       instructions: string;
     }
@@ -42242,6 +42374,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -42274,7 +42412,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
      */
     export type SourceSetupPayload = { [key: string]: unknown };
 
@@ -42507,9 +42645,15 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
-      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
          * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -45277,7 +45421,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *
@@ -45403,7 +45547,7 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -45415,7 +45559,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -46780,6 +46924,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type EnvironmentsGroupsRelatedRetrieveParams = {
@@ -50330,6 +50478,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -50409,6 +50558,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -50474,6 +50624,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -50541,6 +50692,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -52836,6 +52988,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type GroupsRelatedRetrieveParams = {

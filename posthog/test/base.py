@@ -270,6 +270,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # event uuid point lookups (error tracking first/last event fetch) embed random fixture uuids
+    query = re.sub(
+        r"in\(((?:\w+\.)?uuid), \['[0-9a-f-]{36}'(?:, '[0-9a-f-]{36}')*\]\)",
+        r"in(\1, ['00000000-0000-0000-0000-000000000000' /* ... */])",
+        query,
+    )
+
     # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
     query = re.sub(
         r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
@@ -279,6 +286,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
+
+    # remove version suffix from the restricted-property blob-strip UDF
+    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)

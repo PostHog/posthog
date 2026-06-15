@@ -3866,6 +3866,7 @@
                 "marketing_suggest_utm_mappings",
                 "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
+                "search_replay_vision_observations",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -17304,7 +17305,7 @@
                     "type": "string"
                 },
                 "pendingFingerprintIssueStateUpdates": {
-                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.",
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
                     },
@@ -17326,14 +17327,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "useQueryV2": {
-                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
-                    "type": "boolean"
-                },
-                "useQueryV3": {
-                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
-                    "type": "boolean"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -20487,6 +20480,12 @@
                 "SapSuccessFactors",
                 "OracleEbs",
                 "OracleFusion",
+                "AmazonSNS",
+                "AmazonEventBridge",
+                "AmazonSQS",
+                "AmazonKinesis",
+                "AmazonCloudWatch",
+                "OpenAIAds",
                 "Custom"
             ],
             "type": "string"
@@ -40595,6 +40594,12 @@
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
+                "allowGoBack": {
+                    "type": "boolean"
+                },
+                "backButtonText": {
+                    "type": "string"
+                },
                 "backgroundColor": {
                     "type": "string"
                 },
