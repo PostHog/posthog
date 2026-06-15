@@ -37,6 +37,11 @@ const sessionReplayOnboardingToggle = (
     }
 }
 
+export const webVitalsDescription = (team: TeamType | TeamPublicType | null): string =>
+    team?.autocapture_web_vitals_opt_in
+        ? `Already capturing Core Web Vitals via Google's web vitals library.`
+        : `Uses Google's web vitals library to automagically capture performance information.`
+
 const ProductAnalyticsConfigStep = ({ options }: { options: ProductConfigOption[] }): JSX.Element => {
     // mount newDashboardLogic for the entire onboarding flow — same intent as the legacy view
     useValues(newDashboardLogic)
@@ -89,7 +94,7 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
             },
             {
                 title: 'Enable web vitals autocapture',
-                description: `Uses Google's web vitals library to automagically capture performance information.`,
+                description: webVitalsDescription(ctx.currentTeam),
                 teamProperty: 'autocapture_web_vitals_opt_in',
                 value: ctx.currentTeam?.autocapture_web_vitals_opt_in ?? true,
                 type: 'toggle',
