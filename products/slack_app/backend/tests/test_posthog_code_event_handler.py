@@ -486,7 +486,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def test_command_text_routes_to_command_workflow(self, mock_sync_connect, mock_asyncio_run):
         # Command text in a mention must dispatch the command workflow, never the agent
         # mention workflow — even when a single coding-agent integration exists.
-        from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
+            PostHogCodeSlackMentionCommandWorkflow,
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -545,7 +547,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # the webhook hands it to the command workflow. The command workflow
         # itself drives the interactive repo picker (its own signal handlers and
         # wait_condition); the agent mention workflow is never involved.
-        from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
+            PostHogCodeSlackMentionCommandWorkflow,
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
