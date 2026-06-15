@@ -138,10 +138,13 @@ async def test_intermediate_failure_does_not_bump():
 def _counter_value(product: str, task_queue: str) -> float:
     from prometheus_client import REGISTRY
 
-    return REGISTRY.get_sample_value(
-        "posthog_rasterization_completed_total",
-        {"product": product, "task_queue": task_queue},
-    ) or 0.0
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_rasterization_completed_total",
+            {"product": product, "task_queue": task_queue},
+        )
+        or 0.0
+    )
 
 
 @pytest.mark.asyncio
