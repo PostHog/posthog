@@ -148,8 +148,8 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
         # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'llma-skill-get(skill_name="signals-scout-errors", version=1)' in prompt
-        assert "llma-skill-file-get" in prompt
+        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # Second bootstrap step orients the agent on the project via the
