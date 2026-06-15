@@ -43,11 +43,12 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(settings.project_rate_limit_bucket_size_minutes, 60)
 
     def test_update_settings_only_changes_provided_fields(self):
-        self.client.patch(
+        setup_response = self.client.patch(
             f"{self._base_url()}/update_settings/",
             {"project_rate_limit_value": 2000, "per_issue_rate_limit_value": 50},
             format="json",
         )
+        self.assertEqual(setup_response.status_code, status.HTTP_200_OK)
         response = self.client.patch(
             f"{self._base_url()}/update_settings/",
             {"per_issue_rate_limit_value": 75},
@@ -58,11 +59,12 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(response.json()["project_rate_limit_value"], 2000)
 
     def test_update_settings_clears_limit_with_null(self):
-        self.client.patch(
+        setup_response = self.client.patch(
             f"{self._base_url()}/update_settings/",
             {"project_rate_limit_value": 1000},
             format="json",
         )
+        self.assertEqual(setup_response.status_code, status.HTTP_200_OK)
         response = self.client.patch(
             f"{self._base_url()}/update_settings/",
             {"project_rate_limit_value": None},
