@@ -72,11 +72,13 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
         # must never route through another team's gateway and misattribute spend.
         if self.gateway_id is not None:
             try:
-                gateway_team_id = self.gateway.team_id
+                gateway = self.gateway
             except ObjectDoesNotExist:
+                gateway = None
+            if gateway is None:
                 raise ValueError(f"Gateway {self.gateway_id} does not exist.")
             key_canonical_team_id = self.team.parent_team_id or self.team_id
-            if gateway_team_id != key_canonical_team_id:
+            if gateway.team_id != key_canonical_team_id:
                 raise ValueError("A project secret key and its gateway must belong to the same team.")
         super().save(*args, **kwargs)
 
