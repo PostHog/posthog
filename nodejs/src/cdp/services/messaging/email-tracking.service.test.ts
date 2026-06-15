@@ -10,6 +10,7 @@ import { setupExpressApp } from '~/api/router'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
+import { defaultConfig } from '~/config/config'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -17,11 +18,13 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
 import { PIXEL_GIF, addTrackingToEmail, decodeHtmlEntitiesInHref } from './email-tracking.service'
-import { generateEmailTrackingCode } from './helpers/tracking-code'
+import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
     let team: Team
+
+    const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, defaultConfig.CDP_EMAIL_TRACKING_URL)
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -72,19 +75,19 @@ describe('EmailTrackingService', () => {
                 'https://example.com/path',
             ],
         ])('decodes %s in the redirect target', (_name, html, expected) => {
-            expect(extractTarget(addTrackingToEmail(html, invocation))).toBe(expected)
+            expect(extractTarget(addTrackingToEmail(html, invocation, signer))).toBe(expected)
         })
 
         it('skips literal javascript: hrefs', () => {
             const html = '<body><a href="javascript:alert(1)">x</a></body>'
-            const out = addTrackingToEmail(html, invocation)
+            const out = addTrackingToEmail(html, invocation, signer)
             expect(out).toContain('href="javascript:alert(1)"')
             expect(out).not.toContain('target=')
         })
 
         it('skips entity-encoded javascript: hrefs after decoding', () => {
             const html = '<body><a href="java&#x73;cript:alert(1)">x</a></body>'
-            const out = addTrackingToEmail(html, invocation)
+            const out = addTrackingToEmail(html, invocation, signer)
             expect(out).toContain('href="java&#x73;cript:alert(1)"')
             expect(out).not.toContain('target=')
         })
@@ -137,7 +140,7 @@ describe('EmailTrackingService', () => {
         // responses without recording metrics.
         describe('handleEmailTrackingRedirect', () => {
             it('should redirect to the target url without recording metrics', async () => {
-                const phId = generateEmailTrackingCode({
+                const phId = signer.generate({
                     functionId: hogFunction.id,
                     id: invocationId,
                     teamId: team.id,
@@ -151,7 +154,7 @@ describe('EmailTrackingService', () => {
             })
 
             it('should return 404 if the target is not provided', async () => {
-                const phId = generateEmailTrackingCode({
+                const phId = signer.generate({
                     functionId: hogFunction.id,
                     id: invocationId,
                     teamId: team.id,
@@ -163,7 +166,7 @@ describe('EmailTrackingService', () => {
 
         describe('email tracking pixel', () => {
             it('should return a gif image without recording metrics', async () => {
-                const phId = generateEmailTrackingCode({
+                const phId = signer.generate({
                     functionId: hogFunction.id,
                     id: invocationId,
                     teamId: team.id,

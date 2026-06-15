@@ -6,7 +6,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { TRACKING_CODE_HEADER_NAME, parseEmailTrackingCode, trackingCodeFormatCounter } from './tracking-code'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
 /**
  * ---------- SNS envelope types ----------
@@ -157,6 +157,8 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
+
+    constructor(private trackingCodeSigner: EmailTrackingCodeSigner) {}
 
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
@@ -388,7 +390,7 @@ export class SesWebhookHandler {
                 (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
             )?.value
             const tagValue = rec.mail.tags?.ph_id?.[0]
-            const parsedCode = parseEmailTrackingCode(headerValue ?? tagValue ?? '')
+            const parsedCode = this.trackingCodeSigner.parse(headerValue ?? tagValue ?? '')
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }

@@ -11,11 +11,7 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import {
-    TRACKING_CODE_HEADER_NAME,
-    generateEmailTrackingCode,
-    generateShortEmailTrackingCode,
-} from './helpers/tracking-code'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 export interface EmailServiceConfig {
@@ -56,7 +52,8 @@ export class EmailService {
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
         encryptionSaltKeys: string,
-        siteUrl: string
+        siteUrl: string,
+        private trackingCodeSigner: EmailTrackingCodeSigner
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -165,7 +162,9 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation) } : {}),
+            ...(params.html
+                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner) }
+                : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -195,16 +194,16 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const trackingCode = this.trackingCodeSigner.generate(result.invocation)
         // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
         // limit. The full signed code rides in the header below.
-        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
+        const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation),
+                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner),
                           params.preheader
                       ),
                       Charset: 'UTF-8',

@@ -10,6 +10,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { Hub, Team } from '../../../types'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 describe('sanitizeEmailSubject', () => {
     it.each([
@@ -81,7 +82,8 @@ describe('EmailService', () => {
             },
             hub.integrationManager,
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         mockFetch.mockClear()
     })
@@ -94,7 +96,8 @@ describe('EmailService', () => {
                 { sesAccessKeyId: '', sesSecretAccessKey: '', sesRegion: '', sesEndpoint: '' },
                 hub.integrationManager,
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 

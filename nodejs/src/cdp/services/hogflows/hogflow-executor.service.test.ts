@@ -17,6 +17,7 @@ import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { EmailService } from '../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
@@ -70,7 +71,8 @@ describe('Hogflow Executor', () => {
             },
             hub.integrationManager,
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorService(
@@ -1876,7 +1878,8 @@ describe('Hogflow Executor', () => {
                             },
                             hub.integrationManager,
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
@@ -2073,7 +2076,8 @@ describe('Hogflow Executor', () => {
                             },
                             hub.integrationManager,
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
@@ -2106,7 +2110,8 @@ describe('Hogflow Executor', () => {
                             },
                             hub.integrationManager,
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
