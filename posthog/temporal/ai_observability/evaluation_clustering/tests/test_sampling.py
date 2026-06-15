@@ -105,7 +105,6 @@ class TestSampleAndEmbedForJobActivity:
             team_id=mock_team.id,
             job_id="job-abc",
             job_name="Eval Clustering Job",
-            run_ts="2026-04-15T12:00:00Z",
             window_start="2026-04-15T10:30:00Z",
             window_end="2026-04-15T11:30:00Z",
             max_samples=250,
@@ -135,8 +134,8 @@ class TestSampleAndEmbedForJobActivity:
         assert result.team_id == mock_team.id
         assert result.job_id == "job-abc"
 
-        # Every call used the eval document type and the team-scoped rendering suffix
-        expected_rendering = f"{mock_team.id}_2026-04-15T12:00:00Z_job-abc"
+        # Every call used the eval document type and the low-cardinality job rendering
+        expected_rendering = "eval_job-abc"
         calls = mock_embedder.embed_document.call_args_list
         assert len(calls) == 3
         for call in calls:
@@ -162,7 +161,6 @@ class TestSampleAndEmbedForJobActivity:
             team_id=mock_team.id,
             job_id="job-abc",
             job_name="",
-            run_ts="2026-04-15T12:00:00Z",
             window_start="2026-04-15T10:30:00Z",
             window_end="2026-04-15T11:30:00Z",
             max_samples=250,
@@ -194,7 +192,6 @@ class TestSampleAndEmbedForJobActivity:
             team_id=mock_team.id,
             job_id="job-abc",
             job_name="",
-            run_ts="2026-04-15T12:00:00Z",
             window_start="2026-04-15T10:30:00Z",
             window_end="2026-04-15T11:30:00Z",
             max_samples=250,

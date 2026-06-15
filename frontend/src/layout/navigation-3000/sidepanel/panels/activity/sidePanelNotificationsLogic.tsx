@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import posthog, { JsonRecord } from 'posthog-js'
 
 import api from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { describerFor, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -262,10 +262,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     await breakpoint(1)
 
                     try {
-                        const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/my_notifications?` +
-                                toParams({ unread: onlyUnread })
-                        )
+                        const [response] = await Promise.all([
+                            api.get<ChangesResponse>(
+                                `api/projects/${values.currentProjectId}/my_notifications?` +
+                                    toParams({ unread: onlyUnread })
+                            ),
+                            ensureActivityDescribersLoaded(),
+                        ])
 
                         actions.clearErrorCount()
                         return response

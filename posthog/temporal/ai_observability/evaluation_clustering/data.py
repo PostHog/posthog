@@ -4,7 +4,7 @@ Two queries:
 
 - ``fetch_evaluation_embeddings`` — pulls accumulated eval embeddings for a job
   via ``endsWith(rendering, '_{job_id}')``, matching the Stage A rendering
-  convention ``{team_id}_{run_ts}_{job_id}``.
+  convention ``eval_{job_id}``.
 - ``fetch_evaluation_metadata`` — joins the sampled $ai_evaluation rows to their
   target $ai_generation (via $ai_target_event_id) to surface both
   eval-specific metadata (name/result/runtime/reasoning/judge_cost) and
@@ -90,10 +90,9 @@ def fetch_evaluation_embeddings(
 ) -> tuple[list[str], dict[str, list[float]]]:
     """Read up to max_samples eval embeddings accumulated by Stage A for this job.
 
-    Stage A writes a new row every hour tagged with
-    ``rendering = {team_id}_{run_ts}_{job_id}``; we match by suffix since only the
-    job id is stable across runs. Random-order sampling keeps the read size bounded
-    when a job has accumulated far more than ``max_samples`` over time.
+    Stage A tags rows with ``rendering = eval_{job_id}``; we match by suffix so rows
+    from the older ``{team_id}_{run_ts}_{job_id}`` format keep resolving. Random-order
+    sampling bounds the read when a job has accumulated more than ``max_samples``.
 
     ``window_start``/``window_end`` must align with the Stage B metadata lookup
     window — otherwise the random sample can return older eval ids that the
