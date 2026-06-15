@@ -57,7 +57,15 @@ export interface KeepaliveFrame {
 export interface PermissionOption {
     optionId: string
     name: string
-    kind: 'allow_once' | 'allow_always' | 'reject' | 'reject_with_feedback'
+    /**
+     * ACP option kind. Known values: `allow_once`, `allow_always`, `reject_once`, plus the legacy
+     * `reject` / `reject_with_feedback`. The vocabulary evolves with the agent adapter, so this stays
+     * a `string` — the card resolves the affordance by prefix (`allow*` approve, everything else
+     * decline), never by exact match. An exact-match allowlist silently dropped `reject_once`.
+     */
+    kind: string
+    /** `_meta.customInput === true` — the option accepts optional free-text feedback. */
+    customInput?: boolean
 }
 
 /** Top-level permission frame hoisted onto the stream by the relay. */
@@ -123,6 +131,18 @@ export interface SessionUpdateAgentMessage {
     text?: string
 }
 
+/**
+ * Streamed agent reasoning. Mirrors `agent_message_chunk` on the wire (a text `content` block,
+ * usually no `messageId`) but renders as a collapsible "Thought" rather than chat text. ACP emits
+ * no finalize counterpart — a thought is done once a later block (message or tool call) starts.
+ */
+export interface SessionUpdateAgentThoughtChunk {
+    sessionUpdate: 'agent_thought_chunk'
+    messageId?: string
+    content?: SessionUpdateText
+    text?: string
+}
+
 export interface SessionUpdateToolCall {
     sessionUpdate: 'tool_call'
     toolCallId?: string
@@ -168,6 +188,7 @@ export interface SessionUpdateCurrentMode {
 export type SessionUpdateBody =
     | SessionUpdateAgentMessageChunk
     | SessionUpdateAgentMessage
+    | SessionUpdateAgentThoughtChunk
     | SessionUpdateToolCall
     | SessionUpdateToolCallUpdate
     | SessionUpdateCurrentMode
@@ -186,6 +207,7 @@ export function isSessionUpdateNotification(
 const KNOWN_SESSION_UPDATES: ReadonlySet<string> = new Set([
     'agent_message_chunk',
     'agent_message',
+    'agent_thought_chunk',
     'tool_call',
     'tool_call_update',
     'current_mode_update',

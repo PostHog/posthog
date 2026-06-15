@@ -11,13 +11,11 @@ import {
     MultiQuestionFormQuestion,
 } from '~/queries/schema/schema-assistant-messages'
 
-import { mapPermissionOptions } from '../approvalOperationUtils'
 import { MarkdownMessage } from '../MarkdownMessage'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { sandboxStreamLogic } from '../sandboxStreamLogic'
-import type { PermissionRequestRecord } from '../types/sandboxStreamTypes'
 import { Option, OptionSelector } from './OptionSelector'
 import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
+import { SandboxPermissionInput } from './SandboxPermissionInput'
 
 function isQuestionComplete(
     q: MultiQuestionFormQuestion,
@@ -400,90 +398,6 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
                           ? 'Sending response...'
                           : 'Rejecting...'
                 }
-            />
-        </div>
-    )
-}
-
-interface SandboxPermissionInputProps {
-    conversationId: string
-    request: PermissionRequestRecord
-}
-
-/**
- * Input-area renderer for an ACP `permission_request` on a sandbox conversation.
- * `mapPermissionOptions` owns the kind → affordance mapping: one button per option,
- * `reject_with_feedback` rides the OptionSelector custom input, and `allow_always` stays hidden
- * until a tool preview opts into rememberable decisions. Submitting POSTs through
- * `sandboxStreamLogic.respondToPermission`; the logic's `respondingToPermission` drives the
- * loading/double-submit guard and re-enables the buttons when the POST fails (the pending
- * request only clears on success).
- */
-export function SandboxPermissionInput({ conversationId, request }: SandboxPermissionInputProps): JSX.Element {
-    const boundLogic = sandboxStreamLogic({ conversationId })
-    const { respondToPermission } = useActions(boundLogic)
-    const { respondingToPermission, currentMode } = useValues(boundLogic)
-
-    // A request whose every option was filtered out (e.g. only `allow_always` without a
-    // rememberable preview) must still be answerable — fall back to showing everything.
-    const defaultOptions = mapPermissionOptions(request.options)
-    const mappedOptions = defaultOptions.length > 0 ? defaultOptions : mapPermissionOptions(request.options, true)
-    const feedbackOption = mappedOptions.find((o) => o.requiresFeedback)
-    const buttonOptions = mappedOptions.filter((o) => !o.requiresFeedback)
-
-    const options: Option[] = buttonOptions.map((o) => ({
-        label: o.label,
-        value: o.optionId,
-        icon: o.decision === 'approved' ? <IconCheck /> : <IconX />,
-    }))
-
-    // Plan approvals are raised while the agent is in plan mode — the mode is the grounded
-    // signal; `toolCall.kind === 'plan'` covers adapters that tag the request directly.
-    const isPlan = currentMode === 'plan' || request.rawToolCall.kind === 'plan'
-
-    const handleSelect = (value: string | null): void => {
-        if (!value || respondingToPermission) {
-            return
-        }
-        respondToPermission({ conversationId, requestId: request.requestId, optionId: value })
-    }
-
-    const handleCustomSubmit = (customInput: string): void => {
-        if (!feedbackOption || respondingToPermission) {
-            return
-        }
-        respondToPermission({
-            conversationId,
-            requestId: request.requestId,
-            optionId: feedbackOption.optionId,
-            customInput,
-        })
-    }
-
-    return (
-        <div className="flex flex-col gap-2 p-3">
-            <div className="flex items-center gap-2 text-sm">
-                <IconWarning className="text-warning size-4" />
-                <span className="font-medium">{isPlan ? 'Approve this plan?' : 'Approval required'}</span>
-            </div>
-            {(request.title || request.description) && (
-                <div className="max-h-60 overflow-y-auto">
-                    <MarkdownMessage
-                        content={request.description ?? request.title ?? ''}
-                        id={`permission-${request.requestId}`}
-                    />
-                </div>
-            )}
-            <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
-            <OptionSelector
-                options={options}
-                onSelect={handleSelect}
-                allowCustom={!!feedbackOption}
-                customPlaceholder="Explain what you'd like instead..."
-                onCustomSubmit={handleCustomSubmit}
-                loading={respondingToPermission}
-                loadingMessage="Sending response..."
-                submitLabel="Send"
             />
         </div>
     )

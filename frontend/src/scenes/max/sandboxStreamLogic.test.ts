@@ -7,7 +7,6 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { mapPermissionOption, mapPermissionOptions } from './approvalOperationUtils'
 import {
     mapHttpStatusToStreamError,
     MAX_SSE_RECONNECT_ATTEMPTS,
@@ -17,7 +16,7 @@ import {
     sandboxStreamLogic,
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './sandboxStreamLogic'
-import type { PermissionOption, PermissionRequestFrame, StoredLogEntry } from './types/sandboxWireTypes'
+import type { PermissionRequestFrame, StoredLogEntry } from './types/sandboxWireTypes'
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
     return { type: 'notification', notification: { method, params } }
@@ -282,6 +281,71 @@ describe('sandboxStreamLogic', () => {
             expect(assistantItems[1].text).toEqual('More')
             expect(assistantItems[1].complete).toEqual(false)
             expect(assistantItems[0].id).not.toEqual(assistantItems[1].id)
+        })
+    })
+
+    describe('agent thought buffering', () => {
+        it('folds consecutive thought chunks into one assistant_thought item', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text: 'Let me ' } }),
+                sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text: 'think.' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const thoughtItems = logic.values.threadItems.filter((item) => item.type === 'assistant_thought')
+            expect(thoughtItems).toHaveLength(1)
+            expect(thoughtItems[0].text).toEqual('Let me think.')
+        })
+
+        it('keeps thoughts, messages, and tool calls as separate items in wire order', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text: 'Checking the data' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Let me look.' } }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    rawInput: { command: 'tools' },
+                    status: 'in_progress',
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text: 'Now I know.' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => item.type)).toEqual([
+                'assistant_thought',
+                'assistant_message',
+                'tool_invocation',
+                'assistant_thought',
+            ])
+            const thoughtItems = logic.values.threadItems.filter((item) => item.type === 'assistant_thought')
+            expect(thoughtItems[0].text).toEqual('Checking the data')
+            expect(thoughtItems[1].text).toEqual('Now I know.')
+            expect(thoughtItems[0].id).not.toEqual(thoughtItems[1].id)
+        })
+
+        it('does not collide thought and message buffers that share the fallback id', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text: 'Thinking' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Answer' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const thought = logic.values.threadItems.find((item) => item.type === 'assistant_thought')
+            const message = logic.values.threadItems.find((item) => item.type === 'assistant_message')
+            expect(thought?.text).toEqual('Thinking')
+            expect(message?.text).toEqual('Answer')
+            expect(thought?.id).not.toEqual(message?.id)
         })
     })
 
@@ -976,6 +1040,8 @@ describe('sandboxStreamLogic', () => {
     })
 
     describe('permission_request ingest', () => {
+        // A destructive exec (`insight-update`) so the default policy prompts (shows a card) rather
+        // than auto-approving — the lifecycle tests below all assume a card appears.
         const permissionFrame: PermissionRequestFrame = {
             type: 'permission_request',
             requestId: 'req-1',
@@ -983,8 +1049,9 @@ describe('sandboxStreamLogic', () => {
                 toolCallId: 't1',
                 serverName: 'posthog',
                 toolName: 'exec',
-                rawInput: { command: 'call insight-create {"name":"Signups"}' },
-                title: 'Create insight',
+                _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                rawInput: { command: 'call insight-update {"id":"abc"}' },
+                title: 'Update insight',
                 status: 'pending',
             },
             options: [
@@ -998,13 +1065,37 @@ describe('sandboxStreamLogic', () => {
             expect(record).not.toBeNull()
             expect(record?.requestId).toEqual('req-1')
             expect(record?.toolCallId).toEqual('t1')
+            expect(record?.toolName).toEqual('mcp__posthog__exec')
             expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'reject'])
-            expect(record?.rawToolCall.resolvedKey).toEqual('insight-create')
+            expect(record?.rawToolCall.resolvedKey).toEqual('insight-update')
         })
 
         it('returns null for a frame with no usable options', () => {
             expect(parsePermissionRequestFrame({ ...permissionFrame, options: [] })).toBeNull()
             expect(parsePermissionRequestFrame({ type: 'permission_request', requestId: 'r', toolCall: {} })).toBeNull()
+        })
+
+        it('keeps a reject_once option and parses _meta.customInput (the previously-dropped decline)', () => {
+            // Exact shape the agent adapter emits (see ee/hogai/sandbox/log.jsonl): the decline option
+            // is `reject_once` carrying `_meta.customInput`, which the old exact-match allowlist dropped.
+            const frame = {
+                type: 'permission_request',
+                requestId: 'req-2',
+                toolCall: { toolCallId: 't2', title: 'exec' },
+                options: [
+                    { optionId: 'allow', name: 'Yes', kind: 'allow_once' },
+                    { optionId: 'allow_always', name: 'Yes, always allow', kind: 'allow_always' },
+                    {
+                        optionId: 'reject',
+                        name: 'No, and tell the agent what to do differently',
+                        kind: 'reject_once',
+                        _meta: { customInput: true },
+                    },
+                ],
+            }
+            const record = parsePermissionRequestFrame(frame as unknown as PermissionRequestFrame)
+            expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'allow_always', 'reject_once'])
+            expect(record?.options.find((o) => o.kind === 'reject_once')?.customInput).toEqual(true)
         })
 
         it('populates pendingPermissionRequest off a permission_request SSE frame', async () => {
@@ -1022,6 +1113,80 @@ describe('sandboxStreamLogic', () => {
                 'permission_requested',
                 expect.objectContaining({ request_id: 'req-1', execution_type: 'sandbox' })
             )
+        })
+
+        it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
+            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+
+            await expectLogic(logic, () => {
+                source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-auto',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        rawInput: { command: 'call insight-create {"name":"x"}' },
+                    },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+            expect(permissionSpy).toHaveBeenCalledWith(
+                'test-conversation',
+                expect.objectContaining({ requestId: 'req-auto', optionId: 'allow_once' })
+            )
+            expect(captureSpy).toHaveBeenCalledWith(
+                'permission_auto_approved',
+                expect.objectContaining({ request_id: 'req-auto', execution_type: 'sandbox' })
+            )
+        })
+
+        it('auto-approves a built-in tool without showing a card', async () => {
+            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+
+            await expectLogic(logic, () => {
+                source.emitMessage({
+                    type: 'permission_request',
+                    requestId: 'req-bash',
+                    toolCall: {
+                        toolCallId: 't-bash',
+                        _meta: { claudeCode: { toolName: 'Bash' } },
+                        title: 'Bash',
+                        rawInput: { command: 'ls -la' },
+                    },
+                    options: [{ optionId: 'allow', name: 'Yes', kind: 'allow_once' }],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+            expect(permissionSpy).toHaveBeenCalledWith(
+                'test-conversation',
+                expect.objectContaining({ requestId: 'req-bash', optionId: 'allow' })
+            )
+        })
+
+        it('falls back to a manual card when the auto-approve POST fails', async () => {
+            jest.spyOn(api.conversations, 'permission').mockRejectedValue({ status: 502 })
+            jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockEventSource.latest()
+
+            await expectLogic(logic, () => {
+                source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-fail',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        rawInput: { command: 'call insight-create {"name":"x"}' },
+                    },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-fail')
         })
 
         it('clears the pending request and POSTs the reply on respondToPermission', async () => {
@@ -1163,37 +1328,6 @@ describe('sandboxStreamLogic', () => {
 
             logic.actions.handleTerminalStatus({ status: 'completed' })
             expect(logic.values.pendingPermissionRequest).toBeNull()
-        })
-    })
-
-    describe('option-kind mapping', () => {
-        it('maps each ACP option kind onto the card model', () => {
-            expect(mapPermissionOption({ optionId: 'a', name: '', kind: 'allow_once' })).toMatchObject({
-                decision: 'approved',
-                primary: true,
-                requiresFeedback: false,
-            })
-            expect(mapPermissionOption({ optionId: 'b', name: '', kind: 'reject' })).toMatchObject({
-                decision: 'declined',
-                primary: false,
-            })
-            expect(mapPermissionOption({ optionId: 'c', name: '', kind: 'reject_with_feedback' })).toMatchObject({
-                decision: 'declined',
-                requiresFeedback: true,
-            })
-            expect(mapPermissionOption({ optionId: 'd', name: '', kind: 'allow_always' })).toMatchObject({
-                decision: 'approved',
-                remembered: true,
-            })
-        })
-
-        it('hides allow_always unless the tool preview opts into remembering', () => {
-            const options: PermissionOption[] = [
-                { optionId: 'a', name: '', kind: 'allow_once' },
-                { optionId: 'd', name: '', kind: 'allow_always' },
-            ]
-            expect(mapPermissionOptions(options).map((o) => o.optionId)).toEqual(['a'])
-            expect(mapPermissionOptions(options, true).map((o) => o.optionId)).toEqual(['a', 'd'])
         })
     })
 })

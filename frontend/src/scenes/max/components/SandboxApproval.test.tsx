@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
 import type { PermissionRequestRecord, ToolInvocation } from '../types/sandboxStreamTypes'
-import { SandboxModeBadge, SandboxPermissionInput } from './InputFormArea'
+import { SandboxModeBadge } from './InputFormArea'
+import { SandboxPermissionInput } from './SandboxPermissionInput'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
@@ -44,6 +45,7 @@ function makeRequest(overrides: Partial<PermissionRequestRecord> = {}): Permissi
     return {
         requestId: 'req-1',
         toolCallId: 'tc-1',
+        toolName: 'mcp__posthog__exec',
         title: 'Create insight',
         description: 'The agent wants to create an insight.',
         options: [
@@ -70,14 +72,14 @@ describe('Sandbox approval input area', () => {
     })
 
     describe('SandboxPermissionInput', () => {
-        it('renders one button per non-feedback option plus the feedback custom input', () => {
+        it('renders one button per non-feedback option plus the feedback toggle', () => {
             render(<SandboxPermissionInput conversationId="conv-1" request={makeRequest()} />)
 
             expect(screen.getByText('Approval required')).toBeInTheDocument()
             expect(screen.getByText('Approve')).toBeInTheDocument()
             expect(screen.getByText('Decline')).toBeInTheDocument()
-            // reject_with_feedback rides the OptionSelector custom input, not a plain button.
-            expect(screen.getByText("Explain what you'd like instead..")).toBeInTheDocument()
+            // reject_with_feedback is feedback-only: it's the toggle that opens the text field, not a plain button.
+            expect(screen.getByText('Decline with feedback')).toBeInTheDocument()
         })
 
         it('posts the chosen optionId on click', () => {
@@ -108,8 +110,8 @@ describe('Sandbox approval input area', () => {
         it('sends feedback text through the reject_with_feedback option', () => {
             render(<SandboxPermissionInput conversationId="conv-1" request={makeRequest()} />)
 
-            // Open the custom feedback input.
-            fireEvent.click(screen.getByText("Explain what you'd like instead.."))
+            // Open the feedback text field via the feedback-only decline toggle.
+            fireEvent.click(screen.getByText('Decline with feedback'))
             const input = screen.getByPlaceholderText("Explain what you'd like instead...")
             fireEvent.change(input, { target: { value: 'Use a funnel instead' } })
             fireEvent.click(screen.getByRole('button', { name: 'Send' }))
@@ -119,6 +121,25 @@ describe('Sandbox approval input area', () => {
                 requestId: 'req-1',
                 optionId: 'opt-feedback',
                 customInput: 'Use a funnel instead',
+            })
+        })
+
+        it('renders reject_once as a one-click decline with no feedback toggle', () => {
+            const request = makeRequest({
+                options: [
+                    { optionId: 'opt-allow', name: 'Yes', kind: 'allow_once' },
+                    { optionId: 'opt-reject', name: 'No', kind: 'reject_once', customInput: true },
+                ],
+            })
+            render(<SandboxPermissionInput conversationId="conv-1" request={request} />)
+
+            // No optional-feedback affordance — the decline is a plain one-click button.
+            expect(screen.queryByText('Add feedback…')).not.toBeInTheDocument()
+            fireEvent.click(screen.getByText('No'))
+            expect(respondToPermission).toHaveBeenCalledWith({
+                conversationId: 'conv-1',
+                requestId: 'req-1',
+                optionId: 'opt-reject',
             })
         })
 

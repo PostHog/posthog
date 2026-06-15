@@ -6,9 +6,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
+import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
 import type {
     PermissionRequestRecord,
     ThreadItem,
+    ThreadItemType,
     ToolInvocation,
     ToolInvocationStatus,
 } from './types/sandboxStreamTypes'
@@ -147,14 +149,15 @@ export function resolveToolKey(serverName: string, toolName: string, input: Reco
 }
 
 /**
- * Finds the last assistant-message buffer for a wire message id, also matching the derived
- * `${id}@<n>` ids minted when the wire omits `messageId` and every message shares the fallback id.
+ * Finds the last buffer of `type` for a wire message id, also matching the derived `${id}@<n>` ids
+ * minted when the wire omits `messageId` and every chunk shares the fallback id. Shared by the
+ * assistant-message and agent-thought streams, which both buffer incremental chunks this way.
  */
-function findLastAssistantMessageIndex(state: ThreadItem[], id: string, incompleteOnly: boolean): number {
+function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemType, incompleteOnly: boolean): number {
     for (let i = state.length - 1; i >= 0; i--) {
         const item = state[i]
         if (
-            item.type === 'assistant_message' &&
+            item.type === type &&
             (item.id === id || item.id.startsWith(`${id}@`)) &&
             (!incompleteOnly || !item.complete)
         ) {
@@ -177,13 +180,6 @@ function mapAcpStatus(status: unknown): ToolInvocationStatus {
     }
 }
 
-const PERMISSION_OPTION_KINDS: ReadonlySet<string> = new Set([
-    'allow_once',
-    'allow_always',
-    'reject',
-    'reject_with_feedback',
-])
-
 function parsePermissionOption(raw: unknown): PermissionOption | null {
     if (typeof raw !== 'object' || raw === null) {
         return null
@@ -191,13 +187,22 @@ function parsePermissionOption(raw: unknown): PermissionOption | null {
     const r = raw as Record<string, unknown>
     const optionId = r.optionId
     const kind = String(r.kind ?? '')
-    if (typeof optionId !== 'string' || !PERMISSION_OPTION_KINDS.has(kind)) {
+    // Require only the two fields the card acts on: the `optionId` forwarded on the reply and a
+    // non-empty `kind` to classify. The kind vocabulary tracks the agent adapter (`reject` became
+    // `reject_once`, etc.), so accept any non-empty kind and let the prefix-based mapper resolve the
+    // affordance — an exact-match allowlist silently dropped unknown kinds and blanked the prompt
+    // whenever none survived.
+    if (typeof optionId !== 'string' || !kind) {
         return null
     }
+    const meta = r._meta
+    const customInput =
+        typeof meta === 'object' && meta !== null && (meta as Record<string, unknown>).customInput === true
     return {
         optionId,
         name: String(r.name ?? ''),
-        kind: kind as PermissionOption['kind'],
+        kind,
+        customInput,
     }
 }
 
@@ -234,9 +239,17 @@ export function parsePermissionRequestFrame(
     const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
     const { resolvedKey, innerToolName, innerInput } = resolveToolKey(rawServerName, rawToolName, input)
 
+    // Canonical ACP tool name (e.g. `mcp__posthog__exec`, or a built-in like `Bash`). The wire puts
+    // it on `_meta.claudeCode.toolName`; the bare fields are the fallback. The default permission
+    // policy classifies off this — `mcp__`-prefixed vs built-in, plus the exec sub-tool.
+    const meta = (toolCall._meta ?? {}) as Record<string, unknown>
+    const claudeCode = (meta.claudeCode ?? {}) as Record<string, unknown>
+    const toolName = String(claudeCode.toolName ?? toolCall.toolName ?? rawToolName)
+
     return {
         requestId,
         toolCallId,
+        toolName,
         options,
         title: toolCall.title as string | undefined,
         description: toolCall.description as string | undefined,
@@ -306,6 +319,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             replayedFromHistory,
         }),
         /**
+         * Entry point for every parsed permission request. Applies the default tool policy
+         * (`sandboxToolPolicy`): auto-approve built-in tools + non-destructive PostHog exec, prompt
+         * for update/delete exec (and other MCP). Replayed-from-history requests are never
+         * auto-approved — they're a read-only restore and the run may already be terminal.
+         */
+        routePermissionRequest: (record: PermissionRequestRecord, replayedFromHistory: boolean = false) => ({
+            record,
+            replayedFromHistory,
+        }),
+        /** Silently POST `allow` for a request the default policy auto-approves (no card shown). */
+        autoApprovePermissionRequest: (record: PermissionRequestRecord, optionId: string) => ({ record, optionId }),
+        /** Pin a requestId as seen without surfacing a card, so a reconnect replay can't re-process it. */
+        markPermissionRequestSeen: (requestId: string) => ({ requestId }),
+        /**
          * The request was answered — by this client (successful POST), another tab/client, or a
          * `_posthog/permission_resolved` log entry. Clears the matching card and pins the id so
          * reconnect/bootstrap replays cannot re-surface it.
@@ -338,6 +365,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         // Internal state-folding actions emitted by ingestAcpFrame.
         appendAssistantChunk: (id: string, delta: string) => ({ id, delta }),
         finalizeAssistantMessage: (id: string, text: string) => ({ id, text }),
+        /** Appends a streamed reasoning chunk to the trailing thought buffer (or opens a new one). */
+        appendThoughtChunk: (id: string, delta: string) => ({ id, delta }),
         upsertToolInvocation: (invocation: ToolInvocation) => ({ invocation }),
         updateToolInvocation: (toolCallId: string, patch: Partial<ToolInvocation>) => ({ toolCallId, patch }),
         setCurrentMode: (mode: string) => ({ mode }),
@@ -430,7 +459,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             [] as ThreadItem[],
             {
                 appendAssistantChunk: (state, { id, delta }) => {
-                    const idx = findLastAssistantMessageIndex(state, id, false)
+                    const idx = findLastBufferIndex(state, id, 'assistant_message', false)
                     if (idx === -1) {
                         return [...state, { id, type: 'assistant_message', text: delta, complete: false }]
                     }
@@ -450,12 +479,31 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     return next
                 },
                 finalizeAssistantMessage: (state, { id, text }) => {
-                    const idx = findLastAssistantMessageIndex(state, id, true)
+                    const idx = findLastBufferIndex(state, id, 'assistant_message', true)
                     if (idx === -1) {
                         return [...state, { id, type: 'assistant_message', text, complete: true }]
                     }
                     const next = [...state]
                     next[idx] = { ...next[idx], text, complete: true }
+                    return next
+                },
+                appendThoughtChunk: (state, { id, delta }) => {
+                    const idx = findLastBufferIndex(state, id, 'assistant_thought', false)
+                    if (idx === -1) {
+                        return [...state, { id, type: 'assistant_thought', text: delta, complete: false }]
+                    }
+                    // Same tail rule as assistant chunks: keep buffering only while the thought is
+                    // still the thread tail. Once a message or tool call lands after it, a fresh
+                    // chunk opens a new bubble so reasoning renders in chronological order. The wire
+                    // omits messageId, so every thought shares the fallback id — uniquify the bubble.
+                    if (state[idx].complete || idx !== state.length - 1) {
+                        return [
+                            ...state,
+                            { id: `${id}@${state.length}`, type: 'assistant_thought', text: delta, complete: false },
+                        ]
+                    }
+                    const next = [...state]
+                    next[idx] = { ...next[idx], text: (next[idx].text ?? '') + delta }
                     return next
                 },
                 upsertToolInvocation: (state, { invocation }) => {
@@ -505,6 +553,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 ingestPermissionRequest: (state, { record }) => {
                     const next = new Set(state)
                     next.add(record.requestId)
+                    return next
+                },
+                markPermissionRequestSeen: (state, { requestId }) => {
+                    const next = new Set(state)
+                    next.add(requestId)
                     return next
                 },
                 reset: () => new Set<string>(),
@@ -669,7 +722,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                                 !values.seenPermissionRequestIds.has(record.requestId) &&
                                 !values.resolvedPermissionRequestIds.has(record.requestId)
                             ) {
-                                actions.ingestPermissionRequest(record)
+                                actions.routePermissionRequest(record)
                             }
                         } else if (isTaskRunStateFrame(data)) {
                             actions.handleTerminalStatus({
@@ -755,6 +808,45 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 'reconnect-backoff',
                 { pauseOnPageHidden: false }
             )
+        },
+        routePermissionRequest: ({ record, replayedFromHistory }) => {
+            // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
+            if (!replayedFromHistory && defaultPermissionDecision(record) === 'auto_allow') {
+                const optionId = findAllowOptionId(record)
+                if (optionId) {
+                    actions.autoApprovePermissionRequest(record, optionId)
+                    return
+                }
+            }
+            actions.ingestPermissionRequest(record, replayedFromHistory)
+        },
+        autoApprovePermissionRequest: async ({ record, optionId }) => {
+            // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
+            actions.markPermissionRequestSeen(record.requestId)
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            posthog.capture('permission_auto_approved', {
+                conversation_id: props.conversationId,
+                trace_id: values.traceId,
+                request_id: record.requestId,
+                tool_call_name: record.rawToolCall.resolvedKey,
+                tool_call_id: record.toolCallId,
+                run_id: activeRun?.runId,
+                task_id: activeRun?.taskId,
+                execution_type: 'sandbox',
+            })
+            try {
+                await api.conversations.permission(props.conversationId, {
+                    requestId: record.requestId,
+                    optionId,
+                    traceId: values.traceId ?? undefined,
+                })
+                actions.markPermissionRequestResolved(record.requestId)
+            } catch (error) {
+                // The auto-approve POST failed — don't leave the agent silently blocked. Fall back to
+                // the manual card so the user can respond.
+                posthog.captureException(error)
+                actions.ingestPermissionRequest(record)
+            }
         },
         ingestPermissionRequest: ({ record, replayedFromHistory }) => {
             if (replayedFromHistory) {
@@ -900,7 +992,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     !values.seenPermissionRequestIds.has(record.requestId) &&
                     !values.resolvedPermissionRequestIds.has(record.requestId)
                 ) {
-                    actions.ingestPermissionRequest(record, cache.bootstrapReplay === true)
+                    actions.routePermissionRequest(record, cache.bootstrapReplay === true)
                 }
                 return
             }
@@ -934,6 +1026,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 case 'agent_message': {
                     const id = String(update.messageId ?? 'current')
                     actions.finalizeAssistantMessage(id, String(update.content?.text ?? update.text ?? ''))
+                    break
+                }
+                case 'agent_thought_chunk': {
+                    // No messageId on the wire — all thought chunks share a fallback id distinct
+                    // from the assistant-message fallback so the two buffers never collide on a key.
+                    const id = String(update.messageId ?? 'current-thought')
+                    actions.appendThoughtChunk(id, String(update.content?.text ?? update.text ?? ''))
                     break
                 }
                 case 'tool_call': {

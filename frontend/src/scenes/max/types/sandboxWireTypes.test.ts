@@ -132,6 +132,13 @@ const SESSION_UPDATE_CASES: { kind: string; update: Record<string, unknown> }[] 
     },
     { kind: 'agent_message_chunk', update: { sessionUpdate: 'agent_message_chunk', text: ' now.' } },
     {
+        kind: 'agent_thought_chunk',
+        update: {
+            sessionUpdate: 'agent_thought_chunk',
+            content: { type: 'text', text: 'Let me reason about the funnel drop-off' },
+        },
+    },
+    {
         kind: 'agent_message',
         update: {
             sessionUpdate: 'agent_message',

@@ -156,7 +156,7 @@ function SandboxThread(): JSX.Element {
 
     return (
         <>
-            {threadItems.map((item) => {
+            {threadItems.map((item, index) => {
                 if (item.type === 'human_message') {
                     return (
                         <MessageTemplate key={item.id} type="human">
@@ -169,6 +169,25 @@ function SandboxThread(): JSX.Element {
                         <MessageTemplate key={item.id} type="ai">
                             <MarkdownMessage content={item.text ?? ''} id={item.id} />
                         </MessageTemplate>
+                    )
+                }
+                if (item.type === 'assistant_thought') {
+                    // Empty chunks prime the stream before any reasoning text arrives — skip them so
+                    // a contentless "Thought" never shows; the bottom indicator covers that gap.
+                    if (!item.text?.trim()) {
+                        return null
+                    }
+                    // Collapse to "Thought" once a later block starts or the run stops thinking —
+                    // mirrors the LangGraph thread's reasoning-complete rule.
+                    const completed = index !== threadItems.length - 1 || !isThinking
+                    return (
+                        <ReasoningAnswer
+                            key={item.id}
+                            content={item.text}
+                            id={item.id}
+                            completed={completed}
+                            showCompletionIcon={false}
+                        />
                     )
                 }
                 if (item.type === 'tool_invocation' && item.toolCallId) {

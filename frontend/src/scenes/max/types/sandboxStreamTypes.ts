@@ -47,17 +47,24 @@ export interface ToolInvocation {
     contentBlocks: unknown[]
 }
 
-export type ThreadItemType = 'human_message' | 'assistant_message' | 'tool_invocation' | 'turn_separator' | 'error'
+export type ThreadItemType =
+    | 'human_message'
+    | 'assistant_message'
+    | 'assistant_thought'
+    | 'tool_invocation'
+    | 'turn_separator'
+    | 'error'
 
 /**
- * An ordered, append-only entry the renderer consumes. Human messages, text chunks,
- * tool-invocation references, run-lifecycle markers, and inline errors all flow through this list.
+ * An ordered, append-only entry the renderer consumes. Human messages, text chunks, streamed
+ * reasoning ("thoughts"), tool-invocation references, run-lifecycle markers, and inline errors all
+ * flow through this list.
  */
 export interface ThreadItem {
     /** Stable id — message buffer id, tool call id, or a generated separator/error id. */
     id: string
     type: ThreadItemType
-    /** For `human_message` and `assistant_message` items. */
+    /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean
@@ -68,12 +75,14 @@ export interface ThreadItem {
 }
 
 /**
- * A pending ACP `permission_request` surfaced by the products/tasks stream, to be bound to
- * `DangerousOperationApprovalCard` by the approval flow.
+ * A pending ACP `permission_request` surfaced by the products/tasks stream, rendered by
+ * `SandboxPermissionInput` in the input area.
  */
 export interface PermissionRequestRecord {
     requestId: string
     toolCallId: string
+    /** Canonical ACP tool name (`mcp__posthog__exec`, or a built-in like `Bash`) — drives the default permission policy. */
+    toolName: string
     options: PermissionOption[]
     title?: string
     description?: string
