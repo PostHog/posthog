@@ -1959,7 +1959,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                 ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
                 if ctx.hidden_from_suggestions:
-                    level = UserPermissions(cast(User, request.user)).team(team).effective_membership_level
+                    level = self.user_permissions.team(team).effective_membership_level
                     if level is not None and level >= OrganizationMembership.Level.ADMIN:
                         ctx.hidden_from_suggestions = False
                         ctx.save(update_fields=["hidden_from_suggestions"])
@@ -1976,7 +1976,14 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                         request=request,
                     )
 
-            return response.Response({"id": default_ctx.id, "name": ctx.name, "created": created})
+            return response.Response(
+                {
+                    "id": default_ctx.id,
+                    "name": ctx.name,
+                    "created": created,
+                    "hidden_from_suggestions": ctx.hidden_from_suggestions,
+                }
+            )
 
         else:  # DELETE
             context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")

@@ -36,7 +36,9 @@ describe('defaultEvaluationContextsLogic', () => {
                         mockResponse.available_contexts.push(contextName)
                         mockResponse.available_contexts.sort()
                     }
-                    return [200, { ...newContext, created: true }]
+                    // Adding a default unhides the name server-side (admin path).
+                    mockResponse.hidden_contexts = mockResponse.hidden_contexts.filter((c) => c !== contextName)
+                    return [200, { ...newContext, created: true, hidden_from_suggestions: false }]
                 },
                 '/api/environments/:team_id/evaluation_context_suggestions/': async (req) => {
                     const body = await req.json()
@@ -211,6 +213,21 @@ describe('defaultEvaluationContextsLogic', () => {
             }).toMatchValues({
                 newContextInput: '',
             })
+        })
+
+        it('should drop a hidden name from hiddenContexts when added as a default', async () => {
+            mockResponse.hidden_contexts = ['production']
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.addContext('production')
+            })
+                .toDispatchActions(['addContext', 'addContextSuccess'])
+                .toMatchValues({
+                    availableContexts: ['production'],
+                    hiddenContexts: [],
+                })
         })
     })
 

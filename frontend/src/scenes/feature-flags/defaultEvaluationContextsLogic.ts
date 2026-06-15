@@ -96,6 +96,13 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                             return null
                         }
 
+                        // The server unhides the name when an admin adds it as a default, so drop it
+                        // from hidden_contexts to avoid showing it under both "Suggested" and "Hidden".
+                        const hiddenContexts =
+                            response.hidden_from_suggestions === false
+                                ? currentData.hidden_contexts.filter((name) => name !== response.name)
+                                : currentData.hidden_contexts
+
                         if (response.created) {
                             return {
                                 ...currentData,
@@ -104,10 +111,14 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                                     { id: response.id, name: response.name },
                                 ],
                                 available_contexts: [...currentData.available_contexts, response.name].sort(),
+                                hidden_contexts: hiddenContexts,
                             }
                         }
 
-                        return currentData
+                        return {
+                            ...currentData,
+                            hidden_contexts: hiddenContexts,
+                        }
                     } catch (error: any) {
                         lemonToast.error(error.error || error.detail || 'Failed to add context')
                         throw error
