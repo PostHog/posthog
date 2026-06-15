@@ -51,7 +51,11 @@ jobs:
               with:
                   image-name: posthog
                   ecr-image-name: posthog-cloud
-                  push-to-dockerhub: 'true'
+                  # Public registries (DockerHub + ghcr) hold the OSS image; prod deploys
+                  # from the private ECR `posthog-cloud`. Pause the public push when
+                  # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
+                  push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
