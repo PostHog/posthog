@@ -12,10 +12,9 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult
 from products.alerts.backend.evaluation.contract import ExtractionResult
 
 # Aggregated (any-row) breach lists are capped so a wide violation doesn't flood the notification.
+# The persisted structured detail uses the same cap — there's no value seeing more rows than the
+# customer was notified about, since investigation starts from what they saw.
 MAX_BREACH_MESSAGES = 5
-# More structured breach detail is persisted to AlertCheck.triggered_metadata for debugging — a
-# higher cap than the notification, since the check record is the only durable source of truth.
-MAX_PERSISTED_BREACHING_ROWS = 25
 
 
 def _breach_messages(
@@ -156,7 +155,7 @@ def evaluate_threshold(
             value=first_breach_value,
             breaches=capped,
             triggered_metadata={
-                "breaching_rows": breaching_rows[:MAX_PERSISTED_BREACHING_ROWS],
+                "breaching_rows": breaching_rows[:MAX_BREACH_MESSAGES],
                 "breaching_row_count": len(breaching_rows),
             },
         )
