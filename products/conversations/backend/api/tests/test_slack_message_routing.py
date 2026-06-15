@@ -106,6 +106,75 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
 
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_mention_in_thread_seeds_ticket_from_parent_message(
+        self, mock_create_or_update, mock_get_client, mock_backfill
+    ):
+        mock_get_client.return_value.conversations_history.return_value = {
+            "messages": [{"user": "U_OP", "text": "Initial message that started the thread"}]
+        }
+        mock_create_or_update.return_value = object()
+
+        handle_support_mention(
+            {
+                "type": "app_mention",
+                "channel": "C_ANY",
+                "thread_ts": "1700000000.000100",
+                "ts": "1700000000.000200",
+                "user": "U_MENTIONER",
+                "text": "<@U_BOT> please help here",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.conversations_history.assert_called_once()
+        mock_create_or_update.assert_called_once()
+        kwargs = mock_create_or_update.call_args.kwargs
+        assert kwargs["slack_user_id"] == "U_OP"
+        assert kwargs["text"] == "Initial message that started the thread"
+        assert kwargs["thread_ts"] == "1700000000.000100"
+        assert kwargs["is_thread_reply"] is False
+        assert kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
+        mock_backfill.assert_called_once()
+
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_mention_in_thread_with_existing_ticket_adds_reply(
+        self, mock_create_or_update, mock_get_client, mock_backfill
+    ):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_ANY",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        handle_support_mention(
+            {
+                "type": "app_mention",
+                "channel": "C_ANY",
+                "thread_ts": "1700000000.000100",
+                "ts": "1700000000.000200",
+                "user": "U_MENTIONER",
+                "text": "<@U_BOT> bumping this",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.conversations_history.assert_not_called()
+        mock_backfill.assert_not_called()
+        mock_create_or_update.assert_called_once()
+        kwargs = mock_create_or_update.call_args.kwargs
+        assert kwargs["is_thread_reply"] is True
+        assert kwargs["slack_user_id"] == "U_MENTIONER"
+
     @patch("products.conversations.backend.slack.get_slack_client")
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
     def test_emoji_reaction_passes_channel_detail(self, mock_create_or_update, mock_get_client):
