@@ -555,26 +555,28 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     def test_sync_materializes_fleet_for_fresh_team(self) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
-        assert canonical_names, "expected canonical signals-scout-* skills on disk"
+        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        companion_names = canonical_names - scout_names
+        assert scout_names, "expected canonical signals-scout-* skills on disk"
+        assert "authoring-signals-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
         response = self.client.post(self._sync_url())
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert {c["skill_name"] for c in body} == canonical_names
-        assert [c["skill_name"] for c in body] == sorted(canonical_names)
+        # Only scouts get configs — companion skills (authoring-signals-scouts) are seeded
+        # into the team's LLMSkill namespace below but never materialize a scout config.
+        assert {c["skill_name"] for c in body} == scout_names
+        assert [c["skill_name"] for c in body] == sorted(scout_names)
         assert all(c["enabled"] is True for c in body)
         assert all(c["emit"] is True for c in body)
         assert all(c["run_interval_minutes"] == 60 for c in body)
-        assert SignalScoutConfig.objects.filter(team=self.team).count() == len(canonical_names)
-        # The canonical skills were seeded into the team's LLMSkill namespace too.
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        # Every canonical skill — fleet and companions — was seeded into the team's
+        # LLMSkill namespace.
         assert (
-            set(
-                LLMSkill.objects.filter(team=self.team, name__startswith="signals-scout-", deleted=False).values_list(
-                    "name", flat=True
-                )
-            )
+            set(LLMSkill.objects.filter(team=self.team, deleted=False).values_list("name", flat=True))
             == canonical_names
         )
 
