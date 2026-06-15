@@ -2858,6 +2858,143 @@ email@example.org,
         cohort.refresh_from_db()
         self.assertEqual(cohort.name, "renamed, leaf untouched")
 
+    @patch("posthog.api.cohort.report_user_action")
+    def test_adding_new_minute_leaf_to_cohort_with_stored_minute_leaf_is_rejected(self, _patch_capture):
+        # The carve-out only spares a pre-existing minute leaf for unrelated edits — it must NOT
+        # license adding *more* minute leaves just because the instance already stores one. Each
+        # incoming leaf is matched by its own `_leaf_identity`, so a second, distinct leaf is new.
+        stored_leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event_multiple",
+            "event_type": "events",
+            "time_value": 5,
+            "time_interval": "minute",
+            "operator": "gte",
+            "operator_value": 3,
+        }
+        stored_filters = {"properties": {"type": "AND", "values": [stored_leaf]}}
+        # Seed via the model layer to bypass the serializer gate — only reachable via direct API/import.
+        cohort = Cohort.objects.create(team=self.team, name="legacy minute", filters=stored_filters)
+
+        # A DISTINCT minute leaf (different key/time_value) — its identity is not in the stored set.
+        new_leaf = {
+            "type": "behavioral",
+            "key": "$autocapture",
+            "value": "performed_event_multiple",
+            "event_type": "events",
+            "time_value": 9,
+            "time_interval": "minute",
+            "operator": "gte",
+            "operator_value": 2,
+        }
+        new_filters = {"properties": {"type": "AND", "values": [stored_leaf, new_leaf]}}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+            data={"filters": new_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {"type": "validation_error", "code": "minute_interval_not_supported"}.items(),
+            response.json().items(),
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_unrelated_edit_with_stringly_typed_stored_numeric_leaf_is_allowed(
+        self, _patch_calc, _patch_capture, _patch_on_commit
+    ):
+        # Un-normalized stored leaf: `time_value`/`operator_value` are strings, the shape a direct
+        # API/import write produces (the serializer's pydantic coercion to int never ran). The
+        # incoming re-validated leaf WILL carry ints, so `_leaf_identity`'s `as_int` coercion must
+        # match `"5"`/`"3"` against `5`/`3` or this unrelated rename would spuriously 400.
+        minute_leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event_multiple",
+            "event_type": "events",
+            "time_value": "5",
+            "time_interval": "minute",
+            "operator": "gte",
+            "operator_value": "3",
+        }
+        stored_filters = {"properties": {"type": "AND", "values": [minute_leaf]}}
+        # Seed via the model layer to bypass the serializer gate — only reachable via direct API/import.
+        cohort = Cohort.objects.create(team=self.team, name="legacy stringly minute", filters=stored_filters)
+
+        # The edit UI re-sends the full filters even on a rename; pydantic coerces the strings to ints
+        # on the way in, and the stored-leaf identity must still match so the unchanged leaf is spared.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+            data={"name": "renamed, leaf untouched", "filters": stored_filters},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "renamed, leaf untouched")
+
+    @parameterized.expand(["create", "update"])
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("products.cohorts.backend.models.cohort.Cohort.enqueue_calculation")
+    @patch("posthog.api.cohort.will_create_loops_in_memory", return_value=False)
+    def test_loop_check_skips_project_fetch_when_cohort_has_no_cohort_ref(
+        self,
+        mode: str,
+        mock_loop_check,
+        _patch_enqueue,
+        _patch_flags_cache,
+        _patch_calc,
+        _patch_capture,
+        _patch_on_commit,
+    ):
+        # `will_create_loops_in_memory` runs only AFTER `_ensure_no_cohort_loops`'s skip-guard passes
+        # and the project-wide cohort fetch happens, so its called-ness is a faithful proxy for "did
+        # the project-wide cohort query run". return_value=False keeps both saves succeeding (a bare
+        # Mock is truthy and would raise the loop ValidationError).
+        no_ref_filters = {
+            "properties": {"type": "AND", "values": [{"key": "x", "value": "y", "operator": "exact", "type": "person"}]}
+        }
+
+        # Seed a real target cohort to reference in the cohort-ref save below.
+        target = Cohort.objects.create(team=self.team, name="loop target", groups=[])
+
+        if mode == "create":
+            no_ref_response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={"name": "no ref", "filters": no_ref_filters},
+            )
+            self.assertEqual(no_ref_response.status_code, status.HTTP_201_CREATED, no_ref_response.content)
+            # No cohort leaf ⇒ skip-guard short-circuits before the project-wide fetch + loop walk.
+            mock_loop_check.assert_not_called()
+
+            ref_response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={"name": "with ref", "groups": self._cohort_ref_groups(target.id)},
+            )
+            self.assertEqual(ref_response.status_code, status.HTTP_201_CREATED, ref_response.content)
+            # A cohort leaf is present ⇒ the project-wide fetch + loop walk must have run.
+            mock_loop_check.assert_called()
+        else:
+            no_ref_cohort = Cohort.objects.create(team=self.team, name="no ref", filters=no_ref_filters)
+            no_ref_response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{no_ref_cohort.id}",
+                data={"name": "no ref renamed"},
+            )
+            self.assertEqual(no_ref_response.status_code, status.HTTP_200_OK, no_ref_response.content)
+            mock_loop_check.assert_not_called()
+
+            ref_cohort = Cohort.objects.create(team=self.team, name="with ref", groups=[])
+            ref_response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{ref_cohort.id}",
+                data={"groups": self._cohort_ref_groups(target.id)},
+            )
+            self.assertEqual(ref_response.status_code, status.HTTP_200_OK, ref_response.content)
+            mock_loop_check.assert_called()
+
     @parameterized.expand(
         [
             (
