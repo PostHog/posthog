@@ -1,6 +1,7 @@
 import datetime as dt
 from contextlib import contextmanager
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from unittest import mock
@@ -14,6 +15,8 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     remove_table_from_publication,
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def _mock_conn(execute_side_effect=None):
@@ -128,7 +131,7 @@ class TestCdcPgConnectionSsl:
             ),
             mock.patch("posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres") as mock_connect,
         ):
-            with cdc_pg_connection(source):
+            with cdc_pg_connection(cast(ExternalDataSource, source)):
                 pass
 
         mock_connect.assert_called_once()
