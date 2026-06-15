@@ -41,11 +41,11 @@ export function SourceMapsRecommendationCard({
                 </div>
             </div>
             <div className="flex justify-center gap-2 mt-2">
-                <LemonButton type="secondary" to={SOURCE_MAPS_DOCS_URL} targetBlank>
+                <LemonButton type="tertiary" to={SOURCE_MAPS_DOCS_URL} targetBlank>
                     Read docs
                 </LemonButton>
-                <LemonButton type="primary" icon={<IconMagicWand />} onClick={() => openModal('recommendations')}>
-                    Fix with wizard
+                <LemonButton type="secondary" icon={<IconMagicWand />} onClick={() => openModal('recommendations')}>
+                    <span className="rainbow-text rainbow-text-animating font-semibold">Fix with AI wizard</span>
                 </LemonButton>
             </div>
             <SourceMapsFixModal />

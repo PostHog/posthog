@@ -10,12 +10,11 @@ import structlog
 from celery import shared_task
 from rest_framework import serializers
 
-from posthog.schema import ProductIntentContext, ProductKey
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set

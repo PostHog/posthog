@@ -13,7 +13,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
 import {
@@ -35,6 +35,7 @@ import {
     Skeleton,
 } from '@posthog/quill'
 
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
@@ -43,6 +44,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { COLLAPSED_TO_CONTAINS_ROW, urlContainsRowLabel } from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
@@ -75,15 +77,6 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.PinnedFilters,
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.HogQLExpression,
-])
-
-/** Groups that feed the "all" surface but are collapsed to a single
- *  "URL contains <query>" suggestion rather than listing every matching value,
- *  and are not offered as a standalone chip/category. People filtering by URL
- *  overwhelmingly want a contains match, so one synthetic row (when any URL
- *  matches) beats a wall of exact URLs. */
-const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set([
-    TaxonomicFilterGroupType.PageviewUrls,
 ])
 
 /** How many recents and pinned each lead the default "All" surface, matching
@@ -143,6 +136,15 @@ export interface MenuFilterComboboxProps {
     title?: string
     /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
     selectedEntry?: MenuFilterEntry | null
+    /** Shared ref to the search input so the popover can target it for focus.
+     *  Mutable because the adapter assigns the input element onto it. */
+    inputRef?: MutableRefObject<HTMLInputElement | null>
+    /**
+     * Filter-icon menu button shown as the field's prefix in input-trigger
+     * mode (where the field is a `LemonInput` in the trigger row). Omitted in
+     * the popover/button mode, which renders the field as a quill input.
+     */
+    iconButton?: ReactElement
 }
 
 export function MenuFilterCombobox({
@@ -155,6 +157,8 @@ export function MenuFilterCombobox({
     onBack,
     title,
     selectedEntry,
+    inputRef: externalInputRef,
+    iconButton,
 }: MenuFilterComboboxProps): JSX.Element {
     // Sync our local query to the orchestrator's so remote-endpoint groups
     // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
@@ -200,7 +204,8 @@ export function MenuFilterCombobox({
     // `filtered` (selected entry promoted to index 0) keeps the
     // highlight on the same row.
     const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(selectedEntry ?? null)
-    const inputRef = useRef<HTMLInputElement | null>(null)
+    const localInputRef = useRef<HTMLInputElement | null>(null)
+    const inputRef = externalInputRef ?? localInputRef
 
     // Stale events (event definitions not ingested within the staleness window)
     // are hidden by default to match the legacy picker. The opt-in is per-search:
@@ -347,7 +352,7 @@ export function MenuFilterCombobox({
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
                 if (trimmedQuery && items.length > 0) {
-                    const label = `URL contains "${trimmedQuery}"`
+                    const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
                         // `isContainsShortcut` tags this synthetic row so the commit
                         // telemetry can measure adoption of the contains shortcut vs
@@ -799,6 +804,99 @@ export function MenuFilterCombobox({
         }
     }
 
+    // Category dropdown — picks the active scope; replaces the old flex-wrapped
+    // chip row. Only shown when there's more than the implicit "All" category.
+    const categorySelect =
+        showChips && categoryOptions.length > 1 ? (
+            <Select<DrillCategory>
+                value={activeChip}
+                onValueChange={(value) => {
+                    posthog.capture('taxonomic filter menu category changed', {
+                        fromChip: activeChip,
+                        toChip: value ?? 'all',
+                        via: 'dropdown',
+                    })
+                    setActiveChip(value ?? 'all')
+                    inputRef.current?.focus()
+                }}
+                itemToStringLabel={(value) => categoryOptions.find((o) => o.value === value)?.label ?? 'All'}
+            >
+                <SelectTrigger
+                    size="sm"
+                    aria-label="Filter category"
+                    data-attr="menu-filter-category"
+                    className="mr-0.5"
+                >
+                    <SelectValue />
+                </SelectTrigger>
+                {/* Fit the list to its items: at least as wide as the trigger,
+                    grow to the longest option, capped at the available viewport
+                    width so it never overflows. */}
+                <SelectContent
+                    align="end"
+                    alignItemWithTrigger={false}
+                    className="w-max min-w-(--anchor-width) max-w-(--available-width)"
+                >
+                    <SelectGroup>
+                        {categoryOptions.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                </SelectContent>
+            </Select>
+        ) : null
+
+    // The search field — a full-width row between the header and the
+    // list/preview, so the menu chrome wraps it (header above, results below).
+    // In input-trigger mode it's a LemonInput matching the surrounding scene's
+    // UI, with base-ui driving the inner input via `render`, the filter-icon
+    // button as its prefix and the category dropdown as its suffix. The button
+    // trigger keeps the quill input bar.
+    const searchField = iconButton ? (
+        <AutocompleteLemonInput
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            sharedInputRef={inputRef}
+            prefix={iconButton}
+            suffix={categorySelect ?? undefined}
+            placeholder={activePlaceholder}
+            data-attr="menu-filter-search"
+            onKeyDown={handleInputKeyDown}
+            onPaste={(e) => {
+                pastedCharsRef.current += e.clipboardData.getData('text').length
+            }}
+        />
+    ) : (
+        <>
+            <Autocomplete.Input
+                render={
+                    <InputGroupInput
+                        ref={inputRef}
+                        autoFocus
+                        data-attr="menu-filter-search"
+                        placeholder={activePlaceholder}
+                        onKeyDown={handleInputKeyDown}
+                        onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
+                            pastedCharsRef.current += e.clipboardData.getData('text').length
+                        }}
+                    />
+                }
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {categorySelect && <InputGroupAddon align="inline-end">{categorySelect}</InputGroupAddon>}
+        </>
+    )
+
+    // Full-width input row, sitting between the header and the list/preview
+    // columns. The LemonInput (input-trigger) is full width on its own; the
+    // quill input needs the InputGroup wrapper.
+    const searchFieldRow = (
+        <div className="p-2 border-b">{iconButton ? searchField : <InputGroup>{searchField}</InputGroup>}</div>
+    )
+
     return (
         <div className="flex flex-col flex-1 min-h-0">
             <MenuFilterHeader
@@ -824,80 +922,12 @@ export function MenuFilterCombobox({
                 itemToStringValue={(entry: MenuFilterEntry) => entry.name}
                 onItemHighlighted={(entry) => setHighlightedEntry((entry as MenuFilterEntry | undefined) ?? null)}
             >
+                {searchFieldRow}
                 {/* Flex layout: list flexes, separator is 1px, preview is a
                     fixed 300px column. `shrink-0` on the preview keeps it
                     stable when the popover (or list contents) change width. */}
                 <div className="flex flex-1 min-h-0">
                     <div className="flex flex-col flex-1 min-w-0 min-h-0">
-                        <div className="p-2 border-b">
-                            <InputGroup>
-                                <Autocomplete.Input
-                                    render={
-                                        <InputGroupInput
-                                            ref={inputRef}
-                                            autoFocus
-                                            data-attr="menu-filter-search"
-                                            placeholder={activePlaceholder}
-                                            onKeyDown={handleInputKeyDown}
-                                            onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
-                                                pastedCharsRef.current += e.clipboardData.getData('text').length
-                                            }}
-                                        />
-                                    }
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                {/* Category dropdown — trailing addon. Picks
-                                    the active scope; replaces the old
-                                    flex-wrapped chip row. Only shown when
-                                    there's more than the implicit "All"
-                                    category to choose between. */}
-                                {showChips && categoryOptions.length > 1 && (
-                                    <InputGroupAddon align="inline-end">
-                                        <Select<DrillCategory>
-                                            value={activeChip}
-                                            onValueChange={(value) => {
-                                                posthog.capture('taxonomic filter menu category changed', {
-                                                    fromChip: activeChip,
-                                                    toChip: value ?? 'all',
-                                                    via: 'dropdown',
-                                                })
-                                                setActiveChip(value ?? 'all')
-                                                inputRef.current?.focus()
-                                            }}
-                                            itemToStringLabel={(value) =>
-                                                categoryOptions.find((o) => o.value === value)?.label ?? 'All'
-                                            }
-                                        >
-                                            <SelectTrigger
-                                                size="sm"
-                                                aria-label="Filter category"
-                                                data-attr="menu-filter-category"
-                                                className="mr-0.5"
-                                            >
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            {/* Fit the list to its items: at least as wide as the
-                                                trigger, grow to the longest option, capped at the
-                                                available viewport width so it never overflows. */}
-                                            <SelectContent
-                                                align="end"
-                                                alignItemWithTrigger={false}
-                                                className="w-max min-w-(--anchor-width) max-w-(--available-width)"
-                                            >
-                                                <SelectGroup>
-                                                    {categoryOptions.map((o) => (
-                                                        <SelectItem key={o.value} value={o.value}>
-                                                            {o.label}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectGroup>
-                                            </SelectContent>
-                                        </Select>
-                                    </InputGroupAddon>
-                                )}
-                            </InputGroup>
-                        </div>
                         {!drillItems &&
                             targetGroups.map((g) => (
                                 <Fetcher
@@ -992,6 +1022,102 @@ export function MenuFilterCombobox({
     )
 }
 
+interface AutocompleteLemonInputProps {
+    value: string
+    onValueChange: (value: string) => void
+    /** Set alongside base-ui's own ref, so callers (popover `initialFocus`,
+     *  category-select refocus) can reach the input element. */
+    sharedInputRef?: MutableRefObject<HTMLInputElement | null>
+    prefix?: ReactElement
+    suffix?: ReactElement
+    placeholder?: string
+    'data-attr'?: string
+    /** Runs before base-ui's own keydown handler; base-ui's runs only when this
+     *  one didn't `preventDefault` (so Esc/Enter/Tab can take precedence over the
+     *  autocomplete's arrow-key navigation). */
+    onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
+    onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void
+}
+
+/**
+ * The single place that bridges base-ui's `Autocomplete.Input` onto a
+ * `LemonInput`. base-ui drives a controlled `<input>` through its `render` prop —
+ * value/onChange/ref/keyboard plus the combobox a11y attrs (`role`,
+ * `aria-activedescendant`, `aria-expanded`, …). `LemonInput`'s typed props don't
+ * include those a11y attrs but its inner `<input>` forwards unrecognised props,
+ * so we strip the props we drive ourselves and pass the rest through. Keeping the
+ * adapter in one named place (rather than inline in the combobox render) means a
+ * base-ui upgrade that changes how it drives the input has exactly one site to
+ * update — the typed destructure below and the input-trigger tests are what guard
+ * the contract.
+ */
+function AutocompleteLemonInput({
+    value,
+    onValueChange,
+    sharedInputRef,
+    prefix,
+    suffix,
+    placeholder,
+    onKeyDown,
+    onPaste,
+    'data-attr': dataAttr,
+}: AutocompleteLemonInputProps): JSX.Element {
+    return (
+        <Autocomplete.Input
+            value={value}
+            onChange={(e) => onValueChange(e.target.value)}
+            render={(autoProps) => {
+                // Type the incoming contract as input attributes (not `any`), then
+                // peel off the props we own — base-ui's value/onChange/className,
+                // its ref (merged below), and its keydown (composed below).
+                const {
+                    ref,
+                    value: _baseValue,
+                    onChange: _baseOnChange,
+                    className: _baseClassName,
+                    onKeyDown: baseOnKeyDown,
+                    ...baseInputAttrs
+                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
+                const setRef = (el: HTMLInputElement | null): void => {
+                    if (typeof ref === 'function') {
+                        ref(el)
+                    } else if (ref) {
+                        ;(ref as React.MutableRefObject<HTMLInputElement | null>).current = el
+                    }
+                    if (sharedInputRef) {
+                        sharedInputRef.current = el
+                    }
+                }
+                return (
+                    <LemonInput
+                        // The remaining base-ui attrs (role, aria-activedescendant…)
+                        // are valid `<input>` attributes LemonInput forwards but
+                        // doesn't type — the one boundary cast the bridge needs.
+                        // eslint-disable-next-line react/no-unknown-property
+                        {...(baseInputAttrs as Record<string, unknown>)}
+                        inputRef={setRef}
+                        size="small"
+                        fullWidth
+                        prefix={prefix}
+                        suffix={suffix}
+                        data-attr={dataAttr}
+                        placeholder={placeholder}
+                        value={value}
+                        onChange={(next) => onValueChange(next)}
+                        onKeyDown={(e) => {
+                            onKeyDown?.(e)
+                            if (!e.defaultPrevented) {
+                                baseOnKeyDown?.(e)
+                            }
+                        }}
+                        onPaste={onPaste}
+                    />
+                )
+            }}
+        />
+    )
+}
+
 interface RowProps {
     entry: MenuFilterEntry
     /** Render the category label (mixed-group views always; drilled views skip it since the panel header already names the group). */
@@ -1007,25 +1133,26 @@ interface RowProps {
 }
 
 /**
- * Resolve a row's three normalized cells:
+ * Resolve a row's normalized cells:
  *   - name:     human-friendly label (e.g. "Pageview", "/checkout")
- *   - value:    raw underlying value when distinct from the name
- *               (e.g. "$pageview", "localhost:8010")
+ *   - value:    raw underlying value when distinct from the name (the full
+ *               URL, or the raw `$key`). The preview pane is the primary home
+ *               for this ("Sent as"), but the preview is hidden below `md`, so
+ *               the row keeps a narrow-screen-only copy of it.
  *   - category: group name shown as an uppercase tag at the bottom
  *
- * URLs split into path (name) + host (value); friendly definitions
- * surface the friendly label as the name and the raw `$key` as the
- * value; everything else uses the entry name as the name and omits
- * the value cell.
+ * URLs surface their path tail as the name; friendly definitions surface
+ * the friendly label; everything else uses the entry name and has no
+ * distinct raw value to show.
  */
 function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
-    const url = parseUrl(entry.name)
-    if (url) {
-        return { name: url.pathTail, value: url.host, category: entry.group.name }
+    const pathTail = parseUrlPathTail(entry.name)
+    if (pathTail !== null) {
+        return { name: pathTail, value: entry.name, category: entry.group.name }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
         return { name: friendly, value: entry.name, category: entry.group.name }
@@ -1068,11 +1195,14 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
-
-                <span className="font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
-                    {value || <span className="opacity-50">N/A</span>}
-                </span>
-                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
+                {/* The preview pane (hidden below `md`) is the primary home for the
+                    raw value, so only narrow screens keep it inline on the row. */}
+                {value && (
+                    <span className="md:hidden font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                        {value}
+                    </span>
+                )}
+                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
@@ -1134,16 +1264,15 @@ function Fetcher({
 }
 
 /** Skeleton placeholder shown in place of the result list while a remote
- *  fetch is in flight and we have nothing to show yet. Matches the row
- *  layout (two-line label + tag stub) so the popover height doesn't jump
- *  when results arrive. */
+ *  fetch is in flight and we have nothing to show yet. Matches the
+ *  single-line row layout so the popover height doesn't jump when results
+ *  arrive. */
 function LoadingRows(): JSX.Element {
     return (
         <div className="flex flex-col gap-1 p-2" data-attr="menu-filter-loading">
             {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className="flex flex-col gap-1 px-2 py-1">
+                <div key={i} className="px-2 py-1">
                     <Skeleton className="h-3.5 w-2/3 rounded" />
-                    <Skeleton className="h-3 w-1/3 rounded" />
                 </div>
             ))}
         </div>
@@ -1151,18 +1280,17 @@ function LoadingRows(): JSX.Element {
 }
 
 /**
- * Parse a URL-shaped string into `{ host, pathTail }` for two-line row
- * rendering. Returns `null` for anything that isn't a `http(s)://` URL or
- * fails to parse — caller falls back to default rendering.
+ * Parse a URL-shaped string into its path tail (path + search + hash) for
+ * row rendering. Returns `null` for anything that isn't a `http(s)://` URL
+ * or fails to parse — caller falls back to default rendering.
  */
-function parseUrl(s: string): { host: string; pathTail: string } | null {
+function parseUrlPathTail(s: string): string | null {
     if (typeof s !== 'string' || !/^https?:\/\//i.test(s)) {
         return null
     }
     try {
         const u = new URL(s)
-        const tail = (u.pathname || '/') + u.search + u.hash
-        return { host: u.host, pathTail: tail }
+        return (u.pathname || '/') + u.search + u.hash
     } catch {
         return null
     }

@@ -35,6 +35,7 @@ PRODUCTS_APPS = [
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
+    "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
@@ -840,6 +841,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "uploaded_media:write",
     "survey:read",
     "survey:write",
+    "field_note:read",
+    "field_note:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

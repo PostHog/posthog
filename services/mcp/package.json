@@ -53,6 +53,7 @@
         "fflate": "^0.8.2",
         "hono": "^4.12.18",
         "ioredis": "^4.28.5",
+        "jose": "^6.2.3",
         "lucide-react": "^0.577.0",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.25.0",

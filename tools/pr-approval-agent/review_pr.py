@@ -95,6 +95,22 @@ def _dim(msg: str) -> str:
     return f"\033[2m{msg}\033[0m"
 
 
+# ── Error classification ─────────────────────────────────────────
+
+# Patterns that indicate non-retryable failures (agent limitations, not infra).
+_NON_RETRYABLE_PATTERNS = (
+    "Reached maximum number of turns",
+    "could not produce valid structured output",
+)
+
+
+def _is_retryable_error(err_msg: str) -> bool:
+    """Return True if the error looks like an infrastructure/transient issue
+    that is worth retrying (API timeouts, rate limits, overload).
+    Return False for non-retryable errors like turn-limit exhaustion."""
+    return not any(pattern in err_msg for pattern in _NON_RETRYABLE_PATTERNS)
+
+
 # ── Gate result ──────────────────────────────────────────────────
 
 
@@ -362,32 +378,49 @@ class Pipeline:
                 )
                 break
             except Exception as e:
-                if attempt < max_retries - 1:
+                err_str = str(e)
+                is_retryable = _is_retryable_error(err_str)
+
+                if is_retryable and attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
                     print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
                     print(_dim(f"  Retrying in {wait}s..."))
                     time.sleep(wait)
                 else:
-                    print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
-                    print(
-                        _warn(
-                            "  This is an LLM backend failure (credentials, credit, or outage), "
-                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                            "secret (or local ANTHROPIC_API_KEY)."
-                        )
-                    )
                     reviewer_unavailable = True
-                    self.reviewer_output = {
-                        "verdict": "ERROR",
-                        "reasoning": (
-                            "The review agent couldn't reach its LLM backend — an infrastructure "
-                            "or credentials issue, not a problem with this PR. The `stamphog` label "
-                            "has been kept; the review retries automatically on the next push, or "
-                            "re-apply the label once the backend recovers."
-                        ),
-                        "risk": "unknown",
-                        "issues": [str(e)],
-                    }
+                    if is_retryable:
+                        print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                        print(
+                            _warn(
+                                "  This is an LLM backend failure (credentials, credit, or outage), "
+                                "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
+                                "secret (or local ANTHROPIC_API_KEY)."
+                            )
+                        )
+                        self.reviewer_output = {
+                            "verdict": "ERROR",
+                            "reasoning": (
+                                "The review agent couldn't reach its LLM backend — an infrastructure "
+                                "or credentials issue, not a problem with this PR. The `stamphog` label "
+                                "has been kept; the review retries automatically on the next push, or "
+                                "re-apply the label once the backend recovers."
+                            ),
+                            "risk": "unknown",
+                            "issues": [err_str],
+                        }
+                    else:
+                        print(_fail(f"Reviewer hit a non-retryable error: {e}"))
+                        self.reviewer_output = {
+                            "verdict": "ERROR",
+                            "reasoning": (
+                                "The review agent could not complete its analysis for this PR "
+                                "(likely too complex for the allocated turn budget). "
+                                "The `stamphog` label has been kept; a human review is needed."
+                            ),
+                            "risk": "unknown",
+                            "issues": [err_str],
+                        }
+                    break
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")
