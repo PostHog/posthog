@@ -1718,6 +1718,9 @@ def _assistant_enabled(team: Team) -> bool:
                 _ASSISTANT_FEATURE_FLAG,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id)},
+                person_properties={"region": get_instance_region() or "unknown"},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
             )
         )
     except Exception:

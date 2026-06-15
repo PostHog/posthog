@@ -50,6 +50,23 @@ export interface CopyFlagsResponseApi {
     failed: CopyFlagsResultApi[]
 }
 
+export interface EvaluationContextSuggestionRequestApi {
+    /**
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @maxLength 255
+     */
+    context_name: string
+}
+
+export interface EvaluationContextSuggestionResponseApi {
+    /** Whether the suggestion visibility change was applied. */
+    success: boolean
+    /** Normalized name of the affected evaluation context. */
+    name: string
+    /** Whether the context is now hidden from the flag editor's suggestion list. */
+    hidden_from_suggestions: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1320,6 +1337,13 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+}
+
+export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string
 }
 
 export type FeatureFlagsListParams = {
