@@ -68,7 +68,7 @@ function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioni
             </div>
             <div>
                 <LemonLabel>Connect with psql</LemonLabel>
-                <CodeSnippet compact thing="psql command">
+                <CodeSnippet compact wrap thing="psql command">
                     {psqlCmd}
                 </CodeSnippet>
             </div>
@@ -145,7 +145,7 @@ export function SettingsTab(): JSX.Element {
                         </LemonBanner>
                     )}
                     <div>
-                        <LemonLabel>Database name</LemonLabel>
+                        <LemonLabel>Warehouse name</LemonLabel>
                         <div className="flex items-center gap-2">
                             <LemonInput
                                 value={databaseName}
@@ -184,8 +184,9 @@ export function SettingsTab(): JSX.Element {
                         {(!databaseName ||
                             (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
                             <p className="text-muted text-xs mt-1">
-                                Unique name for your database. This is what you'll use in <code>dbname=</code> when
-                                connecting.
+                                Unique name for your warehouse. It becomes the subdomain of your connection host (e.g.{' '}
+                                <code>my-warehouse.dw.us.postwh.com</code>). You always connect with{' '}
+                                <code>dbname=ducklake</code>.
                             </p>
                         )}
                     </div>
