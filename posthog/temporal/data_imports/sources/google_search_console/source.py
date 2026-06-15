@@ -104,6 +104,11 @@ class GoogleSearchConsoleSource(
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
         except Exception as e:
+            if "matching query does not exist" in str(e):
+                return False, (
+                    "Your Google Search Console connection is no longer available — it may have been "
+                    "disconnected. Please reconnect your Google Search Console account."
+                )
             return False, f"Could not load Google Search Console credentials: {e}"
 
         try:
