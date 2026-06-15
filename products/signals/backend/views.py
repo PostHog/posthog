@@ -424,10 +424,23 @@ class SignalReportViewSet(
         # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
         return queryset.exclude(status=SignalReport.Status.DELETED)
 
+    # `deleted` is in the model but always stripped upstream by `_exclude_deleted_signal_reports`,
+    # so it is never a valid filter target.
+    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
         if status_filter:
-            return queryset.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
+            statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
+            invalid = [s for s in statuses if s not in self._FILTERABLE_STATUSES]
+            if invalid:
+                accepted = ", ".join(sorted(self._FILTERABLE_STATUSES))
+                raise serializers.ValidationError(
+                    {
+                        "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
+                    }
+                )
+            return queryset.filter(status__in=statuses)
         # The `state` action reopens dismissed reports, so it must be able to reach a suppressed
         # report by ID — otherwise transitioning one back to "potential" would 404. Everywhere
         # else suppressed reports stay hidden unless an explicit `status` filter asks for them.
@@ -695,7 +708,7 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Comma-separated list of statuses to include. "
-                    "Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. "
+                    "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
                     "Defaults to all statuses except suppressed."
                 ),
             ),

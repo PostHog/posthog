@@ -145,7 +145,7 @@ The MCP tool that performs this rewrite is `experiment-ship-variant`. It takes
 agent should confirm the release mode with the user before invoking, in addition to the variant key.
 
 Note: `activity-log-list { scope: "Experiment", item_id: <id> }` will _not_ tell you this — that
-endpoint returns `activity: "updated"` with no change diff. Use the flag-activity tool.
+endpoint returns `activity: "updated"` with no change diff. Use the `feature-flags-activity-retrieve` tool.
 
 **Default to control on ambiguous ships.** If the user is unsure which variant to ship — primary
 unclear, secondaries mixed, or they're still investigating — recommend shipping **control**.
