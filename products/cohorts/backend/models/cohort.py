@@ -15,8 +15,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.schema import ProductKey
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
@@ -30,6 +28,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
