@@ -12,7 +12,7 @@ import type {
     TooltipContext,
     ValueDomain,
 } from '../../core/types'
-import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
+import { AXIS_LABEL_FONT, FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import { LineChart } from '../LineChart/LineChart'
 import {
     defaultDeltaFormatter,
@@ -130,17 +130,25 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
               )
             : 0
 
-        const left = startWidth > 0 ? startWidth + VALUE_GAP + EDGE_PAD : EDGE_PAD
+        // The x-axis labels sit centred under the two endpoints, so half of the first/last label
+        // overhangs the side gutter — reserve room for it too, else a wide label (e.g. a date) clips.
+        const firstAxisHalf = labels.length > 0 ? measureLabelWidth(labels[0], AXIS_LABEL_FONT) / 2 : 0
+        const lastAxisHalf = labels.length > 1 ? measureLabelWidth(labels[labels.length - 1], AXIS_LABEL_FONT) / 2 : 0
+
+        const left = Math.max(startWidth > 0 ? startWidth + VALUE_GAP + EDGE_PAD : EDGE_PAD, firstAxisHalf + EDGE_PAD)
         const endGutter = endWidth > 0 ? VALUE_GAP + endWidth : 0
         const nameGutter = nameWidth > 0 ? NAME_GAP + nameWidth : 0
-        const right = endGutter || nameGutter ? endGutter + nameGutter + EDGE_PAD : EDGE_PAD
+        const right = Math.max(
+            endGutter || nameGutter ? endGutter + nameGutter + EDGE_PAD : EDGE_PAD,
+            lastAxisHalf + EDGE_PAD
+        )
 
         // Names start just past the end value column.
         const offset = (endWidth > 0 ? VALUE_GAP + endWidth : 0) + NAME_GAP
 
         const base: Partial<ChartMargins> = { left, right }
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
-    }, [series, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
+    }, [series, labels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
     // A slope is a two-point line — collapse each series to its endpoints, with a dot at each.
     const slopeSeries = useMemo<Series<Meta>[]>(
