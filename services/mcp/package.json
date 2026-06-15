@@ -67,7 +67,7 @@
     },
     "devDependencies": {
         "@cloudflare/vitest-pool-workers": "^0.16.13",
-        "@cloudflare/workers-types": "^4.20260120.0",
+        "@cloudflare/workers-types": "^4.20260603.1",
         "@posthog/openapi-codegen": "workspace:*",
         "@tailwindcss/postcss": "^4.1.10",
         "@types/dotenv": "^6.1.1",
@@ -91,6 +91,6 @@
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^4.1.0",
-        "wrangler": "^4.59.0"
+        "wrangler": "^4.98.0"
     }
 }

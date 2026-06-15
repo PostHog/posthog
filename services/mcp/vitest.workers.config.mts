@@ -16,7 +16,6 @@ import { dispatchHandlers } from './tests/workers/fixtures/handlers'
 export default defineConfig({
     plugins: [
         cloudflareTest({
-            singleWorker: true,
             wrangler: { configPath: './wrangler.jsonc' },
             miniflare: {
                 bindings: {
