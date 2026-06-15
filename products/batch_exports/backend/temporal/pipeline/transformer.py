@@ -31,6 +31,7 @@ from products.batch_exports.backend.temporal.pipeline.table import (
     TypeTupleToCastMapping,
     are_types_compatible,
 )
+from products.batch_exports.backend.temporal.pipeline.worker_init import init_worker
 
 logger = get_write_only_logger()
 
@@ -122,7 +123,9 @@ class JSONLStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("forkserver")
+            max_workers=self.max_workers,
+            mp_context=mp.get_context("forkserver"),
+            initializer=init_worker,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
@@ -189,7 +192,9 @@ class JSONLBrotliStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("forkserver")
+            max_workers=self.max_workers,
+            mp_context=mp.get_context("forkserver"),
+            initializer=init_worker,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
