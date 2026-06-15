@@ -73,8 +73,7 @@ import {
 import {
     EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    EXPERIMENT_RESULTS_STALE_AFTER_MINUTES,
-    EXPERIMENT_RESULTS_WARMING_UP_STALE_AFTER_MINUTES,
+    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
@@ -536,20 +535,19 @@ export function isNewExperimentResponse(
 }
 
 /**
- * Decides whether a launched experiment's freshest cached result is stale enough to
- * warrant a forced refresh on page load. Returns true when there are no cached results
- * yet (queries are cheap until an experiment has data, so we just refresh) or when the
- * most recently refreshed metric is older than the staleness threshold (in minutes).
+ * Whether a launched experiment's freshest cached result is older than `staleAfterMinutes`.
+ * Returns true when there are no cached results yet, so we refresh to populate them. The results
+ * array can be sparse — metrics that returned no baseline leave holes — so entries without a
+ * `last_refresh` are skipped.
  */
 export function experimentResultsAreStale(
-    results: CachedNewExperimentQueryResponse[],
+    results: (CachedNewExperimentQueryResponse | undefined)[],
     staleAfterMinutes: number
 ): boolean {
     const refreshTimes = results
         .filter((result): result is CachedNewExperimentQueryResponse => !!result?.last_refresh)
         .map((result) => dayjs(result.last_refresh))
 
-    // No cached results yet — refresh to populate them (cheap while the experiment has no data).
     if (refreshTimes.length === 0) {
         return true
     }
@@ -679,11 +677,11 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: (
             forceRefresh?: boolean,
             triggeredBy?: ExperimentTriggeredBy,
-            autoRefreshIfStale?: boolean
+            refreshIfStale?: boolean
         ) => ({
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
-            autoRefreshIfStale: !!autoRefreshIfStale,
+            refreshIfStale: !!refreshIfStale,
         }),
         markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
             refreshId,
@@ -1457,10 +1455,10 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for launched experiments (will set up auto-refresh after load completes).
-            // Use cached results for a fast first paint, but force a one-shot refresh afterwards if
-            // those results have gone stale — auto-refresh only ticks while a tab is open, so results
-            // can otherwise sit unrefreshed overnight.
+            // Load metrics for launched experiments (sets up auto-refresh once the load completes).
+            // Paint cached results for a fast first load, then — while the experiment is still warming
+            // up — fetch fresh once, so a freshly launched experiment surfaces its first numbers without
+            // requiring a manual refresh.
             if (experiment && isLaunched(experiment)) {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
             }
@@ -1575,7 +1573,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
         },
-        refreshExperimentResults: async ({ forceRefresh, triggeredBy, autoRefreshIfStale }) => {
+        refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -1687,24 +1685,22 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.resetAutoRefreshInterval()
                 }
 
-                // After the initial cached page load, kick off a one-shot forced refresh when the
-                // freshest result has gone stale (or there are none yet). The staleness window is
-                // tight until the experiment has the exposures it needs to show results, so a freshly
-                // launched experiment surfaces its first numbers fast; once results are showing the
-                // window widens, since recomputes over real data are expensive. Gated on `!forceRefresh`
-                // so the forced refresh we trigger here can't re-trigger itself.
+                // On page load, a still-warming-up experiment can show a stale "no results yet" cached
+                // snapshot. Fetch fresh once so its first numbers surface without a manual refresh. Once
+                // it has the exposures needed to show results we leave it to the cached paint and the
+                // in-tab auto-refresh, since recomputes over real data are expensive. Gated on
+                // `!forceRefresh` so the refresh we trigger here can't re-trigger itself.
                 if (
-                    autoRefreshIfStale &&
+                    refreshIfStale &&
                     !forceRefresh &&
                     !caughtError &&
+                    !values.hasMinimumExposureForResults &&
                     experimentResultsAreStale(
                         [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
-                        values.hasMinimumExposureForResults
-                            ? EXPERIMENT_RESULTS_STALE_AFTER_MINUTES
-                            : EXPERIMENT_RESULTS_WARMING_UP_STALE_AFTER_MINUTES
+                        NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
                     )
                 ) {
-                    actions.refreshExperimentResults(true, 'auto_refresh')
+                    actions.refreshExperimentResults(true, 'page_load')
                 }
             }
         },

@@ -49,13 +49,12 @@ export const DEFAULT_MDE = 30
 // Autorefresh constants
 export const EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES = 5
 export const EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800 // 30 min
-// On page load, force a refresh if the freshest cached result is older than this. The window is
-// short while an experiment is still gathering its first exposures — feedback should be fast and
-// the queries are cheap with little data — and longer once it has enough data to show results,
-// where recomputes get expensive. Auto-refresh otherwise only runs while a tab is open, so results
-// can sit stale overnight.
-export const EXPERIMENT_RESULTS_STALE_AFTER_MINUTES = 180 // 3h, once results are showing
-export const EXPERIMENT_RESULTS_WARMING_UP_STALE_AFTER_MINUTES = 1 // until exposures are seen
+// While a launched experiment is still gathering its first exposures, force a one-shot refresh on
+// page load when the cached results are older than this. The queries are cheap with little data, and
+// it's exactly when users are watching for the first sign that the experiment is working. Once an
+// experiment has enough exposures to show results we leave it to the cached paint and the in-tab
+// auto-refresh, since recomputes over real data are expensive.
+export const NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES = 1
 
 // Mirrors EXPERIMENT_RECALCULATION_MAX_AGE_DAYS in posthog/temporal/experiments/activities.py
 export const EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
