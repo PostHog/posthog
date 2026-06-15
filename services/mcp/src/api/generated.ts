@@ -11572,6 +11572,22 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
+    export interface ContextGeneration {
+      /**
+         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ContextGenerationSet {
+      /**
+         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
     export type ConversationMessagesItem = { [key: string]: unknown };
 
     export type ConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -26226,6 +26242,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       archived?: boolean;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedProductTourList {
@@ -27850,6 +27868,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       form_content?: unknown;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedSurveyList {
@@ -49115,6 +49135,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -49194,6 +49215,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -49259,6 +49281,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -49326,6 +49349,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
