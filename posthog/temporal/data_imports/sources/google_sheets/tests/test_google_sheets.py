@@ -10,10 +10,17 @@ from posthog.temporal.data_imports.sources.generated_configs import GoogleSheets
 from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _get_worksheet,
+    get_schema_incremental_fields,
     get_schemas,
     google_sheets_source,
 )
 from posthog.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
+
+
+def _api_error(code: int, message: str, status: str) -> gspread.exceptions.APIError:
+    response = mock.MagicMock()
+    response.json.return_value = {"error": {"code": code, "message": message, "status": status}}
+    return gspread.exceptions.APIError(response)
 
 
 def test_get_worksheet_backoff():
@@ -211,3 +218,49 @@ def test_not_found_api_error_is_non_retryable():
     assert any(key in error_msg for key in non_retryable_errors), (
         f"Google Sheets 404 error {error_msg!r} did not match any non-retryable pattern"
     )
+
+
+def test_get_schema_incremental_fields_skips_unparseable_range():
+    """Google rejects the unbounded "1:2" row range with a 400 'Unable to parse range' for some
+    worksheets (e.g. empty sheets). That deterministic error must not break schema discovery — the
+    worksheet should just report no incremental fields so the rest of the spreadsheet still syncs."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(
+        400, "Unable to parse range: 'csm_followups'!1:2", "INVALID_ARGUMENT"
+    )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("csm_followups", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        assert get_schema_incremental_fields(config, "csm_followups") == []
+
+
+def test_get_schema_incremental_fields_reraises_other_api_errors():
+    """Only the deterministic 'Unable to parse range' 400 is swallowed. Other API errors (e.g.
+    transient 5xx) must still propagate so Temporal can retry them."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+        pytest.raises(gspread.exceptions.APIError),
+    ):
+        get_schema_incremental_fields(config, "sheet1")
