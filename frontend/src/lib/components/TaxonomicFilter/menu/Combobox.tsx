@@ -116,25 +116,31 @@ function rowDomId(entry: MenuFilterEntry): string {
     return `menu-filter-row-${entry.group.type}-${entryValue(entry)}${entry.recentPropertyFilter ? '-full' : ''}`
 }
 
-/** True when a real list entry refers to the same definition as the committed
- *  selection. The stored value can be the definition's raw key (`$pageview`)
- *  or its friendly label (`Pageview`) — `ActionFilterRow` threads `filter.name`,
- *  which may be either — so a synthetic entry built from the label won't match
- *  the real row on value alone. Match on the entry's value, its raw name, or
- *  its resolved friendly label so the selection collapses onto the real row
- *  (one checkmark, one preview) instead of stranding a placeholder beside it. */
-function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+/** Exact match: the entry's canonical value equals the selection's. This is the
+ *  authoritative match — when it holds, the two are the same definition. */
+function entryValueMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    return entry.group.type === selected.group.type && entryValue(entry) === entryValue(selected)
+}
+
+/** Heuristic match: the selection's stored value equals the entry's raw name or
+ *  resolved friendly label. `ActionFilterRow` threads `filter.name`, which can
+ *  be the friendly label (`Pageview`) rather than the raw key (`$pageview`), so
+ *  a synthetic entry built from the label won't match the real row on value
+ *  alone — this bridges that gap. Looser than the value match: a custom event
+ *  literally named `Pageview` would label-match the core `$pageview` row, so
+ *  callers must prefer `entryValueMatchesSelection` first (see `selectedRowId`). */
+function entryLabelMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
     if (entry.group.type !== selected.group.type) {
         return false
     }
     const target = entryValue(selected)
-    if (entryValue(entry) === target) {
-        return true
-    }
-    if (entry.name === target) {
-        return true
-    }
-    return entry.friendlyLabel != null && entry.friendlyLabel === target
+    return entry.name === target || (entry.friendlyLabel != null && entry.friendlyLabel === target)
+}
+
+/** Either kind of match — used for dedup, where any real row representing the
+ *  selection means we must not also prepend a synthetic placeholder. */
+function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
@@ -411,7 +417,11 @@ export function MenuFilterCombobox({
         if (!selectedEntry) {
             return null
         }
-        const real = indexed.find((e) => entryMatchesSelection(e, selectedEntry))
+        // Prefer an exact value match over the label heuristic so a custom event
+        // sharing a core event's friendly label can't steal the selection.
+        const real =
+            indexed.find((e) => entryValueMatchesSelection(e, selectedEntry)) ??
+            indexed.find((e) => entryLabelMatchesSelection(e, selectedEntry))
         return rowDomId(real ?? selectedEntry)
     }, [indexed, selectedEntry])
 

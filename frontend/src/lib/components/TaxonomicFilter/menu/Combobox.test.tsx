@@ -307,6 +307,45 @@ describe('MenuFilterCombobox', () => {
         }
     )
 
+    it('prefers an exact value match over the friendly-label heuristic when a custom event shares the label', async () => {
+        // A custom event literally named "Pageview" coexists with core
+        // "$pageview" (friendly label "Pageview"). A selection whose value is
+        // "Pageview" must resolve to the custom event (exact value match), not
+        // the core row it only label-matches — and both real rows stay (they're
+        // distinct definitions), with no synthetic placeholder.
+        apiGet.mockImplementation((url: string) => {
+            if (url.includes('event_definitions')) {
+                return Promise.resolve({
+                    results: [
+                        { id: 'def-core', name: '$pageview' },
+                        { id: 'def-custom', name: 'Pageview' },
+                    ],
+                    count: 2,
+                })
+            }
+            return Promise.resolve({ results: [], count: 0 })
+        })
+
+        renderEventsWithSelection({
+            searchQuery: 'pagev',
+            selectedEntry: syntheticEventSelected('Pageview'),
+        })
+
+        await waitFor(() => expect(document.getElementById('menu-filter-row-events-Pageview')).toBeInTheDocument())
+        // Both distinct events render — the custom "Pageview" did not dedup the
+        // core "$pageview" away, and no synthetic placeholder was prepended.
+        expect(document.getElementById('menu-filter-row-events-$pageview')).toBeInTheDocument()
+        const rows = Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]'))
+        expect(rows).toHaveLength(2)
+        // The persistent selected tint (`bg-(--fill-hover)`, a discrete class
+        // token distinct from the `data-selected:`-prefixed hover variant) lands
+        // on the exact-match custom event, not the label-match core row.
+        const customRow = document.getElementById('menu-filter-row-events-Pageview')
+        const coreRow = document.getElementById('menu-filter-row-events-$pageview')
+        expect(customRow?.classList.contains('bg-(--fill-hover)')).toBe(true)
+        expect(coreRow?.classList.contains('bg-(--fill-hover)')).toBe(false)
+    })
+
     it('caches the cohorts first page and filters typed queries locally (no per-keystroke refetch)', async () => {
         // Track every cohorts request — there must be exactly one even after
         // typing, because client-side fuse takes over after the first page.
