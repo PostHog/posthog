@@ -119,6 +119,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
             "Bad handshake": None,
+            # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
+            # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
+            # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
+            # `mysqladmin flush-hosts`, a restart, or raising `max_connect_errors`) — retrying just
+            # adds more failed connections and keeps the host blocked. Match only the stable phrase,
+            # not the volatile host IP or the `mysqladmin`/`mariadb-admin` wording that varies by server.
+            "is blocked because of many connection errors": "Your MySQL/MariaDB server has blocked PostHog's host after too many interrupted connections (error 1129). Ask your database admin to run 'FLUSH HOSTS' (or 'mysqladmin flush-hosts') and consider raising 'max_connect_errors', then retry the sync.",
             # OpenSSL's signature for "tried to speak TLS to an endpoint that replied with
             # non-TLS bytes" — the source has SSL enabled but the server (or a proxy in front
             # of it, e.g. a plain TCP proxy) doesn't speak TLS, or the host/port is wrong. This
