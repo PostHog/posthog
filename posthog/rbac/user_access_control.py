@@ -594,7 +594,7 @@ class UserAccessControl:
             return highest_access_level(resource)
 
         # Org admins always have highest access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if resource == "organization":
@@ -697,7 +697,7 @@ class UserAccessControl:
             return AccessSource.CREATOR
 
         # Check if user is org admin
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return AccessSource.ORGANIZATION_ADMIN
 
         # If access controls aren't supported, return default
@@ -769,7 +769,7 @@ class UserAccessControl:
             return None
 
         # Org admins always have resource level access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if not self.access_controls_supported:
@@ -845,7 +845,7 @@ class UserAccessControl:
             return False
 
         # Org admins always have access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return True
 
         # If access controls aren't supported, return False since we're looking for specific grants
@@ -919,11 +919,8 @@ class UserAccessControl:
         if not resource:
             return queryset
 
-        if include_all_if_admin:
-            org_membership = self._organization_membership
-
-            if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-                return queryset
+        if include_all_if_admin and self.is_organization_admin:
+            return queryset
 
         model_has_creator = hasattr(model, "created_by")
 
@@ -1037,10 +1034,9 @@ class UserAccessControl:
         and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
         """
         user = self._user
-        org_membership = self._organization_membership
 
         # 1) If the user is staff or org-admin, they can see everything
-        if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+        if user.is_staff or self.is_organization_admin:
             return queryset
 
         if not EE_AVAILABLE:
