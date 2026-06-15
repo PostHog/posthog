@@ -28,7 +28,7 @@ import {
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,7 +38,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { HARNESS_LOGOS, HarnessPill } from './dashboard/harness'
+import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -141,24 +142,9 @@ function HarnessLogos({ value }: { value: string }): JSX.Element {
     }
     return (
         <div className="flex items-center gap-1">
-            {categories.map((category) => {
-                const logo = HARNESS_LOGOS[category]
-                return logo ? (
-                    <img
-                        key={category}
-                        src={logo.src}
-                        alt={category}
-                        title={category}
-                        className="h-4 w-4 shrink-0 object-contain"
-                    />
-                ) : (
-                    <span
-                        key={category}
-                        title={category}
-                        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary"
-                    />
-                )
-            })}
+            {categories.map((category) => (
+                <HarnessLogo key={category} category={category} />
+            ))}
         </div>
     )
 }
@@ -259,16 +245,6 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
     )
 }
 
-function formatDurationMs(ms: number | null): string {
-    if (ms == null) {
-        return '—'
-    }
-    if (ms < 1000) {
-        return `${Math.round(ms)} ms`
-    }
-    return humanFriendlyDuration(ms / 1000, { secondsFixed: 2 })
-}
-
 // Tile sparkline window — the trailing slice of the 30-day daily series.
 const SPARKLINE_DAYS = 7
 
@@ -319,7 +295,7 @@ function StatTiles({
                 label="p50 latency"
                 loading={loading}
                 value={summary?.p50_ms ?? 0}
-                formatValue={formatDurationMs}
+                formatValue={formatMs}
                 data={spark(daily.p50)}
                 theme={theme}
                 color={theme.colors[0]}
@@ -329,7 +305,7 @@ function StatTiles({
                 label="p95 latency"
                 loading={loading}
                 value={summary?.p95_ms ?? 0}
-                formatValue={formatDurationMs}
+                formatValue={formatMs}
                 data={spark(daily.p95)}
                 theme={theme}
                 color={theme.colors[0]}
@@ -454,13 +430,6 @@ function seriesFor(data: DailyChartData, theme: ChartTheme, keys: TrendSeriesKey
     }))
 }
 
-function formatMsAxis(ms: number): string {
-    if (!isFinite(ms)) {
-        return '—'
-    }
-    return ms < 1000 ? `${Math.round(ms)}ms` : `${Math.round(ms / 100) / 10}s`
-}
-
 function TrendChart({
     title,
     series,
@@ -539,7 +508,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         [dailyChartData, theme]
     )
     const countsConfig = useMemo(() => trendChartConfig(timezone), [timezone])
-    const latencyConfig = useMemo(() => trendChartConfig(timezone, { tickFormatter: formatMsAxis }), [timezone])
+    const latencyConfig = useMemo(() => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
 
     return (
         <SceneContent>

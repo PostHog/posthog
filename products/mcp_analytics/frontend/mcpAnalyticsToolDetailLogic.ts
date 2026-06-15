@@ -101,6 +101,45 @@ function escapeHogQLString(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
+// Standard "this tool, new-SDK only" filter shared by the mcp_tool_call queries.
+function buildToolFilter(toolName: string): string {
+    return `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}' AND ${NEW_SDK_FILTER}`
+}
+
+async function queryRows(query: string): Promise<ResultRows> {
+    const response = (await api.query({ kind: NodeKind.HogQLQuery, query })) as HogQLQueryResponse
+    return (response.results ?? []) as ResultRows
+}
+
+// Tools most often called immediately before/after this one within the same conversation.
+function buildNeighborQuery(toolName: string, direction: 'before' | 'after'): string {
+    const windowFn = direction === 'before' ? 'lagInFrame' : 'leadInFrame'
+    return `
+WITH tool_calls AS (
+    SELECT
+        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
+        timestamp,
+        ${EFFECTIVE_TOOL_HOGQL} AS tool
+    FROM events
+    WHERE event = 'mcp_tool_call'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND ${NEW_SDK_FILTER}
+        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
+)
+SELECT neighbor_tool, count() AS co_occurrences
+FROM (
+    SELECT
+        tool,
+        ${windowFn}(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS neighbor_tool
+    FROM tool_calls
+)
+WHERE tool = '${escapeHogQLString(toolName)}' AND neighbor_tool IS NOT NULL AND neighbor_tool != '' AND neighbor_tool != tool
+GROUP BY neighbor_tool
+ORDER BY co_occurrences DESC
+LIMIT 5
+`
+}
+
 export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsToolDetailLogic']),
     key((props: MCPAnalyticsToolDetailLogicProps) => props.toolName),
@@ -111,7 +150,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             null as ToolSummary | null,
             {
                 loadSummary: async (): Promise<ToolSummary | null> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -147,7 +186,7 @@ WHERE event = 'mcp_tool_call'
             [] as DescriptionRevision[],
             {
                 loadDescriptions: async (): Promise<DescriptionRevision[]> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -175,7 +214,7 @@ LIMIT 5
             null as IntentCoverage | null,
             {
                 loadIntentCoverage: async (): Promise<IntentCoverage | null> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -200,7 +239,7 @@ WHERE event = 'mcp_tool_call'
             [] as DailyToolStat[],
             {
                 loadDailyStats: async (): Promise<DailyToolStat[]> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
+                    const toolFilter = buildToolFilter(props.toolName)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -235,10 +274,8 @@ ORDER BY day
         failureRows: [
             [] as ResultRows,
             {
-                loadFailureRows: async (): Promise<ResultRows> => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                loadFailureRows: async (): Promise<ResultRows> =>
+                    queryRows(`
 SELECT
     substring(toString(properties.$exception_message), 1, 200) AS message,
     count() AS occurrences,
@@ -254,20 +291,14 @@ WHERE event = '$exception'
 GROUP BY message
 ORDER BY occurrences DESC
 LIMIT 20
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []) as ResultRows
-                },
+`),
             },
         ],
         sampleIntentRows: [
             [] as ResultRows,
             {
-                loadSampleIntentRows: async (): Promise<ResultRows> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                loadSampleIntentRows: async (): Promise<ResultRows> =>
+                    queryRows(`
 SELECT
     timestamp,
     toString(properties.$mcp_intent) AS intent,
@@ -276,97 +307,33 @@ SELECT
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
+    AND ${buildToolFilter(props.toolName)}
     AND notEmpty(toString(properties.$mcp_intent))
     AND toString(properties.$mcp_intent) != '{}'
 ORDER BY timestamp DESC
 LIMIT 5
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []) as ResultRows
-                },
+`),
             },
         ],
         neighborsBeforeRows: [
             [] as ResultRows,
             {
-                loadNeighborsBeforeRows: async (): Promise<ResultRows> => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-WITH tool_calls AS (
-    SELECT
-        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
-        timestamp,
-        ${EFFECTIVE_TOOL_HOGQL} AS tool
-    FROM events
-    WHERE event = 'mcp_tool_call'
-        AND timestamp >= now() - INTERVAL 7 DAY
-        AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
-)
-SELECT prev_tool AS neighbor_tool, count() AS co_occurrences
-FROM (
-    SELECT
-        conv_id,
-        tool,
-        lagInFrame(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_tool
-    FROM tool_calls
-)
-WHERE tool = '${escapeHogQLString(props.toolName)}' AND prev_tool IS NOT NULL AND prev_tool != '' AND prev_tool != tool
-GROUP BY prev_tool
-ORDER BY co_occurrences DESC
-LIMIT 5
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []) as ResultRows
-                },
+                loadNeighborsBeforeRows: async (): Promise<ResultRows> =>
+                    queryRows(buildNeighborQuery(props.toolName, 'before')),
             },
         ],
         neighborsAfterRows: [
             [] as ResultRows,
             {
-                loadNeighborsAfterRows: async (): Promise<ResultRows> => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-WITH tool_calls AS (
-    SELECT
-        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
-        timestamp,
-        ${EFFECTIVE_TOOL_HOGQL} AS tool
-    FROM events
-    WHERE event = 'mcp_tool_call'
-        AND timestamp >= now() - INTERVAL 7 DAY
-        AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
-)
-SELECT next_tool AS neighbor_tool, count() AS co_occurrences
-FROM (
-    SELECT
-        conv_id,
-        tool,
-        leadInFrame(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_tool
-    FROM tool_calls
-)
-WHERE tool = '${escapeHogQLString(props.toolName)}' AND next_tool IS NOT NULL AND next_tool != '' AND next_tool != tool
-GROUP BY next_tool
-ORDER BY co_occurrences DESC
-LIMIT 5
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []) as ResultRows
-                },
+                loadNeighborsAfterRows: async (): Promise<ResultRows> =>
+                    queryRows(buildNeighborQuery(props.toolName, 'after')),
             },
         ],
         byHarnessRows: [
             [] as ResultRows,
             {
-                loadByHarnessRows: async (): Promise<ResultRows> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                loadByHarnessRows: async (): Promise<ResultRows> =>
+                    queryRows(`
 SELECT
     toString(properties.$mcp_client_name) AS harness,
     count() AS calls,
@@ -376,25 +343,19 @@ SELECT
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
+    AND ${buildToolFilter(props.toolName)}
     AND notEmpty(toString(properties.$mcp_client_name))
 GROUP BY harness
 ORDER BY calls DESC
 LIMIT 10
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []) as ResultRows
-                },
+`),
             },
         ],
         topUserRows: [
             [] as ResultRows,
             {
-                loadTopUserRows: async (): Promise<ResultRows> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                loadTopUserRows: async (): Promise<ResultRows> =>
+                    queryRows(`
 SELECT
     argMax(tuple(distinct_id, person.created_at, person.properties), timestamp) AS person,
     count() AS calls,
@@ -405,14 +366,11 @@ SELECT
 FROM events
 WHERE event = 'mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
+    AND ${buildToolFilter(props.toolName)}
 GROUP BY distinct_id
 ORDER BY calls DESC
 LIMIT 5
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []) as ResultRows
-                },
+`),
             },
         ],
     })),
