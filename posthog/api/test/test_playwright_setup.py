@@ -80,30 +80,31 @@ class TestPlaywrightSetup(APIBaseTest):
 
     @override_settings(TEST=True)
     def test_organization_with_team_setup_with_events_writes_exact_clickhouse_count(self):
+        events = [
+            {
+                "event": "custom_test_event",
+                "distinct_id": "user-1",
+                "timestamp": "2026-06-14T12:00:00Z",
+                "properties": {"amount": 10},
+            },
+            {
+                "event": "custom_test_event",
+                "distinct_id": "user-2",
+                "timestamp": "2026-06-14T12:01:00Z",
+                "properties": {"amount": -5},
+            },
+        ]
         payload = {
             "organization_name": "Test Org API",
             "no_demo_data": True,
-            "events": [
-                {
-                    "event": "custom_test_event",
-                    "distinct_id": "user-1",
-                    "timestamp": "2026-06-14T12:00:00Z",
-                    "properties": {"amount": 10},
-                },
-                {
-                    "event": "custom_test_event",
-                    "distinct_id": "user-2",
-                    "timestamp": "2026-06-14T12:01:00Z",
-                    "properties": {"amount": -5},
-                },
-            ],
+            "events": events,
         }
 
         response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         team_id = int(response.json()["result"]["team_id"])
-        self.assertEqual(_count_events_in_clickhouse(team_id), len(payload["events"]))
+        self.assertEqual(_count_events_in_clickhouse(team_id), len(events))
 
     @override_settings(TEST=True)
     def test_organization_with_team_setup_with_trends_fixture_writes_exact_event_counts(self):

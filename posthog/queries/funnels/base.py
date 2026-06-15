@@ -851,7 +851,7 @@ class ClickhouseFunnelBase(ABC):
             INNER JOIN (
                 {cohort_queries}
             ) cohort_join
-            ON events.distinct_id = cohort_join.distinct_id
+            ON {FunnelEventQuery.EVENT_TABLE_ALIAS}.distinct_id = cohort_join.distinct_id
         """
 
     def _get_breakdown_conditions(self) -> Optional[list[str]]:

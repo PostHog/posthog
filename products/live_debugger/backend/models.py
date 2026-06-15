@@ -161,13 +161,16 @@ class LiveDebuggerBreakpoint(UUIDModel):
                 stack_first = stack_trace_data[0] if stack_trace_data else {}
                 function_name = stack_first.get("function", "")
                 line_number = properties.get("$line_number")
+                parsed_line_number = (
+                    int(line_number) if isinstance(line_number, (int, str)) and line_number != "" else None
+                )
 
                 processed_results.append(
                     BreakpointHit(
                         id=str(row[0]),
                         timestamp=row[1].isoformat(),
                         breakpoint_id=str(properties.get("$breakpoint_id", "")),
-                        line_number=int(line_number) if line_number not in (None, "") else None,
+                        line_number=parsed_line_number,
                         filename=str(properties.get("$file_path", "")),
                         function_name=function_name,
                         locals=locals_data,

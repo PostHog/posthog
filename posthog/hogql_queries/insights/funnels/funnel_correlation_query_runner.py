@@ -1,8 +1,6 @@
 import dataclasses
 from typing import Any, Literal, Optional, TypedDict, cast
 
-from django.conf import settings
-
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -791,7 +789,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
     def _get_filtered_events_cte(self, extra_event_conditions: str = "") -> str:
         return f"""
-            SELECT {self._get_filtered_events_select_expr()}
+            SELECT *
             FROM events
             WHERE
                 team_id = {self.context.team.pk}
@@ -799,35 +797,6 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 AND toTimeZone(toDateTime(timestamp), 'UTC') < {{date_to}}
                 AND event NOT IN {{funnel_step_names}}
                 {extra_event_conditions}
-        """
-
-    def _get_filtered_events_select_expr(self) -> str:
-        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return "*"
-
-        return """
-            uuid,
-            event,
-            properties AS properties,
-            timestamp,
-            team_id,
-            distinct_id,
-            elements_chain,
-            created_at,
-            person_id,
-            person_mode,
-            $group_0,
-            $group_1,
-            $group_2,
-            $group_3,
-            $group_4,
-            $window_id,
-            $session_id,
-            $session_id_uuid,
-            elements_chain_href,
-            elements_chain_texts,
-            elements_chain_ids,
-            elements_chain_elements
         """
 
     def _get_events_right_join_query(self) -> str:

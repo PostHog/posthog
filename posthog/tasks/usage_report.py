@@ -638,15 +638,16 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    events_table = EVENTS_QUERY_TABLE()
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            f"""
+            """
             SELECT team_id, count(1) as count
-            FROM {EVENTS_QUERY_TABLE()}
+            FROM {events_table}
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
             GROUP BY team_id
-            """,
+            """.format(events_table=events_table),
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
@@ -974,16 +975,17 @@ def get_teams_with_feature_flag_requests_count_in_period(
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    events_table = EVENTS_QUERY_TABLE()
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            f"""
+            """
             SELECT distinct_id as team, sum(JSONExtractInt(properties, 'count')) as sum
-            FROM {EVENTS_QUERY_TABLE()}
+            FROM {events_table}
             WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
             AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
             GROUP BY team
-        """,
+        """.format(events_table=events_table),
             {
                 "begin": begin,
                 "end": end,
@@ -1010,22 +1012,23 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    events_table = EVENTS_QUERY_TABLE()
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            f"""
+            """
             SELECT
                 distinct_id as team,
                 arrayJoin(JSONExtractKeys(properties, 'sdk_breakdown')) as sdk,
                 sum(JSONExtractInt(JSONExtractRaw(properties, 'sdk_breakdown'), sdk)) as sum
-            FROM {EVENTS_QUERY_TABLE()}
+            FROM {events_table}
             WHERE team_id = %(team_to_query)s
               AND event = %(target_event)s
               AND timestamp >= %(begin)s AND timestamp < %(end)s
               AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
               AND JSONHas(properties, 'sdk_breakdown')
             GROUP BY team, sdk
-        """,
+        """.format(events_table=events_table),
             {
                 "begin": begin,
                 "end": end,
@@ -1101,14 +1104,15 @@ def get_teams_with_ai_event_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    events_table = EVENTS_QUERY_TABLE()
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
-            f"""
+            """
             SELECT team_id, COUNT() as count
-            FROM {EVENTS_QUERY_TABLE()}
+            FROM {events_table}
             WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
-        """,
+        """.format(events_table=events_table),
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
@@ -1215,11 +1219,12 @@ def _get_teams_with_ai_credits_for_products(
     if region_filter_params is None:
         return []
 
+    events_table = EVENTS_QUERY_TABLE()
     with tags_context(
         product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
         results = sync_execute(
-            f"""
+            """
             WITH trace_analysis AS (
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
@@ -1266,7 +1271,7 @@ def _get_teams_with_ai_credits_for_products(
                             )
                         ) AS tool_calls,
                         arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
-                    FROM {EVENTS_QUERY_TABLE()}
+                    FROM {events_table}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
@@ -1290,7 +1295,7 @@ def _get_teams_with_ai_credits_for_products(
                             5
                         ) AS cost_usd,
                         JSONExtractBool(properties, '$ai_billable') AS ai_billable
-                    FROM {EVENTS_QUERY_TABLE()}
+                    FROM {events_table}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
@@ -1324,7 +1329,7 @@ def _get_teams_with_ai_credits_for_products(
                 ai_credits > 0
             ORDER BY
                 ai_credits DESC
-            """,
+            """.format(events_table=events_table),
             {
                 "team_to_query": team_to_query,
                 "begin": begin,
