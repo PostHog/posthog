@@ -89,7 +89,13 @@ def main() -> int:
             print(f"ERROR: {label} backend {backend!r} unavailable: {err}", file=sys.stderr)
             return 1
 
-    query = sys.stdin.read()
+    # Read raw bytes and decode UTF-8 explicitly — the round trip must be
+    # byte-exact and locale-independent (shrinkray works on UTF-8 bytes too).
+    try:
+        query = sys.stdin.buffer.read().decode("utf-8")
+    except UnicodeDecodeError as e:
+        print(f"ERROR: stdin is not valid UTF-8: {e}", file=sys.stderr)
+        return 1
     if not query.strip():
         print("ERROR: no query on stdin", file=sys.stderr)
         return 1

@@ -41,7 +41,6 @@ from typing import Any, NoReturn
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import HogQLParserShadowMismatch, parse_expr, parse_program, parse_select
-from posthog.hogql.scripts import _shrink
 from posthog.hogql.visitor import clear_locations
 
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
@@ -341,12 +340,20 @@ def shrink_to_shape(
     The interestingness predicate is exactly "same divergence shape", so the
     reduction can't wander onto a different bug.
 
-    Returns the original query unchanged on any failure — a bad reduction
-    must never abort the grind, so this fallback is the last line of
-    defence."""
+    Returns the original query unchanged on any ordinary (`Exception`)
+    failure — a bad reduction must never abort the grind. A `BaseException`
+    (a shadow-mismatch `SystemExit`, a Ctrl-C) intentionally still
+    propagates."""
 
     def is_interesting(candidate: str) -> bool:
         return _shape_for(candidate, rule, oracle_backend, candidate_backend) == target_shape
+
+    # Imported lazily: shrinkray is the optional `hogql-parser-parity` group,
+    # and this module is on the import path of `test_diagnostic_common.py`,
+    # `parser_bench.py`, and `pbt_corpus.py` — none of which shrink. A
+    # module-level import would break their (CI-collected) import without the
+    # group. Only this shrink path requires it.
+    from posthog.hogql.scripts import _shrink  # noqa: PLC0415
 
     try:
         return _shrink.shrink(query, is_interesting)
@@ -621,18 +628,27 @@ def shrink_failures(
     # actually done — crashes are passed through verbatim, not shrunk.
     shrinkable_total = sum(1 for fa in failures if fa.kind in shrinkable)
     done = 0
-    for fa in failures:
-        if fa.kind in shrinkable:
-            done += 1
-            sys.stderr.write(f"\r  [shrink] {done}/{shrinkable_total} …")
-            sys.stderr.flush()
-            shape = _shape_for(fa.query, rule, oracle, candidate)
-            if shape is not None:
-                shrunk = shrink_to_shape(fa.query, rule, oracle, candidate, shape)
-                if shrunk != fa.query:
-                    out.append(dataclasses.replace(fa, query=shrunk, shrunk_from=len(fa.query)))
-                    continue
-        out.append(fa)
+    for i, fa in enumerate(failures):
+        try:
+            if fa.kind in shrinkable:
+                done += 1
+                sys.stderr.write(f"\r  [shrink] {done}/{shrinkable_total} …")
+                sys.stderr.flush()
+                shape = _shape_for(fa.query, rule, oracle, candidate)
+                if shape is not None:
+                    shrunk = shrink_to_shape(fa.query, rule, oracle, candidate, shape)
+                    if shrunk != fa.query:
+                        out.append(dataclasses.replace(fa, query=shrunk, shrunk_from=len(fa.query)))
+                        continue
+            out.append(fa)
+        except KeyboardInterrupt:
+            # Ctrl-C during the (slow) shrink phase must not discard the
+            # completed grind's failures — emit the current and remaining
+            # ones un-shrunk so the caller still writes a full dump.
+            sys.stderr.write(f"\r  [shrink] interrupted at {done}/{shrinkable_total} — keeping the rest un-shrunk\n")
+            out.append(fa)
+            out.extend(failures[i + 1 :])
+            return out
     sys.stderr.write("\r" + " " * 40 + "\r")
     return out
 
