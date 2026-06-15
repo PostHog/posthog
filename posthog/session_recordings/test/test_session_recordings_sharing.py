@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
@@ -140,6 +141,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         assert response.status_code == status.HTTP_200_OK, response.json()
 
 
+@pytest.mark.ee
 class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     def setUp(self):
         super().setUp()

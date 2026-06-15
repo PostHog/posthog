@@ -4,13 +4,12 @@ import hmac
 import json
 import hashlib
 import datetime
-from types import SimpleNamespace
 from typing import Any
 
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.template.loader import get_template
 from django.test import override_settings
@@ -1404,8 +1403,9 @@ class TestSharingConfigurationCanAccess(APIBaseTest):
         )
         share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
 
-        request = SimpleNamespace(method="PATCH", data={"enabled": True}, user=self.user)
-        view = SimpleNamespace(team=self.team)
+        request = Mock(method="PATCH", data={"enabled": True})
+        request.user = self.user
+        view = Mock(team=self.team)
 
         with self.assertRaises(PermissionDenied) as caught:
             check_can_edit_sharing_configuration(view, request, share)
