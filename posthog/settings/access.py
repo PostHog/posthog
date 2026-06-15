@@ -102,7 +102,8 @@ SANDBOX_JWT_PRIVATE_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_K
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
-# We provide a default as it is needed for hobby deployments
+# We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes
+# (used directly as a Fernet key) — enforced by check_encryption_salt_keys in encrypted_fields.py.
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP

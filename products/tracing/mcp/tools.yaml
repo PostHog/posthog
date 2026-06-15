@@ -157,6 +157,9 @@ tools:
         response:
             include:
                 - results
+    tracing-spans-duration-histogram-create:
+        operation: tracing_spans_duration_histogram_create
+        enabled: false
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
         enabled: false

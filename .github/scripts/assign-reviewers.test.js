@@ -6,6 +6,7 @@ const {
     isSubstantive,
     classifyOwners,
     buildReviewerComment,
+    fileMatchesPattern,
 } = require('./assign-reviewers')
 
 const file = (filename, additions = 0, deletions = 0) => ({
@@ -31,6 +32,29 @@ describe('assign-reviewers', () => {
             ['frontend/src/scenes/surveys/Survey.tsx', false],
         ])('%s -> %s', (filename, expected) => {
             expect(isExcludedFile(filename)).toBe(expected)
+        })
+    })
+
+    describe('fileMatchesPattern', () => {
+        test.each([
+            // a trailing slash is a directory boundary, not a name prefix
+            ['posthog/models/ai/utils.py', 'posthog/models/ai/', true],
+            ['posthog/models/ai/sub/deep.py', 'posthog/models/ai/', true],
+            ['posthog/models/ai_events/event.py', 'posthog/models/ai/', false],
+            ['posthog/models/person/util.py', 'posthog/models/person/', true],
+            ['posthog/models/person_overrides/x.py', 'posthog/models/person/', false],
+            ['posthog/models/personal_api_key.py', 'posthog/models/person/', false],
+            // /** is bounded to the directory, same as a trailing slash
+            ['posthog/models/ai/utils.py', 'posthog/models/ai/**', true],
+            ['posthog/models/ai_events/event.py', 'posthog/models/ai/**', false],
+            // a single star stays within one path segment
+            ['posthog/dags/sessions.py', 'posthog/dags/*.py', true],
+            ['posthog/dags/sub/sessions.py', 'posthog/dags/*.py', false],
+            // exact-file patterns match only that file
+            ['posthog/api/person.py', 'posthog/api/person.py', true],
+            ['posthog/api/person_other.py', 'posthog/api/person.py', false],
+        ])('%s vs %s', (filename, pattern, expected) => {
+            expect(fileMatchesPattern(filename, pattern)).toBe(expected)
         })
     })
 

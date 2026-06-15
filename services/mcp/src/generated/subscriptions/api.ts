@@ -8,41 +8,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
-export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
-    cursor: zod.string().optional().describe('The pagination cursor value.'),
-    status: zod
-        .enum(['completed', 'failed', 'skipped', 'starting'])
-        .optional()
-        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
-})
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -83,6 +48,8 @@ export const subscriptionsCreateBodyCountMin = -2147483648
 export const subscriptionsCreateBodyCountMax = 2147483647
 
 export const subscriptionsCreateBodyTitleMax = 100
+
+export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -170,6 +137,19 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
+            .string()
+            .max(subscriptionsCreateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -200,6 +180,8 @@ export const subscriptionsPartialUpdateBodyCountMin = -2147483648
 export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyTitleMax = 100
+
+export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -294,6 +276,19 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
+            .string()
+            .max(subscriptionsPartialUpdateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -316,4 +311,39 @@ export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
+export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    subscription_id: zod.number(),
+})
+
+export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
+    cursor: zod.string().optional().describe('The pagination cursor value.'),
+    status: zod
+        .enum(['completed', 'failed', 'skipped', 'starting'])
+        .optional()
+        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
+})
+
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
+export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    subscription_id: zod.number(),
 })

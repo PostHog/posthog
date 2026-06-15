@@ -69,13 +69,13 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -7506,11 +7506,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             trends_filters=TrendsFilter(hideWeekends=True),
         )
 
-        # Weekly buckets are preserved, only event counts change
-        assert len(response_hidden.results[0]["days"]) == len(response_normal.results[0]["days"])
-        # 10 total events, 5 on weekends (Jan 11 Sat, Jan 12 Sun x3, Jan 19 Sun)
-        assert response_normal.results[0]["count"] == 10.0
-        assert response_hidden.results[0]["count"] == 5.0
+        # Week buckets span weekends, so hiding weekends is a no-op here — buckets and counts
+        # are identical to the normal response (we never drop weekend events from aggregation).
+        assert response_hidden.results[0]["days"] == response_normal.results[0]["days"]
+        assert response_hidden.results[0]["data"] == response_normal.results[0]["data"]
+        assert response_hidden.results[0]["count"] == response_normal.results[0]["count"] == 10.0
 
     def test_hide_weekends_with_compare(self):
         self._create_test_events()
@@ -7561,6 +7561,57 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert formula_result["action"] is None
         assert len(formula_result["data"]) == len(formula_result["days"])
         assert formula_result["count"] == sum(formula_result["data"])
+
+    @parameterized.expand(
+        [
+            # Weekly active users: each weekday's sliding-window value must still count weekend
+            # events, so the weekday values match the non-hidden query (would drop under the bug).
+            (
+                "weekly_active",
+                "2020-01-09",
+                "2020-01-20",
+                [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                None,
+                [
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-20",
+                ],
+                [1, 1, 3, 3, 4, 4, 4, 2],
+            ),
+            # Cumulative: the running total keeps weekend events folded in, so Monday 2020-01-13
+            # is already 6 (would be lower if weekend events were filtered out of the aggregation).
+            (
+                "cumulative",
+                "2020-01-09",
+                "2020-01-19",
+                [EventsNode(event="$pageview")],
+                ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                ["2020-01-09", "2020-01-10", "2020-01-13", "2020-01-14", "2020-01-15", "2020-01-16", "2020-01-17"],
+                [1, 1, 6, 6, 8, 8, 9],
+            ),
+        ]
+    )
+    def test_hide_weekends_does_not_corrupt_windowed_math(
+        self, _name, date_from, date_to, series, display, expected_days, expected_data
+    ):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            date_from,
+            date_to,
+            IntervalType.DAY,
+            series,
+            trends_filters=TrendsFilter(hideWeekends=True, display=display),
+        )
+
+        assert response.results[0]["days"] == expected_days
+        assert response.results[0]["data"] == expected_data
 
     @parameterized.expand(
         [

@@ -361,8 +361,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     children: 'Yes, disconnect',
                     status: 'danger',
                     onClick: async () => {
-                        await api.integrations.delete(id)
-                        actions.loadIntegrations()
+                        try {
+                            await api.integrations.delete(id)
+                            actions.loadIntegrations()
+                        } catch (e) {
+                            toastApiError(e)
+                        }
                     },
                 },
                 secondaryButton: {

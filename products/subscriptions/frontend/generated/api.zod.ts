@@ -112,8 +112,19 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
+            .string()
+            .max(subscriptionsCreateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -220,8 +231,19 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsUpdateBodySummaryPromptGuideMax).optional(),
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
+            .string()
+            .max(subscriptionsUpdateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -335,7 +357,18 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
+            .string()
+            .max(subscriptionsPartialUpdateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')

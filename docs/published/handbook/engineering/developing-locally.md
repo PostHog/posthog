@@ -33,7 +33,7 @@ These components rely on a few external services:
 
 - ClickHouse – for storing big data (events, persons – analytics queries)
 - Kafka – for queuing events for ingestion
-- MinIO – for storing files (session recordings, file exports)
+- SeaweedFS – S3-compatible object storage for files (session recordings, file exports)
 - PostgreSQL – for storing ordinary data (users, projects, saved insights)
 - Redis – for caching and inter-service communication
 - Zookeeper – for coordinating Kafka and ClickHouse clusters

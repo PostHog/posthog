@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -54,7 +55,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Store id",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="my-store-id",
+                        placeholder="my-store",
+                        caption=(
+                            "Your store subdomain — the `my-store` in `my-store.myshopify.com`. "
+                            "Pasting the full store URL works too."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -75,7 +80,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(

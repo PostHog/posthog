@@ -56,7 +56,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
     """
     Returns counts of all bulk-delete models for teams in this organization.
     """
-    from posthog.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     team_ids = list(organization.teams.values_list("id", flat=True))
     if not team_ids:
@@ -106,7 +106,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
             {
                 "name": "Cohort People",
                 "count": f"Error: {e}",
-                "model": "posthog.models.cohort.CohortPeople",
+                "model": "products.cohorts.backend.models.CohortPeople",
             }
         )
 

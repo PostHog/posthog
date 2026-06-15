@@ -36,8 +36,8 @@ export type {
     BoxPlotProps,
     BoxPlotTooltipContext,
 } from './charts/BoxPlot/BoxPlot'
-export { computeBoxBand, computeBoxRect, computeSeriesBoxes } from './charts/BoxPlot/computeBoxLayout'
-export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
+export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
@@ -87,6 +87,8 @@ export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
+// Shared tooltip surface — reuse to build custom tooltips with the quill look
+export { TooltipSurface, TooltipSwatch, TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './overlays/TooltipSurface'
 
 // Optional overlays
 export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'
@@ -100,7 +102,7 @@ export type {
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
 export { ValueLabels } from './overlays/ValueLabels'
-export type { ValueLabelsProps } from './overlays/ValueLabels'
+export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
 export type { AxisTitlesProps } from './overlays/AxisTitles'
 

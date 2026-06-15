@@ -38,14 +38,23 @@ tools:
 
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
             rejected.
+
+            For insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting
+            `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to
+            have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the
+            create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.
+
+            IMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the
+            AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled:
+            true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the
+            summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt
+            subscriptions are themselves AI-generated, so this does not apply to them.)
         exclude_params:
             - deleted
             - next_delivery_date
             - resource_name
             - insight_short_id
             - invite_message
-            - summary_enabled
-            - summary_prompt_guide
     subscriptions-delete:
         operation: subscriptions_destroy
         enabled: true
@@ -147,14 +156,16 @@ tools:
             the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a
             prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete
             — `deleted` is not settable here.
+
+            For insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer
+            it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
+            processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
         exclude_params:
             - deleted
             - next_delivery_date
             - resource_name
             - insight_short_id
             - invite_message
-            - summary_enabled
-            - summary_prompt_guide
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

@@ -78,6 +78,7 @@ export function WebOverview(props: {
                 samplingRate={samplingRate}
                 usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
                 usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+                onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
                 labelFromKey={labelFromKey}
             />
         )
@@ -91,6 +92,7 @@ export function WebOverview(props: {
             samplingRate={samplingRate}
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
             usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+            onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
             labelFromKey={labelFromKey}
         />
     )

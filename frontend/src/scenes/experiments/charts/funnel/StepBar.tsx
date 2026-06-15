@@ -145,7 +145,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     // Get sampled sessions from the experiment result
     let sessionData: SessionData[] | undefined
     if (experimentResult && variantKey) {
-        if (variantKey === 'control') {
+        if (variantKey === experimentResult.baseline.key) {
             sessionData = experimentResult.baseline.step_sessions?.[stepIndex]
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)

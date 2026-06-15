@@ -29,12 +29,15 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# After this many seconds of silence carrying the null-cost usage_update fingerprint, accept
-# the last message instead of polling to MAX_POLL_SECONDS and failing a run that completed.
-# Set to the relay's continuous-silence ceiling (relay_sandbox_events.py: MAX_RECONNECT_ATTEMPTS
-# * SSE_READ_TIMEOUT_SECONDS = 5 * 300) so we never cut off a turn the relay still treats as
-# active; past that the relay has given up and the run is terminal. Keep in sync if those change.
-STALE_TURN_SALVAGE_SECONDS = 1500
+# Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
+# (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
+# is the real safety gate; this floor only rules out salvaging a turn caught mid-stream. It must sit
+# well below the 1800s poll budget: a floor near the budget would only salvage turns that fell silent
+# in the first few minutes and reject a turn that does real work late and *then* drops end_turn — the
+# exact case this path exists to recover. The relay's true continuous-silence ceiling is
+# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully observed inside the 1800s budget; keying
+# salvage off a real terminal signal instead of the poll deadline stays the layer-2 follow-up.
+STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -126,8 +129,17 @@ async def poll_for_turn(
     verbose: bool = False,
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
+    max_poll_seconds: int | None = None,
 ) -> tuple[str, str | None, int, int]:
-    """Poll S3 logs until the agent finishes a turn."""
+    """Poll S3 logs until the agent finishes a turn.
+
+    `max_poll_seconds` overrides the default poll budget for callers whose activity
+    timeout is shorter than `MAX_POLL_SECONDS` — the dropped-finalization salvage only
+    runs once this budget is exhausted, so a caller must keep it below its own activity
+    `start_to_close_timeout` or the salvage never gets a chance to fire (the Signals
+    scout passes its 15-minute per-run budget for exactly this reason).
+    """
+    poll_budget = MAX_POLL_SECONDS if max_poll_seconds is None else max_poll_seconds
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
@@ -139,7 +151,7 @@ async def poll_for_turn(
     # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
-    while elapsed < MAX_POLL_SECONDS:
+    while elapsed < poll_budget:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
         # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
@@ -205,25 +217,9 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
-        # Salvage only the dropped-finalization case: we have the agent's final message, the
-        # log tail is the null-cost usage_update fingerprint, and it's been silent long enough
-        # to be conclusive. Requiring the tail (not just any cached text) keeps a mid-turn
-        # tool/model gap from being cut off early. See STALE_TURN_SALVAGE_SECONDS.
-        if (
-            latest_assistant_text is not None
-            and stale_seconds >= STALE_TURN_SALVAGE_SECONDS
-            and _ended_on_pending_finalization(full_log)
-        ):
-            logger.warning(
-                "custom_prompt - poll_for_turn: end_turn missing but turn-accounting tail present "
-                "and log stale for %ds — salvaging last message, run=%s total_lines=%d",
-                stale_seconds,
-                task_run.id,
-                total_lines,
-            )
-            return latest_assistant_text, full_log, total_lines, printed_lines
-        # Keep the cursor monotonic — S3 eventual-consistency can briefly return
-        # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
+        # Keep the cursor monotonic — S3 eventual-consistency can briefly return fewer lines than the
+        # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
+        # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
         skip_lines = max(skip_lines, total_lines)
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
@@ -250,7 +246,139 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
+    # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
+    # relay-detected crash) — drain it; otherwise try to salvage below.
+    refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    if refreshed.status in {
+        TaskRun.Status.COMPLETED,
+        TaskRun.Status.FAILED,
+        TaskRun.Status.CANCELLED,
+    }:
+        logger.warning(
+            "custom_prompt - poll_for_turn: terminal status=%s at poll timeout, run=%s, elapsed=%ds",
+            refreshed.status,
+            task_run.id,
+            elapsed,
+        )
+        return await _drain_final_log(
+            task_run,
+            refreshed_status=refreshed.status,
+            error_message=refreshed.error_message,
+            printed_lines=printed_lines,
+            original_skip_lines=original_skip_lines,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+    # Otherwise salvage a dropped-finalization turn, but only after enough continuous silence.
+    stale_seconds = elapsed - last_new_lines_at
+    if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+        salvaged = await _salvage_dropped_finalization(
+            task_run,
+            printed_lines=printed_lines,
+            original_skip_lines=original_skip_lines,
+            max_total_lines_seen=skip_lines,
+            elapsed=elapsed,
+            stale_seconds=stale_seconds,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+        if salvaged is not None:
+            return salvaged
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+
+
+async def _read_turn_log_with_retry(
+    task_run, *, skip_lines: int, context: str
+) -> tuple[bool, str | None, str | None, int, bool]:
+    """Read the turn log via _check_logs, retrying transient ObjectStorageError up to
+    MAX_CONSECUTIVE_STORAGE_ERRORS times (one POLL_INTERVAL_SECONDS apart). Re-raises the error
+    if every attempt fails, so a single S3 blip doesn't fail an otherwise-recoverable turn.
+    `context` names the caller in the warning log. Shared by the terminal drain and the salvage
+    path so the bounded-retry loop lives in one place."""
+    for attempt in range(1, MAX_CONSECUTIVE_STORAGE_ERRORS + 1):
+        try:
+            return await sync_to_async(
+                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
+                _check_logs,
+                thread_sensitive=False,
+            )(task_run, skip_lines=skip_lines)
+        except ObjectStorageError:
+            logger.warning(
+                "custom_prompt - %s: storage error on final log read (%d/%d), run=%s",
+                context,
+                attempt,
+                MAX_CONSECUTIVE_STORAGE_ERRORS,
+                task_run.id,
+                exc_info=True,
+            )
+            if attempt >= MAX_CONSECUTIVE_STORAGE_ERRORS:
+                raise
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    raise AssertionError("unreachable: loop returns on success or raises on exhaustion")  # pragma: no cover
+
+
+async def _salvage_dropped_finalization(
+    task_run,
+    *,
+    printed_lines: int,
+    original_skip_lines: int,
+    max_total_lines_seen: int,
+    elapsed: int,
+    stale_seconds: int,
+    verbose: bool,
+    output_fn: OutputFn,
+) -> tuple[str, str | None, int, int] | None:
+    """Recover a turn whose closing end_turn was dropped (final message + null-cost usage_update,
+    then silence). Re-reads from the start-of-turn cursor so a chunked response is recovered in full.
+
+    Classified by the reread's tail:
+    - the real end_turn present -> the turn completed (the close just landed late); return it;
+    - the null-cost finalization fingerprint -> dropped-finalization; salvage the last message — but
+      only if nothing new arrived since polling beyond that single accounting line. A null-cost
+      usage_update is also emitted *between* chunks of an active turn, so fresh activity that landed
+      after the final poll has had no silence window and may still be live; decline it;
+    - anything else (a tool call / bare message / error tail) -> still live or failed; decline.
+
+    Declining falls back to the caller's timeout failure. A storage outage on the reread propagates
+    (like the poll loop and terminal drain) rather than masquerading as a timeout."""
+    finished, last_message, full_log, total_lines, _ = await _read_turn_log_with_retry(
+        task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
+    )
+    if finished and last_message is not None:
+        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+        logger.warning(
+            "custom_prompt - salvage_dropped_finalization: end_turn recovered on reread at poll timeout "
+            "(%ds) — completing, run=%s total_lines=%d",
+            elapsed,
+            task_run.id,
+            total_lines,
+        )
+        return last_message, full_log, total_lines, printed_lines
+    if last_message is None or not _ended_on_pending_finalization(full_log):
+        return None
+    # The fingerprint also matches a mid-turn pause between chunks. The log is append-only, so the only
+    # benign growth since polling is the finalization usage_update itself landing late (+1 line beyond
+    # the high-water mark). Any more than that — a new message chunk, a tool call, etc. — is fresh
+    # activity that has had no silence window and could still be live, so decline rather than truncate.
+    if total_lines - max_total_lines_seen > 1:
+        logger.warning(
+            "custom_prompt - salvage_dropped_finalization: reread grew %d line(s) past the high-water "
+            "mark (%d) — fresh activity, no silence window; declining salvage, run=%s",
+            total_lines - max_total_lines_seen,
+            max_total_lines_seen,
+            task_run.id,
+        )
+        return None
+    printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    logger.warning(
+        "custom_prompt - salvage_dropped_finalization: end_turn missing, turn-accounting tail present, "
+        "stale %ds at poll timeout (%ds) — salvaging last message, run=%s total_lines=%d",
+        stale_seconds,
+        elapsed,
+        task_run.id,
+        total_lines,
+    )
+    return last_message, full_log, total_lines, printed_lines
 
 
 async def _drain_final_log(
@@ -274,28 +402,9 @@ async def _drain_final_log(
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
-    final_message = None
-    final_log = None
-    final_lines = 0
-    final_empty_end_turn = False
-    for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
-        try:
-            _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(
-                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
-                _check_logs,
-                thread_sensitive=False,
-            )(task_run, skip_lines=original_skip_lines)
-            break
-        except ObjectStorageError:
-            logger.warning(
-                "custom_prompt - drain_final_log: storage error on final log read (%d/%d)",
-                attempt + 1,
-                MAX_CONSECUTIVE_STORAGE_ERRORS,
-                exc_info=True,
-            )
-            if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
-                raise
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    _, final_message, final_log, final_lines, final_empty_end_turn = await _read_turn_log_with_retry(
+        task_run, skip_lines=original_skip_lines, context="drain_final_log"
+    )
     printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_message:
         return final_message, final_log, final_lines, printed_lines

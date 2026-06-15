@@ -70,7 +70,7 @@ class BingAdsClient:
 
         return self._customer_id
 
-    def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]], None, None]:
+    def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]]]:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
 
@@ -150,7 +150,7 @@ class BingAdsClient:
         account_id: int,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
-    ) -> Generator[list[dict[str, Any]], None, None]:
+    ) -> Generator[list[dict[str, Any]]]:
         customer_id = self.get_customer_id()
 
         if resource == BingAdsResource.CAMPAIGNS:

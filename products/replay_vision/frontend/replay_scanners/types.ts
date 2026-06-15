@@ -157,10 +157,6 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
     },
 ]
 
-export type EditorTab = 'observations' | 'configuration'
-
-export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
-
 export interface MonitorScannerConfig {
     prompt: string
     allow_inconclusive?: boolean
@@ -200,6 +196,7 @@ export interface BaseReplayScanner {
     model: string
     emits_signals: boolean
     scanner_version: number
+    estimated_monthly_observations?: number | null
     last_swept_at: string
     created_at: string
     updated_at: string

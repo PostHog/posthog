@@ -29,8 +29,10 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "librdkafka-dev=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.19-1~deb12u2" \
-    "libssl3=3.0.19-1~deb12u2" \
+    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # point releases out of the security archive, which breaks exact pins on uncached builds.
+    "libssl-dev=3.0.*" \
+    "libssl3=3.0.*" \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -100,7 +102,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "libssl3=3.0.19-1~deb12u2" \
+    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # point releases out of the security archive, which breaks exact pins on uncached builds.
+    "libssl3=3.0.*" \
     "curl" \
     "gettext-base" \
     "libjemalloc2" \

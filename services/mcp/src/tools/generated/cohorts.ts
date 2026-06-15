@@ -15,7 +15,7 @@ import {
 } from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
@@ -177,7 +177,15 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUr
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            const filtered = omitResponseFields(result, [
+                'filters.properties.values.*.values.*.bytecode',
+                'filters.properties.values.*.values.*.bytecode_error',
+                'filters.properties.values.*.values.*.conditionHash',
+                'filters.properties.values.*.bytecode',
+                'filters.properties.values.*.bytecode_error',
+                'filters.properties.values.*.conditionHash',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
         },
     })
 

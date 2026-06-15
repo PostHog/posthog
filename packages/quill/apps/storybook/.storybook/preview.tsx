@@ -48,6 +48,15 @@ const preview: Preview = {
         docs: {
             container: ThemedDocsContainer,
         },
+        options: {
+            // Deterministic sidebar: without this, order is file-discovery
+            // order, and the dev server appends newly created story files to
+            // the end of the live index until a restart.
+            storySort: {
+                order: ['Tokens', 'Examples', 'Primitives', 'Components'],
+                method: 'alphabetical',
+            },
+        },
     },
     decorators: [
         // Hooks must run at the decorator's top level — Storybook's preview

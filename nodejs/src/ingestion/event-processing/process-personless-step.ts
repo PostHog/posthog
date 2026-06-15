@@ -4,7 +4,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { Person, Team } from '../../types'
 import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { PipelineResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -14,6 +14,7 @@ export type ProcessPersonlessInput = {
     timestamp: DateTime
     processPerson: boolean
     forceDisablePersonProcessing: boolean
+    personsStoreForBatch: PersonsStoreForBatch
 }
 
 export type ProcessPersonlessOutput = {
@@ -29,9 +30,10 @@ export type ProcessPersonlessOutput = {
  * 3. Calculates force_upgrade flag
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
-export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
-    personsStore: PersonsStore
-): ProcessingStep<TInput, TInput & ProcessPersonlessOutput> {
+export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(): ProcessingStep<
+    TInput,
+    TInput & ProcessPersonlessOutput
+> {
     return async function processPersonlessStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
@@ -39,7 +41,7 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
             return ok(input)
         }
 
-        const { normalizedEvent, team, timestamp, forceDisablePersonProcessing } = input
+        const { normalizedEvent, team, timestamp, forceDisablePersonProcessing, personsStoreForBatch } = input
         const distinctId = normalizedEvent.distinct_id
 
         if (forceDisablePersonProcessing) {
@@ -47,19 +49,19 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
         }
 
         // Check if a real person exists for this distinct_id (from prefetch cache)
-        let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
+        let existingPerson = await personsStoreForBatch.fetchForChecking(team.id, distinctId)
 
         if (!existingPerson) {
             // Check if batch insert found this distinct_id was merged
             // The batch step (processPersonlessDistinctIdsBatchStep) already did the INSERT
             // and stored is_merged=true results in the personsStore cache
-            const personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
+            const personIsMerged = personsStoreForBatch.getPersonlessBatchResult(team.id, distinctId)
 
             if (personIsMerged) {
                 // If is_merged came back true, it means the posthog_personlessdistinctid
                 // was updated by a merge. We need to fetch the person again (using the leader)
                 // so that we properly associate this event with the Person we got merged into.
-                existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
+                existingPerson = await personsStoreForBatch.fetchForUpdate(team.id, distinctId)
             }
         }
 
