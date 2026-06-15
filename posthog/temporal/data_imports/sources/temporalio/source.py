@@ -34,6 +34,10 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
         # rustls surfaces mTLS rejections as TLS alert names inside the tonic transport
         # error. These are credential problems — retrying can never recover.
         return {
+            # The Temporal SDK raises this when the host is blank, so `f"{host}:{port}"`
+            # has no host portion. That's a misconfigured source, not a transient failure —
+            # retrying can never recover until the host is set.
+            "invalid target URL: empty host": "This source has no host configured. Update the source with the host of your Temporal namespace's gRPC endpoint.",
             "received fatal alert: UnknownCA": "Temporal rejected this source's client certificate because it is not signed by a certificate authority the namespace trusts. This usually means the namespace's CA certificates were rotated — update the source with a client certificate and key signed by the current CA.",
             "received fatal alert: CertificateExpired": "This source's client certificate has expired. Update the source with a renewed client certificate and key.",
             "received fatal alert: CertificateRevoked": "This source's client certificate has been revoked. Update the source with a new client certificate and key.",
