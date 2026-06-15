@@ -142,6 +142,20 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
+    def test_secret_key_in_child_env_attributes_to_parent(self):
+        # An environment is a child of its project; a key minted there bills the
+        # parent (canonical) project, carrying the parent's id and api_token.
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        token = generate_random_token_secret()
+        key = ProjectSecretAPIKey.objects.create(
+            label="child key", team=child, secure_value=hash_key_value(token), scopes=[GATEWAY_SCOPE]
+        )
+        project_gateway_credential(key)
+        blob = self._read_blob(credential_hash(key))
+        assert blob is not None
+        self.assertEqual(blob["team_id"], self.team.id)
+        self.assertEqual(blob["project_token"], self.team.api_token)
+
 
 class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
     @parameterized.expand(

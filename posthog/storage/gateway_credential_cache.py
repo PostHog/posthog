@@ -77,6 +77,7 @@ class _RefreshMemo:
         self._memberships: dict[tuple[Any, Any], Any] = {}
         self._access: dict[tuple[Any, Any], bool] = {}
         self._teams: dict[Any, Team | None] = {}
+        self._org_roots: dict[Any, int | None] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -94,6 +95,11 @@ class _RefreshMemo:
         if team_id not in self._teams:
             self._teams[team_id] = load()
         return self._teams[team_id]
+
+    def org_root(self, organization_id: Any, load: Callable[[], int | None]) -> int | None:
+        if organization_id not in self._org_roots:
+            self._org_roots[organization_id] = load()
+        return self._org_roots[organization_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -149,9 +155,11 @@ def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = N
     """
     if isinstance(credential, ProjectSecretAPIKey):
         team_id: int | None = credential.team.parent_team_id or credential.team_id
+    elif credential.application is not None:
+        org_id = credential.application.organization_id
+        team_id = memo.org_root(org_id, lambda: _org_root_team_id(org_id)) if memo else _org_root_team_id(org_id)
     else:
-        application = credential.application
-        team_id = _org_root_team_id(application.organization_id) if application is not None else None
+        team_id = None
     if team_id is None:
         return None
     return _team_by_id(team_id, memo)
