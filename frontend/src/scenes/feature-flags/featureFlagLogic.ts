@@ -733,7 +733,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ...state,
                         filters: {
                             ...filters,
-                            // This action carries release-condition changes; payload edits live in form state.
+                            // Preserve current payloads: this action only carries release-condition changes;
+                            // the child component's payloads snapshot is always stale.
                             payloads: state.filters.payloads,
                         },
                     }
