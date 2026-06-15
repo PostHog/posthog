@@ -200,8 +200,23 @@ jobs:
 
                   # Filter the diff to source files jest can resolve. Any code under
                   # frontend/, products/, common/, ee/frontend/ — anything else (docs,
-                  # workflows, backend) doesn't reach the jest module graph.
-                  CHANGED_FILES=$(grep -E '^(frontend/|products/|common/|ee/frontend/)' /tmp/changed.txt | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' | tr '\n' ' ' | sed 's/ $//')
+                  # workflows, backend) doesn't reach the jest module graph. Convert
+                  # repo-root paths to paths relative to the @posthog/frontend package
+                  # cwd because `pnpm --filter=@posthog/frontend exec` runs from there.
+                  CHANGED_FILES=$(
+                      awk '
+                          /\.(ts|tsx|js|jsx|mjs|cjs)$/ {
+                              if ($0 ~ /^frontend\//) {
+                                  sub(/^frontend\//, "", $0)
+                                  print
+                                  next
+                              }
+                              if ($0 ~ /^(products|common|ee\/frontend)\//) {
+                                  print "../" $0
+                              }
+                          }
+                      ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
+                  )
 
                   if [[ -z "$CHANGED_FILES" ]]; then
                       # No frontend source changes (e.g. PR only edits backend or docs)

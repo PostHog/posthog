@@ -32,10 +32,10 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
-import { supportsDirectQuery } from './schemaGroupingUtils'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
+import { supportsDirectQuery } from './schemaGroupingUtils'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
