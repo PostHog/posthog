@@ -860,20 +860,34 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
-        method,
-        headers: buildHeaders(accessToken),
-        ...(body !== undefined ? { body } : {}),
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        didRetry = true
-        return await fetch(fullUrl, {
+    let response: Response
+    try {
+        response = await fetch(fullUrl, {
             method,
-            headers: buildHeaders(newAccessToken),
+            headers: buildHeaders(accessToken),
             ...(body !== undefined ? { body } : {}),
         })
-    })
+
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            didRetry = true
+            return await fetch(fullUrl, {
+                method,
+                headers: buildHeaders(newAccessToken),
+                ...(body !== undefined ? { body } : {}),
+            })
+        })
+    } catch (error) {
+        // The browser rejects fetch at the network layer ("TypeError: Failed to fetch") when the
+        // request never completes — offline, CORS, an ad-blocker dropping it, or an aborted
+        // navigation. None of these are actionable, so return a synthetic 503 (matching the stubbed
+        // Response shape used above) and let callers soft-fail through their existing 5xx handling
+        // rather than letting an uncaught rejection surface as an error.
+        toolbarLogger.warn('fetch', 'Network request failed, returning synthetic 503', {
+            url: fullUrl,
+            error: error instanceof Error ? error.message : String(error),
+        })
+        return new Response(JSON.stringify({ results: [], detail: 'network_error' }), { status: 503 })
+    }
 
     const durationMs = Math.round(performance.now() - startTime)
     const { pathname } = combineUrl(url)
