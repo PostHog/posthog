@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -48,9 +48,7 @@ export interface GroupedSentimentCard {
     traceCount: number
 }
 
-export interface AIObservabilitySentimentLogicProps {
-    tabId?: string
-}
+export type AIObservabilitySentimentLogicProps = Record<string, never>
 
 const GENERATIONS_PAGE_SIZE = 200
 /** Stop auto-loading once we have at least this many visible cards */
@@ -198,11 +196,10 @@ async function fetchGenerations(values: GenerationsQueryValues, cursor: string |
 
 export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilitySentimentLogic']),
-    key((props: AIObservabilitySentimentLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilitySentimentLogicProps),
-    connect((props: AIObservabilitySentimentLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters', 'activeTab'],
             groupsModel,
             ['groupsTaxonomicTypes'],

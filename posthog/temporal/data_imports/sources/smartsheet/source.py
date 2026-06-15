@@ -47,7 +47,6 @@ You can generate a personal access token under **Personal Settings → API Acces
             iconPath="/static/services/smartsheet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/smartsheet",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

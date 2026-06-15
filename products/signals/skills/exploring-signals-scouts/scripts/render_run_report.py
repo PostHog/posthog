@@ -294,8 +294,6 @@ def render(run: dict, timeline: list[dict] | None, scratchpad: Any, posture: dic
     if art:
         L.append(HEDGEHOG.strip("\n"))
         L.append("")
-        L.append(" an empty close-out is a healthy scout outcome")
-        L.append("")
     render_header(L, run, posture, base_url)
 
     if mode != "summary" and timeline:

@@ -403,7 +403,6 @@ export const NewSurveyWithHTMLQuestionDescription: Story = {
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: Story = {
-    tags: ['test-skip-webkit'], // webkit crashes on Playwright 1.60.0 (Target crashed)
     render: () => {
         useDelayedOnMountEffect(() => {
             surveyLogic({ id: 'new' }).mount()

@@ -1,9 +1,11 @@
+import os
 from contextlib import contextmanager
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -590,8 +592,37 @@ class TestLaunchLocalBrowser(SimpleTestCase):
         self, _name: str, setting_value: bool | None, should_include: bool
     ) -> None:
         overrides = {} if setting_value is None else {"HEATMAP_CHROMIUM_NO_SANDBOX": setting_value}
-        with override_settings(**overrides):
+        with override_settings(**overrides), patch.dict(os.environ):
+            os.environ.pop("CHROME_BIN", None)  # isolate from the runner's environment
             p = MagicMock()
             _launch_local_browser(p)
             launch_args = p.chromium.launch.call_args.kwargs["args"]
             assert ("--no-sandbox" in launch_args) is should_include
+
+    @parameterized.expand(
+        [
+            ("unset", None),
+            ("empty", ""),
+        ]
+    )
+    def test_no_executable_path_without_chrome_bin(self, _name: str, value: str | None) -> None:
+        with patch.dict(os.environ):
+            os.environ.pop("CHROME_BIN", None)
+            if value is not None:
+                os.environ["CHROME_BIN"] = value
+            p = MagicMock()
+            _launch_local_browser(p)
+            assert p.chromium.launch.call_args.kwargs["executable_path"] is None
+
+    def test_uses_chrome_bin_when_it_points_at_an_existing_path(self) -> None:
+        with patch.dict(os.environ, {"CHROME_BIN": __file__}):
+            p = MagicMock()
+            _launch_local_browser(p)
+            assert p.chromium.launch.call_args.kwargs["executable_path"] == __file__
+
+    def test_raises_config_error_when_chrome_bin_points_at_missing_path(self) -> None:
+        with patch.dict(os.environ, {"CHROME_BIN": "/nonexistent/chromium"}):
+            p = MagicMock()
+            with self.assertRaises(ImproperlyConfigured):
+                _launch_local_browser(p)
+            p.chromium.launch.assert_not_called()

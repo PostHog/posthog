@@ -270,6 +270,58 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["run"]["approved"])
 
+    @parameterized.expand(
+        [
+            ("add_images_true", {"approve_all": True, "add_images_to_comment_on_pr": True}, True),
+            ("add_images_false", {"approve_all": True, "add_images_to_comment_on_pr": False}, False),
+            ("add_images_default", {"approve_all": True}, False),
+        ]
+    )
+    def test_finalize_run_always_comments_and_forwards_add_images(
+        self, _name: str, body: dict, expect_add_images: bool
+    ):
+        logic.get_or_create_artifact(
+            repo_id=self.vr_project.id,
+            content_hash="new_hash",
+            storage_path="visual_review/new_hash",
+        )
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
+            team_id=self.team.id,
+        )
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
+
+        with (
+            patch("products.visual_review.backend.logic._post_commit_status"),
+            patch("products.visual_review.backend.logic.transaction.on_commit", side_effect=lambda fn, *a, **k: fn()),
+            patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay") as delay,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/finalize/",
+                body,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The comment is always dispatched; the flag only forwards whether to embed images.
+        self.assertTrue(delay.called)
+        self.assertEqual(delay.call_args.args[2], expect_add_images)
+
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         logic.get_or_create_artifact(
             repo_id=self.vr_project.id,

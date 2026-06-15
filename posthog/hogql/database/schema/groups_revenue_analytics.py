@@ -1,7 +1,5 @@
 from collections import defaultdict
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -17,6 +15,7 @@ from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind,
 from posthog.hogql.errors import ResolutionError
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]

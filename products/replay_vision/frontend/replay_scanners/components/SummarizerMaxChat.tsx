@@ -36,7 +36,13 @@ export function SummarizerMaxChat({ scannerId }: { scannerId: string }): JSX.Ele
                     Ask PostHog AI to find themes and patterns across this scanner's session summaries.
                 </p>
             </div>
-            <LemonButton type="primary" icon={<IconAI />} onClick={() => openMax()} className="shrink-0">
+            <LemonButton
+                type="primary"
+                icon={<IconAI />}
+                onClick={() => openMax()}
+                className="shrink-0"
+                data-attr="vision-scanner-ask-ai"
+            >
                 Ask PostHog AI
             </LemonButton>
         </div>

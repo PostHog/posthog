@@ -9,7 +9,7 @@
  */
 /**
  * * `api_key` - API Key
- * `oauth` - OAuth
+ * * `oauth` - OAuth
  */
 export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
 
@@ -59,8 +59,8 @@ export interface PatchedMCPServerInstallationUpdateApi {
 
 /**
  * * `approved` - Approved
- * `needs_approval` - Needs approval
- * `do_not_use` - Do not use
+ * * `needs_approval` - Needs approval
+ * * `do_not_use` - Do not use
  */
 export type MCPServerInstallationToolApprovalStateEnumApi =
     (typeof MCPServerInstallationToolApprovalStateEnumApi)[keyof typeof MCPServerInstallationToolApprovalStateEnumApi]
@@ -97,8 +97,8 @@ export interface PaginatedMCPServerInstallationToolListApi {
 
 /**
  * * `approved` - approved
- * `needs_approval` - needs_approval
- * `do_not_use` - do_not_use
+ * * `needs_approval` - needs_approval
+ * * `do_not_use` - do_not_use
  */
 export type ToolApprovalUpdateApprovalStateEnumApi =
     (typeof ToolApprovalUpdateApprovalStateEnumApi)[keyof typeof ToolApprovalUpdateApprovalStateEnumApi]
@@ -115,7 +115,7 @@ export interface PatchedToolApprovalUpdateApi {
 
 /**
  * * `api_key` - api_key
- * `oauth` - oauth
+ * * `oauth` - oauth
  */
 export type InstallCustomAuthTypeEnumApi =
     (typeof InstallCustomAuthTypeEnumApi)[keyof typeof InstallCustomAuthTypeEnumApi]
@@ -127,7 +127,7 @@ export const InstallCustomAuthTypeEnumApi = {
 
 /**
  * * `posthog` - posthog
- * `posthog-code` - posthog-code
+ * * `posthog-code` - posthog-code
  */
 export type InstallSourceEnumApi = (typeof InstallSourceEnumApi)[keyof typeof InstallSourceEnumApi]
 
@@ -163,11 +163,11 @@ export interface InstallTemplateApi {
 
 /**
  * * `business` - Business Operations
- * `data` - Data & Analytics
- * `design` - Design & Content
- * `dev` - Developer Tools & APIs
- * `infra` - Infrastructure
- * `productivity` - Productivity & Collaboration
+ * * `data` - Data & Analytics
+ * * `design` - Design & Content
+ * * `dev` - Developer Tools & APIs
+ * * `infra` - Infrastructure
+ * * `productivity` - Productivity & Collaboration
  */
 export type MCPServerTemplateCategoryEnumApi =
     (typeof MCPServerTemplateCategoryEnumApi)[keyof typeof MCPServerTemplateCategoryEnumApi]
@@ -219,7 +219,7 @@ export type McpServerInstallationsListParams = {
 export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
      * * `posthog` - posthog
-     * `posthog-code` - posthog-code
+     * * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource

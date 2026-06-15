@@ -63,7 +63,7 @@ class Client:
         api_key, base_url = self._resolve_credentials()
         return provider.complete(request, api_key, self.analytics, base_url)
 
-    def stream(self, request: CompletionRequest) -> Generator[StreamChunk, None, None]:
+    def stream(self, request: CompletionRequest) -> Generator[StreamChunk]:
         """Streaming completion."""
         self._validate_provider(request.provider)
         provider = _get_provider(request.provider, self.provider_key)

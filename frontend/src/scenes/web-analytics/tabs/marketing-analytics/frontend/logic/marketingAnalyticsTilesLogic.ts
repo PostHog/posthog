@@ -163,6 +163,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 aggregationAxisPostfix:
                                     isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
                             },
+                            tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     },
                     showIntervalSelect: true,

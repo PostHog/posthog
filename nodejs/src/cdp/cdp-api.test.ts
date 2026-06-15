@@ -16,8 +16,14 @@ import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
+import {
+    insertHogFunction as _insertHogFunction,
+    createHogFunction,
+    insertHogFunctionTemplate,
+    insertIntegration,
+} from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
@@ -990,6 +996,153 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('queued')
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
+    // it never enqueues into cyclotron. If the executor routes an email action onto the
+    // dedicated email queue, nothing services that job and the workflow stalls on a
+    // "Workflow will pause until …" log. The handler forces `sendEmailsInline: true` so the
+    // email branch always goes through EmailService directly on this path.
+    describe('hog_flows/:id/invocations — email actions are sent inline despite queue routing', () => {
+        let emailSpy: jest.SpyInstance
+        let originalMatcher: (teamId: number) => boolean
+        let hogFlowId: string
+
+        beforeEach(async () => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'email',
+                config: {
+                    email: 'sender@posthog.com',
+                    name: 'Test Sender',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-cdp-api-test-panel-email',
+                name: 'CDP API Test Panel Email',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    {
+                        type: 'native_email',
+                        key: 'email',
+                        label: 'Email message',
+                        integration: 'email',
+                        required: true,
+                        default: {
+                            to: { email: '', name: '' },
+                            from: { email: '', name: '' },
+                            subject: '',
+                            text: 'Hello!',
+                            html: '<div>Hello!</div>',
+                        },
+                        secret: false,
+                        description: '',
+                        templating: 'liquid',
+                    },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-cdp-api-test-panel-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                                            subject: 'Test panel email',
+                                            text: 'hello from test panel',
+                                            html: '<p>hello from test panel</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            const inserted = await insertHogFlow(hogFlow)
+            hogFlowId = inserted.id
+
+            // Simulate CDP_EMAIL_QUEUE_ROUTING='*' (prod-us) without rebuilding the executor — the
+            // matcher is set in the constructor closure, so reaching in is the only way to flip it.
+            const hogExecutor = api['hogExecutor'] as any
+            originalMatcher = hogExecutor.emailQueueMatcher
+            hogExecutor.emailQueueMatcher = () => true
+
+            // Stub EmailService so the test doesn't depend on a running maildev SMTP. The spy
+            // captures whether the inline path was taken — that's the assertion that proves the fix.
+            emailSpy = jest
+                .spyOn(api['hogExecutor']['emailService'], 'executeSendEmail')
+                .mockImplementation((invocation: any) =>
+                    Promise.resolve({
+                        invocation,
+                        finished: true,
+                        logs: [],
+                        metrics: [
+                            {
+                                team_id: invocation.teamId,
+                                app_source_id: invocation.parentRunId ?? invocation.functionId,
+                                instance_id: invocation.state.actionId || invocation.id,
+                                metric_kind: 'email',
+                                metric_name: 'email_sent',
+                                count: 1,
+                            },
+                        ],
+                        capturedPostHogEvents: [],
+                        warehouseWebhookPayloads: [],
+                    })
+                )
+        })
+
+        afterEach(() => {
+            ;(api['hogExecutor'] as any).emailQueueMatcher = originalMatcher
+            emailSpy.mockRestore()
+        })
+
+        it('sends the email inline via EmailService instead of routing to the email queue', async () => {
+            const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`).send({
+                globals,
+                configuration: {},
+                current_action_id: 'email_1',
+            })
+
+            expect(res.status).toBe(200)
+            expect(res.body.status).toBe('success')
+            expect(res.body.errors).toEqual([])
+            // EmailService was called inline — proving the test endpoint forced inline delivery
+            // even though the team would normally be routed to the email queue.
+            expect(emailSpy).toHaveBeenCalledTimes(1)
+            // The "Workflow will pause until …" log only appears when the executor routes the
+            // invocation to a different queue. It must NOT be present on the test panel response.
+            const pauseLog = res.body.logs.find((l: any) =>
+                String(l.message ?? '').startsWith('Workflow will pause until')
+            )
+            expect(pauseLog).toBeUndefined()
+            // executeCurrentAction advances past the email step after the inline send — the
+            // response's nextActionId proves the workflow continued to the next action.
+            expect(res.body.nextActionId).toBe('exit')
         })
     })
 })

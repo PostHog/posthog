@@ -36,7 +36,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.382.0
+    posthog-js: ^1.386.6
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -46,6 +46,7 @@ catalog:
     jest: ^29.7.0
     '@types/jest': ^29.5.12
     '@types/node': ^22.13.14
+    '@playwright/test': 1.60.0
     # Storybook
     '@storybook/addon-actions': ^8.6.14
     '@storybook/react': ^8.6.14
@@ -58,15 +59,16 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.4.0
+    '@base-ui/react': 1.5.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3
     concurrently: ^5.3.0
     yaml: ^2.8.2
 
-# posthog-js needs to be excluded because we only update our CDN
-# once a newer posthog-js version is merged onto this repo
+# PostHog packages are released by our own workflows. posthog-js is also
+# uploaded to the browser SDK CDN from the posthog-js release workflow, so
+# dependency automation should not delay these package updates.
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
     - posthog-js

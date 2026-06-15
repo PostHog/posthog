@@ -15,7 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { HarnessPill } from './MCPAnalyticsDashboardOverview'
+import { HarnessPill } from './dashboard/harness'
 import {
     IntentCoverage,
     MCPAnalyticsToolDetailLogicProps,

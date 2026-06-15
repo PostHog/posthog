@@ -216,11 +216,17 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     /** Same as createWorkflow but returns the full HogFlow object (useful for hand-built invocations) */
     async function createWorkflowFlow(
         workflow: Parameters<FixtureHogFlowBuilder['withWorkflow']>[0],
-        opts?: { name?: string }
+        opts?: { name?: string; conversion?: HogFlow['conversion']; exitCondition?: HogFlow['exit_condition'] }
     ): Promise<HogFlow> {
         const builder = new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withWorkflow(workflow)
         if (opts?.name) {
             builder.withName(opts.name)
+        }
+        if (opts?.conversion) {
+            builder.withConversion(opts.conversion)
+        }
+        if (opts?.exitCondition) {
+            builder.withExitCondition(opts.exitCondition)
         }
         const flow = builder.build()
         await insertHogFlow(hub.postgres, flow)
@@ -288,6 +294,20 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     const eventNameFilter = (eventName: string) => ({
         filters: { events: [{ id: eventName }], bytecode: eventNameBytecode(eventName) },
     })
+    // An action-based wait entry: the editor's Actions picker yields a filter with `actions` set and
+    // `events` empty. Django compiles the action's match conditions into bytecode the same way.
+    const actionFilter = (eventName: string, actionId: number) => ({
+        filters: { actions: [{ id: actionId, type: 'actions' }], events: [], bytecode: eventNameBytecode(eventName) },
+    })
+    // The state left when the last event is removed from a wait entry in the UI: no events, no
+    // actions. Empty filters compile to always-true bytecode (op 29), which must NOT wake on every
+    // event. ['_H', 1, 29] is exactly what the Django compiler emits for empty filters.
+    const emptyEventFilter = () => ({ filters: { events: [], bytecode: ['_H', 1, 29] } })
+    // A wait CONDITION with no property filters: the state left when a condition's last filter is
+    // removed, or one is added but never filled in. Django compiles it to the same always-true
+    // bytecode (op 29). Unlike an events entry, the executor evaluates the condition on entry, so
+    // without the guard this fires the wait immediately. Mirrors the serializer's compiled shape.
+    const emptyConditionFilters = () => ({ bytecode: ['_H', 1, 29], properties: [] })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -673,6 +693,28 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                // "Events to wait for" entry targets a PostHog Action: filters.events is empty,
+                // filters.actions is set, and the compiled bytecode matches the action's event.
+                events: [actionFilter('action_wakeup_event', 3)],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The action's underlying event fires — the matcher must wake the job via the action
+            // entry even though filters.events is empty.
+            await matcher.processBatch([createGlobals({ event: 'action_wakeup_event' })])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
         it('wakes a parked job when a later event satisfies the property condition', async () => {
             await createWaitUntilWorkflow({
                 // No events list — only a property-based condition. The matcher evaluates the
@@ -729,6 +771,149 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await new Promise((resolve) => setTimeout(resolve, 1000))
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not wake on a completely empty "events to wait for" entry (always-true bytecode)', async () => {
+            // The state left when the last event is removed from a wait entry: empty filters compile
+            // to always-true bytecode. Inserted directly so it bypasses the serializer strip — this
+            // guards the matcher itself, which must NOT fire the workflow on every incoming event.
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [emptyEventFilter()],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // An unrelated event must not wake the job — the always-true bytecode would otherwise match.
+            await matcher.processBatch([createGlobals({ event: 'some_unrelated_event' })])
+
+            // Give the worker room to (incorrectly) pick the job up — it must not.
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not fire on entry for an empty property condition; takes the timeout branch', async () => {
+            // An empty condition compiles to always-true bytecode. The executor evaluates the
+            // condition on entry, so without the guard the wait advances down the matched branch
+            // immediately. With no events and no real condition it must park and time out instead.
+            await createWaitUntilWorkflow({
+                condition: { filters: emptyConditionFilters() },
+                max_wait_duration: '2s',
+            })
+            await triggerWorkflow(createGlobals())
+
+            // If it fired on entry this would be the matched branch; it must be the timeout branch.
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/timed-out', expect.anything())
+        })
+
+        it('does not fire on entry when an empty condition coexists with a real events entry; still wakes on the event', async () => {
+            // The reported bug: an empty (always-true) condition alongside a real "events to wait
+            // for" entry. Without the guard the empty condition matches on entry and the wait fires
+            // immediately, ignoring the configured event. It must park and only wake when the event
+            // actually fires.
+            await createWaitUntilWorkflow({
+                condition: { filters: emptyConditionFilters() },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The configured event fires — the matcher wakes the job via the events entry.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('does not run the next step early when a conversion event fires during a delay', async () => {
+            // trigger -> delay -> fetch, with an event-based conversion goal used only for
+            // measurement (exit_only_at_end). A conversion event arriving while the job is parked
+            // in the delay must NOT wake it and run the fetch ~5 minutes early.
+            await createWorkflowFlow(
+                {
+                    actions: {
+                        trigger: trigger(),
+                        delay: { type: 'delay', config: { delay_duration: '5m' } },
+                        after_delay: fetchAction('https://example.com/after-delay'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'after_delay', type: 'continue' },
+                        { from: 'after_delay', to: 'exit', type: 'continue' },
+                    ],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: {
+                        window_minutes: 60,
+                        filters: [],
+                        bytecode: [],
+                        events: [eventNameFilter('conversion_event')],
+                    } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The conversion event fires during the delay — it must not pull the job out early.
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+
+            // Give the worker room to (incorrectly) resume the job — it must stay parked, no fetch.
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('exits the workflow when an exit_on_conversion goal fires during a delay', async () => {
+            // Same shape, but the workflow exits on conversion. The conversion event during the delay
+            // SHOULD resume the job — to exit it early — but must still not run the next step (fetch).
+            await createWorkflowFlow(
+                {
+                    actions: {
+                        trigger: trigger(),
+                        delay: { type: 'delay', config: { delay_duration: '5m' } },
+                        after_delay: fetchAction('https://example.com/after-delay'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'after_delay', type: 'continue' },
+                        { from: 'after_delay', to: 'exit', type: 'continue' },
+                    ],
+                },
+                {
+                    exitCondition: 'exit_on_conversion',
+                    conversion: {
+                        window_minutes: 60,
+                        filters: [],
+                        bytecode: [],
+                        events: [eventNameFilter('conversion_event')],
+                    } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The conversion event fires during the delay — the workflow must exit early.
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => ['completed', 'failed', 'canceled'].includes(j.status))).toBe(true)
+            }, 10000)
+            // Exited on conversion — the after-delay step never ran.
             expect(mockFetch).not.toHaveBeenCalled()
         })
     })
@@ -1027,6 +1212,111 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
         })
     })
+
+    describe('posthog_ticket_tags input resolves templated values per element', () => {
+        // Regression guard for the templating opt-in in posthog/cdp/validation.py.
+        // Reproduces the real user-reported case: a ticket tag set to
+        // `zendesk/{variables.zendesk_ticketid}` used to ship to the runtime as
+        // a literal placeholder string (because the type wasn't on the bytecode
+        // opt-in list), so the ticket ended up tagged with the raw template text
+        // instead of "zendesk/12345". The fix puts the per-element bytecode that
+        // `generate_template_bytecode` already emits for lists into a shape that
+        // `formatHogInput` can walk element-by-element.
+        beforeEach(async () => {
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-workflows-e2e-tags',
+                name: 'Workflows E2E Tags',
+                code: `fetch(inputs.url, { 'method': 'POST', 'body': jsonStringify(inputs.tags) });`,
+                inputs_schema: [
+                    { key: 'url', type: 'string', required: true },
+                    { key: 'tags', type: 'posthog_ticket_tags', required: true },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withWorkflow({
+                    actions: {
+                        trigger: trigger(),
+                        function_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-workflows-e2e-tags',
+                                inputs: {
+                                    url: { value: 'https://example.com/tags' },
+                                    tags: {
+                                        // What the Python serializer now produces for a
+                                        // `posthog_ticket_tags` value like
+                                        // `["zendesk/{variables.zendesk_ticketid}"]`:
+                                        // one outer array, one inner bytecode per element.
+                                        // Inner bytecode is a concat of the literal prefix
+                                        // and a variables.* field access — same shape Django
+                                        // emits today for other templated string inputs
+                                        // (cf. the production `text` input bytecode).
+                                        value: ['zendesk/{variables.zendesk_ticketid}'],
+                                        templating: 'hog',
+                                        bytecode: [
+                                            [
+                                                '_H',
+                                                1,
+                                                32,
+                                                'zendesk/',
+                                                32,
+                                                'zendesk_ticketid',
+                                                32,
+                                                'variables',
+                                                1,
+                                                2,
+                                                2,
+                                                'concat',
+                                                2,
+                                            ],
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_1', type: 'continue' },
+                        { from: 'function_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            // Workflow-defined variable with a default — populated into state.variables
+            // by createHogFlowInvocation, so the function action sees it via globals.variables.
+            // In a real workflow the value would be set by an earlier `Get ticket` action's
+            // output_variable; for this test we pre-seed via the default to keep it focused.
+            hogFlow.variables = [
+                { key: 'zendesk_ticketid', type: 'string', label: 'Zendesk ticket id', default: '12345' },
+            ]
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            globals = createGlobals()
+        })
+
+        it('resolves zendesk/{variables.zendesk_ticketid} per element', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            // The body proves the full chain end-to-end: per-element bytecode →
+            // formatHogInput recurses into the list → executes against globals
+            // populated with workflow variables → concat produces "zendesk/12345".
+            // Pre-fix behaviour would emit `["zendesk/{variables.zendesk_ticketid}"]`.
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/tags',
+                expect.objectContaining({
+                    body: JSON.stringify(['zendesk/12345']),
+                    method: 'POST',
+                })
+            )
+        })
+    })
 })
 
 // Email queue routing is postgres-v2 only — the email worker reschedules jobs
@@ -1038,12 +1328,14 @@ describe('Workflows E2E (email queue)', () => {
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let emailWorker: CdpCyclotronWorkerEmail
+    let matcher: CdpHogflowSubscriptionMatcherConsumer | undefined
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
     let mockProducerObserver: KafkaProducerObserver
     let team: Team
     let cyclotronPool: Pool
+    let deps: ReturnType<typeof createCdpConsumerDeps>
 
     beforeAll(() => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
@@ -1112,7 +1404,8 @@ describe('Workflows E2E (email queue)', () => {
             ],
         })
 
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        matcher = undefined
+        deps = createCdpConsumerDeps(hub, kafkaProducer)
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         // Each consumer gets a dedicated CyclotronJobQueuePostgresV2 — sharing one
         // across two consumers collides on `this.worker` and the shared pg pool.
@@ -1143,6 +1436,7 @@ describe('Workflows E2E (email queue)', () => {
             eventsConsumer?.stop() ?? Promise.resolve(),
             hogflowWorker?.stop() ?? Promise.resolve(),
             emailWorker?.stop() ?? Promise.resolve(),
+            matcher?.stop().catch(() => {}) ?? Promise.resolve(),
         ])
         await kafkaProducer.disconnect()
         await closeHub(hub)
@@ -1154,7 +1448,9 @@ describe('Workflows E2E (email queue)', () => {
         return result.rows
     }
 
-    function createGlobals(): HogFunctionInvocationGlobals {
+    function createGlobals(
+        overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
+    ): HogFunctionInvocationGlobals {
         return createHogExecutionGlobals({
             project: { id: team.id } as any,
             event: {
@@ -1165,9 +1461,16 @@ describe('Workflows E2E (email queue)', () => {
                     $lib_version: '1.0.0',
                 },
                 timestamp: '2024-09-03T09:00:00Z',
+                ...overrides,
             } as any,
         })
     }
+
+    // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
+    // equality check on the `event` global. The matcher fails closed without bytecode.
+    const eventNameFilter = (eventName: string) => ({
+        filters: { events: [{ id: eventName }], bytecode: ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11] as any[] },
+    })
 
     it('routes the email through the dedicated queue and continues the workflow', async () => {
         const hogFlow = new FixtureHogFlowBuilder()
@@ -1355,5 +1658,102 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+    })
+
+    it('wakes a wait_until_condition parked on the email queue after an email step', async () => {
+        // Reproduces the prod bug: an email step routes the invocation to the email queue, so the
+        // following wait_until_condition parks on the email queue (not hogflow). The matcher must
+        // still find and wake it there — otherwise a matching event never wakes the job and the
+        // post-wait email is never sent.
+        const emailAction = (label: string) => ({
+            type: 'function_email' as const,
+            config: {
+                template_id: 'template-workflows-e2e-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                            subject: label,
+                            text: label,
+                            html: `<p>${label}</p>`,
+                        },
+                    },
+                },
+            },
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction('First email'),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            // Property condition never matches, so only the event can wake the job.
+                            condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            events: [eventNameFilter('wakeup_event')],
+                            // Long enough that the job stays parked for the whole test — the only way
+                            // the second email sends is the matcher waking it, never a timeout.
+                            max_wait_duration: '5m',
+                        },
+                    },
+                    email_2: emailAction('Second email'),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'email_2', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const emailsSent = () =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+        // Trigger: email_1 routes to the email queue, the email worker sends it and continues the
+        // flow to the wait step, which parks.
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // The first email is sent and the job parks waiting for the event.
+        await waitForExpect(async () => {
+            expect(emailsSent()).toBe(1)
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+        }, 15000)
+
+        // The wait parks on the email queue (carried over from email_1). The matcher has to find
+        // it there regardless of queue — that's exactly the scenario that was broken.
+        const parked = (await queryCyclotronJobs()).find(
+            (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+        )
+        expect(parked).toBeDefined()
+        expect(parked?.queue_name).toBe('email')
+        expect(emailsSent()).toBe(1)
+
+        // The subscribed event fires for this person — the matcher wakes the parked job even though
+        // it sits on the email queue, the email worker resumes it down the matched branch, and the
+        // second email is sent. This is the end-to-end "the job wakes and the next step runs" check.
+        matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+        await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+        await waitForExpect(() => {
+            expect(emailsSent()).toBe(2)
+        }, 15000)
     })
 })

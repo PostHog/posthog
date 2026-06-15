@@ -450,7 +450,8 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         team_id=team.id,
     )
     with mock.patch(
-        "products.warehouse_sources.backend.models.external_data_schema.external_data_workflow_exists",
+        # patched at its defining module: update_should_sync imports it function-locally now
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
         return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
@@ -502,7 +503,8 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
         team_id=team.id,
     )
     with mock.patch(
-        "products.warehouse_sources.backend.models.external_data_schema.external_data_workflow_exists",
+        # patched at its defining module: update_should_sync imports it function-locally now
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
         return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)

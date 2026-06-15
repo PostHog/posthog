@@ -140,6 +140,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
+import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
@@ -580,7 +581,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Default CUPED variance reduction',
                 description:
                     'When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedEnabled />,
                 keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
             },
@@ -588,7 +588,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-experiment-cuped-lookback-days',
                 title: 'Default CUPED lookback window',
                 description: `Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.`,
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
             },
@@ -1716,6 +1715,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-security',
         title: 'Security',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'organization-security',
@@ -1724,6 +1724,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Configure organization-wide security policies including public sharing, session timeouts, and password requirements.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['password', 'session', 'timeout', 'compliance', 'sharing', 'public'],
+            },
+            {
+                id: 'organization-personal-api-keys',
+                title: 'Personal API key access',
+                description:
+                    "See which members' personal API keys can reach this organization or its projects, who owns them, and the scopes they grant.",
+                component: <OrganizationPersonalAPIKeys />,
+                keywords: ['api key', 'personal', 'token', 'access', 'audit'],
             },
         ],
     },
