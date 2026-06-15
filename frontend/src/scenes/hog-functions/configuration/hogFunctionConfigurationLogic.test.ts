@@ -183,4 +183,36 @@ describe('hogFunctionConfigurationLogic', () => {
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
         })
     })
+
+    describe('log transformation', () => {
+        const LOG_TEMPLATE: HogFunctionTemplateType = {
+            free: true,
+            status: 'stable',
+            id: 'template-log-transformation-default',
+            type: 'transformation_log',
+            name: 'Custom log transformation',
+            description: 'Start from scratch.',
+            code: 'return record',
+            code_language: 'hog',
+            inputs_schema: [],
+            filters: null,
+            masking: null,
+            icon_url: '/static/hedgehog/builder-hog-01.png',
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(Promise.resolve(LOG_TEMPLATE))
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+        })
+
+        it('seeds the inline tester with a sample record, not an event', async () => {
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            const globals = logic.values.exampleInvocationGlobals
+            expect(globals.record).toBeTruthy()
+            expect(globals.record?.body).toContain('GET /api/users')
+            expect(globals.event).toBeUndefined()
+        })
+    })
 })
