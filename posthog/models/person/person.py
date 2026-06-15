@@ -309,73 +309,127 @@ class Person(models.Model):
         ``max_splits`` of them). If ``main_distinct_id`` is also None, properties are
         wiped from the original person and the first distinct_id becomes the main.
         """
-        from posthog.models.person.util import get_person_by_id
+        from posthog.personhog_client.client import get_personhog_client
+        from posthog.personhog_client.proto import GetPersonRequest
 
-        original_person = get_person_by_id(self.team_id, self.pk)
-        if original_person is None:
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError(
+                "split_person requires personhog, but the client is not configured (PERSONHOG_ADDR is unset)"
+            )
+
+        person_resp = client.get_person(GetPersonRequest(team_id=self.team_id, person_id=self.pk))
+        if not person_resp.person or not person_resp.person.id:
             raise ValueError(f"Person not found: person_id={self.pk}, team_id={self.team_id}")
-        distinct_ids = original_person.distinct_ids
 
         logger.info(
             "split_person queried person",
             person_id=self.pk,
-            person_uuid=str(original_person.uuid),
+            person_uuid=person_resp.person.uuid,
             team_id=self.team_id,
-            version=original_person.version or 0,
-            distinct_ids_count=len(distinct_ids),
+            version=person_resp.person.version,
             main_distinct_id=main_distinct_id,
             max_splits=max_splits,
             explicit_distinct_ids_count=len(distinct_ids_to_split) if distinct_ids_to_split is not None else None,
         )
 
         if distinct_ids_to_split is not None:
-            unknown = set(distinct_ids_to_split) - set(distinct_ids)
-            if unknown:
-                raise ValueError(
-                    f"split_person: distinct_ids {sorted(unknown)} do not belong to "
-                    f"person_id={self.pk} (team_id={self.team_id})"
-                )
-            # Dedupe while preserving order for deterministic logging.
-            seen: set[str] = set()
-            distinct_ids_to_process: list[str] = []
-            for did in distinct_ids_to_split:
-                if did not in seen:
-                    seen.add(did)
-                    distinct_ids_to_process.append(did)
+            self._split_explicit_ids(distinct_ids_to_split)
         else:
-            if not main_distinct_id:
-                Person.objects.filter(team_id=self.team_id, pk=self.pk).update(  # nosemgrep: no-direct-persons-db-orm
-                    properties={}
-                )
-                main_distinct_id = distinct_ids[0]
+            self._split_all_ids(client, main_distinct_id, max_splits)
 
-            if max_splits is not None and len(distinct_ids) > max_splits:
-                # Split the last N distinct_ids of the list
-                distinct_ids = distinct_ids[-1 * max_splits :]
+    def _split_explicit_ids(self, distinct_ids_to_split: list[str]) -> None:
+        """Partial split: caller specifies exactly which IDs to move.
 
-            distinct_ids_to_process = [did for did in distinct_ids if did != main_distinct_id]
+        The RPC validates that every ID belongs to this person — no need to
+        fetch all distinct IDs upfront.
+        """
+        seen: set[str] = set()
+        distinct_ids_to_process: list[str] = []
+        for did in distinct_ids_to_split:
+            if did not in seen:
+                seen.add(did)
+                distinct_ids_to_process.append(did)
 
         if not distinct_ids_to_process:
             return
 
         logger.info(
-            "split_person will split distinct_ids",
+            "split_person will split explicit distinct_ids",
             person_id=self.pk,
             team_id=self.team_id,
-            main_distinct_id=main_distinct_id,
             distinct_ids_to_split_count=len(distinct_ids_to_process),
         )
 
-        # Split in personhog-sized batches. Each batch is atomic on the server
-        # and its Kafka messages are published once it commits, so a failure
-        # partway leaves earlier batches fully applied — safe because the
-        # deterministic UUIDs make re-running the split idempotent.
         for start in range(0, len(distinct_ids_to_process), PERSONHOG_SPLIT_BATCH_SIZE):
             batch = distinct_ids_to_process[start : start + PERSONHOG_SPLIT_BATCH_SIZE]
             outcomes = self._split_distinct_ids_batch(batch)
-            # Publish Kafka messages after the batch commits — the persons DB is
-            # source of truth, Kafka/ClickHouse catches up via versioning
             self._publish_split_to_kafka(outcomes)
+
+    def _split_all_ids(self, client: Any, main_distinct_id: Optional[str], max_splits: Optional[int]) -> None:
+        """Full split: fetch pages of distinct IDs and split each page.
+
+        Each split removes the IDs from this person, so the next fetch returns
+        a shrinking set. No ordering is needed — the loop terminates when only
+        the main distinct_id remains (or max_splits is reached).
+        """
+        from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest
+
+        properties_wiped = False
+        splits_done = 0
+        # +1 so the main_distinct_id can appear in the page without eating a split slot
+        fetch_limit = PERSONHOG_SPLIT_BATCH_SIZE + 1
+
+        while True:
+            did_resp = client.get_distinct_ids_for_person(
+                GetDistinctIdsForPersonRequest(
+                    team_id=self.team_id,
+                    person_id=self.pk,
+                    limit=fetch_limit,
+                )
+            )
+            page = [d.distinct_id for d in did_resp.distinct_ids]
+
+            if not page:
+                break
+
+            if not main_distinct_id:
+                main_distinct_id = page[0]
+                if not properties_wiped:
+                    Person.objects.filter(
+                        team_id=self.team_id, pk=self.pk
+                    ).update(  # nosemgrep: no-direct-persons-db-orm
+                        properties={}
+                    )
+                    properties_wiped = True
+
+            to_split = [did for did in page if did != main_distinct_id]
+
+            if not to_split:
+                break
+
+            if max_splits is not None:
+                remaining = max_splits - splits_done
+                if remaining <= 0:
+                    break
+                to_split = to_split[:remaining]
+
+            logger.info(
+                "split_person splitting page",
+                person_id=self.pk,
+                team_id=self.team_id,
+                main_distinct_id=main_distinct_id,
+                page_size=len(page),
+                splitting_count=len(to_split),
+                splits_done=splits_done,
+            )
+
+            outcomes = self._split_distinct_ids_batch(to_split)
+            self._publish_split_to_kafka(outcomes)
+            splits_done += len(to_split)
+
+            if len(page) < fetch_limit:
+                break
 
     def _split_distinct_ids_batch(self, distinct_ids: list[str]) -> list[SplitOutcome]:
         """Split one batch of distinct_ids onto new persons via the personhog

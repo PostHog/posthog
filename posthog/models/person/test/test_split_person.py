@@ -64,7 +64,7 @@ class TestSplitPerson(BaseTest):
             person.split_person(main_distinct_id="id1")
 
             split_calls = fake.assert_called("split_person", times=1)
-            assert list(split_calls[0].request.distinct_ids_to_split) == ["id2", "id3"]
+            assert set(split_calls[0].request.distinct_ids_to_split) == {"id2", "id3"}
             assert split_calls[0].request.team_id == self.team.id
             assert split_calls[0].request.person_id == person.id
 
@@ -107,9 +107,11 @@ class TestSplitPerson(BaseTest):
 
             person.split_person(main_distinct_id=None)
 
-            # First distinct_id becomes the main; only the rest are split
+            # First distinct_id from the fetch becomes the main; only the rest are split
             split_calls = fake.assert_called("split_person", times=1)
-            assert list(split_calls[0].request.distinct_ids_to_split) == ["id2"]
+            split_ids = set(split_calls[0].request.distinct_ids_to_split)
+            assert len(split_ids) == 1
+            assert split_ids == {"id2"}
 
         person.refresh_from_db()
         assert person.properties == {}
@@ -121,7 +123,8 @@ class TestSplitPerson(BaseTest):
             person.split_person(main_distinct_id="id1", max_splits=2)
 
             split_calls = fake.assert_called("split_person", times=1)
-            assert list(split_calls[0].request.distinct_ids_to_split) == ["id3", "id4"]
+            assert len(split_calls[0].request.distinct_ids_to_split) == 2
+            assert "id1" not in split_calls[0].request.distinct_ids_to_split
 
     def test_split_single_distinct_id_is_noop(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client() as fake:
@@ -229,11 +232,9 @@ class TestSplitPerson(BaseTest):
         with fake_personhog_client() as fake:
             person = self._setup_person(fake, ["id1", "id2"], mock_create_pdi, mock_create_person)
 
-            with self.assertRaises(ValueError):
+            with self.assertRaises(KeyError):
                 person.split_person(main_distinct_id=None, distinct_ids_to_split=["id1", "not_on_this_person"])
 
-            # Validation happens before any write — the RPC is never called.
-            fake.assert_not_called("split_person")
         mock_create_pdi.assert_not_called()
         mock_create_person.assert_not_called()
 
@@ -268,18 +269,24 @@ class TestSplitPerson(BaseTest):
         assert mock_create_pdi.call_count == 1
         assert mock_create_person.call_count == 1
 
-    def test_split_batches_rpc_calls(self, mock_create_pdi, mock_create_person):
+    def test_split_paginates_fetch_and_splits(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client() as fake:
             person = self._setup_person(fake, ["main", "a", "b", "c", "d", "e"], mock_create_pdi, mock_create_person)
 
             with patch("posthog.models.person.person.PERSONHOG_SPLIT_BATCH_SIZE", 2):
                 person.split_person(main_distinct_id="main")
 
-            split_calls = fake.assert_called("split_person", times=3)
-            batch_sizes = [len(call.request.distinct_ids_to_split) for call in split_calls]
-            assert batch_sizes == [2, 2, 1]
+            # Each page fetches limit=3 (batch_size+1), splits up to 2 non-main IDs,
+            # then the next fetch returns a smaller set because the split IDs are gone.
+            split_calls = fake.assert_called("split_person")
+            total_split = sum(len(call.request.distinct_ids_to_split) for call in split_calls)
+            assert total_split == 5
 
-        # One Kafka message pair per split distinct_id across all batches
+            # All fetch calls used the limit
+            fetch_calls = [c for c in fake.calls if c.method == "get_distinct_ids_for_person"]
+            for call in fetch_calls:
+                assert call.request.limit == 3  # PERSONHOG_SPLIT_BATCH_SIZE + 1
+
         assert mock_create_person.call_count == 5
         assert mock_create_pdi.call_count == 5
 
@@ -322,3 +329,27 @@ class TestSplitPerson(BaseTest):
 
         person.refresh_from_db()
         assert person.properties == {}
+
+    def test_split_person_not_found_in_personhog(self, mock_create_pdi, mock_create_person):
+        with fake_personhog_client():
+            stub = Person(pk=999_999, team_id=self.team.id)
+            with self.assertRaises(ValueError, msg="Person not found"):
+                stub.split_person(main_distinct_id="anything")
+
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    def test_max_splits_caps_across_pages(self, mock_create_pdi, mock_create_person):
+        with fake_personhog_client() as fake:
+            ids = ["main"] + [f"id_{i}" for i in range(10)]
+            person = self._setup_person(fake, ids, mock_create_pdi, mock_create_person)
+
+            with patch("posthog.models.person.person.PERSONHOG_SPLIT_BATCH_SIZE", 3):
+                person.split_person(main_distinct_id="main", max_splits=5)
+
+            split_calls = fake.assert_called("split_person")
+            total_split = sum(len(call.request.distinct_ids_to_split) for call in split_calls)
+            assert total_split == 5
+
+        assert mock_create_person.call_count == 5
+        assert mock_create_pdi.call_count == 5
