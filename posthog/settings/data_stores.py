@@ -190,7 +190,6 @@ product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
-
 # Per-product SSL for the migration DIRECT_URL only. Runtime writer/reader route
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
@@ -204,6 +203,27 @@ def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     if ssl_root_cert:
         options["sslrootcert"] = ssl_root_cert
 
+
+# Fail-fast circuit breaker for product databases. When a product DB is
+# unreachable, the custom backend raises immediately on connect instead of
+# blocking the worker on `connect_timeout`, so one product's outage can't
+# exhaust the shared worker pool. See posthog/db_circuit_breaker.py.
+PRODUCT_DB_FAIL_OPEN_ENGINE = "posthog.db_backends.failopen"
+PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: bool = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_ENABLED", not TEST, type_cast=str_to_bool
+)
+PRODUCT_DB_CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS", 30, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_PROBE_TIMEOUT_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_PROBE_TIMEOUT_SECONDS", 5, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_WINDOW_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_WINDOW_SECONDS", 30, type_cast=int
+)
 
 for route in product_routes:
     if route.database in configured_product_databases:
@@ -227,10 +247,12 @@ for route in product_routes:
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     if TEST:
         # Skip the global migration-graph walk during test DB setup. Without

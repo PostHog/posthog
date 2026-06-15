@@ -3,8 +3,11 @@ from __future__ import annotations
 # A scout run's hard runtime cap. Enforced via the Temporal activity's
 # `start_to_close_timeout` in `scout_scheduler.py` — if the agent is still going
 # at this point, the activity is killed and the run row is marked failed by the
-# bridge. Tuning this is a config decision, not a per-run override knob.
-DEFAULT_MAX_RUNTIME_S = 30 * 60
+# bridge. Also passed to `MultiTurnSession` as the per-turn poll budget
+# (`max_poll_seconds`) so the dropped-finalization salvage fires before the activity's
+# timeout — keep it below `WORKFLOW_HARD_CEILING_S`. Tuning this is a config decision,
+# not a per-run override knob.
+DEFAULT_MAX_RUNTIME_S = 15 * 60
 
 # Slack added on top of `DEFAULT_MAX_RUNTIME_S` for the Temporal activity
 # `start_to_close_timeout`, so heartbeat-based failures get a chance to surface
