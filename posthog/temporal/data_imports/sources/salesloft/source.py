@@ -49,7 +49,6 @@ You can create an API key in your [Salesloft account](https://accounts.salesloft
             docsUrl="https://posthog.com/docs/cdp/sources/salesloft",
             # Kept hidden until end-to-end sync is verified against a live Salesloft account
             # (endpoint behavior was validated against API docs + the Airbyte connector, not curl).
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

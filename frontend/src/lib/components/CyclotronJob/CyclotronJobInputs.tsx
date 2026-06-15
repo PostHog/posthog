@@ -5,7 +5,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBrackets, IconGear, IconLock, IconPlus, IconToggleOff, IconTrash, IconX } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconGear,
+    IconLock,
+    IconPlus,
+    IconToggleOff,
+    IconTrash,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -80,6 +89,7 @@ export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
     configuration: CyclotronJobInputConfiguration
     errors?: Record<string, string>
+    warnings?: Record<string, string>
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
@@ -92,6 +102,7 @@ export function CyclotronJobInputs({
     onInputSchemaChange,
     onInputChange,
     errors,
+    warnings,
     showSource,
     sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
@@ -130,6 +141,7 @@ export function CyclotronJobInputs({
                                     showSource={showSource}
                                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     errors={errors}
+                                    warnings={warnings}
                                 />
                             )
                         })}
@@ -250,6 +262,7 @@ function CyclotronJobTemplateInput(props: {
     onChange?: (value: CyclotronJobInputType) => void
     input: CyclotronJobInputType
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    placeholder?: string
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
 
@@ -257,8 +270,10 @@ function CyclotronJobTemplateInput(props: {
         return (
             <LemonInput
                 type="text"
+                className={props.className}
                 value={props.input.value}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val })}
+                placeholder={props.placeholder}
             />
         )
     }
@@ -325,7 +340,7 @@ function DictionaryField({
 
     return (
         <div className="deprecated-space-y-2">
-            {!entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
+            {templating && !entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
                 </LemonButton>
@@ -350,6 +365,7 @@ function DictionaryField({
 
                     <CyclotronJobTemplateInput
                         className="overflow-hidden flex-2"
+                        placeholder="Value"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
                             if (val.templating) {
@@ -829,11 +845,13 @@ function CyclotronJobInputWithSchema({
     showSource,
     sampleGlobalsWithInputs,
     errors,
+    warnings,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
+    const warning = warnings?.[schema.key]
 
     const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
         let inputsSchema = configuration.inputs_schema || []
@@ -978,6 +996,12 @@ function CyclotronJobInputWithSchema({
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                             />
                         )}
+                        {warning && !value?.secret ? (
+                            <div className="flex gap-1 items-start mt-1 text-xs text-warning">
+                                <IconWarning className="mt-0.5 shrink-0 text-base" />
+                                <span>{warning}</span>
+                            </div>
+                        ) : null}
                     </>
                 </LemonField.Pure>
             ) : (

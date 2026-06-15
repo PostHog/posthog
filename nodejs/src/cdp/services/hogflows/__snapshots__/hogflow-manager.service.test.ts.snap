@@ -65,6 +65,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
     },
     "trigger_masking": null,
     "updated_at": "UPDATED_AT",
+    "variables": null,
     "version": 1,
   },
   {
@@ -130,6 +131,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
     },
     "trigger_masking": null,
     "updated_at": "UPDATED_AT",
+    "variables": null,
     "version": 1,
   },
 ]

@@ -238,13 +238,14 @@ async def _spawn_and_run(
         user_id=user_id,
         repository=repository,
         sandbox_environment_id=sandbox_env_id,
-        # `signals_scout` is the harness's own scope posture: same scope content as
-        # `read_only` (project reads + INTERNAL_SCOPES, including
-        # `signal_scout_internal:write`) but reports `has_write_scopes=True` so the
-        # MCP server doesn't enable read-only-mode tool filtering. Without that
-        # opt-out, the MCP layer would categorically strip every tool annotated
-        # `readOnlyHint: false` — including the agent's own `remember`, `forget`,
-        # and `emit_finding` tools — even though the OAuth token does carry the
+        # `signals_scout` is the harness's own scope posture: project reads +
+        # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
+        # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`, e.g.
+        # `notebook:write`) so a finding can produce a durable artifact. It reports
+        # `has_write_scopes=True` so the MCP server doesn't enable read-only-mode tool
+        # filtering. Without that opt-out, the MCP layer would categorically strip every
+        # tool annotated `readOnlyHint: false` — including the agent's own `remember`,
+        # `forget`, and `emit_finding` tools — even though the OAuth token does carry the
         # right scope to call them.
         posthog_mcp_scopes="signals_scout",
     )

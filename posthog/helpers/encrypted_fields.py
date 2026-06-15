@@ -5,6 +5,7 @@ import json
 import base64
 
 from django.conf import settings
+from django.core.checks import Error, register
 from django.db import models
 from django.utils.functional import cached_property
 
@@ -32,17 +33,22 @@ class EncryptedFieldMixin:
         keys = [base64.urlsafe_b64encode(x.encode("utf-8")) for x in settings.ENCRYPTION_SALT_KEYS]
 
         # TODO: Remove support for these once the migration is complete
-        # Generate keys for each salt key and secret key
-        for salt_key in settings.SALT_KEY:
-            salt = bytes(salt_key, "utf-8")
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=100000,
-                backend=default_backend(),
-            )
-            keys.append(base64.urlsafe_b64encode(kdf.derive(settings.SECRET_KEY.encode("utf-8"))))
+        # Legacy decrypt-only keys for values written before the ENCRYPTION_SALT_KEYS rework.
+        # We derive from SECRET_KEY *and* every SECRET_KEY_FALLBACKS entry so that rotating
+        # SECRET_KEY (old key moved into SECRET_KEY_FALLBACKS) keeps any legacy rows decryptable
+        # — without this, rotation permanently strands them. These are appended last, so they
+        # are never used to encrypt new values.
+        for secret_key in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+            for salt_key in settings.SALT_KEY:
+                salt = bytes(salt_key, "utf-8")
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                    backend=default_backend(),
+                )
+                keys.append(base64.urlsafe_b64encode(kdf.derive(secret_key.encode("utf-8"))))
         return keys
 
     @cached_property
@@ -203,3 +209,24 @@ class EncryptedJSONStringField(EncryptedFieldMixin, models.JSONField):
                 pass
 
         return value
+
+
+@register()
+def check_encryption_salt_keys(app_configs, **kwargs):
+    # Each ENCRYPTION_SALT_KEYS entry is used directly as a Fernet key, which must be exactly 32 bytes.
+    # A wrong-length key otherwise fails lazily with an opaque error on the first encrypt/decrypt — and
+    # during a SECRET_KEY / ENCRYPTION_SALT_KEYS rotation that surfaces as a confusing runtime crash
+    # instead of a clear config error. SECRET_KEY / SALT_KEY are exempt: they run through PBKDF2, which
+    # normalizes any input length to 32 bytes.
+    errors = []
+    for index, key in enumerate(settings.ENCRYPTION_SALT_KEYS):
+        byte_length = len(key.encode("utf-8"))
+        if byte_length != 32:
+            errors.append(
+                Error(
+                    f"ENCRYPTION_SALT_KEYS[{index}] must be exactly 32 bytes, got {byte_length}.",
+                    hint="Generate one with `openssl rand -hex 16` (produces 32 characters).",
+                    id="posthog.E004",
+                )
+            )
+    return errors

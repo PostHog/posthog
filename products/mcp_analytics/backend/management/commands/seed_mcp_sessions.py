@@ -5,6 +5,8 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.event.util import create_event
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
@@ -22,7 +24,11 @@ TOOL_NAMES = [
     "error_tracking_issue_get",
 ]
 
-CLIENT_NAMES = ["Claude Desktop", "Cursor", "Windsurf", "Cline"]
+# Raw $mcp_client_name values that categorizeHarness() folds into the popular, logo-backed
+# harness buckets (Claude Code, OpenAI Codex, Cursor, Claude.ai, VS Code). Weighted toward the
+# most common agents so the breakdown looks realistic.
+CLIENT_NAMES = ["claude-code", "codex", "cursor", "claude-ai", "visual studio code"]
+CLIENT_WEIGHTS = [38, 26, 22, 9, 5]
 
 # Identified personas. About 70% of sessions are attached to one of these;
 # the rest stay anonymous with throwaway distinct_ids.
@@ -110,14 +116,27 @@ class Command(BaseCommand):
         parser.add_argument("--sessions", type=int, default=101, help="Number of sessions to create.")
         parser.add_argument("--min-calls", type=int, default=4, help="Minimum tool calls per session (inclusive).")
         parser.add_argument("--max-calls", type=int, default=50, help="Maximum tool calls per session (inclusive).")
+        parser.add_argument(
+            "--days",
+            type=int,
+            default=0,
+            help="Spread sessions across the last N days (for trend charts). 0 keeps everything in the last hour.",
+        )
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible output.")
+        parser.add_argument(
+            "--clear",
+            action="store_true",
+            help="Delete existing mcp_tool_call events for the team before seeding (clean slate).",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
         session_count: int = options["sessions"]
         min_calls: int = options["min_calls"]
         max_calls: int = options["max_calls"]
+        days: int = options["days"]
         seed: int | None = options["seed"]
+        clear: bool = options["clear"]
 
         if min_calls > max_calls:
             self.stderr.write(self.style.ERROR("--min-calls must be <= --max-calls"))
@@ -128,6 +147,13 @@ class Command(BaseCommand):
         except Team.DoesNotExist:
             self.stderr.write(self.style.ERROR(f"Team {team_id} does not exist."))
             return
+
+        if clear:
+            sync_execute(
+                f"ALTER TABLE {EVENTS_DATA_TABLE()} DELETE WHERE team_id = %(team_id)s AND event = 'mcp_tool_call' SETTINGS mutations_sync=1",
+                {"team_id": team_id},
+            )
+            self.stdout.write(self.style.WARNING(f"Cleared existing mcp_tool_call events for team {team_id}."))
 
         rng = random.Random(seed)
         now = datetime.now(tz=UTC)
@@ -182,7 +208,7 @@ class Command(BaseCommand):
                 distinct_id = persona["distinct_id"]
             else:
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
-            client_name = rng.choice(CLIENT_NAMES)
+            client_name = rng.choices(CLIENT_NAMES, weights=CLIENT_WEIGHTS, k=1)[0]
             calls = rng.randint(min_calls, max_calls)
             # Anchor each session within the listing's default 24h window so it shows
             # up on the next request. The listing aggregates recent events on the fly,
@@ -190,7 +216,12 @@ class Command(BaseCommand):
             # clearly "in the past" without flirting with the window edge.
             call_intervals = [rng.randint(15, 90) for _ in range(calls)]
             total_call_duration = timedelta(seconds=sum(call_intervals))
-            session_end_offset_min = rng.randint(31, 59)
+            if days > 0:
+                # Spread session_end across the last N days so trend charts (bucketed
+                # by date over a 7-day window) show a curve instead of a single spike.
+                session_end_offset_min = rng.randint(31, days * 24 * 60)
+            else:
+                session_end_offset_min = rng.randint(31, 59)
             session_start = now - timedelta(minutes=session_end_offset_min) - total_call_duration
 
             cumulative_offset_s = 0

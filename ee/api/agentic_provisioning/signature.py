@@ -6,7 +6,6 @@ import hashlib
 from django.conf import settings
 from django.http.request import RawPostDataException
 
-import stripe
 import structlog
 import posthoganalytics
 from rest_framework.request import Request
@@ -84,6 +83,10 @@ def verify_provisioning_signature(request: Request) -> Response | None:
             {"error": {"code": "body_not_decodable", "message": "Request body must be UTF-8 encoded"}},
             status=400,
         )
+
+    # Deferred: the stripe SDK is ~0.45s to import and is only needed on this verify path. Keeping it
+    # out of module scope keeps it off django.setup() (signature.py is reachable from ready() via billing).
+    import stripe  # noqa: PLC0415
 
     sig_header = request.headers.get("stripe-signature", "")
     try:

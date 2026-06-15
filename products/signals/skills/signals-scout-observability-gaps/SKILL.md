@@ -7,14 +7,12 @@ description: >
   related context, critical events with no alerts. Watches the event-stream-vs-saved-
   inventory delta as the team's product evolves and emits findings recommending new
   insights, dashboard additions, or alerts when gaps clear the confidence bar.
-  Self-contained peer in the signals-scout-* fleet — picked uniformly at random by the
-  coordinator alongside `signals-scout-general` and other specialists.
+  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  standard analytics + entity tools (read-data-schema, query-trends, insights-list,
-  dashboards-get-all, event-definitions-list, alerts-list, execute-sql).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the analytics and entity tools listed in the
+  body's MCP tools section.
 metadata:
   owner_team: signals
   scope: observability_gaps
@@ -48,6 +46,27 @@ Close out empty. Future observability-gaps runs read this entry cold and short-c
 in seconds. Re-running with the same key idempotently refreshes the timestamp — the
 entry stays until the team grows into meaningful volume, at which point the next run
 rewrites or deletes it.
+
+## Quick close-out: is this team already saturated?
+
+The opposite end has a fast path too. On a mature project (thousands of insights,
+hundreds of alerts), a few runs will establish that whole gap families are
+**saturated** — every high-volume event already has dense coverage, and newly-emerged
+events get covered within days. Record that as durable memory instead of
+rediscovering it every run:
+
+- key: `pattern:observability_gaps:<family>-saturated` (or one `coverage-saturated`
+  entry spanning families)
+- content: what was probed, the coverage counts found, and a **tripwire** — the
+  concrete condition under which the family is worth re-probing (e.g. "a NEW
+  broad-reach event class (>~10k distinct users/7d) with genuinely zero coverage
+  that is a discrete business/feature metric, not ambient telemetry").
+
+Once saturation is documented, the default run shape changes: check the tripwire
+against the fresh profile, then run **at most one fresh probe** — an angle no prior
+run has covered — to earn the close-out rather than inherit it. If the tripwire is
+untriggered and the probe comes back clean, close out empty in minutes. Don't re-run
+coverage SQL a run verified hours ago; that's duplication, not diligence.
 
 ## How a run works
 
@@ -89,6 +108,16 @@ Direct calls:
 
 Strong signal: event > 1000/day, no insight, `verified=true`. Weak signal: event
 < 100/day, untyped, sporadic.
+
+Volume ranking has a blind spot: a recently-born event with broad reach but low
+per-user frequency may never rank into the count-ranked `top_events`, and a 7-day
+query window clamps `min(timestamp)` so it cannot tell new events from old ones.
+Probe emergence directly with a wide window — events table, last 60 days,
+`event NOT LIKE '$%'`, grouped by event, keeping only groups where
+`min(timestamp) >= now() - 14d` (genuinely new) and distinct users in the last 7
+days clear a reach floor (~500+), ordered by that reach. Each hit is a candidate the
+top-events lens structurally cannot see; run it through the same coverage check and
+disqualifiers as any other candidate.
 
 #### 2. Insight drift — saved insights pointing at zero-volume events
 
@@ -194,10 +223,31 @@ confidence bar trades off:
 
 - **Volume threshold** — gap is structurally interesting only at scale. Below 100/day,
   the recommendation is noise.
-- **Stable-not-spurious** — gap has been present for at least 7 days. Avoid flagging
-  events that just appeared yesterday.
+- **Stable-not-spurious** — gap has been present for at least 7 **complete days in
+  the project timezone**. Avoid flagging events that just appeared yesterday; a
+  partial current day or a deploy-day spike can fake stability.
 - **No prior coverage** — search `popular_insights` and `existing_inbox_reports`
   before emitting. If a previous run already recommended this gap, don't re-emit.
+
+### Park, then emit — the watch lifecycle
+
+Most good recommendations are not emitted the run they're spotted — they're parked
+until the stability bar crosses. The lifecycle:
+
+1. **Park** — write a `watch:observability_gaps:<gap>` entry carrying the
+   discriminating conditions (the exact checks that make this a real gap), the
+   volume evidence so far, and the earliest emit time (when the 7th complete
+   project-timezone day closes). Future runs inherit the candidate instead of
+   re-deriving it.
+2. **Re-verify live, then emit** — the run that crosses the bar must re-check every
+   discriminating condition against live data before emitting (coverage can appear,
+   volume can collapse). Never emit off the watch entry alone.
+3. **Guard** — after emitting, update the watch entry with the finding id and a
+   ~30-day dedupe: no re-emit before then unless a materially new angle appears.
+4. **Retire** — the entry doesn't live forever. When coverage appears, the
+   recommendation was actioned: delete the entry (or convert it to `addressed:`).
+   If ~30 days pass and nobody built coverage, that's "recommended but ignored" —
+   convert it to a `noise:` skip note rather than re-emitting.
 
 ### Close out
 
@@ -218,6 +268,29 @@ a separate "run metadata" scratchpad entry — the run summary already serves th
   disabled or only for a tiny rollout %, the volume is artificially low.
 - **Events on ad-hoc one-off dashboards** — a private dashboard with one viewer doesn't
   count as "covered." Use the `popular_insights` viewer-count threshold.
+- **Ambient app-shell telemetry** — an event whose distinct-user reach is roughly
+  equal to `$pageview`'s fires for nearly every user as part of the app shell, not
+  as a discrete feature metric. Zero saved insights on it is usually intentional;
+  compare reach against `$pageview` before calling it a gap.
+- **Deliberate engineering firehoses** — high-volume internal perf/telemetry events
+  the team consumes via ad-hoc SQL or notebooks rather than saved insights. Before
+  declaring zero coverage, check whether notebooks reference the event — covered by
+  choice is not a gap.
+- **Experiment-exposure events** — events that exist to drive an experiment's
+  metrics are covered by the experiment itself. Don't recommend standalone insights
+  for them while the experiment runs.
+- **One-per-user lifecycle events** — onboarding, wizard, and setup events fire once
+  per user; their volume is just signup flow-through and rarely deserves a
+  standalone insight.
+- **Time-boxed promotion / campaign events** — campaign-shaped events appear, spike,
+  and end by design. Going quiet is not drift, and lacking coverage is not a gap
+  unless the underlying surface (impressions + conversions) persists.
+- **Incident-investigation scaffolding** — short-lived events created during an
+  incident, often with incident-named insights attached. They stop firing when the
+  incident closes; flagging the stoppage as drift is a false positive.
+- **Legacy event-name variants** — insights that deliberately union an old and a new
+  event name for historical continuity are well-maintained, not drifted. Read the
+  insight's query JSON before declaring a dead event "still referenced."
 
 When in doubt, write a scratchpad entry instead of emitting. Recommendations have a
 high panic radius for whoever owns the observability surface — false positives erode

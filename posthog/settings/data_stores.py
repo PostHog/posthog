@@ -313,6 +313,9 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# query_log_archive's single data table lives on the OPS cluster; every cluster's
+# Distributed read/write tables route to it via this cluster name.
+CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.

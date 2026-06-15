@@ -12,6 +12,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.data_deletion_request import (
+    VERIFIABLE_STATUSES,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
@@ -630,8 +631,13 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
+            # Verify works for QUEUED (the normal deferred path) and FAILED (a job that errored
+            # after the events were already deleted). Both rely on counting matching events, which
+            # is only meaningful for event_removal requests.
             extra_context["can_verify"] = (
-                obj.status == RequestStatus.QUEUED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+                obj.status in VERIFIABLE_STATUSES
+                and obj.request_type == RequestType.EVENT_REMOVAL
+                and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["verify_url"] = reverse("admin:posthog_datadeletionrequest_verify", args=[obj.pk])
 
@@ -990,19 +996,24 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        if obj.status != RequestStatus.QUEUED:
-            messages.error(request, "Only queued requests can be verified.")
+        if obj.request_type != RequestType.EVENT_REMOVAL:
+            messages.error(request, "Only event removal requests can be verified.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        if obj.status not in VERIFIABLE_STATUSES:
+            messages.error(request, "Only queued or failed requests can be verified.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        prior_status = obj.status
         outcome = verify_queued_request(obj)
         if outcome.promoted:
             obj.refresh_from_db()
-            self.log_change(request, obj, "Verified: 0 matching events remain, status queued → completed.")
+            self.log_change(request, obj, f"Verified: 0 matching events remain, status {prior_status} → completed.")
             messages.success(request, "Verified — no matching events remain. Marked completed.")
         else:
             messages.warning(
                 request,
                 f"{outcome.remaining} matching event(s) still present in ClickHouse. "
-                "Left queued — re-run after the next scheduled deletion.",
+                f"Left {obj.status} — re-run after the next scheduled deletion.",
             )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

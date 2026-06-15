@@ -5,6 +5,11 @@ on:
         branches:
             - master
     pull_request:
+    # Required so `Dagster Tests Pass` (a required status check) reports on merge
+    # queue entries — without it the queue would wait for the check until timeout.
+    # The jobs themselves skip on merge_group (the suite already runs in full on
+    # every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -45,6 +50,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Validate dagster path filter coverage
+        if: github.event_name != 'merge_group'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -60,6 +66,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run dagster checks
+        if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
@@ -103,6 +110,7 @@ jobs:
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/schema.py'
+                        - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
                         - 'posthog/utils.py'
                         - 'posthog/errors.py'
                         - 'posthog/exceptions_capture.py'
@@ -116,6 +124,7 @@ jobs:
                         - 'posthog/cloud_utils.py'
                         - 'posthog/ducklake/**'
                         # Test infrastructure used by dagster tests
+                        - conftest.py
                         - 'posthog/conftest.py'
                         - 'posthog/test/**'
                         # --- ee modules that DAGs import ---
@@ -123,6 +132,7 @@ jobs:
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
                         # --- Only the products that DAGs actually import from ---
+                        - 'products/analytics_platform/backend/**/*.py'
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
@@ -157,10 +167,17 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
-                        # hogli db commands used for test database setup
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli db setup (db:restore-schema-fresh). Scoped to the
+                        # modules that command actually imports — framework,
+                        # manifest, boot modules, db_schema — so unrelated hogli
+                        # commands (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
 
             - name: Read ClickHouse versions from JSON
               id: read-versions

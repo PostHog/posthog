@@ -9,9 +9,9 @@
  */
 /**
  * * `starting` - Starting
- * `completed` - Completed
- * `failed` - Failed
- * `skipped` - Skipped
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `skipped` - Skipped
  */
 export type SubscriptionDeliveryStatusEnumApi =
     (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
@@ -43,18 +43,22 @@ export interface SubscriptionDeliveryApi {
     readonly target_type: string
     /** Destination snapshot at send time (emails, channel id, URL). */
     readonly target_value: string
-    /** ExportedAsset ids generated for this send. */
+    /**
+     * ExportedAsset ids generated for this send.
+     * @items.minimum -2147483648
+     * @items.maximum 2147483647
+     */
     readonly exported_asset_ids: readonly number[]
     /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
     readonly content_snapshot: unknown
     /** Per-destination outcomes; items use status success, failed, or partial. */
     readonly recipient_results: unknown
     /** Overall run status: starting, completed, failed, or skipped.
-
-  * `starting` - Starting
-  * `completed` - Completed
-  * `failed` - Failed
-  * `skipped` - Skipped */
+     *
+     * * `starting` - Starting
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
     readonly status: SubscriptionDeliveryStatusEnumApi
     /** Top-level failure payload when status is failed, if any. */
     readonly error: unknown
@@ -84,8 +88,8 @@ export interface PaginatedSubscriptionDeliveryListApi {
 
 /**
  * * `insight` - Insight
- * `dashboard` - Dashboard
- * `ai_prompt` - AI prompt
+ * * `dashboard` - Dashboard
+ * * `ai_prompt` - AI prompt
  */
 export type ResourceTypeEnumApi = (typeof ResourceTypeEnumApi)[keyof typeof ResourceTypeEnumApi]
 
@@ -97,7 +101,7 @@ export const ResourceTypeEnumApi = {
 
 /**
  * * `email` - Email
- * `slack` - Slack
+ * * `slack` - Slack
  */
 export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
 
@@ -108,9 +112,9 @@ export const TargetTypeEnumApi = {
 
 /**
  * * `daily` - Daily
- * `weekly` - Weekly
- * `monthly` - Monthly
- * `yearly` - Yearly
+ * * `weekly` - Weekly
+ * * `monthly` - Monthly
+ * * `yearly` - Yearly
  */
 export type SubscriptionFrequencyEnumApi =
     (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
@@ -124,12 +128,12 @@ export const SubscriptionFrequencyEnumApi = {
 
 /**
  * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
+ * * `tuesday` - Tuesday
+ * * `wednesday` - Wednesday
+ * * `thursday` - Thursday
+ * * `friday` - Friday
+ * * `saturday` - Saturday
+ * * `sunday` - Sunday
  */
 export type SubscriptionApiByweekdayItem =
     (typeof SubscriptionApiByweekdayItem)[keyof typeof SubscriptionApiByweekdayItem]
@@ -146,13 +150,13 @@ export const SubscriptionApiByweekdayItem = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -205,10 +209,10 @@ export interface UserBasicApi {
 export interface SubscriptionApi {
     readonly id: number
     /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
-
-  * `insight` - Insight
-  * `dashboard` - Dashboard
-  * `ai_prompt` - AI prompt */
+     *
+     * * `insight` - Insight
+     * * `dashboard` - Dashboard
+     * * `ai_prompt` - AI prompt */
     readonly resource_type: ResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -232,18 +236,18 @@ export interface SubscriptionApi {
      */
     prompt?: string | null
     /** Delivery channel: email or slack.
-
-  * `email` - Email
-  * `slack` - Slack */
+     *
+     * * `email` - Email
+     * * `slack` - Slack */
     target_type: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
@@ -323,12 +327,12 @@ export interface PaginatedSubscriptionListApi {
 
 /**
  * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
+ * * `tuesday` - Tuesday
+ * * `wednesday` - Wednesday
+ * * `thursday` - Thursday
+ * * `friday` - Friday
+ * * `saturday` - Saturday
+ * * `sunday` - Sunday
  */
 export type PatchedSubscriptionApiByweekdayItem =
     (typeof PatchedSubscriptionApiByweekdayItem)[keyof typeof PatchedSubscriptionApiByweekdayItem]
@@ -349,10 +353,10 @@ export const PatchedSubscriptionApiByweekdayItem = {
 export interface PatchedSubscriptionApi {
     readonly id?: number
     /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
-
-  * `insight` - Insight
-  * `dashboard` - Dashboard
-  * `ai_prompt` - AI prompt */
+     *
+     * * `insight` - Insight
+     * * `dashboard` - Dashboard
+     * * `ai_prompt` - AI prompt */
     readonly resource_type?: ResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -376,18 +380,18 @@ export interface PatchedSubscriptionApi {
      */
     prompt?: string | null
     /** Delivery channel: email or slack.
-
-  * `email` - Email
-  * `slack` - Slack */
+     *
+     * * `email` - Email
+     * * `slack` - Slack */
     target_type?: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.

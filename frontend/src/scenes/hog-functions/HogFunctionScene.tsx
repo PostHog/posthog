@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
@@ -444,7 +445,14 @@ export function HogFunctionScene(): JSX.Element {
 
         supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
             ? {
-                  label: 'Backfills',
+                  label: (
+                      <div className="flex flex-row">
+                          <div>Backfills</div>
+                          <LemonTag className="ml-2 uppercase" type="primary">
+                              New
+                          </LemonTag>
+                      </div>
+                  ),
                   key: 'backfills',
                   content: <HogFunctionBackfills id={id} />,
               }

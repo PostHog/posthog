@@ -142,7 +142,9 @@ class RevenueCatSource(
                         required=True,
                         placeholder="proj1a2b3c4d5e",
                         caption=(
-                            "Find this in your RevenueCat dashboard URL: `app.revenuecat.com/projects/<project_id>`."
+                            "The id that starts with `proj`, found in your RevenueCat dashboard URL: "
+                            "`app.revenuecat.com/projects/<project_id>`. You can paste either the id "
+                            "or the full URL."
                         ),
                         secret=False,
                     ),

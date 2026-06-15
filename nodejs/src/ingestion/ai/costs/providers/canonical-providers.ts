@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-08 20:42:31 UTC
+// Generated at: 2026-06-12 20:40:24 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,6 +11,7 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
+    | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
@@ -39,7 +40,7 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crucible'
+    | 'decart-fp4'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -146,5 +147,5 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xiaomi-fp8'
-    | 'z-ai'
+    | 'z-ai-fp4'
     | 'z-ai-fp8'

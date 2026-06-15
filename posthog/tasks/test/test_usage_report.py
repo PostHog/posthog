@@ -445,6 +445,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "web",
                 "js",
                 "posthog-node",
+                "posthog-edge",
+                "posthog-convex",
                 "posthog-android",
                 "posthog-flutter",
                 "posthog-ios",
@@ -469,6 +471,23 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
+
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$conversations_loaded",
+                properties={"$lib": "posthog-node", "$ai_lib": "posthog-openclaw", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$conversations_widget_loaded",
+                properties={"$lib": "posthog-node", "$ai_lib": "@posthog/pi", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
 
             # Events for org 1 team 2
             distinct_id = str(uuid4())
@@ -597,8 +616,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 42,
-                    "enhanced_persons_event_count_in_period": 41,
+                    "event_count_in_period": 44,
+                    "enhanced_persons_event_count_in_period": 43,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -607,6 +626,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
+                    "openclaw_events_count_in_period": 1,
+                    "posthog_pi_events_count_in_period": 1,
+                    "edge_events_count_in_period": 1,
+                    "convex_events_count_in_period": 1,
                     "android_events_count_in_period": 1,
                     "flutter_events_count_in_period": 1,
                     "ios_events_count_in_period": 1,
@@ -667,8 +690,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 31,
-                            "enhanced_persons_event_count_in_period": 30,
+                            "event_count_in_period": 33,
+                            "enhanced_persons_event_count_in_period": 32,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
@@ -677,6 +700,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
+                            "openclaw_events_count_in_period": 1,
+                            "posthog_pi_events_count_in_period": 1,
+                            "edge_events_count_in_period": 1,
+                            "convex_events_count_in_period": 1,
                             "android_events_count_in_period": 1,
                             "flutter_events_count_in_period": 1,
                             "ios_events_count_in_period": 1,
@@ -741,6 +768,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 12,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "openclaw_events_count_in_period": 0,
+                            "posthog_pi_events_count_in_period": 0,
+                            "edge_events_count_in_period": 0,
+                            "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
@@ -828,6 +859,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_events_count_in_period": 11,
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
+                    "openclaw_events_count_in_period": 0,
+                    "posthog_pi_events_count_in_period": 0,
+                    "edge_events_count_in_period": 0,
+                    "convex_events_count_in_period": 0,
                     "android_events_count_in_period": 0,
                     "flutter_events_count_in_period": 0,
                     "ios_events_count_in_period": 0,
@@ -898,6 +933,10 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_events_count_in_period": 11,
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
+                            "openclaw_events_count_in_period": 0,
+                            "posthog_pi_events_count_in_period": 0,
+                            "edge_events_count_in_period": 0,
+                            "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
                             "flutter_events_count_in_period": 0,
                             "ios_events_count_in_period": 0,
@@ -4265,9 +4304,17 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # 3.0 USD * 100 * 1.2 = 360
         self.assertEqual(result, [(self.org_1_team_1.id, 360)])
 
+    @parameterized.expand(
+        [
+            ("slack_app",),
+            ("product_analytics",),
+            ("surveys",),
+            ("subscriptions",),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_counts_traceless_whitelisted_product(self, mock_region: MagicMock) -> None:
-        """A traceless whitelisted product (e.g. slack_app) bills via the empty-trace fallback."""
+    def test_traceless_whitelisted_product_bills_as_ai_credits(self, ai_product: str, mock_region: MagicMock) -> None:
+        """A traceless whitelisted product (e.g. slack_app, product_analytics) bills via the empty-trace fallback."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
         mock_region.return_value = "US"
@@ -4279,18 +4326,18 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # slack_app emits no $ai_trace — billed via the empty-trace fallback, not a paired trace.
+        # These products emit no $ai_trace — billed via the empty-trace fallback, not a paired trace.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
-            distinct_id="user_slack",
+            distinct_id=f"user_{ai_product}",
             timestamp=period_start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_slack",
+                "$ai_trace_id": f"trace_{ai_product}",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "ai_product": "slack_app",
+                "ai_product": ai_product,
                 "$group_1": "https://us.posthog.com",
             },
         )

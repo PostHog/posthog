@@ -38,6 +38,7 @@ SELECT
     toString(properties.$mcp_duration_ms) AS duration_ms_raw
 FROM events
 WHERE event = {event}
+    AND timestamp >= {date_from}
     AND properties.$mcp_session_id = {session_id}
 ORDER BY timestamp ASC
 LIMIT 500
@@ -66,6 +67,10 @@ DEFAULT_SESSION_SORT_COLUMN = "session_start"
 # products/mcp_analytics/docs/sessions-overview.md for why this replaced the
 # disabled Temporal backfill.
 MCP_SESSIONS_LOOKBACK = timedelta(hours=24)
+
+assert intent_generation.SESSION_EVENTS_LOOKBACK >= MCP_SESSIONS_LOOKBACK, (
+    "SESSION_EVENTS_LOOKBACK must be >= MCP_SESSIONS_LOOKBACK or detail views will silently truncate for listed sessions"
+)
 
 # Short TTL so concurrent dashboard tabs / auto-refreshes share one ClickHouse
 # aggregation instead of each re-running it — long enough to absorb a burst,
@@ -306,6 +311,7 @@ def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCa
         _MCP_TOOL_CALLS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK),
             "session_id": ast.Constant(value=session_id),
         },
     )

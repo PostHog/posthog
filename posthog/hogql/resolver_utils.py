@@ -4,6 +4,8 @@ import difflib
 from collections.abc import Generator
 from typing import Optional
 
+from pydantic import BaseModel
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -25,8 +27,6 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
-
-from posthog import schema
 
 
 def lookup_field_by_name(
@@ -219,8 +219,12 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
     elif isinstance(expr, ast.Tuple):
         return tuple(ast_to_query_node(e) for e in expr.exprs)
     elif isinstance(expr, ast.HogQLXTag):
+        # Deferred: posthog.schema stays off django.setup(); this module loads there via
+        # hogql.ast, which the warehouse/data-modeling models import.
+        from posthog import schema  # noqa: PLC0415
+
         for klass in schema.__dict__.values():
-            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
+            if isinstance(klass, type) and issubclass(klass, BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
                 attributes.pop("kind")
                 # Query runners use "source" instead of "children" for their source query
@@ -251,7 +255,7 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
 
 
-def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
+def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery]:
     if isinstance(select, ast.SelectQuery):
         yield select
     else:

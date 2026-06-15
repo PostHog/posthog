@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
+import { CHART_THEME, colorAt } from '@posthog/mcp-ui'
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { BarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { ChartTheme } from '@posthog/quill-charts'
+import { BarChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
+import { buildTrendsBarChartModel } from '../../frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
     buildTrendsBarValueConfig,
     buildTrendsBarValueSeries,
@@ -16,20 +17,6 @@ import {
     type TrendsResultLike,
 } from '../../frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
-const CHART_COLORS = ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626']
-
-const CHART_THEME: ChartTheme = {
-    colors: CHART_COLORS,
-    backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
-    gridColor: 'rgba(128,128,128,0.2)',
-    crosshairColor: 'rgba(128,128,128,0.5)',
-    tooltipBackground: '#ffffff',
-    tooltipColor: '#111827',
-}
-
-const colorAt = (i: number): string => CHART_COLORS[i % CHART_COLORS.length]!
 const getColor = (_r: TrendsResultLike, i: number): string => colorAt(i)
 
 const DAYS = ['2025-05-26', '2025-05-27', '2025-05-28', '2025-05-29', '2025-05-30', '2025-05-31', '2025-06-01']
@@ -95,6 +82,35 @@ export const AreaChart: Story = {
         />
     ),
     name: 'Area chart',
+}
+
+// Renders the line/bar toggle's bar mode the same way the MCP app does: time-series results through
+// buildTrendsBarChartModel, then quill's TimeSeriesBarChart.
+function TrendsBarChartDemo({ results }: { results: TrendsResultLike[] }): ReactElement {
+    const { series, config } = buildTrendsBarChartModel(results, {
+        getColor: (_r, i) => colorAt(i),
+        labels: DAYS,
+        isPercentStackView: false,
+        isGrouped: false,
+    })
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 300 }}>
+            <TimeSeriesBarChart series={series} labels={DAYS} theme={CHART_THEME} config={config} />
+        </div>
+    )
+}
+
+export const TimeSeriesBar: Story = {
+    render: () => (
+        <TrendsBarChartDemo
+            results={[
+                { id: 1, label: 'Pageviews', data: [420, 380, 510, 490, 630, 580, 720], days: DAYS },
+                { id: 2, label: 'Signups', data: [42, 38, 51, 49, 63, 58, 72], days: DAYS },
+            ]}
+        />
+    ),
+    name: 'Time-series bar',
 }
 
 // Renders ActionsBarValue the same way the MCP app does: aggregated totals through

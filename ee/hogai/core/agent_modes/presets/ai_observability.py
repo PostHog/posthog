@@ -149,7 +149,7 @@ class AIObservabilityAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.ai_observability.backend.tools.run_hog_eval_test import RunHogEvalTestTool
+        from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
         from products.ai_observability.backend.tools.skills import (
             ArchiveLLMSkillTool,
             CreateLLMSkillTool,

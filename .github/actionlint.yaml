@@ -6,3 +6,4 @@ self-hosted-runner:
         - depot-ubuntu-latest
         - depot-ubuntu-latest-4
         - depot-ubuntu-latest-8
+        - depot-macos-latest

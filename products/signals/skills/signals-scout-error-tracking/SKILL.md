@@ -5,14 +5,12 @@ description: >
   bursts, stuck loops, multi-fingerprint clusters, status regressions, and stack-trace
   activity-name patterns. Emits findings only when they clear the confidence bar;
   otherwise writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet — no dependencies on other skills. Picked uniformly at random
-  by the coordinator alongside `signals-scout-general` and other specialists.
+  signals-scout-* fleet — no dependencies on other skills.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  error-tracking + analytics tools (query-error-tracking-issues-list, query-error-tracking-issue,
-  execute-sql, activity-log-list, inbox-reports-list).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the error-tracking and analytics tools listed in
+  the body's MCP tools section.
 metadata:
   owner_team: signals
   scope: error_tracking
@@ -140,7 +138,7 @@ and burn less time on cold-start exploration.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete issue ids,
+  Strong scout findings: confidence ≥ 0.85, with concrete issue ids,
   hourly count, distinct-user counts in the evidence.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
