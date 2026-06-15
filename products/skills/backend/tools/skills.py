@@ -1,6 +1,8 @@
 import posixpath
 from typing import Any
 
+from django.db.models import Q
+
 from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
@@ -9,7 +11,7 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.api.skill_services import (
+from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
@@ -23,7 +25,7 @@ from products.ai_observability.backend.api.skill_services import (
     get_skill_by_name_from_db,
     publish_skill_version,
 )
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError
@@ -286,8 +288,6 @@ class ListLLMSkillsTool(MaxTool):
     def _list_skills(self, search: str | None) -> list[LLMSkill]:
         queryset = get_latest_skills_queryset(self._team)
         if search:
-            from django.db.models import Q
-
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
         # Fetch one extra row so we can distinguish "exactly at the cap" from "truncated".
         return list(queryset.order_by("name")[: MAX_LIST_RESULTS + 1])

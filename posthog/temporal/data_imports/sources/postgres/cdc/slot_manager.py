@@ -28,7 +28,10 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
 
     source_impl = PostgresSource()
     config = source_impl.parse_config(source.job_inputs or {})
-    require_ssl = source_requires_ssl(source)
+    # Pass `config` so the SSH-tunnel `require_tls` opt-out is honored, matching the main
+    # pipeline path. Without it SSL is forced on, and a database reached over an SSH tunnel
+    # that doesn't speak SSL fails with "server does not support SSL, but SSL was required".
+    require_ssl = source_requires_ssl(source, config)
 
     with source_impl.with_ssh_tunnel(config) as (host, port):
         conn = _connect_to_postgres(
