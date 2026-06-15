@@ -1,28 +1,20 @@
 import os
 import re
 import sys
-import glob
 import logging
 
 from django.core.management.base import BaseCommand, CommandError
 
 from git import Repo
 
+from posthog.clickhouse.migration_packages import CORE_MIGRATIONS_PACKAGE, get_clickhouse_migration_dirs
+
 logger = logging.getLogger(__name__)
 
-CORE_MIGRATIONS_DIR = "posthog/clickhouse/migrations"
-# Match any product that ships ClickHouse migrations alongside core.
-PRODUCT_MIGRATIONS_GLOB = "products/*/backend/clickhouse/migrations"
+CORE_MIGRATIONS_DIR = CORE_MIGRATIONS_PACKAGE.replace(".", "/")
 MIGRATION_PATH_RE = re.compile(
     r"^(?:posthog/clickhouse/migrations|products/[a-z_]+/backend/clickhouse/migrations)/[0-9]+_[a-zA-Z_0-9]+\.py$"
 )
-
-
-def get_migration_dirs() -> list[str]:
-    """Core dir plus every product that has opted into ClickHouse migrations."""
-    dirs = [CORE_MIGRATIONS_DIR]
-    dirs.extend(sorted(d for d in glob.glob(PRODUCT_MIGRATIONS_GLOB) if os.path.isdir(d)))
-    return dirs
 
 
 # Pre-existing duplicate migration numbers to ignore.
@@ -98,7 +90,7 @@ class Command(BaseCommand):
     help = "Automated test to make sure ClickHouse migrations are safe"
 
     def handle(self, *args, **options):
-        for migrations_dir in get_migration_dirs():
+        for migrations_dir in get_clickhouse_migration_dirs():
             if not check_no_duplicate_migration_numbers(migrations_dir) or not check_max_migration_file(migrations_dir):
                 sys.exit(1)
 

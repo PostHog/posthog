@@ -28,3 +28,12 @@ def get_clickhouse_migration_packages() -> list[str]:
         except ModuleNotFoundError:
             continue
     return packages
+
+
+def get_clickhouse_migration_dirs() -> list[str]:
+    """Filesystem dirs for the migration packages — the same source of truth as the runner.
+
+    Keep discovery here (not a filesystem glob) so the safety checker only ever validates
+    migrations the runner will actually apply.
+    """
+    return [package.replace(".", "/") for package in get_clickhouse_migration_packages()]
