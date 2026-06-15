@@ -5,10 +5,14 @@
     },
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@storybook/react": "catalog:",
