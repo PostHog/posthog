@@ -60,6 +60,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
+    "endpoint",
     "experiment",
     "external_data_source",
     "warehouse_objects",
@@ -293,6 +294,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "endpointversion":
+        return "endpoint"
     if name == "externaldatasource":
         return "external_data_source"
     if name == "externaldataschema":

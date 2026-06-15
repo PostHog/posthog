@@ -79,6 +79,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -92,7 +93,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
@@ -1401,7 +1402,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+        is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
         if self.is_query_service:
             tag_queries(chargeable=1)
@@ -1852,6 +1853,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
+        # Temporary (June 2026 MaxMind incident): only set while the geoip dict fallback is enabled for the team, so
+        # flipping HOGQL_GEOIP_DICT_FALLBACK_TEAMS invalidates exactly the affected teams' cached results (which hold
+        # blank geo values) and nothing changes for anyone else. Deliberately keyed on env membership alone, NOT the
+        # runtime dictionary probe: cache keys must depend only on operator-controlled config, or a transient probe
+        # failure would flip every enabled team's keys at once and recompute the fleet against an already-degraded
+        # cluster. Remove with the transform.
+        if geoip_dict_fallback_team_in_env(self.team.pk):
+            payload["geoip_dict_fallback"] = True
+
         return payload
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
@@ -2191,9 +2201,8 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
-        """Access-control snapshot for this run, shared by the cache fingerprint and schema
-        filtering so both resolve from the same rows. Built lazily - the fingerprint needs it
-        before any database exists. None for userless runs."""
+        """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
+        before any database exists, which a cache hit never reaches. None for userless runs."""
         if self.user is None:
             return None
         if self._user_access_control is None:
@@ -2229,9 +2238,8 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _get_resource_access_restrictions(self) -> list[str] | None:
         """Sorted list of resources the user has no access to at the resource level. Reuses
-        UserAccessControl.blocked_resources, built on the same predicate that drives schema
-        filtering in Database._filter_system_tables_for_user, so the cache key matches the exposed
-        schema."""
+        UserAccessControl.blocked_resources, the same predicate that drives schema filtering, so
+        the cache key matches the exposed schema."""
         user_access_control = self.user_access_control
         if user_access_control is None:
             return None
@@ -2254,18 +2262,19 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user, user_access_control=self.user_access_control)
-        self.hogql_context = HogQLContext(
-            team_id=self.team.pk, database=self.database, user=user, user_access_control=self.user_access_control
-        )
+        self.database = Database.create_for(team=self.team, user=user)
+        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
-        # super() clears the cached UserAccessControl. Do it before the rebuild so
-        # _build_hogql_context_for_user reads a fresh snapshot for the new user, not the old one.
-        super()._on_user_changed()
         self._build_hogql_context_for_user(self.user)
+
+    @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        # Reuse the instance create_for already preloaded on the database, so the cache fingerprint
+        # and schema filtering resolve access from the same rows.
+        return self.database.user_access_control
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

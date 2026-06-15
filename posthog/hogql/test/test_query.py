@@ -36,13 +36,13 @@ from posthog.hogql.test.utils import (
 )
 
 from posthog.errors import InternalCHQueryError
-from posthog.models import Cohort
-from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import recalculate_cohortpeople
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1295,7 +1295,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))

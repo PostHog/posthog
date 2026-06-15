@@ -17,8 +17,14 @@ The fixture is also harmless for non-scout tests in this directory: the older
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
+import pytest_asyncio
+from asgiref.sync import sync_to_async
+
+from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
 
@@ -30,3 +36,22 @@ def _scout_team_scope(request: pytest.FixtureRequest):
         return
     with team_scope(instance.team.id):
         yield
+
+
+@pytest_asyncio.fixture
+async def aorganization():
+    organization = await sync_to_async(Organization.objects.create)(
+        name=f"SignalsTelemetryOrg-{random.randint(1, 99999)}",
+    )
+    yield organization
+    await sync_to_async(organization.delete)()
+
+
+@pytest_asyncio.fixture
+async def ateam(aorganization):
+    team = await sync_to_async(Team.objects.create)(
+        organization=aorganization,
+        name=f"SignalsTelemetryTeam-{random.randint(1, 99999)}",
+    )
+    yield team
+    await sync_to_async(team.delete)()

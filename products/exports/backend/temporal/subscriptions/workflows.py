@@ -503,6 +503,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 final_status = DeliveryStatus.FAILED
                 return
 
+            if generate_result.skipped:
+                # Over AI-credit budget — generation rescheduled the sub past the credit reset and
+                # notified the owner. SKIPPED (not FAILED): the sub isn't broken, it resumes when
+                # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
+                final_status = DeliveryStatus.SKIPPED
+                return
+
             # Phase 2: ship the persisted report. is_new only for target-change triggers.
             is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
             deliver_result = await temporalio.workflow.execute_activity(

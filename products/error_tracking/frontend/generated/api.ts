@@ -32,6 +32,7 @@ import type {
     ErrorTrackingIssueQueryRequestApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
+    ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
@@ -70,6 +71,7 @@ import type {
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueFullApi,
+    PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseApi,
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
@@ -103,7 +105,7 @@ export const getErrorTrackingAssignmentRulesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -236,7 +238,7 @@ export const getErrorTrackingExternalReferencesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -322,7 +324,7 @@ export const getErrorTrackingFingerprintsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -388,7 +390,7 @@ export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -421,7 +423,7 @@ export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -565,7 +567,7 @@ export const getErrorTrackingIssuesListUrl = (projectId: string, params?: ErrorT
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -626,14 +628,14 @@ export const getErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) =
 export const errorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueWriteApi?: ErrorTrackingIssueWriteApi,
     options?: RequestInit
 ): Promise<ErrorTrackingIssueFullApi> => {
     return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueWriteApi),
     })
 }
 
@@ -644,14 +646,14 @@ export const getErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: st
 export const errorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFullApi?: NonReadonly<PatchedErrorTrackingIssueFullApi>,
+    patchedErrorTrackingIssueWriteApi?: PatchedErrorTrackingIssueWriteApi,
     options?: RequestInit
 ): Promise<ErrorTrackingIssueFullApi> => {
     return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingIssueFullApi),
+        body: JSON.stringify(patchedErrorTrackingIssueWriteApi),
     })
 }
 
@@ -884,7 +886,7 @@ export const getErrorTrackingRecommendationsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -959,7 +961,7 @@ export const getErrorTrackingReleasesListUrl = (projectId: string, params?: Erro
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1149,7 +1151,7 @@ export const getErrorTrackingSpikeEventsListUrl = (projectId: string, params?: E
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1176,7 +1178,7 @@ export const getErrorTrackingStackFramesListUrl = (projectId: string, params?: E
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1256,7 +1258,7 @@ export const getErrorTrackingSuppressionRulesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1386,7 +1388,7 @@ export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: Er
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

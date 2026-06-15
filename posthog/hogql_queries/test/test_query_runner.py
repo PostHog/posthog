@@ -1243,8 +1243,16 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         # Object/resource AC only applies to non-admins.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+        # create_for only preloads database.user_access_control under this flag, which the ctx
+        # runner's fingerprint reads; enable it so partitioning is exercised on the ctx path.
+        self._ff_patcher = mock.patch(
+            "posthog.hogql.database.database.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == "hogql-access-control",
+        )
+        self._ff_patcher.start()
 
     def tearDown(self):
+        self._ff_patcher.stop()
         super().tearDown()
         cache.clear()
 
@@ -1358,24 +1366,10 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert key_restricted != key_granted
 
     def test_fingerprint_and_schema_filter_share_one_instance(self):
-        # Fingerprint and schema filter must resolve from the same snapshot, else a denied user
-        # gets a result cached against a broader schema.
+        # The ctx runner's fingerprint reuses the instance create_for preloaded on the database, so
+        # the cache key and schema filtering resolve from the same rows (no drift).
         runner = self._runner(self.user)
         assert runner.database.user_access_control is runner.user_access_control
-
-    def test_user_change_rebuilds_database_with_new_snapshot(self):
-        # On user change the rebuilt database must get the new user's snapshot, not the old one.
-        # A cache-key check can't catch this - the key rebuilds regardless; only the database shows it.
-        other_user = self._create_user("other@posthog.com")
-        runner = self._runner(self.user)
-        first = runner.user_access_control
-        assert runner.database.user_access_control is first
-
-        runner.user = other_user
-        runner._on_user_changed()
-
-        assert runner.user_access_control is not first  # rebuilt for the new user
-        assert runner.database.user_access_control is runner.user_access_control  # new db got the new snapshot
 
     def test_cache_payload_preloads_access_controls_once(self):
         # The memoized snapshot means both fingerprint helpers + repeated calls share one preload.

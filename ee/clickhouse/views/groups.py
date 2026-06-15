@@ -13,13 +13,12 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
-from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -38,12 +37,15 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
     delete_group_type_mapping,
+    get_group_types_for_project,
     invalidate_group_types_cache,
     update_group_type_mapping_fields,
 )
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.utils import str_to_bool
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -61,20 +63,25 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def _encode_groups_cursor(created_at_us: int, group_id: int) -> str:
-    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_us, "i": group_id}).encode()).decode()
+def _encode_groups_cursor(created_at_us: int, group_key: str) -> str:
+    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_us, "k": group_key}).encode()).decode()
 
 
-def _decode_groups_cursor(cursor: str) -> tuple[int, int]:
+def _decode_groups_cursor(cursor: str) -> tuple[int, str]:
     try:
         data = _json.loads(base64.urlsafe_b64decode(cursor))
+        # Pre-deploy cursors keyed the tiebreaker on the PG id ("i") instead of group_key ("k").
+        # The new keyset can't honor that boundary (different column, no id in ClickHouse), so treat
+        # an old-format cursor as no cursor — restart from the first page, like any invalid cursor.
+        if "k" not in data:
+            return 0, ""
         raw_ts = int(data.get("c", 0))
-        group_id = int(data.get("i", 0))
+        group_key = str(data.get("k", ""))
         if 0 < raw_ts < 1e15:
             raw_ts *= 1000
-        return raw_ts, group_id
+        return raw_ts, group_key
     except Exception:
-        return 0, 0
+        return 0, ""
 
 
 def detect_group_property_type(value):
@@ -115,9 +122,25 @@ class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializ
         read_only_fields = ["group_type", "group_type_index"]
 
 
-class GroupsTypesViewSet(
-    TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
-):
+def _group_type_row_to_response(row: dict[str, Any]) -> dict[str, Any]:
+    """Shape a get_group_types_for_project row like GroupTypeSerializer output.
+
+    Cache entries written before the personhog converter aligned with the ORM
+    .values() shape carry the dashboard id under "detail_dashboard_id" — read
+    both keys until those entries age out.
+    """
+    return {
+        "group_type": row["group_type"],
+        "group_type_index": row["group_type_index"],
+        "name_singular": row.get("name_singular"),
+        "name_plural": row.get("name_plural"),
+        "detail_dashboard": row.get("detail_dashboard", row.get("detail_dashboard_id")),
+        "default_columns": row.get("default_columns"),
+        "created_at": row.get("created_at"),
+    }
+
+
+class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")  # nosemgrep: no-direct-persons-db-orm
@@ -128,6 +151,13 @@ class GroupsTypesViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(project_id=self.team.project_id)
+
+    @extend_schema(responses={200: GroupTypeSerializer(many=True)})
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Served from the cached, personhog-routed helper instead of the persons DB
+        with personhog_caller_tag("groups/group-types-list"):
+            rows = get_group_types_for_project(self.team.project_id)
+        return response.Response([_group_type_row_to_response(row) for row in rows])
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -266,8 +296,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return group
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
         for m in get_group_types_for_project(self.team.project_id):
             if m["group_type_index"] == group_type_index:
                 return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
@@ -281,7 +309,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            capture_internal(
+            result = capture_internal_routed(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -289,15 +317,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
                 properties=properties,
                 process_person_profile=False,
-            ).raise_for_status()
-        except HTTPError as error:
+            )
+            result.raise_for_status()
+        except CaptureRoutedError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
                     "detail": "capture_http_error",
                     "type": "capture_http_error",
                 },
-                status_code=error.response.status_code,
+                status_code=error.status_code or 502,
             )
         except Exception:
             raise TriggerGroupIdentifyException(
@@ -363,10 +392,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         group_key = self.request.GET.get("group_key", "")
 
         cursor_created_at_us = 0
-        cursor_id = 0
+        cursor_group_key = ""
         cursor_param = self.request.GET.get("cursor")
         if cursor_param:
-            cursor_created_at_us, cursor_id = _decode_groups_cursor(cursor_param)
+            cursor_created_at_us, cursor_group_key = _decode_groups_cursor(cursor_param)
 
         result = list_groups(
             team_id=self.team.pk,
@@ -374,7 +403,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_key_contains=group_key,
             search=group_search,
             cursor_created_at_us=cursor_created_at_us,
-            cursor_id=cursor_id,
+            cursor_group_key=cursor_group_key,
         )
 
         serializer = self.get_serializer(result.groups, many=True)
@@ -382,7 +411,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         next_url = None
         if result.has_more and result.groups:
             last = result.groups[-1]
-            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1_000_000), last.id)
+            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1_000_000), last.group_key)
             params: dict[str, str | int] = {"group_type_index": group_type_index, "cursor": cursor}
             if group_search:
                 params["search"] = group_search
@@ -468,16 +497,25 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Specify the key of the group to find",
                 required=True,
             ),
+            OpenApiParameter(
+                "skip_create_notebook",
+                OpenApiTypes.BOOL,
+                description="When true, do not lazily create the group's CRM notebook. "
+                "Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.",
+                required=False,
+            ),
         ]
     )
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         group_type_index, group_key = self._safely_get_query_params(require_group_key=True)
+        skip_create_notebook = str_to_bool(request.GET.get("skip_create_notebook"))
         group = get_group_by_key(self.team.pk, int(group_type_index), group_key)
         if group is None:
             raise NotFound()
         if (
-            self._is_crm_enabled(cast(User, request.user))
+            not skip_create_notebook
+            and self._is_crm_enabled(cast(User, request.user))
             and not ResourceNotebook.objects.filter(group=group.id).exists()
         ):
             try:
@@ -629,18 +667,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                resp = capture_internal(
+                routed_result = capture_internal_routed(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
                     distinct_id=team_uuid_as_distinct_id,
                     timestamp=timestamp,
                     properties=properties,
-                    process_person_profile=False,  # don't process person profile
+                    process_person_profile=False,
                 )
-                resp.raise_for_status()
+                routed_result.raise_for_status()
 
-            except HTTPError as e:
+            except CaptureRoutedError as e:
                 return response.Response(
                     {
                         "attr": "$unset",
@@ -648,7 +686,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         "detail": "capture_http_error",
                         "type": "capture_http_error",
                     },
-                    status=e.response.status_code,
+                    status=e.status_code or 502,
                 )
             except Exception:
                 return response.Response(

@@ -31,6 +31,25 @@ SCOUT_INTERNAL_SCOPES: list[str] = [
 ]
 
 
+# A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
+# sandbox so scouts can produce durable artifacts as part of a finding — e.g. a notebook
+# that documents and illustrates an emitted anomaly. Unlike `SCOUT_INTERNAL_SCOPES` these
+# are ordinary public scopes (also present in the `full` preset), but they are added to the
+# scout posture ONLY on the `signals_scout` branch below, never via the global
+# `INTERNAL_SCOPES`, so `read_only` task tokens stay strictly read-only. Keep this list
+# small: every entry is real write access an autonomous scout can exercise unattended, so
+# add a scope here only when a scout genuinely needs to create that kind of artifact.
+# NOTE: scopes here are object-level, not tool-level. `notebook:write` also exposes the
+# `notebooks-destroy` / `notebooks-partial-update` MCP tools, not just `notebooks-create`,
+# so in principle a scout (or a prompt-injected run) could modify or soft-delete existing
+# notebooks in its own project. Accepted as low-risk for now — the token is scoped to a
+# single team, destroy is a recoverable soft-delete, and emits are rare — and monitored in
+# practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
+SCOUT_USER_WRITE_SCOPES: list[str] = [
+    "notebook:write",
+]
+
+
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
@@ -63,14 +82,16 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
         elif scopes == "signals_scout":
-            # The scout sandbox: reads + the scout's own internal write scope. The internal
-            # scout-write scope is added ONLY here (not via the global `INTERNAL_SCOPES`), so
-            # unrelated `full`/`read_only` task tokens never carry scout write access.
-            # `has_write_scopes("signals_scout")` also reports True so the MCP server doesn't
-            # enable read-only mode, which would otherwise strip the agent's own internal-write
-            # tools (`signal_scout_internal:write` is annotated as not-read-only).
+            # The scout sandbox: reads, the scout's own internal write scope, and a narrow
+            # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
+            # artifacts a finding can produce (e.g. a notebook). Both extra sets are added
+            # ONLY here (not via the global `INTERNAL_SCOPES`), so unrelated `full`/`read_only`
+            # task tokens never carry them. `has_write_scopes("signals_scout")` also reports
+            # True so the MCP server doesn't enable read-only mode, which would otherwise strip
+            # the agent's own internal-write tools (`signal_scout_internal:write` is annotated
+            # as not-read-only).
             scout_internal = list(SCOUT_INTERNAL_SCOPES) if include_internal_scopes else []
-            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal]
+            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal, *SCOUT_USER_WRITE_SCOPES]
         else:
             # "read_only": reads + shared internal scopes only — no scout write scope.
             resolved = [*MCP_READ_SCOPES, *internal]
@@ -83,9 +104,10 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
         # `signals_scout` reports True so the MCP server doesn't enable read-only mode for
         # the harness sandbox — the agent IS allowed to call its own internal-write tools
-        # (remember, forget, emit_finding) even though it has no user-facing write scopes.
-        # Read-only mode is a tool-annotation filter, not a scope filter, and would strip
-        # those tools categorically without this opt-out.
+        # (remember, forget, emit_finding) as well as the narrow user-facing writes in
+        # `SCOUT_USER_WRITE_SCOPES` (e.g. `notebook:write`). Read-only mode is a
+        # tool-annotation filter, not a scope filter, and would strip those tools
+        # categorically without this opt-out.
         return scopes in ("full", "signals_scout")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 

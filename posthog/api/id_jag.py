@@ -29,6 +29,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -99,6 +100,13 @@ class InvalidTargetError(IdJagError):
     # XAA error-code table lists `invalid_target` for resource-connection mismatch.
     # https://xaa.dev/docs/error-codes#idp-token-exchange
     error_code = "invalid_target"
+
+
+class AccessDeniedError(IdJagError):
+    # Special error for cases when the organization is not entitled to the XAA billing feature.
+    # This is different from the generic `InvalidGrantError` which is used for cases when the ID-JAG is invalid.
+    error_code = "access_denied"
+    http_status = status.HTTP_403_FORBIDDEN
 
 
 class IdJagClaims(TypedDict, total=False):
@@ -493,6 +501,10 @@ def issue_access_token(
 
     claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
 
+    organization = org_domain.organization
+    if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+        raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
+
     if request_client_id and request_client_id != claims.get("client_id"):
         raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
@@ -505,7 +517,7 @@ def issue_access_token(
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
     verified_email = claims.get("email") or claims.get("sub") or ""
     payload = _construct_access_token_payload(
-        claims, provider_name, granted, org_domain.organization.pk, cast(str, verified_email)
+        claims, provider_name, granted, organization.pk, cast(str, verified_email)
     )
     token = _construct_access_token(payload)
     return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS

@@ -3,23 +3,21 @@ import { useActions, useValues } from 'kea'
 import { IconBug } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
-import { EndpointType, EndpointVersionType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
 
-export interface EndpointSceneHeaderProps {
-    tabId: string
-}
-
-export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.Element => {
+export const EndpointSceneHeader = (): JSX.Element => {
     const {
         endpoint,
         endpointLoading,
@@ -29,12 +27,19 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
         bucketOverrides,
         debugInfoExpanded,
         dataFreshness,
-    } = useValues(endpointSceneLogic({ tabId }))
-    const { endpointName, endpointDescription } = useValues(endpointLogic({ tabId }))
-    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic({ tabId }))
+    } = useValues(endpointSceneLogic)
+    const { endpointName, endpointDescription } = useValues(endpointLogic)
+    const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
     const { setLocalQuery, setDataFreshness, setIsMaterialized, resetBucketOverrides, setDebugInfoExpanded } =
-        useActions(endpointSceneLogic({ tabId }))
+        useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
+
+    // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
+    // wrap it with AccessControlAction — use the same helper AccessControlAction relies on internally.
+    const editAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Endpoint,
+        AccessControlLevel.Editor
+    )
 
     // When viewing a non-current version, target that version for updates
     const targetVersion =
@@ -102,7 +107,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 name={endpointName || endpoint?.name}
                 description={endpointDescription ?? viewingVersion?.description ?? endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
-                canEdit
+                canEdit={!editAccessDisabledReason}
                 // onNameChange={} - we explicitly disallow this
                 onDescriptionChange={(description) => setEndpointDescription(description)}
                 isLoading={endpointLoading && !endpoint}
@@ -132,21 +137,26 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                                 Discard changes
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabledReason={
-                                !endpoint
-                                    ? 'Endpoint not loaded'
-                                    : !hasChanges
-                                      ? 'No changes to save'
-                                      : hasQueryChange && targetVersion
-                                        ? 'Query can only be changed when on the latest version'
-                                        : undefined
-                            }
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Endpoint}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            Update
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSave}
+                                disabledReason={
+                                    !endpoint
+                                        ? 'Endpoint not loaded'
+                                        : !hasChanges
+                                          ? 'No changes to save'
+                                          : hasQueryChange && targetVersion
+                                            ? 'Query can only be changed when on the latest version'
+                                            : undefined
+                                }
+                            >
+                                Update
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             />

@@ -26,6 +26,8 @@ from posthog.temporal.session_replay.session_summary_group.types import (
     SessionGroupSummaryPatternsExtractionChunksInputs,
 )
 
+from products.replay.backend.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta
+
 from ee.hogai.session_summaries.constants import (
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
     PATTERNS_EXTRACTION_MAX_TOKENS,
@@ -55,7 +57,6 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     remove_excessive_content_from_session_summary_for_llm,
 )
 from ee.hogai.session_summaries.utils import estimate_tokens_from_strings, logging_session_ids
-from ee.models.session_summaries import SessionGroupSummary, SessionSummaryRunMeta
 
 logger = structlog.get_logger(__name__)
 

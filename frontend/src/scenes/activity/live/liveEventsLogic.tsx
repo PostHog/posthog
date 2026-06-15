@@ -106,10 +106,8 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
         clearEvents: () => {
             cache.batch = []
         },
-        updateEventsConnection: async () => {
-            if (cache.eventSourceController) {
-                cache.eventSourceController.abort()
-            }
+        updateEventsConnection: () => {
+            cache.disposables.dispose('eventsConnection')
 
             if (values.streamPaused) {
                 return
@@ -138,40 +136,49 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             }
             url.searchParams.append('columns', '$current_url,$screen_name')
 
-            cache.batch = []
-            cache.eventSourceController = new AbortController()
-
-            await api.stream(url.toString(), {
-                headers: {
-                    Authorization: `Bearer ${values.currentTeam.live_events_token}`,
-                },
-                signal: cache.eventSourceController.signal,
-                onMessage: (event) => {
-                    lemonToast.dismiss(ERROR_TOAST_ID)
-                    const eventData = JSON.parse(event.data)
-                    cache.batch.push(eventData)
-                    if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
-                        actions.addEvents(cache.batch)
-                        cache.batch.length = 0
-                    }
-                },
-                onError: (error) => {
-                    if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
-                        console.error('Failed to poll events. You likely have no events coming in.', error)
-                        lemonToast.error(`No live events found. Continuing to retry in the background…`, {
-                            icon: <Spinner />,
-                            toastId: ERROR_TOAST_ID,
-                            autoClose: false,
-                        })
-                        cache.hasShownLiveStreamErrorToast = true
-                    }
-                },
-            })
+            // Managed as a disposable so the long-lived streaming Response is aborted when
+            // the tab is hidden and reopened on visibilitychange — an open stream on an idle
+            // background tab accumulates off-heap in Blink's partition_alloc/buffer.
+            cache.disposables.add(() => {
+                cache.batch = []
+                const controller = new AbortController()
+                void api.stream(url.toString(), {
+                    headers: {
+                        Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
+                    },
+                    signal: controller.signal,
+                    onMessage: (event) => {
+                        lemonToast.dismiss(ERROR_TOAST_ID)
+                        let eventData: LiveEvent
+                        try {
+                            eventData = JSON.parse(event.data)
+                        } catch {
+                            // Drop malformed stream payloads rather than throwing inside the listener
+                            return
+                        }
+                        cache.batch.push(eventData)
+                        if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
+                            actions.addEvents(cache.batch)
+                            cache.batch.length = 0
+                        }
+                    },
+                    onError: (error) => {
+                        if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                            console.error('Failed to poll events. You likely have no events coming in.', error)
+                            lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                                icon: <Spinner />,
+                                toastId: ERROR_TOAST_ID,
+                                autoClose: false,
+                            })
+                            cache.hasShownLiveStreamErrorToast = true
+                        }
+                    },
+                })
+                return () => controller.abort()
+            }, 'eventsConnection')
         },
         pauseStream: () => {
-            if (cache.eventSourceController) {
-                cache.eventSourceController.abort()
-            }
+            cache.disposables.dispose('eventsConnection')
         },
         resumeStream: () => {
             actions.updateEventsConnection()
@@ -181,9 +188,13 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 const event = events[0]
                 const eventUrl = event.properties?.$current_url
                 if (eventUrl) {
-                    const eventHost = new URL(eventUrl).host
-                    const eventProtocol = new URL(eventUrl).protocol
-                    actions.addEventHost(`${eventProtocol}//${eventHost}`)
+                    // Live events can carry a malformed `$current_url`; skip host extraction rather than throw.
+                    try {
+                        const parsedUrl = new URL(eventUrl)
+                        actions.addEventHost(`${parsedUrl.protocol}//${parsedUrl.host}`)
+                    } catch {
+                        // Ignore unparseable URLs
+                    }
                 }
                 // The team's `ingested_event` flag is flipped server-side when the first event is
                 // processed, but only reaches the frontend on the next ~30s team refresh. Refresh
@@ -195,14 +206,9 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             }
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.updateEventsConnection()
-        },
-        beforeUnmount: () => {
-            if (cache.eventSourceController) {
-                cache.eventSourceController.abort()
-            }
         },
     })),
 ])

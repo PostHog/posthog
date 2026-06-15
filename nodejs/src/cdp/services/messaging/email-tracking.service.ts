@@ -44,11 +44,34 @@ export const generateTrackingRedirectUrl = (
     return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
 }
 
+// HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
+// percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
+// through `target=` as a literal `&amp;` and breaks the destination page's query string.
+const HTML_ENTITY_REGEX = /&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+
+export const decodeHtmlEntitiesInHref = (value: string): string => {
+    return value.replace(HTML_ENTITY_REGEX, (_match, named, dec, hex) => {
+        if (named) {
+            return NAMED_ENTITIES[named]
+        }
+        const code = dec ? parseInt(dec, 10) : parseInt(hex, 16)
+        // `String.fromCodePoint` throws RangeError above 0x10FFFF — `Number.isFinite` alone
+        // wouldn't catch e.g. `&#x200000;` since `parseInt` happily returns a finite value.
+        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _match
+    })
+}
+
 export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
     const trackingUrl = generateEmailTrackingPixelUrl(invocation)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
-        const href = d || s || u || ''
+        const href = decodeHtmlEntitiesInHref(d || s || u || '')
+        // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
+        // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
+        if (/^\s*javascript:/i.test(href)) {
+            return m
+        }
         const tracked = generateTrackingRedirectUrl(invocation, href)
 
         // replace just the href in the original tag to preserve other attributes

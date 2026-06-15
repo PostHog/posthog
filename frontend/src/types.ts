@@ -36,7 +36,7 @@ import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
@@ -149,6 +149,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
+    XAA_AUTHENTICATION = 'xaa_authentication',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
     DEDICATED_SUPPORT = 'dedicated_support',
@@ -246,6 +247,7 @@ export enum Realm {
 export enum Region {
     US = 'US',
     EU = 'EU',
+    DEV = 'DEV',
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
@@ -283,6 +285,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -292,6 +295,7 @@ export enum AccessControlResourceType {
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -528,6 +532,10 @@ export interface OrganizationDomainType {
     scim_enabled?: boolean
     scim_base_url?: string
     scim_bearer_token?: string
+    has_id_jag?: boolean
+    id_jag_issuer_url?: string | null
+    id_jag_jwks_url?: string | null
+    id_jag_allowed_clients?: string[]
 }
 
 export interface SCIMRequestLogType {
@@ -649,6 +657,7 @@ export interface CorrelationConfigType {
 
 export interface ProjectType extends ProjectBasicType {
     created_at: string
+    is_pending_deletion: boolean
 }
 
 export interface TeamSurveyConfigType {
@@ -1920,6 +1929,8 @@ export interface SessionRecordingType {
     summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
+    /** False when the recording was included in list results via a direct link despite not matching the filters. */
+    matches_filters?: boolean
 }
 
 export interface SessionRecordingUpdateType {
@@ -3893,6 +3904,8 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
         }
     > | null
 }
@@ -3968,6 +3981,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -4159,7 +4174,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
-    experiment_set_metadata: { id: number; name: string }[] | null
+    experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
@@ -4824,6 +4839,8 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
+    homepage?: SceneTab | null
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -5130,17 +5147,28 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
-// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt'
+// Value map for the above — kept a distinct name from the type so kea-typegen still imports
+// the type correctly (a const+type sharing a name drops it from generated `import type` lines).
+export const SubscriptionResourceTypes = {
+    Insight: 'insight',
+    Dashboard: 'dashboard',
+    AiPrompt: 'ai_prompt',
+} as const satisfies Record<string, SubscriptionResourceType>
+
+// TODO: migrate to SubscriptionApi from @posthog/products-subscriptions/frontend/generated/api.schemas.
 // This hand-written interface predates the generated type and now requires
 // dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
+    resource_type: SubscriptionResourceType
     insight?: number
     dashboard?: number
     insight_short_id?: string | null
     resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
+    prompt?: string | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5210,6 +5238,47 @@ export const INTEGRATION_KINDS = [
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
+
+// Canonical bot scopes PostHog requests during the Slack OAuth install flow. Single source of
+// truth for both the frontend (app-manifest snippet + IntegrationView scope-mismatch banner)
+// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration.py, via posthog/schema.py).
+// Widening this list will surface the "Required scopes are missing" banner for any workspace
+// authorized before the change.
+//
+// Declared as an enum (not `as const` + derived type) because ts-json-schema-generator prunes
+// type-alias-only re-exports that aren't referenced as a property type — see ChartDisplayCategory
+// in schema-general.ts for the equivalent value+type re-export pattern that flows cleanly to
+// `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
+export enum SlackIntegrationScope {
+    APP_MENTIONS_READ = 'app_mentions:read',
+    CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_READ = 'channels:read',
+    CHAT_WRITE = 'chat:write',
+    CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
+    GROUPS_HISTORY = 'groups:history',
+    GROUPS_READ = 'groups:read',
+    LINKS_READ = 'links:read',
+    LINKS_WRITE = 'links:write',
+    REACTIONS_READ = 'reactions:read',
+    REACTIONS_WRITE = 'reactions:write',
+    TEAM_READ = 'team:read',
+    USERS_READ = 'users:read',
+    USERS_READ_EMAIL = 'users:read.email',
+}
+
+export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
+
+// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
+// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
+// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
+// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
+export enum SlackIntegrationScopeInReview {
+    ASSISTANT_WRITE = 'assistant:write',
+    IM_HISTORY = 'im:history',
+    MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export interface IntegrationType {
     id: number
@@ -5466,6 +5535,7 @@ export type APIScopeObject =
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'field_note'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5638,6 +5708,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
@@ -5912,6 +5983,8 @@ export interface WebhookInfo {
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
+    // Desired provider events not yet on the webhook (manual setup, or created before a new table).
+    missing_events?: string[]
 }
 
 export interface DataModelingJob {
@@ -5995,6 +6068,12 @@ export interface ExternalDataSourceSyncSchema {
      * available. The UI should disable selection and surface this string when set.
      */
     permission_error?: string | null
+    /**
+     * Advisory warning when row-level security is active for the sync role on this table:
+     * the sync may read fewer rows than the table contains, and the gap can't be measured.
+     * `null`/undefined = no warning. Unlike `permission_error` this does NOT block selection.
+     */
+    rls_warning?: string | null
     /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
@@ -6094,6 +6173,42 @@ export type BatchExportServiceS3 = {
         file_format: string
         max_file_size_mb: number | null
         use_virtual_style_addressing: boolean
+    }
+}
+
+export type BatchExportServiceAwsS3 = {
+    type: 'AwsS3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
+export type BatchExportServiceS3Compatible = {
+    type: 'S3Compatible'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        endpoint_url: string
+        use_virtual_style_addressing: boolean
+        file_format: string
+        max_file_size_mb: number | null
     }
 }
 
@@ -6218,7 +6333,11 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
+    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
     'S3',
+    'AwsS3',
+    'S3Compatible',
     'Snowflake',
     'Postgres',
     'BigQuery',
@@ -6229,6 +6348,8 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
 ]
 export type BatchExportService =
     | BatchExportServiceS3
+    | BatchExportServiceAwsS3
+    | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
     | BatchExportServicePostgres
     | BatchExportServiceBigQuery
@@ -7013,11 +7134,24 @@ export interface ConversationQueueResponse {
     max_queue_messages: number
 }
 
+export type ConversationTopic =
+    | 'web_analytics'
+    | 'product_analytics'
+    | 'session_replay'
+    | 'surveys'
+    | 'feature_flags'
+    | 'experiments'
+    | 'error_tracking'
+    | 'data_warehouse'
+    | 'other'
+
 export interface Conversation {
     id: string
     user: UserBasicType
     status: ConversationStatus
     title: string | null
+    /** Product domain classified from the first question; drives contextual nudges. */
+    topic?: ConversationTopic | null
     created_at: string | null
     updated_at: string | null
     type: ConversationType

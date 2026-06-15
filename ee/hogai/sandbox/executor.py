@@ -186,7 +186,7 @@ def handle_sandbox_message(
 
 
 def _make_streaming_response(
-    async_generator_factory: Callable[[], AsyncGenerator[bytes, None]],
+    async_generator_factory: Callable[[], AsyncGenerator[bytes]],
 ) -> StreamingHttpResponse:
     """Create a StreamingHttpResponse that works under both ASGI and WSGI."""
     return StreamingHttpResponse(
@@ -243,7 +243,7 @@ async def _sandbox_stream(
     conversation_id: str | None = None,
     user_content: str | None = None,
     team_id: int | None = None,
-) -> AsyncGenerator[bytes, None]:
+) -> AsyncGenerator[bytes]:
     """Stream sandbox events from Redis to the browser as SSE.
 
     Reads events in a background task and funnels them through an

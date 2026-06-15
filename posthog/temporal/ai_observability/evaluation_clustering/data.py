@@ -4,7 +4,7 @@ Two queries:
 
 - ``fetch_evaluation_embeddings`` — pulls accumulated eval embeddings for a job
   via ``endsWith(rendering, '_{job_id}')``, matching the Stage A rendering
-  convention ``{team_id}_{run_ts}_{job_id}``.
+  convention ``eval_{job_id}``.
 - ``fetch_evaluation_metadata`` — joins the sampled $ai_evaluation rows to their
   target $ai_generation (via $ai_target_event_id) to surface both
   eval-specific metadata (name/result/runtime/reasoning/judge_cost) and
@@ -14,8 +14,10 @@ A LEFT JOIN is used so that a missing / purged generation degrades gracefully:
 eval-only fields populate, operational fields stay None.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 
 import structlog
 
@@ -38,6 +40,19 @@ logger = structlog.get_logger(__name__)
 # Matches CLUSTERING_QUERY_MAX_EXECUTION_TIME in trace_clustering/data.py — the default
 # HogQL timeout is 60s, which can be tight for high-volume eval jobs.
 CLUSTERING_QUERY_MAX_EXECUTION_TIME = 120
+
+
+def _canonical_uuid(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
+
+
+def _canonical_uuids(values: Iterable[object]) -> list[str]:
+    return sorted({uuid for value in values if (uuid := _canonical_uuid(value)) is not None})
 
 
 @dataclass
@@ -75,10 +90,9 @@ def fetch_evaluation_embeddings(
 ) -> tuple[list[str], dict[str, list[float]]]:
     """Read up to max_samples eval embeddings accumulated by Stage A for this job.
 
-    Stage A writes a new row every hour tagged with
-    ``rendering = {team_id}_{run_ts}_{job_id}``; we match by suffix since only the
-    job id is stable across runs. Random-order sampling keeps the read size bounded
-    when a job has accumulated far more than ``max_samples`` over time.
+    Stage A tags rows with ``rendering = eval_{job_id}``; we match by suffix so rows
+    from the older ``{team_id}_{run_ts}_{job_id}`` format keep resolving. Random-order
+    sampling bounds the read when a job has accumulated more than ``max_samples``.
 
     ``window_start``/``window_end`` must align with the Stage B metadata lookup
     window — otherwise the random sample can return older eval ids that the
@@ -180,13 +194,13 @@ def fetch_evaluation_metadata(
     if not eval_rows:
         return {}
 
-    # Collect target generation ids so we can batch-fetch them in one query.
-    target_generation_ids = sorted({row["target_generation_id"] for row in eval_rows if row["target_generation_id"]})
+    # $ai_target_event_id comes from user instrumentation; filter before native UUID predicates.
+    target_generation_ids = _canonical_uuids([row["target_generation_id"] for row in eval_rows])
     generations = _fetch_linked_generations(team, target_generation_ids, window_start, window_end)
 
     metadata: dict[str, EvaluationMetadata] = {}
     for row in eval_rows:
-        target_id = row["target_generation_id"]
+        target_id = _canonical_uuid(row["target_generation_id"])
         gen = generations.get(target_id) if target_id else None
         metadata[row["eval_event_id"]] = EvaluationMetadata(
             eval_event_id=row["eval_event_id"],
@@ -197,7 +211,7 @@ def fetch_evaluation_metadata(
             evaluation_runtime=row["evaluation_runtime"] or None,
             evaluation_reasoning=row["evaluation_reasoning"] or None,
             judge_cost_usd=row["judge_cost_usd"],
-            target_generation_id=target_id or None,
+            target_generation_id=target_id,
             target_trace_id=row["target_trace_id"] or None,
             generation_cost_usd=gen["cost_usd"] if gen else None,
             generation_latency_ms=gen["latency_ms"] if gen else None,
@@ -242,7 +256,7 @@ def _fetch_evaluation_rows(
         WHERE event = '$ai_evaluation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND toString(uuid) IN {eval_ids}
+            AND uuid IN {eval_ids}
         LIMIT {limit}
         """
     )
@@ -291,6 +305,7 @@ def _fetch_linked_generations(
     then drop to None operational fields for every eval, matching the spec's
     "missing generation degrades gracefully" behavior.
     """
+    generation_ids = _canonical_uuids(generation_ids)
     if not generation_ids:
         return {}
 
@@ -310,7 +325,7 @@ def _fetch_linked_generations(
         WHERE event = '$ai_generation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """
     )
@@ -370,6 +385,7 @@ def fetch_generation_contents(
     required so the events lookup is bounded by the events sorting key
     `(team_id, toDate(timestamp), event)` instead of full-team scanning.
     """
+    generation_ids = _canonical_uuids(generation_ids)
     if not generation_ids:
         return {}
 
@@ -401,7 +417,7 @@ def fetch_generation_contents(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """
     )

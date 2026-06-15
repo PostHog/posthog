@@ -14,7 +14,10 @@ import {
     RedisPool,
 } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -33,15 +36,8 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    HeatmapsOutput,
-    PersonDistinctIdsOutput,
-    PersonsOutput,
-} from './analytics/outputs'
-import { EventFilterManager } from './common/event-filters'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './analytics/outputs'
+import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -70,7 +66,6 @@ export interface IngestionConsumerDeps {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -125,8 +120,12 @@ export class IngestionConsumer {
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
-    private eventFilterManager: EventFilterManager
-    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventFilterManagerComponent: EventFilterManagerComponent
+    private eventFilterManager!: EventFilterManager
+    private stopEventFilterManager?: () => Promise<void>
+    private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
+    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
@@ -158,13 +157,13 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.eventFilterManager = new EventFilterManager(deps.postgres)
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -236,6 +235,12 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        const startedRestrictions = await this.eventIngestionRestrictionManagerComponent.start()
+        this.eventIngestionRestrictionManager = startedRestrictions.value
+        this.stopEventIngestionRestrictionManager = startedRestrictions.stop
+        const startedFilters = await this.eventFilterManagerComponent.start()
+        this.eventFilterManager = startedFilters.value
+        this.stopEventFilterManager = startedFilters.stop
         await this.hogTransformer.start()
 
         this.topHog.start()
@@ -303,6 +308,9 @@ export class IngestionConsumer {
     }
 
     public async stop(): Promise<void> {
+        if (this.isStopping) {
+            return
+        }
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
@@ -313,6 +321,23 @@ export class IngestionConsumer {
         await this.topHog.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        await this.stopEventFilterManager?.()
+        await this.stopEventIngestionRestrictionManager?.()
+        // Stores must be clean by now — flushBatchStoresStep runs after every
+        // batch as part of the pipeline. After disconnect, we cannot commit
+        // offsets, so writing dirty data here would produce duplicates on
+        // partition rebalance. shutdown() will throw if anything is dirty,
+        // which surfaces the drain-ordering bug without masking it.
+        try {
+            await this.personsStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - personsStore.shutdown() failed`, { error })
+        }
+        try {
+            await this.groupStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - groupStore.shutdown() failed`, { error })
+        }
         logger.info('👍', `${this.name} - stopped!`)
     }
 

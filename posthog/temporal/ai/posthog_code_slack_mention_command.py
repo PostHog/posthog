@@ -7,6 +7,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.utils import close_db_connections
 
 POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS = 60
 # Matches the mention workflow's picker wait window so the bot's behaviour is
@@ -20,6 +21,11 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]
     slack_team_id: str
+    # Resolved at routing time. ``None`` only on in-flight workflow histories
+    # started before this field existed; those fall back to the in-workflow
+    # resolve activity below. Remove the fallback (and this field's optionality)
+    # once the workflow history retention window has elapsed.
+    user_id: int | None = None
 
 
 @dataclass
@@ -75,14 +81,22 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             post_posthog_code_repo_picker_activity,
         )
 
-        user_id = await workflow.execute_activity(
-            resolve_posthog_code_slack_command_user_activity,
-            args=[inputs],
-            start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        # New starts carry ``user_id`` from routing-time resolution and skip the
+        # activity. Legacy histories started before the field existed deserialize
+        # with ``user_id=None`` and replay through the activity so the recorded
+        # command stream still matches. Drop this fallback (and make ``user_id``
+        # required on inputs) once the workflow history retention window has
+        # elapsed.
+        user_id = inputs.user_id
         if user_id is None:
-            return
+            user_id = await workflow.execute_activity(
+                resolve_posthog_code_slack_command_user_activity,
+                args=[inputs],
+                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if user_id is None:
+                return
 
         result = await workflow.execute_activity(
             handle_posthog_code_slack_mention_command_activity,
@@ -106,64 +120,46 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             return
 
         # The picker activities are written against the mention workflow's input
-        # shape, but they only read ``integration_id`` / ``slack_team_id`` /
-        # ``event`` from it. Synthesise a compatible record for the resolved
+        # shape, but today they only read ``integration_id`` / ``slack_team_id``
+        # / ``event`` from it. Synthesise a compatible record for the resolved
         # target so we can reuse the existing picker plumbing without
-        # duplicating it.
+        # duplicating it. Forward ``user_id`` so any future activity that reads
+        # it (e.g. for attribution) stays consistent with the surrounding
+        # command workflow's resolved user.
         picker_inputs = PostHogCodeSlackMentionWorkflowInputs(
             event=inputs.event,
             integration_id=target_integration_id,
             slack_team_id=inputs.slack_team_id,
+            user_id=inputs.user_id,
         )
 
-        # Pre-patch command workflows skip the gate entirely and behave as before,
-        # so in-flight replays don't trip nondeterminism on the new activity command.
-        if workflow.patched("posthog-code-command-block-no-personal-github-2026-06"):
-            blocked = await workflow.execute_activity(
-                block_posthog_code_task_if_no_personal_github_activity,
-                args=[picker_inputs, channel, thread_ts, user_id],
-                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            if blocked:
-                return
+        workflow.deprecate_patch("posthog-code-command-block-no-personal-github-2026-06")
+        blocked = await workflow.execute_activity(
+            block_posthog_code_task_if_no_personal_github_activity,
+            args=[picker_inputs, channel, thread_ts, user_id],
+            start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        if blocked:
+            return
 
-        # Pre-patch command workflows replay through the 8-arg call shape so the
-        # recorded picker command matches history; new workflows append `user_id`
-        # as the final positional arg, matching the picker activity's signature.
-        if workflow.patched("posthog-code-command-user-id-2026-06"):
-            await workflow.execute_activity(
-                post_posthog_code_repo_picker_activity,
-                args=[
-                    picker_inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    inputs.event,
-                    workflow.info().workflow_id,
-                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                    False,
-                    user_id,
-                ],
-                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        else:
-            await workflow.execute_activity(
-                post_posthog_code_repo_picker_activity,
-                args=[
-                    picker_inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    inputs.event,
-                    workflow.info().workflow_id,
-                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                    False,
-                ],
-                start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+        workflow.deprecate_patch("posthog-code-command-user-id-2026-06")
+        await workflow.execute_activity(
+            post_posthog_code_repo_picker_activity,
+            args=[
+                picker_inputs,
+                channel,
+                thread_ts,
+                slack_user_id,
+                inputs.event,
+                workflow.info().workflow_id,
+                POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                False,
+                user_id,
+            ],
+            start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
         try:
             await workflow.wait_condition(
@@ -191,12 +187,13 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
 
 @activity.defn
+@close_db_connections
 def resolve_posthog_code_slack_command_user_activity(
     inputs: PostHogCodeSlackMentionCommandWorkflowInputs,
 ) -> int | None:
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _resolve_posthog_user_from_event
+    from products.slack_app.backend.api import resolve_posthog_user_from_event
 
     event = inputs.event
     channel = event.get("channel")
@@ -216,7 +213,7 @@ def resolve_posthog_code_slack_command_user_activity(
         return None
 
     probe = candidates[0]
-    posthog_user = _resolve_posthog_user_from_event(
+    posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=candidates,
@@ -236,6 +233,7 @@ def resolve_posthog_code_slack_command_user_activity(
 
 
 @activity.defn
+@close_db_connections
 def handle_posthog_code_slack_mention_command_activity(
     inputs: PostHogCodeSlackMentionCommandWorkflowInputs,
     user_id: int,

@@ -1,6 +1,6 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
@@ -17,8 +17,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import {
     UnexpectedNeverError,
     getDefaultInterval,
@@ -154,8 +153,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTourId: null,
             }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
-            webAnalyticsHealthLogic,
-            ['webAnalyticsHealthStatus'],
             webAnalyticsFilterLogic,
             [
                 'rawWebAnalyticsFilters',
@@ -842,7 +839,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                useWebAnalyticsPrecompute,
+                // Gate the persisted opt-in on the flag so killing the flag can never send a stale `true`
+                // to the backend for a team that had it enabled — belt-and-suspenders, not a backend guard.
+                useWebAnalyticsPrecompute:
+                    useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
             }),
         ],
         filters: [
@@ -2466,7 +2466,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
             const urlParams = new URLSearchParams(router.values.location.search)
 
@@ -2613,7 +2613,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
