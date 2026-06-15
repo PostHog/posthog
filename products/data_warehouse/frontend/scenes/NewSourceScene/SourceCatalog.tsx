@@ -40,7 +40,7 @@ function SourceTile({
             <div className="shrink-0">
                 <SourceIcon type={item.iconType} size="medium" disableTooltip />
             </div>
-            <div className="flex flex-col items-start gap-1 min-w-0 text-left">
+            <div className="flex flex-col items-start gap-2 min-w-0 text-left">
                 <div className="font-medium text-sm leading-tight line-clamp-2">{item.label}</div>
                 {item.status === 'coming_soon' ? (
                     <>
@@ -92,7 +92,7 @@ function RequestSourceTile(): JSX.Element {
             <div className="shrink-0 flex items-center justify-center w-[60px]">
                 <IconPlusSmall className="text-3xl text-muted" />
             </div>
-            <div className="flex flex-col items-start gap-1 min-w-0">
+            <div className="flex flex-col items-start gap-2 min-w-0">
                 <div className="font-medium text-sm leading-tight">Request a source</div>
                 <div className="text-xs text-muted">Tell us what you'd like to connect</div>
             </div>
