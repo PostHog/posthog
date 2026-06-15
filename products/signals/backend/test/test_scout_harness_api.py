@@ -301,6 +301,17 @@ class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["report"] is None
 
+    def test_suppressed_report_is_treated_as_no_link(self) -> None:
+        # The inbox hides suppressed reports from its default flow, so a chip to one would deep-link
+        # to a page that can't load it — surface suppressed reports as "no link" here too.
+        run = _make_run(self.team)
+        emission = _make_emission(self.team, run, finding_id="f-a")
+        suppressed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
+        with patch(_FETCH_REPORT_IDS, return_value={emission.source_id: str(suppressed.id)}):
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["report"] is None
+
     def test_clickhouse_failure_degrades_to_null_links(self) -> None:
         # A transient CH/HogQL failure shouldn't 500 the whole page — each finding still
         # comes back, just with `report: null` instead of a resolved link.

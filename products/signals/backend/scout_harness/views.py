@@ -309,7 +309,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["get"],
         url_path="emissions/reports",
-        required_scopes=["signal_scout:read"],
+        # This action returns report titles, so it requires `task:read` (the scope
+        # `SignalReportViewSet` gates report reads on) on top of `signal_scout:read` —
+        # otherwise a scout-only token could read titles it can't reach canonically.
+        required_scopes=["signal_scout:read", "task:read"],
         pagination_class=None,
     )
     def emission_reports(self, request: Request, **kwargs) -> Response:
@@ -338,14 +341,15 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             except Exception:
                 logger.exception("scout_emission_reports_lookup_failed", run_id=str(run_id), team_id=team_id)
 
-        # Hydrate the resolved report ids into minimal projections. Exclude DELETED reports —
-        # ClickHouse soft-delete and Postgres status can drift, so a finding could resolve to a
-        # report that's since been deleted; treat that as "no link" rather than a dangling chip.
+        # Hydrate the resolved report ids into minimal projections. Exclude DELETED and SUPPRESSED
+        # reports — ClickHouse soft-delete and Postgres status can drift, and `SignalReportViewSet`
+        # hides both from its default retrieve/list flow, so a chip linking to either would deep-link
+        # to a page that can't load it. Treat that as "no link" rather than a dangling chip.
         report_ids = {rid for rid in source_id_to_report_id.values() if rid}
         reports_by_id = {
             str(row["id"]): row
             for row in SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
-            .exclude(status=SignalReport.Status.DELETED)
+            .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
             .values("id", "title", "status")
         }
 
