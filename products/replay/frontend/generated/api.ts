@@ -60,7 +60,10 @@ export const getSessionRecordingPlaylistsListUrl = (
 }
 
 /**
- * Override list to include synthetic playlists
+ * Override list to include synthetic playlists.
+ *
+ * Synthetics have no DB row, so we compute each one's position in the merged
+ * sort and split the requested page between synthetics and a DB queryset slice.
  */
 export const sessionRecordingPlaylistsList = async (
     projectId: string,
