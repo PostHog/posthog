@@ -124,7 +124,6 @@ from posthog.hogql.scripts._diagnostic_common import (
     _node_type,
     _probe_backend,
     _safe_parse,
-    _shape_for,
     ast_depth,
     ast_kpaths,
     shrink_to_shape,
