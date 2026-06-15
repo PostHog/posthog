@@ -136,4 +136,63 @@ describe('strict principal match on /send: real e2e', () => {
         const send = await request(c.ingress).post('/agents/pub/send').send({ session_id: sid, message: 'still anon' })
         expect(send.status).toBe(200)
     })
+
+    it('pat agent: /cancel enforces the session principal (owner 200, other 403, no-auth 401)', async () => {
+        c.setScript([fauxText('ok?')])
+        await c.deployAgent({ slug: 'cx', spec: { auth: { modes: [{ type: 'posthog' }] } } })
+        const run = await request(c.ingress)
+            .post('/agents/cx/run')
+            .set('authorization', `Bearer ${PAT_A}`)
+            .send({ message: 'hi' })
+        const sid = run.body.session_id
+        await c.drain()
+
+        const noAuth = await request(c.ingress).post('/agents/cx/cancel').send({ session_id: sid })
+        expect(noAuth.status).toBe(401)
+
+        const otherUser = await request(c.ingress)
+            .post('/agents/cx/cancel')
+            .set('authorization', `Bearer ${PAT_B}`)
+            .send({ session_id: sid })
+        expect(otherUser.status).toBe(403)
+        expect(otherUser.body.error).toBe('forbidden')
+
+        // The session is untouched by the rejected cancels.
+        expect((await c.queue.get(sid))!.state).not.toBe('cancelled')
+
+        const owner = await request(c.ingress)
+            .post('/agents/cx/cancel')
+            .set('authorization', `Bearer ${PAT_A}`)
+            .send({ session_id: sid })
+        expect(owner.status).toBe(200)
+    })
+
+    it('pat agent: /client_tool_result enforces the session principal (owner 200, other 403, no-auth 401)', async () => {
+        c.setScript([fauxText('ok?')])
+        await c.deployAgent({ slug: 'ctr', spec: { auth: { modes: [{ type: 'posthog' }] } } })
+        const run = await request(c.ingress)
+            .post('/agents/ctr/run')
+            .set('authorization', `Bearer ${PAT_A}`)
+            .send({ message: 'hi' })
+        const sid = run.body.session_id
+        await c.drain()
+
+        const body = { session_id: sid, call_id: 'call-1', result: { ok: true } }
+
+        const noAuth = await request(c.ingress).post('/agents/ctr/client_tool_result').send(body)
+        expect(noAuth.status).toBe(401)
+
+        const otherUser = await request(c.ingress)
+            .post('/agents/ctr/client_tool_result')
+            .set('authorization', `Bearer ${PAT_B}`)
+            .send(body)
+        expect(otherUser.status).toBe(403)
+        expect(otherUser.body.error).toBe('forbidden')
+
+        const owner = await request(c.ingress)
+            .post('/agents/ctr/client_tool_result')
+            .set('authorization', `Bearer ${PAT_A}`)
+            .send(body)
+        expect(owner.status).toBe(200)
+    })
 })

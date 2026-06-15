@@ -113,21 +113,29 @@ export const PUBLIC_ONLY_AUTH_PROVIDER: AuthProvider = {
 }
 
 /**
- * Extract the Bearer token from the Authorization header. Returns null
- * when there's no Authorization header at all (let the caller fall
- * through to the next mode); throws an "invalid bearer" sentinel when
- * the header is present but malformed (auth is genuinely bad).
+ * Extract the Bearer token from the Authorization header, falling back to
+ * the `?token=` query param. Returns null when neither carries a token (let
+ * the caller fall through to the next mode).
+ *
+ * The query fallback exists for browser `EventSource` (GET /listen SSE):
+ * the EventSource API can't set request headers, so the bearer has to ride
+ * in the URL — the same constraint that drives the `?preview_token=` fallback
+ * in resolve.ts. The header always wins; tokens in URLs land in access logs,
+ * so non-SSE clients should keep using the header.
  */
 export function readBearer(req: Request): string | null {
     const header = req.headers['authorization']
-    if (typeof header !== 'string') {
-        return null
+    if (typeof header === 'string' && header.startsWith('Bearer ')) {
+        const token = header.slice('Bearer '.length).trim()
+        if (token.length > 0) {
+            return token
+        }
     }
-    if (!header.startsWith('Bearer ')) {
-        return null
+    const queryToken = req.query?.token
+    if (typeof queryToken === 'string' && queryToken.trim().length > 0) {
+        return queryToken.trim()
     }
-    const token = header.slice('Bearer '.length).trim()
-    return token.length > 0 ? token : null
+    return null
 }
 
 /**

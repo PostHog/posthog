@@ -16,10 +16,10 @@ import {
 } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
-import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
+import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER, VerifyOk } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
-import { RevisionResolver } from '../routing/resolver'
+import { ResolvedAgent, RevisionResolver } from '../routing/resolver'
 import {
     ChatCancelBodySchema,
     ChatClientToolResultBodySchema,
@@ -36,6 +36,40 @@ import type { TriggerModule } from './types'
  */
 function badRequest(res: Response, err: z.ZodError): void {
     res.status(400).json({ error: 'invalid_body', issues: err.issues })
+}
+
+/**
+ * Resolve the agent for a chat request and run its auth gate, writing the
+ * matching 404/401/403 to `res` and returning null on any failure (caller
+ * bails with `if (!gate) return`). Mirrors the resolve → authConfig →
+ * authorize sequence inlined in /run and /send so every chat handler shares
+ * one fail-closed path.
+ */
+async function authenticateChatRequest(
+    deps: ChatTriggerDeps,
+    req: Request,
+    res: Response
+): Promise<{ resolved: ResolvedAgent; auth: VerifyOk } | null> {
+    const resolved = await resolveAgent(deps.resolver, req, res)
+    if (!resolved) {
+        // resolveAgent may have already written a 400 (ambiguous prefix).
+        if (!res.headersSent) {
+            res.status(404).json({ error: 'no_agent' })
+        }
+        return null
+    }
+    const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
+    const authConfig = chatTrigger ? triggerAuthConfig(chatTrigger) : null
+    if (!authConfig) {
+        res.status(404).json({ error: 'no_chat_trigger' })
+        return null
+    }
+    const auth = await authorize(req, resolved.application, authConfig, deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER)
+    if (!auth.ok) {
+        res.status(auth.status).json({ error: auth.reason })
+        return null
+    }
+    return { resolved, auth }
 }
 
 export interface ChatTriggerDeps {
@@ -248,6 +282,17 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 res.status(404).json({ error: 'session_not_found' })
                 return
             }
+            // Authenticate against the agent's auth mode, then confirm the
+            // caller owns (or has been granted access to) this session before
+            // letting them cancel it.
+            const gate = await authenticateChatRequest(deps, req, res)
+            if (!gate) {
+                return
+            }
+            if (requireAclAccess(existing, gate.auth.principal).kind === 'denied') {
+                res.status(403).json({ error: 'forbidden' })
+                return
+            }
             // Cancel is idempotent: terminal sessions return ok without changing state.
             if (existing.state === 'closed' || existing.state === 'failed' || existing.state === 'cancelled') {
                 res.json({ ok: true, idempotent: true, state: existing.state })
@@ -267,6 +312,22 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 return
             }
             const { session_id: sessionId } = parsed.data
+            const existing = await deps.queue.get(sessionId)
+            if (!existing) {
+                res.status(404).json({ error: 'session_not_found' })
+                return
+            }
+            // The event stream replays the whole conversation, so gate it the
+            // same as the write paths. EventSource can't set headers, so the
+            // bearer rides in `?token=` (handled in readBearer).
+            const gate = await authenticateChatRequest(deps, req, res)
+            if (!gate) {
+                return
+            }
+            if (requireAclAccess(existing, gate.auth.principal).kind === 'denied') {
+                res.status(403).json({ error: 'forbidden' })
+                return
+            }
             res.setHeader('Content-Type', 'text/event-stream')
             res.setHeader('Cache-Control', 'no-cache')
             res.setHeader('Connection', 'keep-alive')
@@ -297,6 +358,16 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
             const existing = await deps.queue.get(sessionId)
             if (!existing) {
                 res.status(404).json({ error: 'no_session' })
+                return
+            }
+            // A tool result feeds straight into the running turn — authenticate
+            // and confirm session ownership before publishing it.
+            const gate = await authenticateChatRequest(deps, req, res)
+            if (!gate) {
+                return
+            }
+            if (requireAclAccess(existing, gate.auth.principal).kind === 'denied') {
+                res.status(403).json({ error: 'forbidden' })
                 return
             }
             await deps.bus.publish({

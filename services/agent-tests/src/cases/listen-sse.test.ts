@@ -150,13 +150,15 @@ describe('listen SSE: real e2e', () => {
 
     it('GET /listen wires the SSE response headers and stays open', async () => {
         await c.deployAgent({ slug: 'ssee-4' })
+        // Open a real session first — /listen now gates on the session existing
+        // and the caller passing the agent's auth (public here → anonymous).
+        const run = await request(c.ingress).post('/agents/ssee-4/run').send({ message: 'hi' })
+        const sid = run.body.session_id
         // Don't actually consume the stream — just verify the endpoint accepts
         // the request and replies with the SSE content-type. Force-disconnect
-        // after a short delay so the test doesn't hang. `session_id` must be a
-        // UUID for the zod-validated query schema; the value doesn't have to
-        // match a real session — /listen just subscribes to the bus.
+        // after a short delay so the test doesn't hang.
         const res = await request(c.ingress)
-            .get('/agents/ssee-4/listen?session_id=00000000-0000-4000-8000-000000000001')
+            .get(`/agents/ssee-4/listen?session_id=${sid}`)
             .buffer(false)
             .parse((response, callback) => {
                 response.on('data', () => {
@@ -166,5 +168,46 @@ describe('listen SSE: real e2e', () => {
                 setTimeout(() => (response as unknown as { destroy: () => void }).destroy(), 50)
             })
         expect(res.headers['content-type']).toMatch(/text\/event-stream/)
+    })
+
+    it('GET /listen on an unknown session → 404', async () => {
+        await c.deployAgent({ slug: 'ssee-404' })
+        const res = await request(c.ingress).get(
+            '/agents/ssee-404/listen?session_id=00000000-0000-4000-8000-000000000001'
+        )
+        expect(res.status).toBe(404)
+    })
+
+    it('GET /listen authenticates a posthog agent via the ?token= query param (EventSource path)', async () => {
+        // EventSource can't set Authorization, so the bearer rides in the URL.
+        const PAT = 'phx_listen_token'
+        await c.teardown()
+        c = await buildCluster({ authProvider: fakeAuthProvider({ posthog: PAT }) })
+        await c.deployAgent({
+            slug: 'ssee-tok',
+            spec: { auth: { modes: [{ type: 'posthog' }] } },
+        })
+        const run = await request(c.ingress)
+            .post('/agents/ssee-tok/run')
+            .set('authorization', `Bearer ${PAT}`)
+            .send({ message: 'hi' })
+        const sid = run.body.session_id
+
+        // No Authorization header — the token is only in the query string.
+        const ok = await request(c.ingress)
+            .get(`/agents/ssee-tok/listen?session_id=${sid}&token=${PAT}`)
+            .buffer(false)
+            .parse((response, callback) => {
+                response.on('data', () => {
+                    /* discard */
+                })
+                response.on('end', () => callback(null, ''))
+                setTimeout(() => (response as unknown as { destroy: () => void }).destroy(), 50)
+            })
+        expect(ok.headers['content-type']).toMatch(/text\/event-stream/)
+
+        // Without the token the same request is rejected before streaming.
+        const denied = await request(c.ingress).get(`/agents/ssee-tok/listen?session_id=${sid}`)
+        expect(denied.status).toBe(401)
     })
 })

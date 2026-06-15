@@ -32,6 +32,22 @@ export const dynamic = 'force-dynamic'
 
 const HANDLED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
+/**
+ * Agent slug charset — mirrors Django's slug validation plus the optional
+ * `-<revision-hex>` suffix the ingress resolver accepts. In domain mode the
+ * slug becomes the authority of the upstream URL, so a `#`, `/`, `@`, `?` or
+ * `\` in it could redirect the server-side fetch to an unintended host.
+ * Reject anything outside this set before composing the URL.
+ */
+const AGENT_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,61}([a-z0-9]|-[0-9a-f]{8,32})?$/
+
+class InvalidSlugError extends Error {
+    constructor(readonly slug: string) {
+        super('invalid_slug')
+        this.name = 'InvalidSlugError'
+    }
+}
+
 async function handle(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }): Promise<Response> {
     const { path } = await params
     const segments = path ?? []
@@ -48,7 +64,15 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
         return NextResponse.json({ error: 'unauthenticated' }, { status: 401 })
     }
 
-    const upstream = buildUpstreamUrl(segments, request.nextUrl.search)
+    let upstream: UpstreamTarget
+    try {
+        upstream = buildUpstreamUrl(segments, request.nextUrl.search)
+    } catch (err) {
+        if (err instanceof InvalidSlugError) {
+            return NextResponse.json({ error: 'invalid_slug' }, { status: 400 })
+        }
+        throw err
+    }
     const init = await buildRequestInit(request)
 
     const first = await proxy(upstream.url, init, session)
@@ -95,6 +119,9 @@ function buildUpstreamUrl(segments: string[], search: string): UpstreamTarget {
         // to the path form when the shape doesn't match or no suffix is set.
         if (agentIngressRoutingMode === 'domain' && agentIngressDomainSuffix && rest[0] === 'agents' && rest[1]) {
             const slug = rest[1]
+            if (!AGENT_SLUG_RE.test(slug)) {
+                throw new InvalidSlugError(slug)
+            }
             const route = rest.slice(2).join('/')
             return { url: `https://${slug}${agentIngressDomainSuffix}/${route}${search}` }
         }
