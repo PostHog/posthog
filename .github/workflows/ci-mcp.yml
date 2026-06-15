@@ -8,6 +8,11 @@ on:
         # the full PostHog backend and trigger on any Python change) run when the
         # PR is marked ready for review — that full run is the merge gate.
         types: [opened, synchronize, reopened, ready_for_review]
+    # Required so `MCP Tests Pass` (a required status check) reports on merge
+    # queue entries — without it the queue would wait for the check until timeout.
+    # The jobs themselves skip on merge_group (the suite already runs in full on
+    # every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

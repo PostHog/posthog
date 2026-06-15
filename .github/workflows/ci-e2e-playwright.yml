@@ -89,7 +89,7 @@ jobs:
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true)
+             github.event.pull_request.draft != true))
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
