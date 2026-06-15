@@ -295,6 +295,7 @@ export enum AccessControlResourceType {
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -3903,6 +3904,8 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
         }
     > | null
 }
@@ -3978,6 +3981,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -4392,6 +4397,7 @@ export interface PreflightStatus {
     is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
+    anthropic_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -5530,6 +5536,7 @@ export type APIScopeObject =
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'field_note'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5702,6 +5709,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',

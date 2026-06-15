@@ -54,6 +54,10 @@ CRAWL_HARD_MAX_DEPTH = 5
 # hammering an origin. In-process (threading.Semaphore), not cross-worker;
 # cross-worker rate limiting is Stage 5 Temporal work.
 PER_HOST_CONCURRENCY = 2
+# Total bytes of page bodies the same-origin BFS may carry over to the fetch
+# phase (so traversed pages aren't downloaded twice). Past the budget the
+# fetch phase re-downloads — a bounded-memory tradeoff, not a correctness one.
+PREFETCH_CACHE_MAX_BYTES = 64 * 1024 * 1024
 
 # --- Stage 3: file upload tunables ---
 # Hard cap on uploaded file size (compressed). Above this the serializer

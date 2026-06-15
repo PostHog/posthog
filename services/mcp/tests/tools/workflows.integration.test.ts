@@ -316,7 +316,7 @@ describe('Workflows', { concurrent: false }, () => {
             expect(workflow.version).toBeTypeOf('number')
             expect(Array.isArray(workflow.actions)).toBe(true)
             expect(workflow.actions).toHaveLength(2)
-            expect(workflow._posthogUrl).toContain(`/pipeline/destinations/hog-${workflow.id}`)
+            expect(workflow._posthogUrl).toContain(`/workflows/${workflow.id}/workflow`)
         })
 
         it('should reject a workflow without exactly one trigger action', async () => {

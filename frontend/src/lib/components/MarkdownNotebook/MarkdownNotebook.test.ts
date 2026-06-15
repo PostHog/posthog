@@ -2021,7 +2021,12 @@ Tail paragraph`
         const selection = window.getSelection()
         expect(activeElement.textContent).toEqual('Typed while save is pending')
         expect(selection?.isCollapsed).toBe(true)
-        expect(selection?.focusOffset).toEqual('Typed while save is pending'.length)
+        // Measure the caret as a text offset: the echo may leave the original element-level
+        // selection untouched instead of normalizing it to a text-node offset.
+        const caretRange = selection!.getRangeAt(0).cloneRange()
+        caretRange.selectNodeContents(activeElement)
+        caretRange.setEnd(selection!.focusNode!, selection!.focusOffset)
+        expect(caretRange.toString().length).toEqual('Typed while save is pending'.length)
     })
 
     it('keeps the caret in place when an autosave echo arrives while editing a list item', () => {
@@ -2090,6 +2095,37 @@ Tail paragraph`
         fireEvent.keyDown(getBodyTextBlock(container), { key: 'z', metaKey: true })
 
         expect(onChange.mock.calls.at(-1)?.[0]).toEqual(initialMarkdown)
+    })
+
+    it('does not duplicate text when a stale autosave echo arrives mid-typing', () => {
+        const onChange = jest.fn()
+        // The typed paragraph must not be the last block: the serializer trims trailing
+        // whitespace at the document end, which would hide the NBSP this scenario needs.
+        const initialMarkdown = withNotebookTitle('if i\n\nlast paragraph')
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: initialMarkdown, remoteValue: initialMarkdown, onChange })
+        )
+        const bodyBlock = getBodyTextBlock(container)
+
+        // Type a trailing space — browsers put a non-breaking space in the DOM so it renders —
+        // and let the autosave of that state go in flight.
+        updateContentEditableText(bodyBlock, 'if i\u00a0')
+        const inFlightSaveMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+        // The next keystroke makes the browser turn the no-longer-trailing NBSP back into a
+        // plain space, so the local text no longer contains the saved snapshot verbatim.
+        updateContentEditableText(bodyBlock, 'if i t')
+        const localMarkdown = onChange.mock.calls.at(-1)?.[0] as string
+
+        expect(inFlightSaveMarkdown).toEqual(withNotebookTitle('if i\u00a0\n\nlast paragraph'))
+        expect(localMarkdown).toEqual(withNotebookTitle('if i t\n\nlast paragraph'))
+
+        // The intermediate save echoes back as the new remote state. Everything in it is already
+        // part of the local text — merging it back in would re-apply the NBSP next to the new
+        // plain space, duplicating it ("if i\u00a0 t", rendered as a double space).
+        rerender(createElement(MarkdownNotebook, { value: localMarkdown, remoteValue: inFlightSaveMarkdown, onChange }))
+
+        expect(getBodyTextBlock(container).textContent).toEqual('if i t')
+        expect(onChange.mock.calls.at(-1)?.[0]).toEqual(localMarkdown)
     })
 
     it('keeps local edits when consecutive remote updates arrive before the save lands', () => {
@@ -2204,6 +2240,84 @@ Tail paragraph`
         fireEvent.keyDown(textBlock as HTMLElement, { key: 'Enter' })
 
         expect(container.querySelectorAll('[data-placeholder="Start writing..."]')).toHaveLength(0)
+    })
+
+    it('records keystrokes, mouse events, and commits into a downloadable debug log', async () => {
+        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-debug-log')
+        const revokeObjectURL = jest.fn()
+        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, { value: withNotebookTitle('Hello there'), showDebug: true })
+            )
+            fireEvent.click(container.querySelector('button[aria-label="Edit markdown source"]') as HTMLButtonElement)
+            const logButton = container.querySelector(
+                '[data-attr="markdown-notebook-debug-log-toggle"]'
+            ) as HTMLButtonElement
+            expect(logButton.textContent).toEqual('Log')
+
+            fireEvent.click(logButton)
+            expect(logButton.textContent).toEqual('Stop')
+
+            const textBlock = getBodyTextBlock(container)
+            fireEvent.keyDown(textBlock, { key: 'a' })
+            fireEvent.mouseDown(textBlock, { clientX: 10, clientY: 20 })
+            updateContentEditableText(textBlock, 'Hello there friend')
+
+            fireEvent.click(logButton)
+            expect(logButton.textContent).toEqual('Log')
+            expect(anchorClick).toHaveBeenCalledTimes(1)
+            expect(createObjectURL).toHaveBeenCalledTimes(1)
+
+            const blob = createObjectURL.mock.calls[0][0]
+            // jsdom's Blob has no .text()
+            const blobText = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader()
+                reader.onload = () => resolve(String(reader.result))
+                reader.onerror = () => reject(reader.error as Error)
+                reader.readAsText(blob)
+            })
+            const entries = blobText
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+            const entryTypes = entries.map((entry) => entry.type)
+
+            expect(entryTypes[0]).toEqual('start')
+            expect(entryTypes[entryTypes.length - 1]).toEqual('stop')
+            expect(entryTypes).toContain('keydown')
+            expect(entryTypes).toContain('mousedown')
+            expect(entryTypes).toContain('input')
+            expect(entryTypes).toContain('commit')
+            expect(entries[0].markdown).toEqual(withNotebookTitle('Hello there'))
+            const commitEntry = entries.find((entry) => entry.type === 'commit')
+            expect(commitEntry?.markdown).toEqual(withNotebookTitle('Hello there friend'))
+            const keydownEntry = entries.find((entry) => entry.type === 'keydown')
+            expect(keydownEntry?.key).toEqual('a')
+        } finally {
+            anchorClick.mockRestore()
+        }
+    })
+
+    it('scrolls to and flashes the comment thread when its ref highlight is clicked', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(
+                    '<Comment ref="banana" replies={[]} />\n\nNumbers <ref id="banana">look off</ref> here'
+                ),
+            })
+        )
+        const refSpan = container.querySelector('[data-notebook-ref="banana"]') as HTMLElement
+        expect(refSpan).toBeInstanceOf(HTMLElement)
+
+        fireEvent.click(refSpan)
+
+        const flashedShell = container.querySelector('.MarkdownNotebook__component-shell--comment-flash')
+        expect(flashedShell).toBeInstanceOf(HTMLElement)
+        expect(flashedShell?.closest('.MarkdownNotebook__row--margin-comment')).toBeInstanceOf(HTMLElement)
     })
 
     it('opens a synced markdown source drawer from the source button', async () => {
@@ -3633,6 +3747,118 @@ aXbc
 
 - **First item**
 - **Second item**`)
+    })
+
+    it('creates a comment thread above the block from a single-block selection', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Numbers look off here'),
+                onChange,
+            })
+        )
+        const paragraph = getBodyTextBlock(container)
+
+        selectTextAcrossNodes(getFirstTextNode(paragraph), 8, getFirstTextNode(paragraph), 'Numbers look'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment ref="${refId}" replies={[]} />
+
+Numbers <ref id="${refId}">look</ref> off here`)
+    })
+
+    it('places a comment on the title row below it, keeping the heading first', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Body text'),
+                onChange,
+            })
+        )
+        const titleBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
+
+        selectTextAcrossNodes(getFirstTextNode(titleBlock), 0, getFirstTextNode(titleBlock), 5, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toEqual(`# <ref id="${refId}">Noteb</ref>ook title
+
+<Comment ref="${refId}" replies={[]} />
+
+Body text`)
+    })
+
+    it('creates a block comment thread above a component from the gutter button', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('<Query query={{"kind":"DataTableNode"}} />'),
+                onChange,
+            })
+        )
+        const commentButtons = Array.from(
+            container.querySelectorAll('[data-attr="markdown-notebook-block-comment-button"]')
+        )
+        expect(commentButtons).toHaveLength(1)
+
+        fireEvent.click(commentButtons[0] as HTMLElement)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment replies={[]} />
+
+<Query query={{"kind":"DataTableNode"}} />`)
+    })
+
+    it('does not offer the block comment button in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('<Query query={{"kind":"DataTableNode"}} />'),
+                mode: 'view',
+            })
+        )
+
+        expect(container.querySelectorAll('[data-attr="markdown-notebook-block-comment-button"]')).toHaveLength(0)
+    })
+
+    it('creates one comment thread spanning a multi-block selection', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Intro paragraph\n\n- First item\n- Second item'),
+                onChange,
+            })
+        )
+        const paragraph = getBodyTextBlock(container)
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(
+            getFirstTextNode(paragraph),
+            0,
+            getFirstTextNode(listItems[1]),
+            'Second item'.length,
+            true
+        )
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment ref="${refId}" replies={[]} />
+
+<ref id="${refId}">Intro paragraph</ref>
+
+- <ref id="${refId}">First item</ref>
+- <ref id="${refId}">Second item</ref>`)
     })
 
     it('round-trips lists inside blockquotes as quoted lists', () => {
@@ -5715,6 +5941,102 @@ Tail with **bold** text`)
             expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n-`)
         }
     )
+
+    it.each([
+        ['[] ', '- [ ]'],
+        ['[ ] ', '- [ ]'],
+        ['[x] ', '- [x]'],
+    ])('converts a task list shortcut "%s" at the start of a text row into a task list', (shortcut, markdown) => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = shortcut
+        fireEvent.input(textBlock)
+
+        const taskItem = container.querySelector('li.MarkdownNotebook__list-item--task')
+        const checkbox = taskItem?.querySelector('input[type="checkbox"]') as HTMLInputElement
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content')
+
+        expect(taskItem).toBeInstanceOf(HTMLElement)
+        expect(checkbox.checked).toEqual(markdown === '- [x]')
+        expect(document.activeElement).toEqual(listItem)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}`)
+    })
+
+    it('converts a typed task marker at the start of a bullet list item into a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('- alpha'), onChange }))
+        const listItems = getEditableListItems(container)
+
+        act(() => {
+            listItems[0].textContent = '[x] alpha'
+        })
+        selectTextInElement(listItems[0], '[x] '.length, '[x] '.length)
+        fireEvent.input(listItems[0])
+
+        const checkbox = container.querySelector(
+            'li.MarkdownNotebook__list-item--task input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.checked).toEqual(true)
+        expect(getEditableListItems(container)[0].textContent).toEqual('alpha')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] alpha`)
+    })
+
+    it('renders task checkboxes instead of bullets and toggles them through clicks', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- [ ] open\n- [x] done'),
+                onChange,
+            })
+        )
+        const taskItems = Array.from(container.querySelectorAll('li.MarkdownNotebook__list-item--task'))
+        const checkboxes = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__task-checkbox input[type="checkbox"]')
+        ) as HTMLInputElement[]
+
+        expect(taskItems).toHaveLength(2)
+        expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([false, true])
+
+        fireEvent.click(checkboxes[0])
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] open\n- [x] done`)
+    })
+
+    it('keeps a task marker on an ordered list item as literal text without a checkbox', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('1. [x] not a task') }))
+
+        expect(container.querySelector('li.MarkdownNotebook__list-item--task')).toBeNull()
+        expect(getEditableListItems(container)[0].textContent).toEqual('[x] not a task')
+    })
+
+    it('disables task checkboxes in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [ ] open'), mode: 'view' })
+        )
+        const checkbox = container.querySelector(
+            '.MarkdownNotebook__task-checkbox input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.disabled).toEqual(true)
+    })
+
+    it('creates a new unchecked task item when pressing Enter in a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [x] done'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        pressEnterInListItem(listItems[0], 'done'.length)
+        updateActiveContentEditableText('next')
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] done\n- [ ] next`)
+    })
 
     it('keeps ordered list items stable when creating several items from the keyboard', () => {
         expectNoDuplicateKeyWarnings(() => {
@@ -7980,5 +8302,182 @@ After component`,
         const query = getAskAISelectionQuery(selection, 'rewrite this', TEST_AI_CHAT_ID)
 
         expect(query).toContain(expectedBlock)
+    })
+
+    type DataTransferStub = {
+        setData: jest.Mock
+        getData: jest.Mock
+        setDragImage: jest.Mock
+        effectAllowed: string
+        dropEffect: string
+    }
+
+    function createDataTransferStub(): DataTransferStub {
+        return {
+            setData: jest.fn(),
+            getData: jest.fn(),
+            setDragImage: jest.fn(),
+            effectAllowed: '',
+            dropEffect: '',
+        }
+    }
+
+    /** jsdom has no MouseEvent-based DragEvent, so clientY/dataTransfer must be defined by hand. */
+    function fireDragEvent(
+        element: Element,
+        type: 'dragstart' | 'dragover' | 'drop' | 'dragend',
+        init: { dataTransfer: DataTransferStub; clientY?: number }
+    ): void {
+        const event = new Event(type, { bubbles: true, cancelable: true })
+        Object.defineProperties(event, {
+            dataTransfer: { value: init.dataTransfer },
+            clientY: { value: init.clientY ?? 0 },
+        })
+        fireEvent(element, event)
+    }
+
+    /** jsdom rects are all zeros: stack each row 40px tall so pointer math against row midpoints works. */
+    function mockNotebookRowRects(container: HTMLElement, rowHeight = 40): HTMLElement[] {
+        const rows = Array.from(container.querySelectorAll('.MarkdownNotebook__row')) as HTMLElement[]
+        rows.forEach((row, index) => {
+            const top = index * rowHeight
+            Object.defineProperty(row, 'getBoundingClientRect', {
+                configurable: true,
+                value: () => ({
+                    top,
+                    bottom: top + rowHeight,
+                    height: rowHeight,
+                    left: 0,
+                    right: 800,
+                    width: 800,
+                    x: 0,
+                    y: top,
+                    toJSON: () => ({}),
+                }),
+            })
+        })
+        return rows
+    }
+
+    function getRowDragHandle(row: HTMLElement): HTMLElement {
+        const handle = row.querySelector('.MarkdownNotebook__drag-handle')
+
+        expect(handle).toBeInstanceOf(HTMLElement)
+
+        return handle as HTMLElement
+    }
+
+    it('moves a block below another block with drag and drop', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nAlpha\n\nBravo', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const rows = mockNotebookRowRects(container)
+        const dataTransfer = createDataTransferStub()
+
+        // Rows stack at 0-40 (title), 40-80 (Alpha), 80-120 (Bravo).
+        fireDragEvent(getRowDragHandle(rows[1]), 'dragstart', { dataTransfer })
+
+        expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', expect.any(String))
+        expect(dataTransfer.effectAllowed).toEqual('move')
+        expect(rows[1].classList.contains('MarkdownNotebook__row--dragging')).toBe(true)
+
+        fireDragEvent(canvas, 'dragover', { dataTransfer, clientY: 115 })
+
+        expect(container.querySelector('.MarkdownNotebook__drop-indicator')).toBeInstanceOf(HTMLElement)
+
+        fireDragEvent(canvas, 'drop', { dataTransfer, clientY: 115 })
+
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nBravo\n\nAlpha')
+        expect(container.querySelector('.MarkdownNotebook__drop-indicator')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__row--dragging')).toBeNull()
+    })
+
+    it('moves a block above an earlier block with drag and drop', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: '# Title\n\nAlpha\n\nBravo\n\nCharlie', onChange })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const rows = mockNotebookRowRects(container)
+        const dataTransfer = createDataTransferStub()
+
+        // Drag Charlie (120-160) above Alpha's midpoint (60): boundary right after the title.
+        fireDragEvent(getRowDragHandle(rows[3]), 'dragstart', { dataTransfer })
+        fireDragEvent(canvas, 'dragover', { dataTransfer, clientY: 50 })
+        fireDragEvent(canvas, 'drop', { dataTransfer, clientY: 50 })
+
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nCharlie\n\nAlpha\n\nBravo')
+    })
+
+    it('does not render a drag handle for the title row or in view mode', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nAlpha' }))
+        const rows = Array.from(container.querySelectorAll('.MarkdownNotebook__row')) as HTMLElement[]
+
+        expect(rows[0].querySelector('.MarkdownNotebook__drag-handle')).toBeNull()
+        expect(rows[1].querySelector('.MarkdownNotebook__drag-handle')).toBeInstanceOf(HTMLElement)
+
+        const { container: viewContainer } = render(
+            createElement(MarkdownNotebook, { value: '# Title\n\nAlpha', mode: 'view' })
+        )
+
+        expect(viewContainer.querySelector('.MarkdownNotebook__drag-handle')).toBeNull()
+    })
+
+    it('keeps the document unchanged when a block is dropped at its current position', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nAlpha\n\nBravo', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const rows = mockNotebookRowRects(container)
+        const dataTransfer = createDataTransferStub()
+
+        // Dropping Alpha right back onto its own boundary is a no-op.
+        fireDragEvent(getRowDragHandle(rows[1]), 'dragstart', { dataTransfer })
+        fireDragEvent(canvas, 'dragover', { dataTransfer, clientY: 50 })
+        fireDragEvent(canvas, 'drop', { dataTransfer, clientY: 50 })
+
+        expect(onChange).not.toHaveBeenCalled()
+        expect(container.querySelector('.MarkdownNotebook__row--dragging')).toBeNull()
+
+        // Dropping above the title clamps to the first body boundary: still a no-op for Alpha.
+        fireDragEvent(getRowDragHandle(rows[1]), 'dragstart', { dataTransfer })
+        fireDragEvent(canvas, 'dragover', { dataTransfer, clientY: 5 })
+        fireDragEvent(canvas, 'drop', { dataTransfer, clientY: 5 })
+
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('never lets a dragged block land before the title row', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nAlpha\n\nBravo', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const rows = mockNotebookRowRects(container)
+        const dataTransfer = createDataTransferStub()
+
+        // Dragging Bravo above the title clamps the drop to just after the title.
+        fireDragEvent(getRowDragHandle(rows[2]), 'dragstart', { dataTransfer })
+        fireDragEvent(canvas, 'dragover', { dataTransfer, clientY: 5 })
+        fireDragEvent(canvas, 'drop', { dataTransfer, clientY: 5 })
+
+        expect(onChange).toHaveBeenLastCalledWith('# Title\n\nBravo\n\nAlpha')
+    })
+
+    it('clears the drop indicator when the drag ends without a drop', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title\n\nAlpha\n\nBravo', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const rows = mockNotebookRowRects(container)
+        const dataTransfer = createDataTransferStub()
+        const handle = getRowDragHandle(rows[1])
+
+        fireDragEvent(handle, 'dragstart', { dataTransfer })
+        fireDragEvent(canvas, 'dragover', { dataTransfer, clientY: 115 })
+
+        expect(container.querySelector('.MarkdownNotebook__drop-indicator')).toBeInstanceOf(HTMLElement)
+
+        fireDragEvent(handle, 'dragend', { dataTransfer })
+
+        expect(container.querySelector('.MarkdownNotebook__drop-indicator')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__row--dragging')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
     })
 })

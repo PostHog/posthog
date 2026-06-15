@@ -267,6 +267,8 @@ from posthog.schema_enums import (
     TikTokAdsTableKeywords as TikTokAdsTableKeywords,
     TimeWindowMode as TimeWindowMode,
     TraceOrderColumn as TraceOrderColumn,
+    TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
+    TraceSpanBreakdownType as TraceSpanBreakdownType,
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
@@ -2182,7 +2184,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4202,6 +4204,17 @@ class AssistantTrendsFilter(BaseModel):
     )
 
 
+class AttributeBreakdownRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
+    error_count: int
+    p50_duration_nano: float
+    p95_duration_nano: float
+    value: str
+
+
 class AutocompleteCompletionItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5755,7 +5768,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6809,6 +6822,8 @@ class SurveyAppearanceSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowGoBack: bool | None = None
+    backButtonText: str | None = None
     backgroundColor: str | None = None
     borderColor: str | None = None
     buttonColor: str | None = None
@@ -7093,6 +7108,51 @@ class TraceSpansAggregationQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[AggregatedSpanRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AttributeBreakdownRow]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -11467,6 +11527,62 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[AggregatedSpanRow]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AttributeBreakdownRow]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -18824,9 +18940,13 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
     )
     error: str | None = Field(
         default=None,
@@ -18834,11 +18954,8 @@ class QueryResponseAlternative83(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18850,7 +18967,7 @@ class QueryResponseAlternative83(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[TeamTaxonomyItem]
+    results: list[AttributeBreakdownRow]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -18894,7 +19011,7 @@ class QueryResponseAlternative84(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[EventTaxonomyItem]
+    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -18913,6 +19030,50 @@ class QueryResponseAlternative84(BaseModel):
 
 
 class QueryResponseAlternative85(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EventTaxonomyItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18953,7 +19114,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -18998,7 +19159,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19039,7 +19200,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19080,7 +19241,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19131,7 +19292,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19172,7 +19333,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19218,7 +19379,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19259,7 +19420,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20553,6 +20714,7 @@ class AnyResponseType(
         | TraceSpansQueryResponse
         | TraceSpansAggregationQueryResponse
         | TraceSpansTreeQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
     ]
 ):
     root: (
@@ -20571,6 +20733,7 @@ class AnyResponseType(
         | TraceSpansQueryResponse
         | TraceSpansAggregationQueryResponse
         | TraceSpansTreeQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
     )
 
 
@@ -21331,6 +21494,14 @@ class FunnelsFilter(BaseModel):
         default=True,
         description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
     )
+    showLegend: bool | None = Field(
+        default=False,
+        description=(
+            "Whether to show a legend describing the series. The legend only renders"
+            " when the funnel has multiple series. Only applies to historical-trends"
+            " funnels."
+        ),
+    )
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
@@ -21959,6 +22130,38 @@ class TraceSpansAggregationQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class TraceSpansAttributeBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownKey: str = Field(
+        ...,
+        description=("Attribute key to group by (e.g. `http.response.status_code`, `server.address`)."),
+    )
+    breakdownType: TraceSpanBreakdownType = Field(
+        ...,
+        description=("Where the key lives: span-level attributes or resource-level attributes."),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+        ),
+    )
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["TraceSpansAttributeBreakdownQuery"] = "TraceSpansAttributeBreakdownQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: TraceSpanBreakdownOrderBy | None = Field(
+        default=None,
+        description=("Order rows by span count or error count, descending. Defaults to count."),
+    )
+    response: TraceSpansAttributeBreakdownQueryResponse | None = None
+    serviceNames: list[str] | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TraceSpansQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22404,8 +22607,8 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=(
             "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
-            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
-            " are dropped silently."
+            " state subquery. The backend caps the list at 50 entries; extras are"
+            " dropped silently."
         ),
     )
     personId: str | None = None
@@ -22420,14 +22623,8 @@ class ErrorTrackingQuery(BaseModel):
         title="ErrorTrackingQueryStatus",
     )
     tags: QueryLogTags | None = None
-    useQueryV2: bool | None = Field(
-        default=None,
-        description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
-    )
-    useQueryV3: bool | None = Field(
-        default=None,
-        description=("Use V3 query path (denormalized ClickHouse table, no Postgres joins)"),
-    )
+    useQueryV2: bool | None = None
+    useQueryV3: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None
@@ -24000,7 +24197,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
-        | QueryResponseAlternative88
+        | QueryResponseAlternative87
         | QueryResponseAlternative89
         | QueryResponseAlternative90
         | QueryResponseAlternative91
@@ -24008,6 +24205,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     ]
 ):
     root: (
@@ -24094,7 +24292,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
-        | QueryResponseAlternative88
+        | QueryResponseAlternative87
         | QueryResponseAlternative89
         | QueryResponseAlternative90
         | QueryResponseAlternative91
@@ -24102,6 +24300,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     )
 
 
@@ -25132,6 +25331,7 @@ class HogQLAutocomplete(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | CalendarHeatmapQuery
@@ -25220,6 +25420,7 @@ class HogQLMetadata(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | CalendarHeatmapQuery
@@ -25343,6 +25544,7 @@ class MaxInsightContext(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -25463,6 +25665,7 @@ class QueryRequest(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -25575,6 +25778,7 @@ class QuerySchemaRoot(
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -25657,6 +25861,7 @@ class QuerySchemaRoot(
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -25744,6 +25949,7 @@ class QueryUpgradeRequest(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -25831,6 +26037,7 @@ class QueryUpgradeResponse(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -26078,6 +26285,7 @@ class VisualizationArtifactContent(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
