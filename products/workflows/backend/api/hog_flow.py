@@ -64,6 +64,12 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 
 logger = structlog.get_logger(__name__)
 
+
+def _validation_error_message(error: exceptions.ValidationError) -> str:
+    detail = error.detail
+    return str(detail[0]) if isinstance(detail, list) else str(detail)
+
+
 # Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
 # (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
@@ -1225,7 +1231,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             result = get_user_blast_radius(team, filters, group_type_index)
             return Response(BlastRadiusSerializer(result).data)
         except exceptions.ValidationError as e:
-            return Response({"error": str(e.detail[0]) if isinstance(e.detail, list) else str(e.detail)}, status=400)
+            return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
@@ -1260,7 +1266,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 }
             )
         except exceptions.ValidationError as e:
-            return Response({"error": str(e.detail[0]) if isinstance(e.detail, list) else str(e.detail)}, status=400)
+            return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
