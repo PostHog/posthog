@@ -183,6 +183,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "does not exist": None,
             "timestamp too small": None,
             "QueryTimeoutException": None,
+            # Incremental reads map a 10-min statement_timeout to the non-retryable
+            # QueryTimeoutException above. Full-table (non-incremental) reads instead
+            # re-raise the raw psycopg QueryCanceled, whose message is Postgres's fixed
+            # "canceling statement due to statement timeout" text. A chunk that can't
+            # finish inside the 10-min budget won't finish on a whole-activity retry
+            # either — Temporal just re-reads from offset 0 into the same too-slow scan
+            # and times out again (an observed retry loop). Stop and surface an
+            # actionable message instead. Distinct substring from the retryable
+            # "canceling statement due to conflict with recovery" recovery conflict.
+            "canceling statement due to statement timeout": (
+                "A read from your database hit the 10 minute statement timeout. The table is too large "
+                "to read in full within the limit. Switch this table to an incremental sync with an indexed "
+                "field, add an index to speed up the scan, or point the connection at a faster database, then "
+                "re-enable the sync."
+            ),
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             "Network is unreachable": None,
