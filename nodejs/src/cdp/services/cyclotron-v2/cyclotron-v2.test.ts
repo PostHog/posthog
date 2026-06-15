@@ -74,6 +74,8 @@ interface DeadLetterRow {
     id: string
     team_id: number
     original_queue_name: string
+    original_status: string
+    last_heartbeat: string | Date | null
     state: Buffer | null
     reason: string
     dlq_time: string | Date
@@ -834,6 +836,8 @@ describe('Cyclotron V2', () => {
 
             const dlqRow = await queryDeadLetterJob(jobId)
             expect(dlqRow.original_queue_name).toBe(QUEUE)
+            expect(dlqRow.original_status).toBe('running')
+            expect(new Date(dlqRow.last_heartbeat!).getTime()).toBe(staleHeartbeat.getTime())
             expect(dlqRow.reason).toContain('poison pill')
             expect(dlqRow.state?.toString()).toBe('precious-state')
         })

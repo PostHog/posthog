@@ -212,11 +212,11 @@ export class CyclotronV2Janitor {
                 RETURNING cyclotron_jobs.*
             )
             INSERT INTO cyclotron_jobs_dead_letter
-                (id, team_id, function_id, original_queue_name, priority, scheduled, created,
-                 janitor_touch_count, transition_count, last_transition, parent_run_id, state,
+                (id, team_id, function_id, original_queue_name, original_status, priority, scheduled, created,
+                 last_heartbeat, janitor_touch_count, transition_count, last_transition, parent_run_id, state,
                  distinct_id, person_id, action_id, reason, dlq_time)
-            SELECT id, team_id, function_id, queue_name, priority, scheduled, created,
-                   janitor_touch_count, transition_count, last_transition, parent_run_id, state,
+            SELECT id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                   last_heartbeat, janitor_touch_count, transition_count, last_transition, parent_run_id, state,
                    distinct_id, person_id, action_id, $3, NOW()
             FROM moved
             RETURNING id`,
