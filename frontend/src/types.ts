@@ -5488,6 +5488,7 @@ export type APIScopeObject =
     | 'access_control'
     | 'account'
     | 'activity_log'
+    | 'agents'
     | 'alert'
     | 'annotation'
     | 'approvals'

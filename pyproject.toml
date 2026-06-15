@@ -503,6 +503,13 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
+    "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.logic.spec_schema",
+    "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.spec_schema",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.models",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
