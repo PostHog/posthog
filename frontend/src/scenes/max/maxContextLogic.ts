@@ -15,12 +15,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import {
-    REVENUE_ANALYTICS_QUERY_TO_NAME,
-    REVENUE_ANALYTICS_QUERY_TO_SHORT_ID,
-    RevenueAnalyticsQuery,
-    revenueAnalyticsLogic,
-} from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+import type { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -342,6 +337,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
             if (!insight || !insight.query) {
                 // Decide between revenue analytics query and querying the insight logic
                 if (revenueAnalyticsQuery) {
+                    const {
+                        revenueAnalyticsLogic,
+                        REVENUE_ANALYTICS_QUERY_TO_SHORT_ID,
+                        REVENUE_ANALYTICS_QUERY_TO_NAME,
+                    } = await import('products/revenue_analytics/frontend/revenueAnalyticsLogic')
                     const logic = revenueAnalyticsLogic.findMounted()!
                     const query = logic.values.queries[revenueAnalyticsQuery]
                     insight = {
@@ -481,6 +481,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     if (groupType === TaxonomicFilterGroupType.MaxAIContext) {
                         // The revenue analytics insights have some fixed short ids that don't overlap with the insight short ids
                         // Let's check them first, and then fallback to looking for an insight logic
+                        const { REVENUE_ANALYTICS_QUERY_TO_SHORT_ID } =
+                            await import('products/revenue_analytics/frontend/revenueAnalyticsLogic')
                         const revenueAnalyticsShortIds = Object.values(REVENUE_ANALYTICS_QUERY_TO_SHORT_ID)
                         if (revenueAnalyticsShortIds.includes(itemInfo.id as InsightShortId)) {
                             revenueAnalyticsQuery = Object.entries(REVENUE_ANALYTICS_QUERY_TO_SHORT_ID).find(

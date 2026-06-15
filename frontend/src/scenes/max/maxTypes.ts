@@ -73,6 +73,9 @@ export interface MaxNotebookContext {
     type: MaxContextType.NOTEBOOK
     id: string // short_id
     name?: string | null
+    markdown_with_insertion_placeholder?: string
+    insertion_placeholder_block_id?: string
+    insertion_placeholder_marker?: string
 }
 
 // The main shape for the UI context sent to the backend

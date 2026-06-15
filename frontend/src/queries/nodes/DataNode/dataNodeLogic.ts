@@ -116,9 +116,9 @@ export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(1)
-const webAnalyticsConcurrencyController = new ConcurrencyController(3)
-const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(5)
-const marketingAnalyticsConcurrencyController = new ConcurrencyController(5)
+const webAnalyticsConcurrencyController = new ConcurrencyController(6)
+const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
+const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     const mountedSceneLogic = sceneLogic.findMounted()

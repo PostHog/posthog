@@ -131,13 +131,28 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             {} as Record<string, boolean>,
             {
                 setSummaryOpen: (state, { sessionId, open }) => ({ ...state, [sessionId]: open }),
-                startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
-                setSummary: (state, { sessionId, summary }) => (summary ? { ...state, [sessionId]: true } : state),
+            },
+        ],
+        // The user's last expand/collapse choice, used as the default for future recordings.
+        autoExpandSummary: [
+            true,
+            { persist: true },
+            {
+                setSummaryOpen: (_, { open }) => open,
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        // Auto-expand unless the user collapsed the dock, in this session or a previous one.
+        setSummary: ({ sessionId, summary }) => {
+            if (summary && values.openBySessionId[sessionId] === undefined && values.autoExpandSummary) {
+                actions.setSummaryOpen(sessionId, true)
+            }
+        },
         startSummarization: async ({ sessionId }) => {
+            if (values.openBySessionId[sessionId] === undefined && values.autoExpandSummary) {
+                actions.setSummaryOpen(sessionId, true)
+            }
             if (inFlightSessionIds.has(sessionId)) {
                 return
             }

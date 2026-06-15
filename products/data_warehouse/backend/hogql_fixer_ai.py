@@ -28,7 +28,9 @@ def get_hogql_functions() -> str:
 
     ch_functions = list(HOGQL_CLICKHOUSE_FUNCTIONS.keys())
     ch_aggregations = list(HOGQL_AGGREGATIONS.keys())
-    ph_functions = list(HOGQL_POSTHOG_FUNCTIONS.keys())
+    # Underscore-prefixed functions are internal/preview (matching ALL_EXPOSED_FUNCTION_NAMES): the fixer must not
+    # write them into user queries — some are env-gated or temporary and would error or break at removal.
+    ph_functions = [name for name in HOGQL_POSTHOG_FUNCTIONS if not name.startswith("_")]
 
     _hogql_functions = f"""HogQL defines what functions are available with most (but not all) having a 1:1 mapping to ClickHouse functions.
 These are the non-aggregated HogQL functions:

@@ -41,6 +41,8 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.scout_harness.config_registry import enabled_scout_count
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -571,6 +573,25 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
 
 
+def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
+    """Raise when enabling this scout would push the team past the per-team enabled cap.
+
+    Counts every enabled config except this skill's own row, so re-asserting
+    `enabled=True` on an already-enabled scout is always allowed. Best-effort
+    (count + write, no lock): a concurrent enable can overshoot by one, which the
+    coordinator's per-tick caps still bound.
+    """
+    if enabled_scout_count(team_id, exclude_skill=skill_name) >= MAX_ENABLED_SCOUTS_PER_TEAM:
+        raise exceptions.ValidationError(
+            {
+                "enabled": (
+                    f"This project already has {MAX_ENABLED_SCOUTS_PER_TEAM} enabled scouts (the maximum). "
+                    "Disable one before enabling another."
+                )
+            }
+        )
+
+
 def _skill_descriptions_for(team_id: int, skill_names: list[str]) -> dict[str, str]:
     """Map each scout `skill_name` to the latest `LLMSkill.description` on the team.
 
@@ -639,7 +660,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="A config already existed for this skill; the provided fields were applied to it.",
             ),
             400: OpenApiResponse(
-                description="No such skill on this project, or the name lacks the `signals-scout-` prefix."
+                description=(
+                    "No such skill on this project, the name lacks the `signals-scout-` prefix, "
+                    "or the project is already at its enabled-scouts maximum."
+                )
             ),
         },
         summary="Create a scout config",
@@ -662,6 +686,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"skill_name": "No skill with this name exists on this project. Author the skill first."}
             )
         tunables = {key: value for key, value in serializer.validated_data.items() if key != "skill_name"}
+        # The per-team cap only gates net-new enables: a fresh row defaulting (or set) to
+        # enabled, or an upsert flipping a disabled row on. Tuning an already-enabled scout
+        # stays exempt via the exclude-self count.
+        existing = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
+        will_enable = (
+            tunables.get("enabled", True)
+            if existing is None
+            else (not existing.enabled and tunables.get("enabled") is True)
+        )
+        if will_enable:
+            _reject_if_enabled_cap_reached(team_id, skill_name)
         # `team_id` stays in the kwargs: `get_or_create` builds the created row from
         # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
         config, created = SignalScoutConfig.objects.for_team(team_id).get_or_create(
@@ -693,6 +728,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=SignalScoutConfigSerializer,
         responses={
             200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Updated config."),
+            400: OpenApiResponse(
+                description="Invalid fields, or enabling would exceed the project's enabled-scouts maximum."
+            ),
             404: OpenApiResponse(description="Config not found for this project."),
         },
         summary="Update a scout config",
@@ -711,9 +749,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.NotFound()
         serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        enabling = not config.enabled and serializer.validated_data.get("enabled")
+        if enabling:
+            _reject_if_enabled_cap_reached(team_id, config.skill_name)
         # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
         save_kwargs = {}
-        if not config.enabled and serializer.validated_data.get("enabled"):
+        if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
         descriptions = _skill_descriptions_for(team_id, [instance.skill_name])

@@ -11,14 +11,15 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 
 export interface MaxWebAnalyticsNudgeProps {
     message: ThreadMessage
+    messageId: string
 }
 
-export function MaxWebAnalyticsNudge({ message }: MaxWebAnalyticsNudgeProps): JSX.Element | null {
+export function MaxWebAnalyticsNudge({ message, messageId }: MaxWebAnalyticsNudgeProps): JSX.Element | null {
     const { threadGrouped, isSharedThread, threadLoading, conversation } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
     const logic = maxWebAnalyticsNudgeLogic({
-        messageId: message.id ?? conversationId ?? 'nudge',
+        messageId,
         threadGrouped,
         isCompleted: message.status === 'completed' && !threadLoading,
         isSharedThread,

@@ -206,6 +206,26 @@ def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
     return code == _LOST_CONNECTION_DURING_QUERY_CODE
 
 
+def _release_streaming_cursor(cursor: SSCursor) -> None:
+    """Detach an unbuffered cursor from its connection without draining it.
+
+    PyMySQL's `SSCursor.close()` (and its `__del__`) finishes the unbuffered
+    query by reading every outstanding row packet from the server via
+    `_finish_unbuffered_query`. When we abandon a stream early — a cancelled
+    Temporal activity injects `GeneratorExit`, or the FORCE INDEX fallback
+    restarts the query — that drain runs against a connection that is already
+    going away and raises `OperationalError(2013, 'Lost connection to MySQL
+    server during query')` from inside the teardown path, masking the real
+    reason iteration stopped. Clearing the connection reference is exactly what
+    PyMySQL does once a query is fully consumed, so the cursor's later
+    `close`/`__del__` becomes a no-op and the owning `with self.connect(...)`
+    block closes the socket cleanly.
+    """
+    # PyMySQL clears this same attribute once a query is fully consumed; the
+    # stub types it non-optional, so we mirror that runtime behaviour here.
+    cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+
 class MySQLColumn(Column):
     """`Column` for a MySQL source — carries enough type info to build a PyArrow field.
 
@@ -786,7 +806,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
-                with streaming_connection.cursor(SSCursor) as ss_cursor:
+                ss_cursor = streaming_connection.cursor(SSCursor)
+                try:
                     query, args = _build_query(
                         schema,
                         table_name,
@@ -819,6 +840,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             break
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                finally:
+                    # Tear the streaming cursor down without draining the rest of
+                    # the unbuffered result set — see `_release_streaming_cursor`.
+                    # Closing it normally here would reissue the lost-connection
+                    # error over a cancellation or the FORCE INDEX restart.
+                    _release_streaming_cursor(ss_cursor)
 
         def get_rows() -> Iterator[Any]:
             # Track whether any batch reached the pipeline. If one did,
