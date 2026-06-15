@@ -133,7 +133,7 @@ impl UserAgentInfo {
         let first = version.chars().next()?;
 
         if first.is_ascii_digit() {
-            Some(version)
+            Some(version.split_whitespace().next().unwrap_or(version))
         } else {
             None
         }
@@ -226,6 +226,12 @@ mod tests {
     )]
     #[case(
         "posthog-ruby2.0.0",
+        Some("posthog-ruby"),
+        Some("2.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-ruby2.0.0 (Linux)",
         Some("posthog-ruby"),
         Some("2.0.0"),
         RuntimeType::Server
