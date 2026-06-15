@@ -73,5 +73,16 @@ describe('supportSettingsLogic', () => {
             logic.actions.updateCurrentTeamSuccess({} as TeamType)
             expect(logic.values.aiSuggestionsLoading).toBe(false)
         })
+
+        it('clears loading state on updateCurrentTeamFailure', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            logic.actions.setAiSuggestionsLoading(true)
+            expect(logic.values.aiSuggestionsLoading).toBe(true)
+
+            logic.actions.updateCurrentTeamFailure('update failed')
+            expect(logic.values.aiSuggestionsLoading).toBe(false)
+        })
     })
 })

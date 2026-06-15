@@ -23,7 +23,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'loadCurrentTeam']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
+        ],
     })),
     actions({
         generateNewToken: true,
@@ -249,6 +252,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 setAiSuggestionsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
             },
         ],
         slackTicketEmojiValue: [
