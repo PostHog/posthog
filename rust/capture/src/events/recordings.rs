@@ -484,7 +484,6 @@ fn replay_message_too_large_warning(
         context,
         distinct_id,
         Some(session_id),
-        Some(snapshot_library),
         timestamp,
         "replay_message_too_large",
         message,
@@ -535,7 +534,6 @@ async fn reject_replay_batch(
         context,
         distinct_id.unwrap_or("unknown").to_string(),
         None,
-        None,
         timestamp,
         "replay_message_invalid",
         message,
@@ -549,30 +547,24 @@ async fn reject_replay_batch(
 
 /// Build a `$$client_ingestion_warning` event. Ingestion resolves the team
 /// from the token and persists it as an ingestion warning of `warning_type`.
-#[allow(clippy::too_many_arguments)]
 fn client_ingestion_warning_event(
     context: &ProcessingContext,
     distinct_id: String,
     session_id: Option<&str>,
-    lib: Option<&str>,
     timestamp: chrono::DateTime<chrono::Utc>,
     warning_type: &str,
     message: String,
     details: Value,
 ) -> ProcessedEvent {
-    let mut properties = json!({
-        "$$client_ingestion_warning_message": message,
-        "$$client_ingestion_warning_type": warning_type,
-        "$$client_ingestion_warning_details": details,
-        "$session_id": session_id,
-    });
-    if let Some(lib) = lib {
-        properties["$lib"] = json!(lib);
-    }
     let data = json!({
         "event": "$$client_ingestion_warning",
         "distinct_id": &distinct_id,
-        "properties": properties,
+        "properties": {
+            "$$client_ingestion_warning_message": message,
+            "$$client_ingestion_warning_type": warning_type,
+            "$$client_ingestion_warning_details": details,
+            "$session_id": session_id,
+        },
     })
     .to_string();
 
@@ -1469,10 +1461,8 @@ mod tests {
         assert!(props["$$client_ingestion_warning_message"]
             .as_str()
             .is_some_and(|m| m.contains("test-session-123")));
-        assert!(
-            props["$lib"].is_string(),
-            "warning must keep the $lib property for SDK attribution"
-        );
+        // lib is carried in the warning details (the event itself is never stored)
+        assert!(props["$$client_ingestion_warning_details"]["lib"].is_string());
     }
 
     // ============ rejected payload flagging tests ============
