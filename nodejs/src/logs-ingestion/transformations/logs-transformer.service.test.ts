@@ -1,5 +1,6 @@
 import { HogFunctionManagerService } from '../../cdp/services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../../cdp/services/monitoring/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from '../../cdp/services/monitoring/hog-watcher.service'
 import { compileHog } from '../../cdp/templates/compiler'
 import { HogFunctionType } from '../../cdp/types'
 import type { LogRecord } from '../log-record-avro'
@@ -83,6 +84,7 @@ describe('LogsTransformerService', () => {
             messageBudgetMs: 50,
             batchBudgetMs: 2000,
             maxErrorLogsPerFunctionPerMessage: 3,
+            hogWatcherSampleRate: 0,
         }
         service = new LogsTransformerService(manager as any, monitoring as any, config)
     })
@@ -349,5 +351,67 @@ describe('LogsTransformerService', () => {
     it('flush delegates to the monitoring service', async () => {
         await service.flush()
         expect(monitoring.flush).toHaveBeenCalled()
+    })
+
+    describe('HogWatcher integration', () => {
+        const createMockWatcher = (): jest.Mocked<
+            Pick<HogWatcherService, 'getEffectiveStates' | 'observeAggregatedResults'>
+        > =>
+            ({
+                getEffectiveStates: jest.fn().mockResolvedValue({}),
+                observeAggregatedResults: jest.fn().mockResolvedValue(undefined),
+            }) as any
+
+        const withWatcher = (watcher: any, sampleRate: number): LogsTransformerService =>
+            new LogsTransformerService(
+                manager as any,
+                monitoring as any,
+                { ...config, hogWatcherSampleRate: sampleRate },
+                watcher
+            )
+
+        it('never touches the watcher when the sample rate is 0', async () => {
+            const watcher = createMockWatcher()
+            service = withWatcher(watcher, 0)
+            setFunctions([await createFunction('return record')])
+
+            await service.transformRecords(TEAM_ID, [createRecord()])
+
+            expect(watcher.getEffectiveStates).not.toHaveBeenCalled()
+            expect(watcher.observeAggregatedResults).not.toHaveBeenCalled()
+        })
+
+        it('reports one aggregated observation per function when sampled', async () => {
+            const watcher = createMockWatcher()
+            service = withWatcher(watcher, 1)
+            const fn = await createFunction('return record')
+            setFunctions([fn])
+
+            await service.transformRecords(TEAM_ID, [createRecord(), createRecord()])
+
+            expect(watcher.observeAggregatedResults).toHaveBeenCalledTimes(1)
+            const observations = watcher.observeAggregatedResults.mock.calls[0][0]
+            expect(observations).toHaveLength(1)
+            expect(observations[0].hogFunction.id).toEqual(fn.id)
+            expect(observations[0].totalDurationMs).toBeGreaterThanOrEqual(0)
+        })
+
+        it('skips functions the watcher has disabled and records a metric', async () => {
+            const watcher = createMockWatcher()
+            const fn = await createFunction('return null') // would drop every record if it ran
+            watcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.disabled, tokens: 0 } })
+            service = withWatcher(watcher, 1)
+            setFunctions([fn])
+
+            const records = [createRecord(), createRecord()]
+            const { recordsDropped } = await service.transformRecords(TEAM_ID, records)
+
+            expect(recordsDropped).toEqual(0)
+            expect(records).toHaveLength(2)
+            expect(watcher.observeAggregatedResults).not.toHaveBeenCalled()
+            expect(queuedMetrics()).toContainEqual(
+                expect.objectContaining({ metric_name: 'disabled_permanently', app_source_id: fn.id, count: 2 })
+            )
+        })
     })
 })

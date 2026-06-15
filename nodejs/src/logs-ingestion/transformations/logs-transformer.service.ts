@@ -3,6 +3,7 @@ import { Counter, Histogram } from 'prom-client'
 
 import { HogFunctionManagerService } from '../../cdp/services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../../cdp/services/monitoring/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from '../../cdp/services/monitoring/hog-watcher.service'
 import { HogFunctionType, LogEntry } from '../../cdp/types'
 import { yieldEventLoopIfNeeded } from '../../utils/event-loop-yield'
 import { logger } from '../../utils/logger'
@@ -18,7 +19,7 @@ import {
 export const transformationRecordsCounter = new Counter({
     name: 'logs_ingestion_transformations_records_total',
     help: 'Per-record log transformation outcomes',
-    labelNames: ['result'], // succeeded | failed | dropped | budget_skipped
+    labelNames: ['result'], // succeeded | failed | dropped | budget_skipped | watcher_disabled
 })
 
 export const transformationVmDurationHistogram = new Histogram({
@@ -48,6 +49,9 @@ export interface LogsTransformerConfig {
     batchBudgetMs: number
     /** Max failed invocations whose print/error logs are captured, per function per message */
     maxErrorLogsPerFunctionPerMessage: number
+    /** Fraction of messages on which HogWatcher state is read and aggregate cost reported.
+     * 0 disables the watcher entirely (no Redis reads, no observations). */
+    hogWatcherSampleRate: number
 }
 
 /** Tracks cumulative VM time across all messages of one consumer batch. */
@@ -94,7 +98,8 @@ export class LogsTransformerService {
     constructor(
         private hogFunctionManager: HogFunctionManagerService,
         private monitoring: HogFunctionMonitoringService,
-        private config: LogsTransformerConfig
+        private config: LogsTransformerConfig,
+        private hogWatcher?: HogWatcherService
     ) {}
 
     public startBatch(): TransformationBatchBudget {
@@ -121,8 +126,18 @@ export class LogsTransformerService {
         let recordsDropped = 0
 
         const functionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams([teamId], ['transformation_log'])
-        const functions = functionsByTeam[teamId] ?? []
-        if (functions.length === 0 || records.length === 0) {
+        const allFunctions = functionsByTeam[teamId] ?? []
+        if (allFunctions.length === 0 || records.length === 0) {
+            return { recordsDropped, recordsDroppedByFunctionId }
+        }
+
+        // On a sampled message the watcher reads state (to skip disabled functions) and, at the
+        // end, receives the aggregate cost. A sample rate of 0 means no Redis traffic at all.
+        const runWatcher = !!this.hogWatcher && Math.random() < this.config.hogWatcherSampleRate
+        const functions = runWatcher
+            ? await this.dropWatcherDisabled(teamId, allFunctions, records.length)
+            : allFunctions
+        if (functions.length === 0) {
             return { recordsDropped, recordsDroppedByFunctionId }
         }
 
@@ -196,8 +211,65 @@ export class LogsTransformerService {
 
         transformationVmDurationHistogram.observe(messageVmMs / 1000)
         this.queueAggregates(teamId, aggregates)
+        if (runWatcher) {
+            this.reportToWatcher(functions, aggregates)
+        }
 
         return { recordsDropped, recordsDroppedByFunctionId }
+    }
+
+    /** Reads watcher state once per message and removes functions it has disabled. */
+    private async dropWatcherDisabled(
+        teamId: number,
+        functions: HogFunctionType[],
+        recordCount: number
+    ): Promise<HogFunctionType[]> {
+        if (!this.hogWatcher) {
+            return functions
+        }
+        const states = await this.hogWatcher.getEffectiveStates(functions.map((fn) => fn.id))
+        const active: HogFunctionType[] = []
+        for (const fn of functions) {
+            if (states[fn.id]?.state === HogWatcherState.disabled) {
+                transformationRecordsCounter.inc({ result: 'watcher_disabled' }, recordCount)
+                this.monitoring.queueAppMetric(
+                    {
+                        team_id: teamId,
+                        app_source_id: fn.id,
+                        metric_kind: 'failure',
+                        metric_name: 'disabled_permanently',
+                        count: recordCount,
+                    },
+                    'hog_function'
+                )
+            } else {
+                active.push(fn)
+            }
+        }
+        return active
+    }
+
+    /** Reports one aggregated VM-time observation per function for this message. Fire-and-forget. */
+    private reportToWatcher(functions: HogFunctionType[], aggregates: Map<string, FunctionAggregates>): void {
+        if (!this.hogWatcher) {
+            return
+        }
+        const byId = new Map(functions.map((fn) => [fn.id, fn]))
+        const observations: { hogFunction: HogFunctionType; totalDurationMs: number }[] = []
+        for (const [functionId, agg] of aggregates) {
+            const hogFunction = byId.get(functionId)
+            // A 0ms aggregate still costs nothing, but reporting it keeps token refill honest.
+            if (hogFunction) {
+                observations.push({ hogFunction, totalDurationMs: agg.totalDurationMs })
+            }
+        }
+        if (observations.length > 0) {
+            this.hogWatcher.observeAggregatedResults(observations).catch((error) => {
+                logger.warn('⚠️', '[logs-transformer] HogWatcher observeAggregatedResults failed', {
+                    error: String(error),
+                })
+            })
+        }
     }
 
     /** Runs every function in execution order against one record. Returns true if dropped. */

@@ -1728,6 +1728,7 @@ describe('LogsIngestionConsumer', () => {
                 messageBudgetMs: 100,
                 batchBudgetMs: 2000,
                 maxErrorLogsPerFunctionPerMessage: 3,
+                hogWatcherSampleRate: 0,
             })
         }
 

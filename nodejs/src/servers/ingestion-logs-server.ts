@@ -135,6 +135,9 @@ export class IngestionLogsServer implements NodeServer {
             messageBudgetMs: this.config.LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS,
             batchBudgetMs: this.config.LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS,
             maxErrorLogsPerFunctionPerMessage: this.config.LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION,
+            // 0 keeps the watcher dormant (no Redis traffic). The HogWatcher instance and a
+            // configurable sample rate are wired into this server in a follow-up.
+            hogWatcherSampleRate: 0,
         })
 
         // 4. Logs ingestion consumer
