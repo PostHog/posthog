@@ -18,7 +18,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.business_knowledge.backend import github
-from products.business_knowledge.backend.api.serializers import CreateCrawlSourceSerializer
+from products.business_knowledge.backend.api.serializers import CreateCrawlSourceSerializer, UpdateUrlSourceSerializer
 from products.business_knowledge.backend.discover import CrawlConfig
 from products.business_knowledge.backend.logic import ingest_source, refresh_source
 from products.business_knowledge.backend.models import (
@@ -440,40 +440,86 @@ class TestGithubSerializer(APIBaseTest):
         assert not serializer.is_valid()
         assert "url" in serializer.errors
 
-    def test_create_github_source_valid_url(self) -> None:
-        data = {
+    @parameterized.expand(
+        [
+            (
+                "defaults_to_docs_globs_without_ref",
+                "https://github.com/owner/repo",
+                None,
+                ["*.md", "*.mdx", "*.markdown", "*.rst", "*.txt"],
+                None,
+            ),
+            (
+                "extracts_ref_from_tree_url",
+                "https://github.com/owner/repo/tree/v1.2.3",
+                None,
+                ["*.md", "*.mdx", "*.markdown", "*.rst", "*.txt"],
+                "v1.2.3",
+            ),
+            (
+                "keeps_custom_include_globs",
+                "https://github.com/owner/repo",
+                ["*.py", "*.js"],
+                ["*.py", "*.js"],
+                None,
+            ),
+        ]
+    )
+    def test_create_github_source_builds_expected_crawl_config(
+        self,
+        _case: str,
+        url: str,
+        include_globs: list[str] | None,
+        expected_include_globs: list[str],
+        expected_ref: str | None,
+    ) -> None:
+        data: dict[str, object] = {
             "name": "Test",
-            "url": "https://github.com/owner/repo",
+            "url": url,
             "crawl_mode": "github_repo",
         }
+        if include_globs is not None:
+            data["include_globs"] = include_globs
         serializer = CreateCrawlSourceSerializer(data=data)
         assert serializer.is_valid(), serializer.errors
         internal = serializer.validated_data
-        assert internal["crawl_config"]["include_globs"] == ["*.md", "*.mdx", "*.markdown", "*.rst", "*.txt"]
-        assert internal["crawl_config"]["ref"] is None
+        assert internal["crawl_config"]["include_globs"] == expected_include_globs
+        assert internal["crawl_config"]["ref"] == expected_ref
 
-    def test_create_github_source_extracts_ref_from_url(self) -> None:
-        data = {
-            "name": "Test",
-            "url": "https://github.com/owner/repo/tree/v1.2.3",
-            "crawl_mode": "github_repo",
-        }
-        serializer = CreateCrawlSourceSerializer(data=data)
-        assert serializer.is_valid(), serializer.errors
-        internal = serializer.validated_data
-        assert internal["crawl_config"]["ref"] == "v1.2.3"
+    @parameterized.expand(
+        [
+            ("rejects_non_github_url", "https://docs.example.com", False, None),
+            ("syncs_ref_from_tree_url", "https://github.com/owner/repo/tree/release", True, "release"),
+        ]
+    )
+    def test_update_github_source_url_behavior(
+        self,
+        _case: str,
+        updated_url: str,
+        should_be_valid: bool,
+        expected_ref: str | None,
+    ) -> None:
+        source = KnowledgeSource.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Repo source",
+            source_type=SourceType.URL,
+            status=SourceStatus.READY,
+            source_url="https://github.com/owner/repo/tree/main",
+            crawl_mode=CrawlMode.GITHUB_REPO,
+            crawl_config={"include_globs": ["*.md"], "exclude_globs": [], "max_pages": 50, "ref": "main"},
+        )
 
-    def test_create_github_source_custom_globs(self) -> None:
-        data = {
-            "name": "Test",
-            "url": "https://github.com/owner/repo",
-            "crawl_mode": "github_repo",
-            "include_globs": ["*.py", "*.js"],
-        }
-        serializer = CreateCrawlSourceSerializer(data=data)
+        serializer = UpdateUrlSourceSerializer(instance=source, data={"url": updated_url})
+        if not should_be_valid:
+            assert not serializer.is_valid()
+            assert "url" in serializer.errors
+            return
+
         assert serializer.is_valid(), serializer.errors
         internal = serializer.validated_data
-        assert internal["crawl_config"]["include_globs"] == ["*.py", "*.js"]
+        assert internal["crawl_config"]["ref"] == expected_ref
+        # Existing custom globs remain intact when only the URL changes.
+        assert "include_globs" not in internal["crawl_config"]
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)

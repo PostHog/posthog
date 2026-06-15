@@ -272,7 +272,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(KnowledgeSourceSerializer(instance=updated).data)
 
     def _update_url_source(self, source: KnowledgeSource, request: Request) -> Response:
-        serializer = UpdateUrlSourceSerializer(data=request.data, context=self.get_serializer_context())
+        serializer = UpdateUrlSourceSerializer(
+            instance=source, data=request.data, context=self.get_serializer_context()
+        )
         serializer.is_valid(raise_exception=True)
         try:
             updated = logic.update_url_source(

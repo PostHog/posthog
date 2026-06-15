@@ -288,12 +288,14 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
     def validate(self, attrs: dict) -> dict:
         if not attrs:
             raise serializers.ValidationError("Provide at least one field to update.")
-        # Validate the repo URL when switching to / updating a github source and a
-        # new URL is supplied — otherwise a non-repo URL is accepted here and only
-        # fails later at ingest.
-        if attrs.get("crawl_mode") == CrawlMode.GITHUB_REPO.value and "url" in attrs:
+        current_source = self.instance if isinstance(self.instance, KnowledgeSource) else None
+        crawl_mode = attrs.get("crawl_mode", current_source.crawl_mode if current_source else None)
+        url = attrs.get("url", current_source.source_url if current_source else None)
+        # Validate the effective URL whenever the source is (or becomes) a GitHub
+        # source, even when the client only updates `url` and omits `crawl_mode`.
+        if crawl_mode == CrawlMode.GITHUB_REPO.value and url:
             try:
-                github.parse_repo_url(attrs["url"])
+                github.parse_repo_url(url)
             except github.GithubError as exc:
                 raise serializers.ValidationError({"url": str(exc)})
         return attrs
@@ -302,14 +304,28 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         attrs = super().to_internal_value(data)
         crawl_config_keys = {"include_globs", "exclude_globs", "max_pages", "max_depth"}
         crawl_fields = {k: attrs.pop(k) for k in crawl_config_keys if k in attrs}
-        crawl_mode = attrs.get("crawl_mode", data.get("crawl_mode"))
+        current_source = self.instance if isinstance(self.instance, KnowledgeSource) else None
+        crawl_mode = attrs.get("crawl_mode", current_source.crawl_mode if current_source else data.get("crawl_mode"))
+        entered_github_mode = crawl_mode == CrawlMode.GITHUB_REPO.value and (
+            current_source is None or current_source.crawl_mode != CrawlMode.GITHUB_REPO.value
+        )
         # Re-derive scope when include_globs was NOT sent (user didn't override),
         # the URL is changing, and mode is same-origin.
         if "include_globs" not in crawl_fields and "url" in attrs:
             if crawl_mode == CrawlMode.SAME_ORIGIN.value:
                 crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
-            elif crawl_mode == CrawlMode.GITHUB_REPO.value:
+            elif crawl_mode == CrawlMode.GITHUB_REPO.value and (
+                entered_github_mode
+                or not isinstance(getattr(current_source, "crawl_config", None), dict)
+                or not (current_source.crawl_config or {}).get("include_globs")
+            ):
                 crawl_fields["include_globs"] = list(GITHUB_DEFAULT_INCLUDE_GLOBS)
+
+        if crawl_mode == CrawlMode.GITHUB_REPO.value:
+            repo_url = attrs.get("url", current_source.source_url if current_source else None)
+            if repo_url and (entered_github_mode or "url" in attrs):
+                # Keep `crawl_config.ref` in sync with the selected tree URL.
+                crawl_fields["ref"] = github.parse_repo_url(repo_url).ref
         if crawl_fields:
             attrs["crawl_config"] = crawl_fields
         return attrs
