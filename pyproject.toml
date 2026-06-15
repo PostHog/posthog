@@ -280,7 +280,6 @@ sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.8.0",
 ]
-# shrinkray drives the HogQL parser-parity diagnostics (posthog/hogql/scripts/); opt-in (heavy deps), pinned exact (undocumented calendar-versioned API)
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
 ]
