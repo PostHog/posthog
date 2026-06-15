@@ -760,7 +760,7 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
 
         async def empty_stream():
             return
-            yield  # type: ignore[unreachable]
+            yield
 
         mock_graph = MagicMock()
         mock_graph.astream = MagicMock(return_value=empty_stream())
