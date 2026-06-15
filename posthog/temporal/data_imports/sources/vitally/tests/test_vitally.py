@@ -259,8 +259,9 @@ class TestVitallySourceGetSchemas:
         mock_list.assert_not_called()
         assert {s.name for s in schemas} == {"Accounts", "Conversations"}
 
+    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
     @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
-    def test_static_schemas_survive_discovery_failure(self, mock_list):
+    def test_static_schemas_survive_discovery_failure(self, mock_list, mock_capture):
         mock_list.side_effect = RuntimeError("Vitally API unavailable")
 
         schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
@@ -268,3 +269,40 @@ class TestVitallySourceGetSchemas:
         names = {s.name for s in schemas}
         assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+        # Unexpected discovery failures are still captured for triage.
+        mock_capture.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "401 Client Error: Unauthorized for url: https://firstignite.rest.vitally.io/resources/customObjects?limit=100",
+            "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/customObjects?limit=100",
+        ],
+    )
+    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    def test_credential_errors_do_not_spam_error_tracking(self, mock_list, mock_capture, error_message):
+        # A revoked/invalid token surfaces as a 401/403 during custom object discovery. Static
+        # endpoints must still survive, and we must not capture the credential error to error tracking.
+        mock_list.side_effect = RuntimeError(error_message)
+
+        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
+        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+        mock_capture.assert_not_called()
+
+
+class TestVitallySourceNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "401 Client Error: Unauthorized for url: https://firstignite.rest.vitally.io/resources/customObjects?limit=100",
+            "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/users?limit=1",
+        ],
+    )
+    def test_recognises_credential_errors_as_non_retryable(self, error_message):
+        non_retryable_errors = VitallySource().get_non_retryable_errors()
+
+        assert any(pattern in error_message for pattern in non_retryable_errors)

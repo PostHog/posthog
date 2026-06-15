@@ -37,6 +37,16 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Vitally's base URL is per-customer (US subdomains and the EU host both vary), so we match
+        # on the stable requests HTTPError status text rather than the per-request URL. A 401/403
+        # means the customer's secret token is invalid, revoked, or lacks permissions — there is
+        # nothing to retry, so disable the schema and tell them to reconnect.
+        return {
+            "401 Client Error: Unauthorized": "Vitally rejected your credentials (401 Unauthorized). Your secret token may be invalid or revoked — please check your Vitally secret token and region, then reconnect.",
+            "403 Client Error: Forbidden": "Vitally denied access (403 Forbidden). Your secret token may lack the required permissions — please check your Vitally secret token, then reconnect.",
+        }
+
     def get_schemas(
         self,
         config: VitallySourceConfig,
@@ -66,7 +76,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     config.secret_token, config.region.selection, config.region.subdomain
                 )
             except Exception as e:
-                capture_exception(e)
+                # A 401/403 here is a customer credential problem (invalid/revoked token), not a bug
+                # we can fix — the per-schema sync path already surfaces it and disables the source.
+                # Skip capturing those to avoid spamming error tracking on every discovery run, but
+                # still capture genuinely unexpected discovery failures.
+                if not any(pattern in str(e) for pattern in self.get_non_retryable_errors()):
+                    capture_exception(e)
                 definitions = []
 
             for definition in definitions:
