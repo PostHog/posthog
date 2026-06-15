@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
@@ -139,6 +140,116 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
             })
+    })
+
+    it('does not let a transient default query clobber the drill-down #q= hash', async () => {
+        // Regression for the retention "Open as new insight" path. On /insights/new the scene first
+        // renders the default Trends query before the drill-down DataTableNode is applied; that render
+        // fires insightVizDataLogic.setQuery(default) -> props.setQuery -> insightDataLogic.setQuery.
+        // That transient default must NOT overwrite the drill-down query already in the #q= hash.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        // In-app navigation to the drill-down query (Open as new insight)
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Mark the Insight scene active so insightDataLogic's URL-sync path runs
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightNew',
+            sceneLogic.values.activeTabId || '',
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightNew',
+            sceneLogic.values.activeTabId || '',
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+
+        // Simulate the render-driven default setQuery that insightVizDataLogic forwards via props.setQuery
+        const defaultQuery = getDefaultQuery(InsightType.TRENDS, false)
+        logic.values.insightDataLogicRef?.logic.actions.setQuery(defaultQuery)
+        await expectLogic(logic).delay(1)
+
+        // The drill-down query must still be in the hash, not the default Trends query
+        expect(router.values.hashParams.q).toEqual(JSON.stringify(dataTableQuery))
+    })
+
+    it('tags a DataTableNode drill-down query on cold load via the upgrade path', async () => {
+        // The persons-modal "View events" button opens in a new tab, so the scene cold-loads with the
+        // query already in the URL (initial navigation -> upgradeQuery). A DataTableNode's source query
+        // is executed directly, so without a productKey tag ClickHouse rejects it as untagged — the
+        // upgrade path must tag the source when materializing the new insight.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.kind).toEqual(NodeKind.DataTableNode)
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('tags a DataTableNode drill-down query on in-app navigation', async () => {
+        // The "Open as new insight" button navigates in-app (router PUSH, not an initial load), which
+        // routes through urlToAction's PUSH branch rather than upgradeQuery. That path must tag too.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        // Settle a new-insight scene first, then navigate in-app to the drill-down query
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.kind).toEqual(NodeKind.DataTableNode)
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {
+        // A drill-down query that already declares its product (e.g. web analytics) must keep it.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+                tags: { productKey: ProductKey.WEB_ANALYTICS },
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.WEB_ANALYTICS)
     })
 
     it('persists edit mode in the url', async () => {
