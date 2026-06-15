@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 
-from products.web_analytics.backend.temporal.weekly_digest.types import SendTestDigestInput, WAWeeklyDigestInput
+from products.web_analytics.backend.facade.temporal import SendTestDigestInput, WAWeeklyDigestInput
 
 
 @pytest.mark.django_db

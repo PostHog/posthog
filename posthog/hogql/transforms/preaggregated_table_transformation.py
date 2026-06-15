@@ -36,10 +36,7 @@ from posthog.hogql.helpers.timestamp_visitor import (
 )
 from posthog.hogql.visitor import CloningVisitor
 
-from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import (
-    EVENT_PROPERTY_TO_FIELD,
-    SESSION_PROPERTY_TO_FIELD,
-)
+from products.web_analytics.backend.facade.hogql import EVENT_PROPERTY_TO_FIELD, SESSION_PROPERTY_TO_FIELD
 
 _T_AST = TypeVar("_T_AST", bound=AST)
 

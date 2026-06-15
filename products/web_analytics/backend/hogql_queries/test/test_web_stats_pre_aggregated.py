@@ -18,14 +18,12 @@ from posthog.schema import (
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
+from posthog.models.web_preaggregated.test_base import WebAnalyticsPreAggregatedTestBase
 
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import (
     WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS,
     StatsTablePreAggregatedQueryBuilder,
-)
-from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
-    WebAnalyticsPreAggregatedTestBase,
 )
 
 

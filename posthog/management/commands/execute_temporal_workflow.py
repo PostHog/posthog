@@ -30,7 +30,7 @@ from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
-from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
+from products.web_analytics.backend.facade.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 
 class Command(BaseCommand):

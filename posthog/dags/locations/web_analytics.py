@@ -2,7 +2,7 @@ import dagster
 
 from posthog.settings import TEST
 
-from products.web_analytics.dags import (
+from products.web_analytics.backend.facade.dags import (
     cache_favicons,
     cache_warming,
     eager_web_analytics_precompute,

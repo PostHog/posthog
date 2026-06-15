@@ -9,7 +9,7 @@ from posthog.hogql.functions.traffic_type import (
     is_bot,
 )
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.facade.hogql import BOT_DEFINITIONS
 
 
 class TestTrafficTypeFunctions:

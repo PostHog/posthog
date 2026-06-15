@@ -19,7 +19,7 @@ bot data do not require a HogQL review.
 
 from posthog.hogql import ast
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.facade.hogql import BOT_DEFINITIONS
 
 
 def _build_bot_array_lookup(

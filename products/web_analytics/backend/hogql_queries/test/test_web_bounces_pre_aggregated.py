@@ -6,10 +6,8 @@ from posthog.schema import DateRange, HogQLQueryModifiers, SessionTableVersion, 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL
+from posthog.models.web_preaggregated.test_base import WebAnalyticsPreAggregatedTestBase
 
-from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
-    WebAnalyticsPreAggregatedTestBase,
-)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 

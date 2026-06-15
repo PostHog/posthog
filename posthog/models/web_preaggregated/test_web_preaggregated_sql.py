@@ -18,10 +18,7 @@ from posthog.models.web_preaggregated.sql import (
     get_web_bounces_insert_columns,
     get_web_stats_insert_columns,
 )
-
-from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
-    WebAnalyticsPreAggregatedTestBase,
-)
+from posthog.models.web_preaggregated.test_base import WebAnalyticsPreAggregatedTestBase
 
 
 class TestPartitionDropSQL:
