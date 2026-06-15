@@ -127,7 +127,7 @@ def create_posthog_code_task_for_repo_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    from products.slack_app.backend.api import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
     from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
 
     bot_user_id = _get_cached_bot_user_id(slack, integration)
@@ -358,7 +358,7 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    from products.slack_app.backend.api import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
     from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
 
     bot_user_id = _get_cached_bot_user_id(slack, integration)
@@ -437,7 +437,7 @@ def _resume_task_with_new_run(
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
-    from products.slack_app.backend.api import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
     from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.temporal.client import execute_task_processing_workflow

@@ -8,12 +8,8 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.api import (
-    _collect_thread_messages,
-    _extract_message_text,
-    _flatten_block_text,
-    resolve_user_mentions_text,
-)
+from products.slack_app.backend.api import _collect_thread_messages, _extract_message_text, _flatten_block_text
+from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
 
 
 class TestFlattenBlockText:

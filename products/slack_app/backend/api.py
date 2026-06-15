@@ -58,6 +58,7 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
+from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
 from products.slack_app.backend.services.slack_user_info import (
     _get_cached_bot_user_id,
     _get_slack_user_info,
@@ -607,46 +608,6 @@ def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: st
 def _strip_bot_mentions(text: str) -> str:
     """Remove all <@BOT_ID> mentions from text."""
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
-
-
-def resolve_user_mentions_text(
-    slack: SlackIntegration,
-    integration: Integration,
-    text: str,
-    *,
-    strip_bot_user_id: str | None = None,
-    user_cache: dict[str, str] | None = None,
-) -> str:
-    """Resolve Slack `<@U…>` mentions to readable `@display_name` text.
-
-    Keeps real user mentions — so the agent sees who was explicitly tagged —
-    while dropping the bot's own self-mention, which is just the trigger and
-    carries no information. Whitespace left where the bot mention was removed
-    is collapsed.
-    """
-    cache = user_cache if user_cache is not None else {}
-
-    def resolve_user(uid: str) -> str:
-        if uid not in cache:
-            try:
-                user_info = _get_slack_user_info(slack, integration, uid)
-                profile = user_info.get("user", {}).get("profile", {})
-                cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
-            except Exception:
-                cache[uid] = "Unknown"
-        return cache[uid]
-
-    def replace_mention(match: re.Match) -> str:
-        uid = match.group(1)
-        if strip_bot_user_id and uid == strip_bot_user_id:
-            return ""
-        return f"@{resolve_user(uid)}"
-
-    resolved = re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
-    if strip_bot_user_id:
-        # Tidy the gap left where the bot's own mention was removed.
-        resolved = re.sub(r"[ \t]{2,}", " ", resolved).strip()
-    return resolved
 
 
 def _parse_rules_command(text: str) -> RulesCommand | None:
