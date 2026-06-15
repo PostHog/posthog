@@ -85,12 +85,6 @@ export type CdpConfig = ClickhouseConfig & {
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
-    // Dedicated Valkey instance for SES outbound rate limiting. Primary store
-    // (not a shadow). Provisioned in posthog-cloud-infra (terraform module
-    // `ses_rate_limiter_valkey`) and wired into the email worker via charts.
-    // Backs the token-bucket claim used by CdpCyclotronWorkerEmail before
-    // dequeuing jobs, so we never pull more work from cyclotron than SES has
-    // capacity to send.
     SES_RATE_LIMITER_VALKEY_HOST: string
     SES_RATE_LIMITER_VALKEY_PORT: number
     SES_RATE_LIMITER_VALKEY_PASSWORD: string
@@ -98,15 +92,8 @@ export type CdpConfig = ClickhouseConfig & {
     SES_RATE_LIMITER_VALKEY_READER_PORT: number
     SES_RATE_LIMITER_VALKEY_TLS: boolean
 
-    // SES token-bucket parameters. SES sustained limit is 120/sec; refill at
-    // 100/sec leaves ~17% headroom for bursts and rescheduled traffic.
-    // Capacity is the bucket's max size (burst capacity); ~0.5s of refill keeps
-    // a single pod's claim small enough that it can't blow past SES on its own.
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
-    // Sleep between polls when the bucket is empty. Long enough that the next
-    // wake finds tokens; short enough that we don't sit idle while throughput is
-    // available.
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean

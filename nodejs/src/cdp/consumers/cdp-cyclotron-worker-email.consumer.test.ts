@@ -35,19 +35,9 @@ describe('CdpCyclotronWorkerEmail', () => {
 
     describe('rate limiter integration', () => {
         // When SES_RATE_LIMITER_VALKEY_HOST is unset (local-dev fallback), no
-        // limiter is constructed and getBatchLimit returns undefined — the worker
-        // dequeues unthrottled. Production sets the env in charts.
-        it('getBatchLimit returns undefined when no Valkey host is configured', async () => {
-            const worker = new CdpCyclotronWorkerEmail(
-                { ...hub, SES_RATE_LIMITER_VALKEY_HOST: '' },
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-
-            const decision = await worker['getBatchLimit']()
-            expect(decision).toBeUndefined()
-        })
-
+        // limiter is constructed and the worker dequeues unthrottled. The
+        // queue's setDynamicBatchLimit is never called, so any queue backend
+        // is allowed (we don't enforce postgres-v2 when rate limiting is off).
         it('does not construct a RateLimiterService when no Valkey host is set', () => {
             const worker = new CdpCyclotronWorkerEmail(
                 { ...hub, SES_RATE_LIMITER_VALKEY_HOST: '' },

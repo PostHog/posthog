@@ -8,8 +8,14 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { JobQueue, StartAsConsumerOptions } from './job-queue.interface'
+import {
+    CyclotronV2BatchLimit,
+    CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+} from '../cyclotron-v2'
+import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 const pendingJobsGauge = new Gauge({
@@ -32,6 +38,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private dynamicBatchLimit?: () => Promise<CyclotronV2BatchLimit | undefined>
 
     constructor(
         private consumerBatchSize: number,
@@ -63,10 +70,18 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         await this.manager.connect()
     }
 
+    /**
+     * Register a per-poll hook that clamps the dequeue batch size. Postgres-V2
+     * only — used by the email worker to gate dequeue behind the SES rate
+     * limiter. Must be called before `startAsConsumer` to take effect.
+     */
+    public setDynamicBatchLimit(fn: () => Promise<CyclotronV2BatchLimit | undefined>): void {
+        this.dynamicBatchLimit = fn
+    }
+
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        options?: StartAsConsumerOptions
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ): Promise<void> {
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
@@ -80,7 +95,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
-            getBatchLimit: options?.getBatchLimit,
+            getBatchLimit: this.dynamicBatchLimit,
         })
 
         await this.worker.connect(async (jobs) => {

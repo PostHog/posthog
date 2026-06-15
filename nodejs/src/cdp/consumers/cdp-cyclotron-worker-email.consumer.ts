@@ -1,7 +1,9 @@
 import { PluginsServerConfig } from '~/types'
 
 import { logger } from '../../utils/logger'
-import { BatchLimitDecision, JobQueue } from '../services/job-queue/job-queue.interface'
+import { CyclotronV2BatchLimit } from '../services/cyclotron-v2'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { createSesRateLimiterValkeyPool } from '../services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from '../services/rate-limiter/rate-limiter.service'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -22,17 +24,20 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         super(config, deps, jobQueue)
         this.queue = 'email'
 
-        // Dedicated Valkey instance for SES rate limiting. When host is unset
-        // (typical for local dev outside k8s) the limiter is null and dequeue
-        // runs unthrottled — fine because local dev won't hit SES.
         const pool = createSesRateLimiterValkeyPool(config)
         this.sesRateLimiter = pool ? new RateLimiterService(pool.writer, { name: 'ses' }) : null
+
+        if (this.sesRateLimiter) {
+            if (!(jobQueue instanceof CyclotronJobQueuePostgresV2)) {
+                throw new Error(
+                    'CdpCyclotronWorkerEmail with SES rate limiting requires the Postgres-V2 job queue backend (dynamic batch sizing is not supported on Kafka).'
+                )
+            }
+            jobQueue.setDynamicBatchLimit(() => this.claimSesTokens())
+        }
     }
 
     public override async start(): Promise<void> {
-        // Fail-closed on startup: if the rate-limiter Valkey is configured but
-        // unreachable, throw and let k8s restart the pod. Sending without the
-        // gate would risk getting throttled by SES.
         if (this.sesRateLimiter) {
             await this.sesRateLimiter.ping()
             logger.info('🪙', 'SES rate limiter Valkey connection verified')
@@ -54,7 +59,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
      * Runtime Valkey errors return 0 granted (fail-closed mid-shift). Pod
      * sleeps for the throttled poll delay and tries again.
      */
-    protected override async getBatchLimit(): Promise<BatchLimitDecision | undefined> {
+    private async claimSesTokens(): Promise<CyclotronV2BatchLimit | undefined> {
         if (!this.sesRateLimiter) {
             return undefined
         }

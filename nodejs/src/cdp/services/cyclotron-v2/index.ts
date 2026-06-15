@@ -11,4 +11,5 @@ export type {
     CyclotronV2WorkerConfig,
     CyclotronV2JanitorConfig,
     CyclotronV2CleanupResult,
+    CyclotronV2BatchLimit,
 } from './types'

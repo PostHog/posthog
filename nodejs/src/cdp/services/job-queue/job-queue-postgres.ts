@@ -22,7 +22,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { JobQueue, StartAsConsumerOptions } from './job-queue.interface'
+import { JobQueue } from './job-queue.interface'
 import { createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 /**
@@ -81,11 +81,7 @@ export class CyclotronJobQueuePostgres implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        // Legacy v1 queue is drain-only; no new jobs go here, so dynamic
-        // rate limiting isn't wired in. The hook is accepted to match the
-        // interface but ignored.
-        _options?: StartAsConsumerOptions
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
         this.queue = queue
         this.consumeBatch = consumeBatch
