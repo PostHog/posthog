@@ -5903,17 +5903,25 @@ snapshots:
     scenes-app-replay-vision--scanners-list--light:
         hash: v1.k794b7964.498983062797fa546436034f824fbae467678dc342e693c140389b615804679f.YxqzOmHvrqE9h81CC2VMBT_NHuwvvdyMqMdO1BUVR-k
     scenes-app-revenue-analytics--revenue-analytics-dashboard--dark:
-        hash: v1.k794b7964.7c2a90fe3c3a969c054186bb666664efa891d65d411a546539a968518938ea71.OoOKh-Mc_IiPWTgIV4QNPtACZXPPktfU7bjGk-q-uLE
+        hash: v1.k794b7964.3b4f6a185d0332a9ac4871791ad9cbd8c5153062e35b02463cf264ff78d929ae.yxixzefaqbohT5c-mkkDGFkQ5jFbxFZTJNQMfwOnapI
     scenes-app-revenue-analytics--revenue-analytics-dashboard--light:
-        hash: v1.k794b7964.e28fe6f60136f350f5339146d7246f21e78586a948bfa29edb6c01926e993a1d.WX2NwRYvLh0q8A6QKLBseHRJ6XKWU76Ak-QfwsPt7c8
+        hash: v1.k794b7964.e377f74a29ac2e0276263d416ee1262c2b12400e927871c06be52e314ca2da09.V-mkg8TbXd_z-6ovJ9BoMzCV_sJ2GQ2o9WcSLdvlX8g
+    scenes-app-revenue-analytics--revenue-analytics-dashboard-area-mode--dark:
+        hash: v1.k794b7964.e809b6057b3726a9a3bbfabe8b641164c53a113637d0371fdc75e57f59e9e6e1.t7Yi7gvwTUxhm_cxJoLCKJdAYKcvedk85pqf6Mkhm20
+    scenes-app-revenue-analytics--revenue-analytics-dashboard-area-mode--light:
+        hash: v1.k794b7964.ae4bd815a206bdbad9c1bd5e909fd51cb281f87e8eea7ad336135707984ca53a.Yj1cH-7VAUDQsMn-09ppYCfTyEjAuhIL17YZhh6X31Q
+    scenes-app-revenue-analytics--revenue-analytics-dashboard-bar-mode--dark:
+        hash: v1.k794b7964.127eeedd4aac02b5c07d856a6fb7726f284597153b4373fbabf1465d3d540373.rTYvcngE7KxbqbxYHSCsamc8HclEe8gmbMxRwSCIgy8
+    scenes-app-revenue-analytics--revenue-analytics-dashboard-bar-mode--light:
+        hash: v1.k794b7964.a39ee336074c150d47b1b780c8dfa70cca4812b88b9a0a5b1aea6e320b027584.XLkzmwlIVkavbv1ZQNqV0zld9_fCnTYvBI3Nlqj_0_E
     scenes-app-revenue-analytics--revenue-analytics-dashboard-sync-in-progress--dark:
-        hash: v1.k794b7964.9a09c8b3c4e5162b63d6c9d66d035faad157215ba81ecb5edbaf9dd9920782f5.1ZertlNKsZ0uWQ0FvBTnbSyJrW__9KzCKcIWFTRzQ4E
+        hash: v1.k794b7964.64238c158c8ad819ac47e780646c8beb7b36cc3e3d32e551340457426260f10d.xTB8G4yV7ZG6lbxWcmxkrS8zRGniCGHl5Jd_QDax8og
     scenes-app-revenue-analytics--revenue-analytics-dashboard-sync-in-progress--light:
-        hash: v1.k794b7964.a25e103bc9538a4d856cf368325539c281fcd48f305a74bf7a2b39afdbb482db.PySARFNnAAu2DdxhKRpLDbKxr456rHxKuAn8tru68YE
+        hash: v1.k794b7964.b5a85ba3d84b972ded4435b99744319a10ae1e8e991fbdb42dc8f73765ad011f.XRLpdbBkMVEhv75hgHMpSpQbw9YHH5L941DaqOYQsvI
     scenes-app-revenue-analytics-mrr-breakdown-modal--mrr-breakdown-modal--dark:
-        hash: v1.k794b7964.6834f94d3e762233c3f65284296bc844f2a2feecdb181b121ce10144a26a82c7.L7tkJ6-p1ThrdFpU5RMpeNXMg5f5hUB2Q8ZVVadfIK8
+        hash: v1.k794b7964.938ab51f3ea5a625ceb998fec10ef2a20f0a83858d872d2f79d7d7ccb54cc708.1hsX-zh8Cg_rIt1a86SahGk6XjfkO60W_XEDOCYvl0s
     scenes-app-revenue-analytics-mrr-breakdown-modal--mrr-breakdown-modal--light:
-        hash: v1.k794b7964.2322ff2e937e8b0a7a92ce0c92cd2de5db06c224b4e6a13c63bfc5b0a6490952.BkAbf4RC1PnA4aY4J8nrxipdeR2kCG8Hh-ZPvRDOKcc
+        hash: v1.k794b7964.85ec1f8829adf2c2b8a3f747e90dfd5e3a2575d225d336363154cc7783b81d1f.Y3xHKwFKq4P2Nz4WmkWtt7coOcw7u0CI4ssfbHm-9y4
     scenes-app-revenue-analytics-onboarding--onboarding--dark:
         hash: v1.k794b7964.68602963ca1e1c8570bd35c00a7b42d8805016ca3412f3b638ba1600f728a13e.4Ylomq8HoVkFyNnSBGKbNRNsvKMHuU8nzkTqxvs6F1Y
     scenes-app-revenue-analytics-onboarding--onboarding--light:
