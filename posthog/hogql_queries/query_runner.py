@@ -1887,8 +1887,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return None
         return sorted(restricted)
 
-    def get_cache_key(self) -> str:
-        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+    def get_cache_key(self, include_access_control: bool = True) -> str:
+        payload = self.get_cache_payload()
+        if not include_access_control:
+            # Drop the per-user access-control partition for the base key used to track insight
+            # staleness (InsightCachingState is one row per insight and must match across users).
+            payload.pop("restricted_resources", None)
+            payload.pop("restricted_objects", None)
+            payload.pop("restricted_properties", None)
+        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(payload))}")
 
     def apply_series_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """
