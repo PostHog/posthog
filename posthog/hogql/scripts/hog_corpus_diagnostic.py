@@ -70,8 +70,10 @@ from posthog.hogql.scripts._diagnostic_common import (
     print_corpus_summary,
     repo_relative,
     run_corpus_parity,
+    shrink_failures,
     write_failures,
 )
+from posthog.hogql.scripts._shrink import is_available as shrinkray_available
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DUMP = REPO_ROOT / "posthog" / "hogql" / "scripts" / ".local" / "hog_corpus.json"
@@ -186,6 +188,15 @@ def main() -> int:
         help="Output file for failing programs (default: <dump>.failures.hog alongside the dump)",
     )
     p.add_argument(
+        "--shrink-failures",
+        action="store_true",
+        help=(
+            "Reduce each failing program to a minimal repro via shrinkray before "
+            "writing it out. Needs the optional `hogql-parser-parity` group "
+            "(`uv sync --group hogql-parser-parity`)."
+        ),
+    )
+    p.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -208,6 +219,12 @@ def main() -> int:
             f"WARNING: --oracle and --candidate are both {args.oracle!r} — "
             f"this is not a parity check; every program will trivially 'pass'."
         )
+    if args.shrink_failures and not shrinkray_available():
+        print(
+            "ERROR: --shrink-failures needs shrinkray, which isn't installed.\n"
+            "  install it with `uv sync --group hogql-parser-parity`, or drop --shrink-failures"
+        )
+        return 1
 
     print(f"=== Hog-program corpus diagnostic: oracle={args.oracle} candidate={args.candidate} ===")
     print()
@@ -267,11 +284,16 @@ def main() -> int:
     print_corpus_summary(result, oracle=args.oracle, candidate=args.candidate)
 
     # 4. Failure dump.
-    if result.failures:
-        out_path = Path(args.write_failures) if args.write_failures else args.input.with_suffix(".failures.hog")
-        write_failures(out_path, result.failures, REPO_ROOT, title="hog_corpus_failures")
+    failures = result.failures
+    if failures and args.shrink_failures:
         print()
-        print(f"Wrote {len(result.failures)} failing programs to {repo_relative(out_path, REPO_ROOT)}")
+        print(f"Shrinking {len(failures)} failing programs via shrinkray…")
+        failures = shrink_failures(failures, rule="program", oracle=args.oracle, candidate=args.candidate)
+    if failures:
+        out_path = Path(args.write_failures) if args.write_failures else args.input.with_suffix(".failures.hog")
+        write_failures(out_path, failures, REPO_ROOT, title="hog_corpus_failures")
+        print()
+        print(f"Wrote {len(failures)} failing programs to {repo_relative(out_path, REPO_ROOT)}")
 
     return 130 if result.interrupted else 0
 

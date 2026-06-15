@@ -41,6 +41,7 @@ from typing import Any, NoReturn
 
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import HogQLParserShadowMismatch, parse_expr, parse_program, parse_select
+from posthog.hogql.scripts import _shrink
 from posthog.hogql.visitor import clear_locations
 
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
@@ -323,6 +324,37 @@ def _shape_for(
     return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
 
 
+# ---------------------------------------------------------------------------
+# Minimiser — reduce a divergence to its smallest still-diverging repro
+# ---------------------------------------------------------------------------
+
+
+def shrink_to_shape(
+    query: str,
+    rule: str,
+    oracle_backend: str,
+    candidate_backend: str,
+    target_shape: DivergenceShape,
+) -> str:
+    """Reduce `query` to the smallest variant that still produces
+    `target_shape` against the two backends, via shrinkray (see `_shrink`).
+    The interestingness predicate is exactly "same divergence shape", so the
+    reduction can't wander onto a different bug.
+
+    Returns the original query unchanged on any failure — a bad reduction
+    (or a missing shrinkray install) must never abort the grind. Callers that
+    want shrinking should probe `_shrink.is_available()` up front and surface
+    an install hint; this fallback is the last line of defence."""
+
+    def is_interesting(candidate: str) -> bool:
+        return _shape_for(candidate, rule, oracle_backend, candidate_backend) == target_shape
+
+    try:
+        return _shrink.shrink(query, is_interesting)
+    except Exception:
+        return query
+
+
 # ===========================================================================
 # Corpus diagnostic machinery
 # ===========================================================================
@@ -518,6 +550,92 @@ def load_corpus_rows(path: Path, *, text_col: str, count_col: str | None = None)
 
 
 # ---------------------------------------------------------------------------
+# Local query-file corpus — agent-brainstormed / hand-written edge cases
+# ---------------------------------------------------------------------------
+
+_QUERY_KEYS = ("query", "hogql", "hog")
+
+
+def _query_from_json(value: Any) -> tuple[str, int]:
+    """Pull `(text, n_occurrences)` from one parsed JSON item — a bare string,
+    or an object carrying the query under `query` / `hogql` / `hog`."""
+    if isinstance(value, str):
+        return value, 1
+    if isinstance(value, dict):
+        for key in _QUERY_KEYS:
+            text = value.get(key)
+            if isinstance(text, str):
+                n = value.get("n_occurrences", 1)
+                return text, n if isinstance(n, int) else 1
+        raise RuntimeError(f"JSON query object has none of {_QUERY_KEYS}: {value!r}")
+    raise RuntimeError(f"unsupported JSON query item (want string or object): {value!r}")
+
+
+def _split_query_blocks(raw: str) -> list[str]:
+    """Split a block-text query file into individual queries. A file carrying
+    `-- ===` rulers (the `write_failures` output format) is split on those,
+    with each block's leading comment header dropped — so a failures dump
+    round-trips straight back in. `--` lines *inside* the query body survive
+    (only the contiguous leading header is stripped). Otherwise blocks are
+    split on blank lines."""
+    lines = raw.splitlines()
+    if any(line.startswith("-- ===") for line in lines):
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        for line in lines:
+            if line.startswith("-- ==="):
+                if current:
+                    blocks.append(current)
+                current = []
+                continue
+            current.append(line)
+        if current:
+            blocks.append(current)
+        out: list[str] = []
+        for block in blocks:
+            start = 0
+            while start < len(block) and (not block[start].strip() or block[start].lstrip().startswith("--")):
+                start += 1
+            text = "\n".join(block[start:]).strip()
+            if text:
+                out.append(text)
+        return out
+    return [chunk.strip() for chunk in re.split(r"\n\s*\n", raw) if chunk.strip()]
+
+
+def load_query_file(path: Path) -> list[tuple[str, int]]:
+    """Read a local file of candidate queries into `(text, n_occurrences)`
+    pairs — the input side of `edge_corpus_diagnostic`, where a human or
+    background agent has brainstormed adversarial edge cases instead of
+    pulling them from production.
+
+    Format is chosen by extension:
+
+    - `.jsonl` — one JSON value per line (bare string, or object keyed by
+      `query` / `hogql` / `hog`, optionally with `n_occurrences`).
+    - `.json` — a JSON array of the same items.
+    - anything else (`.sql` / `.hog` / `.txt`) — block text split on `-- ===`
+      rulers (a `write_failures` dump round-trips) or, failing that, on blank
+      lines.
+
+    Blank/whitespace-only queries are skipped."""
+    if not path.exists():
+        raise FileNotFoundError(f"query file not found at {path}")
+    raw = path.read_text()
+    suffix = path.suffix.lower()
+    if suffix == ".jsonl":
+        items = [_query_from_json(json.loads(line)) for line in raw.splitlines() if line.strip()]
+    elif suffix == ".json":
+        payload = json.loads(raw)
+        if not isinstance(payload, list):
+            raise RuntimeError(f"{path}: a .json query file must be a JSON array")
+        items = [_query_from_json(el) for el in payload]
+    else:
+        items = [(text, 1) for text in _split_query_blocks(raw)]
+    return [(text, n) for text, n in items if text and text.strip()]
+
+
+# ---------------------------------------------------------------------------
 # Error bucketing — group same-cause rejects / crashes together
 # ---------------------------------------------------------------------------
 
@@ -568,6 +686,43 @@ class Failure:
     query: str
     detail: str  # rejection message, crash traceback, or formatted diff path
     n_occurrences: int
+    # Original char length when `query` has been reduced by `shrink_failures`;
+    # None when the query is recorded verbatim.
+    shrunk_from: int | None = None
+
+
+def shrink_failures(
+    failures: list[Failure],
+    *,
+    rule: str,
+    oracle: str,
+    candidate: str,
+) -> list[Failure]:
+    """Reduce each shrinkable failure's query to its minimal still-diverging
+    form via shrinkray, returning a new list. `ast_mismatch` and
+    `candidate_reject` shrink toward their recomputed `DivergenceShape`;
+    crashes (`candidate_crash` / `oracle_crash`) are left verbatim — a crash
+    isn't a stable shape to reduce toward (same limitation as the PBT path).
+    Progress goes to stderr because shrinking a large failure set is slow.
+
+    Probe `_shrink.is_available()` before calling; without shrinkray
+    installed every `shrink_to_shape` falls back to the original query and
+    this becomes an expensive no-op."""
+    out: list[Failure] = []
+    total = len(failures)
+    for i, fa in enumerate(failures):
+        if fa.kind in ("candidate_reject", "ast_mismatch"):
+            sys.stderr.write(f"\r  [shrink] {i + 1}/{total} …")
+            sys.stderr.flush()
+            shape = _shape_for(fa.query, rule, oracle, candidate)
+            if shape is not None:
+                shrunk = shrink_to_shape(fa.query, rule, oracle, candidate, shape)
+                if shrunk != fa.query:
+                    out.append(dataclasses.replace(fa, query=shrunk, shrunk_from=len(fa.query)))
+                    continue
+        out.append(fa)
+    sys.stderr.write("\r" + " " * 40 + "\r")
+    return out
 
 
 def write_failures(path: Path, failures: list[Failure], repo_root: Path, *, title: str) -> None:
@@ -585,8 +740,10 @@ def write_failures(path: Path, failures: list[Failure], repo_root: Path, *, titl
         f.write("-- Each block: occurrences count, failure kind + detail, then the entry.\n\n")
         for i, fa in enumerate(failures):
             f.write("-- " + "=" * 76 + "\n")
-            f.write(f"-- [{i + 1}/{len(failures)}] seen {fa.n_occurrences}x in last 7d\n")
+            f.write(f"-- [{i + 1}/{len(failures)}] seen {fa.n_occurrences}x\n")
             f.write(f"-- kind: {fa.kind}\n")
+            if fa.shrunk_from is not None:
+                f.write(f"-- shrunk: {fa.shrunk_from} -> {len(fa.query)} chars\n")
             for line in fa.detail.splitlines() or [""]:
                 f.write(f"-- {line}\n" if line else "--\n")
             f.write("\n")

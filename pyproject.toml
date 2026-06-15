@@ -280,6 +280,16 @@ sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.8.0",
 ]
+# shrinkray powers --shrink-failures in the HogQL parser-parity diagnostics
+# (posthog/hogql/scripts/). Kept out of the default dev install because its
+# transitive deps (textual, libcst, black) are heavy for a niche fuzzing tool;
+# install with `uv sync --group hogql-parser-parity` when doing parity work.
+# Pinned exactly: the library API we drive (BasicReductionProblem / ShrinkRay)
+# is undocumented and the package is calendar-versioned + beta, so a float
+# could shift the API under us.
+hogql-parser-parity = [
+    "shrinkray==26.4.14.0",
+]
 
 [tool.uv]
 required-version = ">=0.10.2"

@@ -163,14 +163,18 @@ that have already been fixed in the working tree.
       `hog_corpus_diagnostic.py` (the hog corpus has been at 100% for
       a while — usually skip);
     + PBT (`pbt_diagnostic.py --rule expr|select|program`);
-    + thinking hard about edge cases the grammar surface invites.
+    + thinking hard about edge cases the grammar surface invites —
+      write the candidates to a file and grind them with
+      `edge_corpus_diagnostic.py --input <file>`.
 
     For everything other than regression tests, start with a small
     budget (lower `--n`, less thinking time) and increase until at
     least one divergence surfaces.
-2. **Reduce + pin.** Shrink each divergence to its minimal form and
-   add it as a regression test in `_test_parser.py`'s factory so
-   it runs on all three backends.
+2. **Reduce + pin.** Shrink each divergence to its minimal form — the
+   diagnostics do this for you via shrinkray (`--shrink-failures` on the
+   corpus runners; on by default in `edge_corpus_diagnostic.py`) — and
+   add it as a regression test in `_test_parser.py`'s factory so it runs
+   on all three backends.
 3. **Read before fixing.** Read the grammar AND the cpp visitor for
    the rule. 100% identical behaviour means knowing exactly what cpp
    does — guessing leads to fixes that resurface on a deeper PBT
@@ -190,7 +194,8 @@ in the background:
 + `pbt_diagnostic.py --rule program`
 + `log_corpus_diagnostic.py` (real query corpus)
 + a research subagent grepping for cpp-vs-rust visitor differences
-+ a research subagent brainstorming adversarial edge cases
++ a research subagent brainstorming adversarial edge cases into a file,
+  ground through `edge_corpus_diagnostic.py`
 
 Most of these can stream divergences as they're found. Once at least
 one known divergence is in hand, start fixing it while the parallel
@@ -233,8 +238,9 @@ PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \
 
 Generates ~5 000 random grammar surface examples per rule, parses with
 oracle and candidate, buckets divergences by AST shape, and prints
-shrunk reproducers. Use `--shrink-failures` to auto-reduce each
-divergence to a minimal example.
+reproducers. Use `--shrink-failures` to reduce each divergence to a
+minimal example via shrinkray (needs the optional `hogql-parser-parity`
+group — `uv sync --group hogql-parser-parity`).
 
 ### Real-query corpora via `log_corpus_diagnostic.py` / `hog_corpus_diagnostic.py`
 
@@ -250,7 +256,38 @@ PYTHONPATH=. python posthog/hogql/scripts/hog_corpus_diagnostic.py
 Both auto-download via `hogli metabase:query` and cache locally under
 `posthog/hogql/scripts/.local/`. Pass `--skip-download` to reuse the
 existing dump while iterating. Failures are written one block per
-divergence to a `.sql` / `.hog` file the agent can chew through.
+divergence to a `.sql` / `.hog` file the agent can chew through. Add
+`--shrink-failures` to reduce each failing query to a minimal repro via
+shrinkray before it's written.
+
+### Hand-authored edge cases via `edge_corpus_diagnostic.py`
+
+```bash
+# Brainstorm edge cases into a file (one JSON string per line), then
+# grind + shrink them against cpp vs rust:
+PYTHONPATH=. python posthog/hogql/scripts/edge_corpus_diagnostic.py \
+    --input /tmp/edge_cases.jsonl
+```
+
+The "think hard about edge cases" arm of the loop: same grind as the
+production corpora, but the input is a local file you (or a background
+agent) wrote instead of a Metabase pull. Accepts `.jsonl` / `.json` /
+`.sql` / `.hog` / `.txt` — and a `*.failures.sql` dump from any other
+diagnostic round-trips straight back in. Shrinking is on by default
+(`--no-shrink-failures` to skip).
+
+### Shrinking (`--shrink-failures`) needs the optional parity group
+
+The `--shrink-failures` flag (and `edge_corpus_diagnostic.py`'s default
+shrinking) is powered by [shrinkray](https://github.com/DRMacIver/shrinkray),
+an optional dependency kept out of the default dev install:
+
+```bash
+uv sync --group hogql-parser-parity
+```
+
+Without it the diagnostics still run; they just refuse `--shrink-failures`
+with an install hint.
 
 ### Perf bench via `posthog/hogql/scripts/parser_bench.py`
 

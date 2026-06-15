@@ -17,9 +17,11 @@ Distinct from the pytest PBT in five ways:
    both ASTs together and print only the path from root to the first
    differing node.
 3. **Auto-shrinker (`--shrink-failures`).** For each ast_mismatch
-   and reject, run a delete-one-token reducer that keeps the smallest
-   variant which still triggers the same divergence shape. Drops
-   typical PBT failures from 200+ chars to <50.
+   and reject, run shrinkray (via `_shrink` / `shrink_to_shape`) to
+   reduce it to the smallest variant that still triggers the same
+   divergence shape. Drops typical PBT failures from 200+ chars to a
+   handful. Needs the optional `hogql-parser-parity` dependency group
+   (`uv sync --group hogql-parser-parity`).
 4. **Optional JSONL persistence (`--write-divergences PATH`).** Drop
    one JSON line per failing example for cross-run analysis or
    regression-corpus extraction.
@@ -65,7 +67,6 @@ Typical usage:
 from __future__ import annotations
 
 import os
-import re
 import sys
 import json
 import argparse
@@ -88,8 +89,9 @@ from posthog.hogql.scripts._diagnostic_common import (
     _node_type,
     _probe_backend,
     _safe_parse,
-    _shape_for,
+    shrink_to_shape,
 )
+from posthog.hogql.scripts._shrink import is_available as shrinkray_available
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
 from posthog.hogql.test.test_parser_grammar_pbt import (
     _PBT_SETTINGS,
@@ -102,68 +104,11 @@ from posthog.hogql.test.test_parser_grammar_pbt import (
 # Auto-shrinker
 # ---------------------------------------------------------------------------
 #
-# Hypothesis has its own shrinker but we're running queries that already
-# escaped from a Hypothesis trial — by the time the diagnostic sees them,
-# Hypothesis has moved on. We re-run our own delete-one-token reducer so
-# each printed failure is a small repro the human can paste into a unit
-# test.
-
-
-_TOKEN_RE = re.compile(r"\s+|[^\s]+")
-
-
-def _tokenize_for_shrink(query: str) -> list[str]:
-    """Split into shrinker units. We use whitespace-or-non-whitespace
-    runs so paren matching is preserved (a token like `(` or `)` is a
-    single shrinker unit). The original whitespace is retained so we
-    can re-join faithfully."""
-    return [m.group(0) for m in _TOKEN_RE.finditer(query)]
-
-
-def _shrink_query(
-    query: str,
-    rule: str,
-    oracle_backend: str,
-    candidate_backend: str,
-    target_shape: DivergenceShape,
-    max_passes: int = 5,
-) -> str:
-    """Greedy delete-one-token shrinker. Each pass walks every token
-    and drops it (and its trailing whitespace) if the resulting query
-    still triggers the same divergence shape. Stops when a pass
-    removes nothing or after `max_passes`. Linear in
-    tokens × passes — fine for ~50-300-token PBT queries."""
-    current = query
-    for _ in range(max_passes):
-        tokens = _tokenize_for_shrink(current)
-        # Try delete each non-whitespace token (and any trailing
-        # whitespace token) in turn.
-        improved = False
-        i = 0
-        while i < len(tokens):
-            if tokens[i].isspace():
-                i += 1
-                continue
-            # Build a candidate with tokens[i] removed (plus any
-            # immediately-following whitespace token).
-            drop_to = i + 1
-            if drop_to < len(tokens) and tokens[drop_to].isspace():
-                drop_to += 1
-            candidate = "".join(tokens[:i] + tokens[drop_to:])
-            if not candidate.strip():
-                i += 1
-                continue
-            shape = _shape_for(candidate, rule, oracle_backend, candidate_backend)
-            if shape == target_shape:
-                current = candidate
-                tokens = _tokenize_for_shrink(current)
-                improved = True
-                # Don't advance i — the next token slid into this slot.
-                continue
-            i += 1
-        if not improved:
-            break
-    return current
+# These queries already escaped a Hypothesis trial — by the time the
+# diagnostic sees one, Hypothesis has moved on and can't shrink it. We hand
+# each failure to shrinkray instead (`shrink_to_shape` in `_diagnostic_common`,
+# keeping the smallest variant that still triggers the same divergence shape)
+# so each printed failure is a tight repro a human can paste into a unit test.
 
 
 # ---------------------------------------------------------------------------
@@ -283,15 +228,23 @@ def main() -> int:
             print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
             return 1
 
+    # --shrink-failures needs the optional shrinkray dependency. Probe up
+    # front so a long grind doesn't reach the first failure only to find it
+    # can't shrink it.
+    if args.shrink_failures and not shrinkray_available():
+        print(
+            "ERROR: --shrink-failures needs shrinkray, which isn't installed.\n"
+            "  install it with `uv sync --group hogql-parser-parity`, or drop --shrink-failures"
+        )
+        return 1
+
     counts: Counter[str] = Counter()
     # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`. We
     # shrink ONCE per failure (in `run()` below) and reuse the result
     # both for the JSONL writer and the summary print loop — otherwise
-    # the two paths would shrink independently and could land on
-    # different minima of the same divergence (greedy deletion picks
-    # the first viable reduction at each step, so order matters), and
-    # a user cross-referencing the two outputs would see two
-    # different "minimal" repros for the same bug.
+    # the two paths would shrink independently. shrinkray is deterministic
+    # (Random(0), parallelism=1) so they'd usually agree, but shrinking is
+    # the slow step and doing it twice per failure is pure waste.
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
     reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
     # Two-sided contract: the oracle rejected but the candidate accepted —
@@ -365,7 +318,7 @@ def main() -> int:
                 counts["candidate_accepts_oracle_reject"] += 1
                 bucket = _node_type(rc_ast)
                 shape = DivergenceShape(kind="candidate_accepts_oracle_reject")
-                shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+                shrunk = shrink_to_shape(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
                 accept_reject_buckets.setdefault(bucket, []).append((query, shrunk))
                 write_record(
                     {
@@ -408,7 +361,7 @@ def main() -> int:
             counts["candidate_reject"] += 1
             sig = c_detail or "<no message>"
             shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
-            shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+            shrunk = shrink_to_shape(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
             reject_buckets.setdefault(sig, []).append((query, shrunk))
             write_record(
                 {
@@ -449,7 +402,7 @@ def main() -> int:
         mismatch_bucket = (_node_type(o_ast), _node_type(c_ast))
         steps = _diff_path(o_ast, c_ast)
         shape = _ast_mismatch_shape(mismatch_bucket, steps)
-        shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+        shrunk = shrink_to_shape(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
         mismatch_buckets.setdefault(mismatch_bucket, []).append((query, shrunk, steps))
         write_record(
             {
