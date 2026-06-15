@@ -48499,7 +48499,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -48526,7 +48526,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -55176,7 +55176,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -55203,7 +55203,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
