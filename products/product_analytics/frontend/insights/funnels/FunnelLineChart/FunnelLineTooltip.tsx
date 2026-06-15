@@ -40,7 +40,10 @@ export function FunnelLineTooltip({
                     id: idx,
                     dataIndex: context.dataIndex,
                     datasetIndex: idx,
-                    order: meta.order ?? idx,
+                    // Each breakdown series is a single conversion-rate line, so they all share one
+                    // tooltip value column. Distinct orders would split them across columns the
+                    // inverted layout never renders, leaving every series but the first showing "–".
+                    order: 0,
                     label: entry.series.label,
                     color: entry.color,
                     count: entry.value,

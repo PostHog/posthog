@@ -61,6 +61,24 @@ describe('FunnelLineChart', () => {
             expect(tooltip.textContent).toContain('Spike')
             expect(tooltip.textContent).toContain('Bramble')
         })
+
+        it('shows each breakdown series conversion value, not a placeholder dash', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            // Every breakdown series is its own tooltip row and must render its own
+            // conversion value. Regression guard: distinct series orders previously
+            // split the rows across columns the inverted layout never rendered, so
+            // only the first series showed a value and the rest showed "–".
+            expect(tooltip.row('Spike')).toContain('50%')
+            expect(tooltip.row('Bramble')).toContain('30%')
+        })
     })
 
     describe('click → persons modal', () => {
