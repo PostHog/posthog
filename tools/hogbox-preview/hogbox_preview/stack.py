@@ -158,6 +158,14 @@ class PostHogPreviewStack:
             f"      - EXTRA_CSRF_TRUSTED_ORIGINS={url}",
             "      - DISABLE_SECURE_SSL_REDIRECT=1",
             "      - DEBUG=0",
+            # A preview serves one user, so one Unit worker is plenty — and the
+            # image's entrypoint otherwise double-loads Django on every boot
+            # (start→apply config→stop→restart), once per worker. Measured on a
+            # restored golden: the stock 4-worker double-load is ~118s to first
+            # /_health; one worker + a preloaded config is ~15-20s. The golden's
+            # own bake sets the same (hogland scripts/posthog-preview-setup.sh).
+            "      - NGINX_UNIT_APP_PROCESSES=1",
+            "      - NGINX_UNIT_PRELOAD_CONFIG=true",
             f"      - SECRET_KEY={secrets.token_urlsafe(50)}",
         ]
         self.backend.write_file(f"{self.repo_dir}/{self.OVERRIDE}", "\n".join(lines) + "\n")

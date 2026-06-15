@@ -83,7 +83,7 @@ class PreviewBackend(abc.ABC):
         """Tear the box down."""
 
     # --- provider-agnostic conveniences, built on exec/write_file ------------
-    def run_long(self, script: str, *, name: str, timeout: int = 1800, interval: int = 10) -> ExecResult:
+    def run_long(self, script: str, *, name: str, timeout: int = 1800, interval: int = 3) -> ExecResult:
         """Run a slow command (image pull, migrate, seed) detached so it
         outlives the control channel, then poll a marker until it finishes.
 
@@ -91,6 +91,12 @@ class PreviewBackend(abc.ABC):
         exec deadlines / connection drops. ``setsid`` + a ``.done``/``.fail``
         marker file is the portable way to launch-and-wait through any
         ``exec`` implementation. Returns the tail of the captured log.
+
+        ``interval`` is the marker poll period: each completed step pays up to
+        one interval of dead air before we notice it's done, so it's kept tight
+        (3s) — the bring-up has a handful of run_long steps and a 10s poll added
+        a visible chunk of pure waiting across them. Each probe is one cheap
+        exec round-trip, so 3s is comfortably affordable.
         """
         base = f"/tmp/hogbox-{name}"
         log, done, fail = f"{base}.log", f"{base}.done", f"{base}.fail"
@@ -115,9 +121,10 @@ class PreviewBackend(abc.ABC):
         tail = self.exec(f"tail -n 60 {log}", timeout=30).stdout
         raise TimeoutError(f"{name} did not finish within {timeout}s:\n{tail}")
 
-    def wait_http_ok(self, url_path: str, *, expect: int = 200, timeout: int = 600, interval: int = 10) -> None:
+    def wait_http_ok(self, url_path: str, *, expect: int = 200, timeout: int = 600, interval: int = 3) -> None:
         """Poll an in-box HTTP path until it returns ``expect`` (probed from
-        inside the box, so it's independent of external networking)."""
+        inside the box, so it's independent of external networking). 3s poll so
+        we don't sit on up to 10s of dead air after web actually starts serving."""
         target = f"http://localhost:{self.web_port}{url_path}"
         deadline = time.time() + timeout
         last = None
