@@ -37,8 +37,8 @@ const sessionReplayOnboardingToggle = (
     }
 }
 
-export const webVitalsDescription = (team: TeamType | TeamPublicType | null): string =>
-    team?.autocapture_web_vitals_opt_in
+const webVitalsDescription = (team: TeamType | TeamPublicType | null): string =>
+    (team?.autocapture_web_vitals_opt_in ?? true)
         ? `Already capturing Core Web Vitals via Google's web vitals library.`
         : `Uses Google's web vitals library to automagically capture performance information.`
 
