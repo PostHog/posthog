@@ -56,14 +56,12 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     const config = useMemo<SlopeChartConfig>(
         () => ({
             valueFormatter: (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
-            // The legend already names each series, so keep the in-chart name labels off to reduce clutter
-            // — the legend still shows the formatted change per series.
+            // The series name + change live in the insight's shared legend (SlopeGraphLegend, gated on
+            // the "Show legend" toggle), so the chart draws neither its own legend nor in-chart names.
             showSeriesLabels: false,
-            legend: { show: series.length > 1, position: 'bottom' },
-            deltaFormatter: (delta: number) =>
-                `${delta >= 0 ? '+' : ''}${formatAggregationAxisValue(trendsFilter, delta, baseCurrency)}`,
+            legend: { show: false },
         }),
-        [trendsFilter, baseCurrency, series.length]
+        [trendsFilter, baseCurrency]
     )
 
     if (series.length === 0) {

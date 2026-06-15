@@ -49,6 +49,14 @@ export const TrendsSlopeGraphEdit: Story = createInsightStory(
     'edit'
 )
 TrendsSlopeGraphEdit.parameters = { testOptions: { waitForSelector: '[data-attr=trends-slope-graph] canvas' } }
+// With the "Show legend" toggle on, the slope renders into the insight's shared legend slot
+// (SlopeGraphLegend) showing each series' first-to-last change — and no second in-chart legend.
+export const TrendsSlopeGraphWithLegend: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsSlopeGraph.json'),
+    'view',
+    true
+)
+TrendsSlopeGraphWithLegend.parameters = { testOptions: { waitForSelector: '[data-attr=trends-slope-graph] canvas' } }
 // "now" sits inside the fixture's range, so the last bucket is the current incomplete period and
 // the connector to the end point is dashed — the same affordance the line chart uses.
 export const TrendsSlopeGraphIncompletePeriod: Story = createInsightStory(

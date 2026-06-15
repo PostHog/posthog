@@ -46,6 +46,8 @@ import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
+import { SlopeGraphLegend } from 'products/product_analytics/frontend/insights/trends/TrendsSlopeChart/SlopeGraphLegend'
+
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
@@ -475,7 +477,13 @@ export function InsightVizDisplay({
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">
-                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
+                                        {display === ChartDisplayType.BoxPlot ? (
+                                            <BoxPlotLegend />
+                                        ) : display === ChartDisplayType.SlopeGraph ? (
+                                            <SlopeGraphLegend />
+                                        ) : (
+                                            <InsightLegend />
+                                        )}
                                     </div>
                                 </>
                             ) : (
