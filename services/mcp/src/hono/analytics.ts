@@ -83,6 +83,27 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
                 via_sse_redirect: !!requestContext.viaSseRedirect,
             },
         })
+
+        // TRANSITION SHIM — DELETE once the MCP insights + taxonomy are migrated to
+        // the `$mcp_*` event names. `$mcp_initialize` (above) is the canonical event
+        // going forward, but the existing dashboards/insights still key on the legacy
+        // `mcp_initialize`, so we dual-emit it through the cutover to keep them working.
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: 'mcp_initialize',
+            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            properties: {
+                ...properties,
+                $mcp_duration_ms: initDurationMs ?? 0,
+                $mcp_is_error: false,
+                tool_count: state.allTools.length,
+                has_organization_id: !!requestContext.organizationId,
+                has_project_id: !!requestContext.projectId,
+                read_only: !!requestContext.readOnly,
+                via_sse_redirect: !!requestContext.viaSseRedirect,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+            },
+        })
     } catch {
         // never break the request for analytics
     }
@@ -128,6 +149,26 @@ export async function trackToolCall(
                 ...properties,
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...extraProperties,
+            },
+        })
+
+        // TRANSITION SHIM — DELETE once the MCP insights + taxonomy are migrated to
+        // the `$mcp_*` event names. `$mcp_tool_call` (above) is the canonical event
+        // going forward, but the existing dashboards/insights still key on the legacy
+        // `mcp_tool_call`, so we dual-emit it through the cutover to keep them working.
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: 'mcp_tool_call',
+            ...(Object.keys(groups).length > 0 ? { groups } : {}),
+            properties: {
+                ...properties,
+                $mcp_tool_name: toolName,
+                $mcp_duration_ms: durationMs,
+                $mcp_is_error: isError,
+                tool_name: toolName,
+                ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 ...extraProperties,
             },
         })
