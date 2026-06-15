@@ -143,7 +143,25 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
 
 
 def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
-    # Reads each field directly (all set on a dataclass-constructed node); start/end are Optional[int], copied by reference instead of via _clone_value.
+    # Compile a straight-line clone function specialized to this one class, then cache it
+    # (see AST.__deepcopy__). This is the same trick dataclasses uses to generate __init__:
+    # emitting code with the field names baked in is much faster than a generic clone that,
+    # on every call, iterates fields() and getattr/setattr-s each one reflectively.
+    #
+    # For e.g. ast.Alias (fields: start, end, type, alias, expr) this exec's:
+    #
+    #     def _clone(self, memo):
+    #         new = _cls.__new__(_cls)      # bare instance, no __init__/__post_init__
+    #         memo[id(self)] = new          # register BEFORE recursing so cycles terminate
+    #         new.start = self.start        # start/end are Optional[int] -> copy by reference
+    #         new.end = self.end
+    #         new.type = _cv(self.type, memo)   # every other field deep-copied via _clone_value
+    #         new.alias = _cv(self.alias, memo)
+    #         new.expr = _cv(self.expr, memo)
+    #         return new
+    #
+    # Reading self.<field> directly assumes every slot is set, which holds for any node built
+    # through the dataclass __init__ (the only way nodes are constructed in practice).
     body = ["def _clone(self, memo):", "    new = _cls.__new__(_cls)", "    memo[id(self)] = new"]
     for f in fields(cls):
         if f.name in ("start", "end"):
