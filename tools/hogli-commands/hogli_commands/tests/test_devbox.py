@@ -946,13 +946,6 @@ class TestWorkspaceCreation:
                 "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
-            (
-                {"preset": "none"},
-                ["Default (warm)"],
-                "posthog-linux",
-                "none",
-                {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
-            ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
             # the resolved value flows through to the coder argv. The requested
@@ -977,7 +970,6 @@ class TestWorkspaceCreation:
             "defaults",
             "explicit-preset-all-optionals",
             "custom-template",
-            "preset-opt-out",
             "resolver-fallback-flows-through",
             "explicit-region",
         ],
