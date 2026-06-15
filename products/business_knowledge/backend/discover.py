@@ -7,8 +7,8 @@ absolute URLs:
 - `sitemap`: parse sitemap.xml (+ sitemap indexes) anchored at the entry URL.
 - `same_origin`: BFS from the entry URL, staying on the same scheme/host/port,
   honoring robots.txt.
-- `github_repo`: Reserved — raises NotImplementedError so we fail cleanly if
-  someone sets the enum without having built the discovery path.
+- `github_repo`: Handled directly in logic.py (tarball extraction, no HTTP
+  discovery), so this module is never called for that mode.
 
 Only `logic.py` is allowed to import this module. Errors bubble as
 `DiscoverError` with user-safe messages.
@@ -384,7 +384,7 @@ def discover(mode: str, entry_url: str, config: CrawlConfig) -> DiscoverResult:
     elif mode == "same_origin":
         raw, prefetched = _discover_same_origin(entry_url, config=config)
     elif mode == "github_repo":
-        raise NotImplementedError("github_repo crawl mode is not yet supported")
+        raise DiscoverError("github_repo discovery is handled directly in logic.py")
     else:
         raise DiscoverError(f"Unsupported crawl mode: {mode}")
 

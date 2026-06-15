@@ -62,6 +62,7 @@ export function EditKnowledgeSourceModal({
                                 { value: 'single', label: 'Single page' },
                                 { value: 'sitemap', label: 'Sitemap' },
                                 { value: 'same_origin', label: 'Crawl same origin' },
+                                { value: 'github_repo', label: 'GitHub repository' },
                             ]}
                         />
                     </LemonField>

@@ -110,6 +110,10 @@ export function CreateKnowledgeSourceModal({
                                                 value: 'same_origin',
                                                 label: 'Same-origin crawl',
                                             },
+                                            {
+                                                value: 'github_repo',
+                                                label: 'GitHub repository',
+                                            },
                                         ]}
                                     />
                                 </LemonField>

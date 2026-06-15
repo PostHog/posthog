@@ -19,6 +19,14 @@ export function CrawlModeHelp(): JSX.Element {
             </p>
         )
     }
+    if (urlSource.crawl_mode === 'github_repo') {
+        return (
+            <p className="text-xs text-muted">
+                Downloads the public GitHub repository and indexes matching files. By default, indexes documentation
+                files (*.md, *.mdx, *.rst, *.txt). Use the include/exclude globs to widen or narrow the scope.
+            </p>
+        )
+    }
     return (
         <p className="text-xs text-muted">
             Indexes this page and everything under its path on the same site. Use "Skip paths" to carve out sections you

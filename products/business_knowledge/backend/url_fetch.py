@@ -18,7 +18,10 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import urllib.parse as urlparse
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import IO
 
 import requests
 import structlog
@@ -337,3 +340,142 @@ def is_html_content_type(content_type: str | None) -> bool:
         return True
     lowered = content_type.split(";", 1)[0].strip().lower()
     return lowered in {"text/html", "application/xhtml+xml", "text/plain"}
+
+
+# --- Streaming fetch for large downloads (GitHub tarballs) --------------------
+
+
+class _CappedStreamWrapper(IO[bytes]):
+    """
+    File-like wrapper that counts bytes read and raises when a cap is exceeded.
+
+    Used to wrap a streaming response's raw socket so tarfile can read from it
+    while we enforce a compressed-size cap without buffering the whole body.
+    """
+
+    def __init__(self, raw: IO[bytes], max_bytes: int) -> None:
+        self._raw = raw
+        self._max_bytes = max_bytes
+        self._bytes_read = 0
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._raw.read(size)
+        self._bytes_read += len(chunk)
+        if self._bytes_read > self._max_bytes:
+            raise UrlFetchError("Remote response exceeds the maximum allowed size.")
+        return chunk
+
+    def readable(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        self._raw.close()
+
+    @property
+    def bytes_read(self) -> int:
+        return self._bytes_read
+
+    def __enter__(self) -> _CappedStreamWrapper:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+
+@contextmanager
+def fetch_stream(
+    url: str,
+    *,
+    max_bytes: int,
+    connect_timeout: float,
+    read_timeout: float,
+) -> Generator[_CappedStreamWrapper]:
+    """
+    SSRF-safe streaming GET returning a file-like object for large downloads.
+
+    Use as a context manager — the response is closed when the block exits.
+    The wrapper counts bytes read and raises ``UrlFetchError`` if ``max_bytes``
+    is exceeded. This is for compressed-stream caps; the caller is responsible
+    for any decompressed-size tracking.
+
+    Example::
+
+        with fetch_stream(tarball_url, max_bytes=200_MB, ...) as stream:
+            tf = tarfile.open(fileobj=stream, mode="r|gz")
+            for member in tf:
+                ...
+
+    Raises ``UrlFetchError`` with a user-safe message on any failure.
+    """
+
+    current = strip_userinfo(normalize_url(url))
+    adapter = _PinnedIPAdapter()
+    session = requests.Session()
+    session.mount("http://", adapter)  # nosemgrep: request-session-with-http
+    session.mount("https://", adapter)
+    response: requests.Response | None = None
+
+    try:
+        for _hop in range(URL_MAX_REDIRECTS + 1):
+            allowed, reason, pinned_ips = validate_url_and_pin_ips(current)
+            if not allowed:
+                logger.warning(
+                    "business_knowledge.url_fetch.ssrf_blocked",
+                    url=current,
+                    reason=reason,
+                )
+                raise UrlFetchError("URL is not reachable from this environment.")
+
+            parsed = urlparse.urlparse(current)
+            hostname = (parsed.hostname or "").lower()
+            if pinned_ips:
+                adapter.pin(hostname, next(iter(pinned_ips)))
+
+            try:
+                response = session.get(
+                    current,
+                    headers=_CONTENT_HEADERS,
+                    timeout=(connect_timeout, read_timeout),
+                    allow_redirects=False,
+                    stream=True,
+                )
+            except requests.RequestException as exc:
+                logger.info(
+                    "business_knowledge.url_fetch.transport_error",
+                    url=current,
+                    error_type=type(exc).__name__,
+                )
+                raise UrlFetchError("Failed to fetch the URL.") from exc
+
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("Location")
+                response.close()
+                response = None
+                if not location:
+                    raise UrlFetchError("Redirect without Location header.")
+                next_url = strip_userinfo(urlparse.urljoin(current, location))
+                current = normalize_url(next_url)
+                continue
+
+            if response.status_code >= 400:
+                response.close()
+                raise UrlFetchError(f"Remote responded with status {response.status_code}.")
+
+            declared = response.headers.get("Content-Length")
+            if declared and declared.isdigit() and int(declared) > max_bytes:
+                response.close()
+                raise UrlFetchError("Remote response exceeds the maximum allowed size.")
+
+            wrapper = _CappedStreamWrapper(response.raw, max_bytes)
+            try:
+                yield wrapper
+            finally:
+                wrapper.close()
+                response.close()
+            return
+
+        raise UrlFetchError("Too many redirects.")
+    finally:
+        if response is not None:
+            response.close()
+        session.close()

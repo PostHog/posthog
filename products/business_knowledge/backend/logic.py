@@ -32,7 +32,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.security.url_validation import is_url_allowed
 
-from . import crawl, discover, file_parse, html_parse, url_fetch
+from . import crawl, discover, file_parse, github, html_parse, url_fetch
 from .constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
@@ -972,6 +972,8 @@ def ingest_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return None
     if source.source_type != SourceType.URL or not source.source_url:
         return source
+    if source.crawl_mode == CrawlMode.GITHUB_REPO:
+        return _ingest_github_source(source=source, team_id=team_id)
     if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
         return _ingest_crawl_source(source=source, team_id=team_id)
     return _ingest_url_source(source=source, team_id=team_id)
@@ -1015,6 +1017,8 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
         return None
 
     try:
+        if source.crawl_mode == CrawlMode.GITHUB_REPO:
+            return _refresh_github_source(source=source, team_id=team_id)
         if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
             return _refresh_crawl_source(source=source, team_id=team_id)
         return _refresh_single_source(source=source, team_id=team_id)
@@ -1505,6 +1509,225 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             any_changes = True
 
         # Exact post-diff quota check.
+        if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+            raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+        fresh.status = SourceStatus.READY
+        fresh.last_refresh_at = timezone.now()
+        fresh.last_refresh_status = RefreshStatus.SUCCESS if any_changes else RefreshStatus.NOT_MODIFIED
+        fresh.last_refresh_error = ""
+        fresh.error_message = ""
+        fresh.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "error_message",
+                "updated_at",
+            ]
+        )
+
+    return get_for_team(source.id, team_id) or fresh
+
+
+# --- GitHub repo sources -----------------------------------------------------
+
+
+def _ingest_github_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
+    """
+    Fetch + extract + chunk a GitHub repo source that's already claimed PROCESSING.
+
+    Parses the repo URL, resolves the ref (branch/tag), downloads the tarball,
+    extracts matching files, and creates documents + chunks. Empty result is an
+    error (same as crawl create semantics).
+    """
+
+    config = _resolve_crawl_config(source.crawl_config)
+
+    def _mark_error(error_msg: str) -> KnowledgeSource:
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            now = timezone.now()
+            fresh.status = SourceStatus.ERROR
+            fresh.error_message = error_msg
+            fresh.last_refresh_at = now
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = error_msg
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
+            )
+        return get_for_team(source.id, team_id) or source
+
+    try:
+        repo_info = github.parse_repo_url(source.source_url)
+    except github.GithubError as exc:
+        return _mark_error(str(exc))
+
+    ref_from_config = (source.crawl_config or {}).get("ref")
+    try:
+        ref = github.resolve_ref(repo_info.owner, repo_info.repo, ref_from_config or repo_info.ref)
+    except github.GithubError as exc:
+        return _mark_error(str(exc))
+
+    try:
+        outcomes = github.fetch_repo_files(
+            repo_info.owner,
+            repo_info.repo,
+            ref,
+            config=config,
+            subdir=repo_info.subdir,
+        )
+    except github.GithubError as exc:
+        return _mark_error(str(exc))
+
+    if not outcomes:
+        return _mark_error("No matching files found in the repository.")
+
+    estimated_total = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in outcomes)
+    if _count_chunks(team_id) + estimated_total > MAX_CHUNKS_PER_TEAM:
+        return _mark_error(f"Repository would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    try:
+        with transaction.atomic():
+            for outcome in outcomes:
+                _insert_document_and_chunks(
+                    source=source,
+                    team_id=team_id,
+                    title=outcome.title,
+                    text=outcome.text,
+                    url=outcome.url,
+                    etag="",
+                    content_hash=outcome.content_hash,
+                    existing_doc=None,
+                )
+
+            if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+                raise QuotaExceededError(f"Repository exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+            source.status = SourceStatus.READY
+            source.last_refresh_at = timezone.now()
+            source.last_refresh_status = RefreshStatus.SUCCESS
+            source.last_refresh_error = ""
+            source.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
+            )
+    except QuotaExceededError:
+        _mark_error(f"Repository exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+        raise
+
+    return get_for_team(source.id, team_id) or source
+
+
+def _refresh_github_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
+    """
+    GitHub repo refresh: re-fetch tarball + per-file upsert-diff.
+
+    Same semantics as crawl refresh:
+    - New file → insert document + chunks
+    - Existing file with changed content_hash → rebuild that doc's chunks
+    - Existing file with unchanged hash → no DB writes
+    - File that vanished → tombstone document, delete chunks
+    """
+
+    config = _resolve_crawl_config(source.crawl_config)
+
+    def _mark_refresh_error(exc: github.GithubError) -> None:
+        # Keep existing content intact on a refresh failure — only flip to ERROR
+        # if there were no documents to begin with. Mirrors `_refresh_crawl_source`.
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
+            fresh.last_refresh_at = timezone.now()
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = str(exc)
+            if fresh.status == SourceStatus.ERROR:
+                fresh.error_message = str(exc)
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+
+    try:
+        repo_info = github.parse_repo_url(source.source_url)
+    except github.GithubError as exc:
+        _mark_refresh_error(exc)
+        raise UrlFetchFailedError(str(exc)) from exc
+
+    ref_from_config = (source.crawl_config or {}).get("ref")
+    try:
+        ref = github.resolve_ref(repo_info.owner, repo_info.repo, ref_from_config or repo_info.ref)
+    except github.GithubError as exc:
+        _mark_refresh_error(exc)
+        raise UrlFetchFailedError(str(exc)) from exc
+
+    try:
+        outcomes = github.fetch_repo_files(
+            repo_info.owner,
+            repo_info.repo,
+            ref,
+            config=config,
+            subdir=repo_info.subdir,
+        )
+    except github.GithubError as exc:
+        _mark_refresh_error(exc)
+        raise UrlFetchFailedError(str(exc)) from exc
+
+    existing_by_url: dict[str, KnowledgeDocument] = {
+        d.stable_id: d for d in KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id)
+    }
+
+    fetched_urls: set[str] = {o.url for o in outcomes}
+
+    with transaction.atomic():
+        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+
+        any_changes = False
+        for outcome in outcomes:
+            existing = existing_by_url.get(outcome.url)
+            if existing is not None and existing.content_hash == outcome.content_hash:
+                continue
+            _insert_document_and_chunks(
+                source=fresh,
+                team_id=team_id,
+                title=outcome.title,
+                text=outcome.text,
+                url=outcome.url,
+                etag="",
+                content_hash=outcome.content_hash,
+                existing_doc=existing,
+            )
+            any_changes = True
+
+        vanished = [d for url, d in existing_by_url.items() if url not in fetched_urls]
+        if vanished:
+            now = timezone.now()
+            vanished_ids = [d.id for d in vanished]
+            KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
+            KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
+                tombstoned_at=now, updated_at=now
+            )
+            any_changes = True
+
         if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
             raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
 

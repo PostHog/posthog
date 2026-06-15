@@ -59,6 +59,29 @@ PER_HOST_CONCURRENCY = 2
 # fetch phase re-downloads — a bounded-memory tradeoff, not a correctness one.
 PREFETCH_CACHE_MAX_BYTES = 64 * 1024 * 1024
 
+# --- GitHub repo source tunables ---
+# Per-file skip threshold: matching files larger than this are skipped (not
+# indexed), but the crawl continues. Set to match MAX_TEXT_SIZE_BYTES since
+# that's the chunk-pipeline limit anyway.
+GITHUB_MAX_FILE_BYTES = 1 * 1024 * 1024
+# Compressed tarball download abort cap — bounds the network read. 200 MB
+# covers any plausible public repo.
+GITHUB_TARBALL_MAX_BYTES = 200 * 1024 * 1024
+# Global decompressed-streamed abort ceiling — runaway/bomb circuit-breaker.
+# Set generously (2 GB) so discarding a few large skipped members doesn't trip
+# it; only truly pathological tarballs hit this.
+GITHUB_MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+# Member-count abort cap — bounds the filter loop against a tarball with
+# millions of tiny entries.
+GITHUB_MAX_MEMBERS = 100_000
+# Default file-path globs for GitHub sources when user doesn't override.
+# Docs-only by default; users can widen via include_globs.
+GITHUB_DEFAULT_INCLUDE_GLOBS = ("*.md", "*.mdx", "*.markdown", "*.rst", "*.txt")
+# Timeouts for GitHub fetch (longer than regular URL fetch since tarballs are
+# larger and codeload can be slow).
+GITHUB_CONNECT_TIMEOUT = 10
+GITHUB_READ_TIMEOUT = 120
+
 # --- Stage 3: file upload tunables ---
 # Hard cap on uploaded file size (compressed). Above this the serializer
 # rejects immediately — the file never hits the parser.

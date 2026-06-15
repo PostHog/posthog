@@ -10,11 +10,12 @@ from rest_framework import serializers
 
 from posthog.security.url_validation import is_url_allowed
 
-from .. import url_fetch
+from .. import github, url_fetch
 from ..constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    GITHUB_DEFAULT_INCLUDE_GLOBS,
     MAX_FILE_SIZE_BYTES,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
@@ -249,7 +250,12 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         help_text="New URL. Triggers a re-crawl when changed.",
     )
     crawl_mode = serializers.ChoiceField(
-        choices=[CrawlMode.SINGLE.value, CrawlMode.SITEMAP.value, CrawlMode.SAME_ORIGIN.value],
+        choices=[
+            CrawlMode.SINGLE.value,
+            CrawlMode.SITEMAP.value,
+            CrawlMode.SAME_ORIGIN.value,
+            CrawlMode.GITHUB_REPO.value,
+        ],
         required=False,
         help_text="New crawl mode. Triggers a re-crawl when changed.",
     )
@@ -282,20 +288,28 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
     def validate(self, attrs: dict) -> dict:
         if not attrs:
             raise serializers.ValidationError("Provide at least one field to update.")
+        # Validate the repo URL when switching to / updating a github source and a
+        # new URL is supplied — otherwise a non-repo URL is accepted here and only
+        # fails later at ingest.
+        if attrs.get("crawl_mode") == CrawlMode.GITHUB_REPO.value and "url" in attrs:
+            try:
+                github.parse_repo_url(attrs["url"])
+            except github.GithubError as exc:
+                raise serializers.ValidationError({"url": str(exc)})
         return attrs
 
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
         crawl_config_keys = {"include_globs", "exclude_globs", "max_pages", "max_depth"}
         crawl_fields = {k: attrs.pop(k) for k in crawl_config_keys if k in attrs}
+        crawl_mode = attrs.get("crawl_mode", data.get("crawl_mode"))
         # Re-derive scope when include_globs was NOT sent (user didn't override),
         # the URL is changing, and mode is same-origin.
-        if (
-            "include_globs" not in crawl_fields
-            and "url" in attrs
-            and attrs.get("crawl_mode", data.get("crawl_mode")) == CrawlMode.SAME_ORIGIN.value
-        ):
-            crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
+        if "include_globs" not in crawl_fields and "url" in attrs:
+            if crawl_mode == CrawlMode.SAME_ORIGIN.value:
+                crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
+            elif crawl_mode == CrawlMode.GITHUB_REPO.value:
+                crawl_fields["include_globs"] = list(GITHUB_DEFAULT_INCLUDE_GLOBS)
         if crawl_fields:
             attrs["crawl_config"] = crawl_fields
         return attrs
@@ -351,7 +365,7 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         help_text="Entry URL. For sitemap mode, this is sitemap.xml (or a page whose origin has /sitemap.xml).",
     )
     crawl_mode = serializers.ChoiceField(
-        choices=[CrawlMode.SITEMAP.value, CrawlMode.SAME_ORIGIN.value],
+        choices=[CrawlMode.SITEMAP.value, CrawlMode.SAME_ORIGIN.value, CrawlMode.GITHUB_REPO.value],
         help_text="How to expand the entry URL into documents.",
     )
     refresh_interval = serializers.ChoiceField(
@@ -385,18 +399,48 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         help_text="BFS depth for `same_origin`. Ignored by `sitemap`.",
     )
 
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        if attrs.get("crawl_mode") == CrawlMode.GITHUB_REPO.value:
+            try:
+                github.parse_repo_url(attrs["url"])
+            except github.GithubError as exc:
+                raise serializers.ValidationError({"url": str(exc)})
+        return attrs
+
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
         attrs["source_type"] = SourceType.URL.value
+
+        crawl_mode = attrs.get("crawl_mode")
         include_globs = attrs.pop("include_globs")
-        if not include_globs and attrs.get("crawl_mode") == CrawlMode.SAME_ORIGIN.value:
-            include_globs = _derive_scope_globs(attrs["url"])
-        attrs["crawl_config"] = {
-            "include_globs": include_globs,
-            "exclude_globs": attrs.pop("exclude_globs"),
-            "max_pages": attrs.pop("max_pages"),
-            "max_depth": attrs.pop("max_depth"),
-        }
+        exclude_globs = attrs.pop("exclude_globs")
+        max_pages = attrs.pop("max_pages")
+        max_depth = attrs.pop("max_depth")
+
+        if crawl_mode == CrawlMode.GITHUB_REPO.value:
+            if not include_globs:
+                include_globs = list(GITHUB_DEFAULT_INCLUDE_GLOBS)
+            try:
+                repo_info = github.parse_repo_url(attrs["url"])
+                ref = repo_info.ref
+            except github.GithubError:
+                ref = None
+            attrs["crawl_config"] = {
+                "include_globs": include_globs,
+                "exclude_globs": exclude_globs,
+                "max_pages": max_pages,
+                "ref": ref,
+            }
+        else:
+            if not include_globs and crawl_mode == CrawlMode.SAME_ORIGIN.value:
+                include_globs = _derive_scope_globs(attrs["url"])
+            attrs["crawl_config"] = {
+                "include_globs": include_globs,
+                "exclude_globs": exclude_globs,
+                "max_pages": max_pages,
+                "max_depth": max_depth,
+            }
         return attrs
 
 
