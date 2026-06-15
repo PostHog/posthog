@@ -3,6 +3,7 @@ from typing import Optional, cast
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -40,6 +41,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
+            category=DataWarehouseSourceCategory.DATABASES,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",

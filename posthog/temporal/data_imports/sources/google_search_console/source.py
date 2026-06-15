@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -139,6 +140,8 @@ class GoogleSearchConsoleSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            keywords=["gsc"],
             label="Google Search Console",
             caption=(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "

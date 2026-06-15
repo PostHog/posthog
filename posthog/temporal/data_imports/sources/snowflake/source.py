@@ -3,6 +3,7 @@ from typing import Optional, cast
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -45,6 +46,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
+            category=DataWarehouseSourceCategory.DATABASES,
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             iconPath="/static/services/snowflake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snowflake",

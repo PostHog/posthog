@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -134,6 +135,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
+            category=DataWarehouseSourceCategory.CRM,
             iconPath="/static/services/vitally.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vitally",
             fields=cast(

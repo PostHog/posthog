@@ -1,0 +1,199 @@
+import FuseClass from 'fuse.js'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { FeatureFlagKey } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
+import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import {
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    SourceConfig,
+    dataWarehouseSourceCategories,
+} from '~/queries/schema/schema-general'
+import { HogFunctionTemplateStatus } from '~/types'
+
+import type { sourceCatalogLogicType } from './sourceCatalogLogicType'
+import { sourceWizardLogic } from './sourceWizardLogic'
+
+// Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
+export interface Fuse extends FuseClass<CatalogItem> {}
+
+export type SourceCategoryFilter = DataWarehouseSourceCategory | 'all'
+
+export const ALL_SOURCES_CATEGORY = 'all'
+
+// Self-managed (S3/GCS/Azure/R2) connectors don't flow through SourceConfig, so place
+// them in a sensible catalog bucket explicitly.
+const MANUAL_SOURCE_CATEGORY: DataWarehouseSourceCategory = 'File storage'
+
+export interface SourceCatalogLogicProps {
+    /** When set, only managed sources whose name is in this list are shown. */
+    allowedSources?: ExternalDataSourceType[]
+}
+
+export interface CatalogItem {
+    /** The source kind passed to the new-source URL (e.g. "Stripe", or "aws" for self-managed). */
+    name: string
+    label: string
+    iconType: string
+    iconClassName?: string
+    category: DataWarehouseSourceCategory
+    keywords: string[]
+    status: HogFunctionTemplateStatus
+    releaseStatus?: SourceConfig['releaseStatus']
+    url: string
+    disabledReason?: string | null
+    existingSource?: boolean
+}
+
+export interface CatalogCategory {
+    category: SourceCategoryFilter
+    label: string
+    count: number
+}
+
+export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
+    path(['products', 'dataWarehouse', 'sourceCatalogLogic']),
+    props({} as SourceCatalogLogicProps),
+    connect(() => ({
+        values: [
+            sourceWizardLogic,
+            ['connectors', 'manualConnectors'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
+    })),
+    actions({
+        setSearch: (search: string) => ({ search }),
+        setSelectedCategory: (category: SourceCategoryFilter) => ({ category }),
+        registerInterest: (item: CatalogItem) => ({ item }),
+    }),
+    reducers({
+        search: ['', { setSearch: (_, { search }) => search }],
+        selectedCategory: [
+            ALL_SOURCES_CATEGORY as SourceCategoryFilter,
+            { setSelectedCategory: (_, { category }) => category },
+        ],
+    }),
+    selectors({
+        catalogItems: [
+            (s) => [
+                s.connectors,
+                s.manualConnectors,
+                s.featureFlags,
+                (_, p: SourceCatalogLogicProps) => p.allowedSources,
+            ],
+            (connectors, manualConnectors, featureFlags, allowedSources): CatalogItem[] => {
+                const managed = connectors
+                    .filter((c) => !allowedSources || allowedSources.includes(c.name))
+                    .map((connector: SourceConfig): CatalogItem => {
+                        // Mirror nonHogFunctionTemplatesLogic: a declared-but-absent flag reads as
+                        // off (featureFlagLogic only exposes truthy flags), so flag-gated sources
+                        // render as coming-soon ("Notify me") until the user is in the rollout.
+                        const featureFlagDefined = !!connector.featureFlag
+                        const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
+                        const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
+                        const { status } = getSourceDisplayStatus(!!connector.unreleasedSource, featureFlagValue)
+                        // Only surface alpha/beta while the source is actually connectable.
+                        const releaseStatus =
+                            status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
+                                ? connector.releaseStatus
+                                : undefined
+
+                        return {
+                            name: connector.name,
+                            label: connector.label ?? connector.name,
+                            iconType: connector.name,
+                            iconClassName: connector.iconClassName,
+                            category: connector.category ?? MANUAL_SOURCE_CATEGORY,
+                            keywords: connector.keywords ?? [],
+                            status,
+                            releaseStatus,
+                            url: urls.dataWarehouseSourceNew(connector.name),
+                            disabledReason: connector.disabledReason,
+                            existingSource: connector.existingSource,
+                        }
+                    })
+
+                const selfManaged = manualConnectors.map(
+                    (source): CatalogItem => ({
+                        name: source.type,
+                        label: source.name,
+                        iconType: source.type,
+                        category: MANUAL_SOURCE_CATEGORY,
+                        keywords: [],
+                        status: 'stable',
+                        url: urls.dataWarehouseSourceNew(source.type),
+                    })
+                )
+
+                return [...managed, ...selfManaged]
+            },
+        ],
+
+        categoriesWithCounts: [
+            (s) => [s.catalogItems],
+            (catalogItems): CatalogCategory[] => {
+                const counts = new Map<DataWarehouseSourceCategory, number>()
+                for (const item of catalogItems) {
+                    counts.set(item.category, (counts.get(item.category) ?? 0) + 1)
+                }
+                const present = dataWarehouseSourceCategories
+                    .filter((category) => counts.has(category))
+                    .map(
+                        (category): CatalogCategory => ({
+                            category,
+                            label: category,
+                            count: counts.get(category) ?? 0,
+                        })
+                    )
+                return [
+                    { category: ALL_SOURCES_CATEGORY, label: 'All sources', count: catalogItems.length },
+                    ...present,
+                ]
+            },
+        ],
+
+        catalogFuse: [
+            (s) => [s.catalogItems],
+            (catalogItems): Fuse =>
+                createFuse(catalogItems, {
+                    keys: ['label', 'name', 'keywords', 'category'],
+                }),
+        ],
+
+        filteredItems: [
+            (s) => [s.catalogItems, s.catalogFuse, s.search, s.selectedCategory],
+            (catalogItems, catalogFuse, search, selectedCategory): CatalogItem[] => {
+                const trimmed = search.trim()
+                const base = trimmed ? catalogFuse.search(trimmed).map((r) => r.item) : catalogItems
+                const filtered =
+                    selectedCategory === ALL_SOURCES_CATEGORY
+                        ? base
+                        : base.filter((item) => item.category === selectedCategory)
+                // Keep fuzzy-search relevance order when searching; otherwise sort by name.
+                return trimmed ? filtered : [...filtered].sort((a, b) => a.label.localeCompare(b.label))
+            },
+        ],
+    }),
+    listeners(({ values }) => ({
+        registerInterest: ({ item }) => {
+            posthog.capture('notify_me_pipeline', {
+                name: item.label,
+                type: 'source',
+                template_id: `managed-${item.name}`,
+                email: values.user?.email,
+            })
+            lemonToast.success('Thank you for your interest! We will notify you when this source is available.')
+        },
+    })),
+])
