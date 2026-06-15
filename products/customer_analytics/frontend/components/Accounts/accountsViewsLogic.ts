@@ -267,7 +267,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         },
         patchViewPropertiesFailure: ({ error }) => {
             // Silent background migration — no toast, just capture the exception.
-            posthog.captureException(error as Error)
+            posthog.captureException(error)
         },
         loadViewsSuccess: ({ views }) => {
             if (!objectsEqual(values.tiles, DEFAULT_TILES)) {
