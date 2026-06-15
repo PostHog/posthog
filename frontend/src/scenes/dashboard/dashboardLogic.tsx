@@ -2576,11 +2576,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<InsightModel>)
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                    }
 
-                    // New tiles are stacked at the bottom (backend), so ask the view to scroll
-                    // down once they've rendered to reveal what was just added.
-                    actions.requestScrollToBottom()
+                        // New tiles are stacked at the bottom (backend), so ask the view to scroll
+                        // down once they've rendered to reveal what was just added.
+                        actions.requestScrollToBottom()
+                    }
                 }
 
                 if (createdTiles.length > 0) {

@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from products.dashboards.backend.widget_layouts import stack_widget_layout_at_bottom
 
 
@@ -10,20 +12,30 @@ class TestWidgetLayouts:
     API/schema completeness.
     """
 
-    def test_stack_widget_layout_at_bottom_anchors_to_tallest_column(self) -> None:
-        # Tall column on the right: the new tile must span it (x=6), otherwise the grid's
-        # vertical compaction would lift an x=0 tile up into the short left column's gap.
-        existing = [
-            {"x": 0, "y": 0, "w": 6, "h": 4},
-            {"x": 6, "y": 0, "w": 6, "h": 11},
+    @parameterized.expand(
+        [
+            # Tall column on the right: the new tile must span it (x=6), otherwise vertical
+            # compaction would lift an x=0 tile up into the short left column's gap.
+            (
+                [{"x": 0, "y": 0, "w": 6, "h": 4}, {"x": 6, "y": 0, "w": 6, "h": 11}],
+                {"x": 6, "y": 11, "w": 6, "h": 5},
+            ),
+            # Tall column on the left: anchoring at x=0 already spans it, so it stays put.
+            (
+                [{"x": 0, "y": 0, "w": 6, "h": 10}, {"x": 6, "y": 0, "w": 6, "h": 4}],
+                {"x": 0, "y": 10, "w": 6, "h": 5},
+            ),
         ]
-
+    )
+    def test_stack_widget_layout_at_bottom_anchors_to_tallest_column(
+        self, existing: list[dict], expected_sm: dict
+    ) -> None:
         layouts = stack_widget_layout_at_bottom(
             widget_type="error_tracking_list",
             existing_sm_layouts=existing,
         )
 
-        assert layouts["sm"] == {"x": 6, "y": 11, "w": 6, "h": 5}
+        assert layouts["sm"] == expected_sm
         assert layouts["xs"] == layouts["sm"]
 
     def test_stack_widget_layout_at_bottom_stacks_batch_below_tallest_column(self) -> None:
@@ -52,19 +64,6 @@ class TestWidgetLayouts:
         assert first["sm"] == {"x": 6, "y": 11, "w": 6, "h": 5}
         assert second["sm"] == {"x": 6, "y": 16, "w": 6, "h": 5}
         assert third["sm"] == {"x": 6, "y": 21, "w": 6, "h": 5}
-
-    def test_stack_widget_layout_at_bottom_ignores_short_column_gaps(self) -> None:
-        existing = [
-            {"x": 0, "y": 0, "w": 6, "h": 10},
-            {"x": 6, "y": 0, "w": 6, "h": 4},
-        ]
-
-        layouts = stack_widget_layout_at_bottom(
-            widget_type="error_tracking_list",
-            existing_sm_layouts=existing,
-        )
-
-        assert layouts["sm"] == {"x": 0, "y": 10, "w": 6, "h": 5}
 
     def test_stack_widget_layout_at_bottom_narrow_tile_anchors_to_tallest_column(self) -> None:
         # Tallest column is in the middle (x=8); a narrow new tile must overlap it so
