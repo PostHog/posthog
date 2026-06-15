@@ -1463,9 +1463,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshStaleResultsOnReentry: () => {
-            // In-app navigation back to an already-mounted experiment doesn't re-fire loadExperiment,
-            // so run the same page-load refresh here (cached load + a one-shot force if warming up).
-            if (values.experiment && isLaunched(values.experiment)) {
+            // In-app navigation back to an already-mounted experiment doesn't re-fire loadExperiment.
+            // Only warming-up experiments need a refresh on return — mature ones already show results
+            // and recomputes might be expensive, so we leave their cached state untouched (as before).
+            if (values.experiment && isLaunched(values.experiment) && !values.hasMinimumExposureForResults) {
                 actions.refreshExperimentResults(false, 'page_load', true)
             }
         },
