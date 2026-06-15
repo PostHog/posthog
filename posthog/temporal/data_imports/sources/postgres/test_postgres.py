@@ -596,6 +596,14 @@ class TestValidateCredentialsErrorMapping:
                 "The SSL/TLS connection to your database was closed unexpectedly. "
                 "Check your database's SSL configuration and that the port is correct.",
             ),
+            (
+                'connection failed: connection to server at "127.0.0.1", port 43185 failed: '
+                "server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n"
+                "\tbefore or while processing the request.",
+                "Your database closed the connection unexpectedly while connecting. This usually means the host "
+                "or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel "
+                "dropped the connection. Check your host, port, and SSL settings.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
