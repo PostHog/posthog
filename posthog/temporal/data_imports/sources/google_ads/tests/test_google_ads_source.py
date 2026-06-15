@@ -1,5 +1,7 @@
 import pytest
+from unittest import mock
 
+from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
 
@@ -185,10 +187,6 @@ class TestGoogleAdsNonRetryableErrors:
 
 class TestValidateCredentials:
     def test_missing_integration_returns_friendly_message(self):
-        from unittest import mock
-
-        from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-
         config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
         # A disconnected/deleted OAuth integration makes the client builder raise
         # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
