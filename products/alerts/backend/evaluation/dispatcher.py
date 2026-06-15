@@ -1,7 +1,7 @@
 from posthog.schema import AlertCondition, InsightThreshold, NodeKind
 
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
+from posthog.tasks.alerts.utils import DETECTOR_ALERT_QUERY_KINDS, WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
@@ -23,6 +23,12 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
 DETECTOR_EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.TRENDS_QUERY: TrendsDetectorExtractor(),
 }
+
+# Keep the validation set (used by validate_alert_config to reject detector alerts at config time)
+# in lockstep with the registry that routes them at evaluation time, so the two can't drift.
+assert set(DETECTOR_EXTRACTORS) == DETECTOR_ALERT_QUERY_KINDS, (
+    "DETECTOR_EXTRACTORS and DETECTOR_ALERT_QUERY_KINDS have drifted — update both together"
+)
 
 
 def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:

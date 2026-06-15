@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -46,6 +47,12 @@ class AlertEvaluationResult:
 
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+
+# Which insight query kinds the anomaly-detector path supports. The dispatcher's DETECTOR_EXTRACTORS
+# registry is asserted against this set, so the two can't drift; validation reads it instead of
+# hardcoding "trends only". Lives here (not in the evaluation layer) because the evaluation package
+# imports utils — putting it there would make this a circular import.
+DETECTOR_ALERT_QUERY_KINDS: frozenset[NodeKind] = frozenset({NodeKind.TRENDS_QUERY})
 
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
@@ -99,6 +106,92 @@ def _validate_condition_threshold_compatibility(
     return threshold
 
 
+@dataclass(frozen=True)
+class _AlertConfigValidationContext:
+    """Everything a per-config-type validator needs, after the common checks have run."""
+
+    config: dict
+    query: dict
+    query_kind: str | None
+    parsed_condition: AlertCondition
+    threshold_config: dict | None
+    require_threshold_bounds: bool
+    detector_config: dict | None
+
+
+def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
+    # SQL insights own their time window; there is no series_index or ongoing-interval concept,
+    # so the query kind, evaluation mode, condition/threshold compatibility, and bounds are validated.
+    if ctx.query_kind != NodeKind.HOG_QL_QUERY:
+        raise ValueError(f"SQL alert config requires a HogQLQuery insight, got '{ctx.query_kind}'")
+    try:
+        parsed = HogQLAlertConfig.model_validate(ctx.config)
+    except Exception:
+        raise ValueError(f"Alert has invalid HogQLAlertConfig: {ctx.config}")
+    if parsed.evaluation == HogQLAlertEvaluation.ANY_ROW and ctx.parsed_condition.type != (
+        AlertConditionType.ABSOLUTE_VALUE
+    ):
+        # Rows are entities in any_row mode, not a time axis — relative change is meaningless.
+        raise ValueError("Any-row SQL alerts only support absolute value conditions")
+    _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
+    if ctx.require_threshold_bounds and ctx.detector_config is None:
+        validate_threshold_bounds_required(ctx.threshold_config)
+
+
+def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
+    try:
+        parsed_config = TrendsAlertConfig.model_validate(ctx.config)
+    except Exception:
+        raise ValueError(f"Alert has invalid TrendsAlertConfig: {ctx.config}")
+
+    if ctx.query_kind != NodeKind.TRENDS_QUERY:
+        raise ValueError(f"Alert's insight query kind '{ctx.query_kind}' is not supported (only TrendsQuery)")
+
+    try:
+        trends_query = TrendsQuery.model_validate(ctx.query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
+
+    if ctx.parsed_condition.type in (
+        AlertConditionType.RELATIVE_INCREASE,
+        AlertConditionType.RELATIVE_DECREASE,
+    ) and is_non_time_series_trend(trends_query):
+        raise ValueError(
+            f"Relative alert condition '{ctx.parsed_condition.type}' is not compatible with non time series trends"
+        )
+
+    formula_nodes = trends_query.trendsFilter.formulaNodes if trends_query.trendsFilter else None
+    result_count = len(formula_nodes) if formula_nodes else len(trends_query.series)
+    if parsed_config.series_index >= result_count:
+        raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
+
+    threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
+    if (
+        threshold is not None
+        and parsed_config.check_ongoing_interval
+        and ctx.parsed_condition.type
+        in (
+            AlertConditionType.ABSOLUTE_VALUE,
+            AlertConditionType.RELATIVE_INCREASE,
+        )
+    ):
+        if not threshold.bounds or threshold.bounds.upper is None:
+            raise ValueError(
+                f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} when upper threshold is specified"
+            )
+
+    if ctx.require_threshold_bounds and ctx.detector_config is None:
+        validate_threshold_bounds_required(ctx.threshold_config)
+
+
+# Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
+# config type the threshold path supports. Adding a kind = adding an entry here and an extractor.
+_ALERT_CONFIG_VALIDATORS: dict[str, Callable[[_AlertConfigValidationContext], None]] = {
+    "HogQLAlertConfig": _validate_hogql_alert_config,
+    "TrendsAlertConfig": _validate_trends_alert_config,
+}
+
+
 def validate_alert_config(
     query: dict,
     condition: dict | None,
@@ -108,7 +201,10 @@ def validate_alert_config(
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
 ) -> None:
-    """Validate alert configuration dicts. Raises ValueError on failure."""
+    """Validate alert configuration dicts. Raises ValueError on failure.
+
+    Common checks run here; per-config-type rules live in ``_ALERT_CONFIG_VALIDATORS``.
+    """
     if not calculation_interval or not isinstance(calculation_interval, str):
         raise ValueError(f"Invalid calculation interval: {calculation_interval}")
     try:
@@ -128,75 +224,26 @@ def validate_alert_config(
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
 
-    # The anomaly detector only has a trends extractor; a non-trends detector alert would
-    # raise NotImplementedError at evaluation time, so reject it at configuration time.
-    if detector_config is not None and kind != NodeKind.TRENDS_QUERY:
+    # The detector path supports only the kinds with a detector extractor (asserted against the
+    # registry in dispatcher.py) — a non-supported detector alert would raise at evaluation time,
+    # so reject it here at configuration time instead.
+    if detector_config is not None and kind not in DETECTOR_ALERT_QUERY_KINDS:
         raise ValueError("Anomaly detection alerts are only supported for trends insights")
 
-    if config_type == "HogQLAlertConfig":
-        # SQL insights own their time window; there is no series_index or ongoing-interval concept,
-        # so the query kind, evaluation mode, condition/threshold compatibility, and bounds are validated.
-        if kind != NodeKind.HOG_QL_QUERY:
-            raise ValueError(f"SQL alert config requires a HogQLQuery insight, got '{kind}'")
-        try:
-            parsed_hogql_config = HogQLAlertConfig.model_validate(config)
-        except Exception:
-            raise ValueError(f"Alert has invalid HogQLAlertConfig: {config}")
-        if parsed_hogql_config.evaluation == HogQLAlertEvaluation.ANY_ROW and parsed_condition.type != (
-            AlertConditionType.ABSOLUTE_VALUE
-        ):
-            # Rows are entities in any_row mode, not a time axis — relative change is meaningless.
-            raise ValueError("Any-row SQL alerts only support absolute value conditions")
-        _validate_condition_threshold_compatibility(parsed_condition, threshold_config)
-        if require_threshold_bounds and detector_config is None:
-            validate_threshold_bounds_required(threshold_config)
-        return
-
-    if config_type != "TrendsAlertConfig":
+    validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
+    if validator is None:
         raise ValueError(f"Unsupported alert config type: {config}")
-    try:
-        parsed_config = TrendsAlertConfig.model_validate(config)
-    except Exception:
-        raise ValueError(f"Alert has invalid TrendsAlertConfig: {config}")
-
-    if kind != NodeKind.TRENDS_QUERY:
-        raise ValueError(f"Alert's insight query kind '{kind}' is not supported (only TrendsQuery)")
-
-    try:
-        trends_query = TrendsQuery.model_validate(query)
-    except Exception as e:
-        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
-
-    if parsed_condition.type in (
-        AlertConditionType.RELATIVE_INCREASE,
-        AlertConditionType.RELATIVE_DECREASE,
-    ) and is_non_time_series_trend(trends_query):
-        raise ValueError(
-            f"Relative alert condition '{parsed_condition.type}' is not compatible with non time series trends"
+    validator(
+        _AlertConfigValidationContext(
+            config=config if isinstance(config, dict) else {},
+            query=query,
+            query_kind=kind,
+            parsed_condition=parsed_condition,
+            threshold_config=threshold_config,
+            require_threshold_bounds=require_threshold_bounds,
+            detector_config=detector_config,
         )
-
-    formula_nodes = trends_query.trendsFilter.formulaNodes if trends_query.trendsFilter else None
-    result_count = len(formula_nodes) if formula_nodes else len(trends_query.series)
-    if parsed_config.series_index >= result_count:
-        raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
-
-    threshold = _validate_condition_threshold_compatibility(parsed_condition, threshold_config)
-    if (
-        threshold is not None
-        and parsed_config.check_ongoing_interval
-        and parsed_condition.type
-        in (
-            AlertConditionType.ABSOLUTE_VALUE,
-            AlertConditionType.RELATIVE_INCREASE,
-        )
-    ):
-        if not threshold.bounds or threshold.bounds.upper is None:
-            raise ValueError(
-                f"check_ongoing_interval is only supported for alert condition {parsed_condition.type} when upper threshold is specified"
-            )
-
-    if require_threshold_bounds and detector_config is None:
-        validate_threshold_bounds_required(threshold_config)
+    )
 
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
