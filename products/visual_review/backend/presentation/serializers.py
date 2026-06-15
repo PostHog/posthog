@@ -197,6 +197,16 @@ class FinalizeRunInputSerializer(DataclassSerializer):
             "greened and `metadata.baseline_commit_sha` is absent."
         ),
     )
+    add_images_to_comment_on_pr = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment "
+            "itself is always posted (when the run was initiated from a GitHub review prompt and the repo has "
+            "PR comments enabled); this flag only controls the images. Defaults false — the comment stays a "
+            "text summary unless the reviewer opts in to attach the snapshots."
+        ),
+    )
 
     class Meta:
         dataclass = FinalizeRunRequestInput

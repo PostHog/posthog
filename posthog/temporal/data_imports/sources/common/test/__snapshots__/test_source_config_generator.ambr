@@ -190,6 +190,7 @@
           ExternalDataSourceType.OKTA: OktaSourceConfig,
           ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
           ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+          ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
           ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
           ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
           ExternalDataSourceType.ORACLE: OracleSourceConfig,

@@ -487,6 +487,8 @@ class TestGetLeadingIndexColumns:
         assert out is not None
         assert out["analytics.users"] == {"CREATED_AT"}
         assert out["sales.users"] == {"SIGNED_UP"}
+        # The query matches exact (schema, table) pairs, not a schemas × table-names cross-product.
+        assert cursor.execute.call_args.args[1] == ("DB", "analytics", "users", "sales", "users")
 
 
 class TestGetSourceMetadata:

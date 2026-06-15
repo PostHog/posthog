@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
@@ -129,6 +130,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     ]}
                 />
                 <SummarizerMaxChat scannerId={scannerId} />
+                <ObservationSearchMaxChat scannerId={scannerId} />
                 <ScannerObservationsTable scannerId={scannerId} />
             </div>
         </SceneContent>

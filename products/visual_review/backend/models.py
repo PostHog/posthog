@@ -161,6 +161,9 @@ class Run(ProductTeamModel):
     # e.g., {"pr_title": "...", "base_branch": "main", "ci_job_url": "..."}
     metadata = models.JSONField(default=dict, blank=True)
 
+    # CI ran only a subset of the test suite
+    is_partial = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 

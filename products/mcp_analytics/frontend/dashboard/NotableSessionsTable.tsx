@@ -1,10 +1,11 @@
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import {
     Badge,
     Card,
     CardFooter,
     CardHeader,
     CardTitle,
+    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -48,7 +49,7 @@ function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loadin
                 <TableCell colSpan={5}>
                     <div className="space-y-2 py-1">
                         {Array.from({ length: 4 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-3.5 w-full" />
+                            <Skeleton key={i} className="h-3.5 w-full" />
                         ))}
                     </div>
                 </TableCell>

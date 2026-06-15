@@ -7,7 +7,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.scout_harness.lazy_seed import (
     CanonicalSkill,
     CanonicalSkillFile,
@@ -20,6 +19,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 
 def _write_canonical_skill(

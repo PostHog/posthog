@@ -266,6 +266,31 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids == [str(r_p0.id), str(r_p2.id)]
 
+    # --- status filter ---
+
+    def test_filter_by_resolved_status(self):
+        resolved = self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        self._create_report(title="Ready", status=SignalReport.Status.READY)
+
+        response = self.client.get(self._list_url(status="resolved"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(resolved.id)}
+
+    @parameterized.expand(
+        [
+            ("garbage", "bogus_status"),
+            ("mixed_valid_and_invalid", "ready,bogus_status"),
+            ("deleted_not_filterable", "deleted"),
+        ]
+    )
+    def test_filter_status_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(status=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "status"
+        assert body["code"] == "invalid_input"
+
     # --- ordering ---
 
     def test_ready_before_candidate_even_if_candidate_has_higher_weight(self):
