@@ -1,0 +1,117 @@
+# Workflow graph schema
+
+The contract for `actions` and `edges`. The stored workflow is loose JSON, but **the visual editor validates every node against a strict schema keyed on `type`**. A node that saves successfully but doesn't match this contract will **break the editor view for the whole workflow** when someone opens it. Treat the shapes below as required, not advisory.
+
+## Node (action) shape
+
+Every action object has these common fields plus a type-specific `config`:
+
+```json
+{
+  "id": "unique_within_workflow",
+  "name": "Human label",
+  "description": "",
+  "type": "<see action types>",
+  "config": {},
+  "on_error": "continue",
+  "filters": null,
+  "output_variable": null
+}
+```
+
+- `id` — unique within the workflow; edges reference it by `from`/`to`.
+- `on_error` — optional; **only `continue` or `abort`.** Omit to use the default.
+- `filters` — optional property filters gating the action: `{properties: [<cond>]}`. Send `properties`, not `bytecode`.
+- `output_variable` — optional; store a step result into a workflow variable. `{key, result_path?, spread?}`.
+
+## Action types and their `config`
+
+Use **only** these `type` values — they are the complete supported set. An unknown or unsupported `type` breaks the editor's parse for the entire graph.
+
+| `type`                   | `config`                                                                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trigger`                | a trigger config (see below). Exactly one trigger node per workflow.                                                                                                                        |
+| `delay`                  | `{ "delay_duration": "30m" }` — see duration rules below.                                                                                                                                   |
+| `conditional_branch`     | `{ "conditions": [ { "filters": {"properties": [<cond>]}, "name?": "" } ] }`. Index N pairs with the `branch` edge `index: N`.                                                              |
+| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages split the population.                                                                                                  |
+| `wait_until_condition`   | `{ "condition": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. Duration rules as `delay`.                               |
+| `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                       |
+| `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                           |
+| `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`. |
+| `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                             |
+| `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                    |
+
+### Trigger `config` (the `trigger` node)
+
+Discriminated on `config.type`:
+
+- `event` — `{ "type": "event", "filters": { "events": [{ "id": "<event>", "name": "<event>", "type": "events", "order": 0, "properties": [<cond>] }], "properties": [<cond>], "filter_test_accounts": false } }`. Fires on **every** matching occurrence. Throttle repeats with `trigger_masking` (dedup/sampling — not behavioral filtering).
+- `webhook` / `manual` / `tracking_pixel` — `{ "type": "webhook", "template_id": "<id>", "inputs": { ... } }`. Function-style triggers; discover the `template_id` and its inputs the same way as `function` nodes (see "Discovering function templates").
+- `batch` — `{ "type": "batch", "filters": { "properties": [<cond>] } }`. The audience: person-property conditions and/or cohort references. **No event/action filters** (silently dropped, so rejected). Does not fire on enable — dispatch with `workflows-run-batch` or `workflows-schedule-create`.
+- `schedule` — `{ "type": "schedule" }`. Audience resolves offline like `batch`; the recurrence lives on a separate schedule resource.
+
+### Condition shape (`<cond>`)
+
+Property conditions used in trigger/action `filters`, branch conditions, and conversion:
+
+```json
+{ "key": "plan", "value": ["pro"], "operator": "exact", "type": "person" }
+```
+
+`type` is `event` | `person` | `group`. Never include `bytecode` — the server compiles it.
+
+## Edges
+
+```json
+{ "from": "source_id", "to": "target_id", "type": "continue", "index": 0 }
+```
+
+- `type: "continue"` — fall-through: the sequential next step, or the **no-match** path out of a `conditional_branch` / `wait_until_condition`.
+- `type: "branch"` — requires `index`, matching `config.conditions[index]` on the source branch node.
+- **Every non-exit node needs a reachable next action** via an outgoing edge, or execution fails with "No next action found".
+- A `conditional_branch` with N conditions typically has N `branch` edges (`index: 0..N-1`) plus one `continue` edge for the no-match path.
+
+## `function*` inputs
+
+Inputs are keyed by the template's input schema, each wrapped in `{value: ...}`:
+
+```json
+"inputs": { "url": { "value": "https://example.com/hook" } }
+```
+
+- **Wrap values in `{value: ...}`.** A flat string won't enable templating.
+- Templating uses `{person.x}` / `{event.x}` inside the value string.
+- **Dictionary input values are template strings too** — write booleans/numbers as single-expression templates: `"{true}"`, `"{42}"`, which evaluate to the typed value.
+- Required inputs must be present, or create fails with "This field is required".
+
+### Discovering function templates (do this, don't guess)
+
+The set of available `function` templates and their required inputs is **live data**, not something to hardcode — it changes as integrations are added. For a `function` node:
+
+1. `cdp-function-templates-list` (filter `type=destination`) to find the right template and its `id`.
+2. `cdp-function-templates-retrieve` with that id to read its **`inputs_schema`** — the exact keys, types, and which are required.
+3. Build `inputs` from that schema. A `template_id` not in the live list fails with "Template not found".
+
+`function_email` and `function_sms` are the exception — their `template_id` is the fixed literal `template-email` / `template-twilio` (required by the editor), so you don't look those up.
+
+## Duration strings (`delay_duration`, `max_wait_duration`)
+
+Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: `30m`, `2h`, `1d`, `0.5m` (=30s).
+
+- **No seconds, no ISO-8601.** For sub-minute, use a fraction of a minute.
+- Per-unit caps are **silently clamped**: `m`≤60, `h`≤24, `d`≤30. Max total 30d. Use the larger unit (`90m` → use `1.5h`) to avoid surprise clamping.
+
+## Conversion & exit condition
+
+- `exit_condition`: `exit_only_at_end` (default), `exit_on_conversion`, `exit_on_trigger_not_matched`, `exit_on_trigger_not_matched_or_conversion`.
+- The `…conversion` variants require a `conversion` goal: `{ "filters": [<cond>...], "window_minutes": <int|null> }` (empty `filters` = any event in window). Without it they're a silent no-op. Server compiles the bytecode.
+
+## Pre-submit checklist
+
+- [ ] Exactly **one** `type: "trigger"` action; usually exactly one `exit`.
+- [ ] Every action `type` and `config` matches a row above (no types outside the supported set).
+- [ ] `on_error` is only `continue` or `abort`.
+- [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`.
+- [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
+- [ ] All durations match `^\d*\.?\d+[dhm]$` and dodge the silent per-unit clamp.
+- [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.
