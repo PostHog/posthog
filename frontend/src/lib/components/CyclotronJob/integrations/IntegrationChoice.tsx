@@ -38,7 +38,11 @@ export function IntegrationChoice({
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
-    const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+    // `value` can arrive as a string when persisted via a source's `job_inputs` (e.g.
+    // MCP-created data-warehouse sources store the integration id as "1"), while
+    // `integration.id` is always a number. Compare numerically so a valid connection is
+    // not falsely flagged "no longer available" below.
+    const integrationKind = integrationsOfKind?.find((integration) => integration.id === Number(value))
 
     // The stored value points to an integration that's no longer available (deleted, or
     // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
