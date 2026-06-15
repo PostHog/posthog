@@ -108,6 +108,50 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0]).toMatchObject({ functionId: 'abc123', invocationId: 'inv456' })
     })
 
+    it('skips metrics for test sends (isTest tracking code)', async () => {
+        const testMail = {
+            ...baseMail,
+            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
+            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation, true)] },
+        }
+        const body = [
+            {
+                eventType: 'Delivery',
+                mail: testMail,
+                delivery: { timestamp: '2025-10-03T12:03:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics).toEqual([])
+    })
+
+    it('still opts out recipients on a permanent bounce even for test sends', async () => {
+        const testMail = {
+            ...baseMail,
+            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
+            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation, true)] },
+        }
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: testMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [
+                        { emailAddress: 'to@example.com', action: 'failed', status: '5.1.1', diagnosticCode: 'bad' },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                    reportingMTA: 'mta',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        // No metric recorded for the test send, but the hard bounce still triggers an opt-out.
+        expect(result.metrics).toEqual([])
+        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
+    })
+
     it('parses a raw Delivery event', async () => {
         const body = [
             {

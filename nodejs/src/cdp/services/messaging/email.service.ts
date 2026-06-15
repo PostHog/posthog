@@ -67,9 +67,11 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 
-    // Send email
+    // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
+    // embedded in the email tells the SES webhook to skip recording metrics for test traffic.
     public async executeSendEmail(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'email') {
             throw new Error('Invocation passed to sendEmail is not an email function')
@@ -106,10 +108,10 @@ export class EmailService {
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from)
+                    await this.sendEmailWithMaildev(result, params, from, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from)
+                    await this.sendEmailWithSES(result, params, from, isTest)
                     break
 
                 case 'unsupported':
@@ -157,7 +159,8 @@ export class EmailService {
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
-        from: { email: string; name: string }
+        from: { email: string; name: string },
+        isTest = false
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
@@ -165,7 +168,7 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation) } : {}),
+            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation, isTest) } : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -190,21 +193,22 @@ export class EmailService {
     private async sendEmailWithSES(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
-        from: { email: string; name: string }
+        from: { email: string; name: string },
+        isTest = false
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const trackingCode = generateEmailTrackingCode(result.invocation, isTest)
         // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
         // limit. The full signed code rides in the header below.
-        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
+        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation, isTest)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation),
+                          addTrackingToEmail(params.html, result.invocation, isTest),
                           params.preheader
                       ),
                       Charset: 'UTF-8',
