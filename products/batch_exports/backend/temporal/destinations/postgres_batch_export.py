@@ -453,7 +453,7 @@ class PostgreSQLClient:
         delete: bool = True,
         create: bool = True,
         log_statements: bool = False,
-    ) -> collections.abc.AsyncGenerator[str, None]:
+    ) -> collections.abc.AsyncGenerator[str]:
         """Manage a table in PostgreSQL by ensure it exists while in context.
 
         Managing a table implies two operations: creation of a table, which happens upon entering the

@@ -13,8 +13,8 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.properties___group, tuple('0', '1', '2', '3')))
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -23,6 +23,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -51,7 +53,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(equals(groups.key, 'special-workspace'), 0))
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), equals(groups.key, 'special-workspace'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -60,6 +62,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -85,7 +89,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(ilike(groups.key, '%org:%'), 0))
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), ilike(groups.key, '%org:%'))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -94,6 +98,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -111,7 +117,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -120,6 +126,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -146,7 +154,7 @@
      WHERE equals(groups.team_id, 99999)
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
-  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -155,6 +163,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -207,14 +217,14 @@
                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
-                                                                (SELECT cohortpeople.person_id AS person_id
-                                                                 FROM cohortpeople
-                                                                 WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(persons.id,
-                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                 FROM cohortpeople
-                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                     (SELECT cohortpeople.person_id AS person_id
+                                                      FROM cohortpeople
+                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(persons.id,
+                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -223,6 +233,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -256,11 +268,11 @@
                                                                                                                                                           FROM person_static_cohort
                                                                                                                                                           WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
-                                                                (SELECT person_static_cohort.person_id AS person_id
-                                                                 FROM person_static_cohort
-                                                                 WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                     (SELECT person_static_cohort.person_id AS person_id
+                                                      FROM person_static_cohort
+                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -269,6 +281,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -314,14 +328,14 @@
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE and(ifNull(equals(persons.team_id, 99999), 0), and(in(persons.id,
-                                                                (SELECT person_static_cohort.person_id AS person_id
-                                                                 FROM person_static_cohort
-                                                                 WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.id,
-                                                                                                                                                                               (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                FROM cohortpeople
-                                                                                                                                                                                WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                     (SELECT person_static_cohort.person_id AS person_id
+                                                      FROM person_static_cohort
+                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.id,
+                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -330,6 +344,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -348,8 +364,8 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE and(ifNull(equals(persons.team_id, 99999), 0), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -358,6 +374,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -400,11 +418,11 @@
                                                                                                                                                           FROM cohortpeople
                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.id,
-                                                            (SELECT cohortpeople.person_id AS person_id
-                                                             FROM cohortpeople
-                                                             WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), in(persons.id,
+                                                 (SELECT cohortpeople.person_id AS person_id
+                                                  FROM cohortpeople
+                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -413,6 +431,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
   '''
@@ -524,6 +544,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -862,6 +884,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1073,6 +1097,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1275,6 +1301,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1591,6 +1619,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1858,6 +1888,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2126,6 +2158,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2232,6 +2266,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2445,6 +2481,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2628,6 +2666,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."running_time_calculation",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
@@ -2663,7 +2702,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -2960,6 +3000,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."running_time_calculation",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
@@ -2982,7 +3023,8 @@
          "posthog_evaluationcontext"."id",
          "posthog_evaluationcontext"."name",
          "posthog_evaluationcontext"."team_id",
-         "posthog_evaluationcontext"."created_at"
+         "posthog_evaluationcontext"."created_at",
+         "posthog_evaluationcontext"."hidden_from_suggestions"
   FROM "posthog_featureflagevaluationcontext"
   INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
   WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" IN (1,

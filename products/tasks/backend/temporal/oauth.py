@@ -6,8 +6,8 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
 )
 
+from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.exceptions import OAuthTokenError, TaskInvalidStateError
 
 __all__ = [
     "ARRAY_APP_CLIENT_ID_DEV",

@@ -1,0 +1,207 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Subscriptions
+feature: subscriptions
+url_prefix: /subscriptions
+ui_apps: {}
+tools:
+    subscriptions-create:
+        operation: subscriptions_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create subscription
+        description: >
+            Create a recurring subscription. The kind is inferred from which field you populate and returned as the
+            read-only `resource_type`:
+
+            (1) set `insight` — schedule periodic snapshots of one insight (`resource_type: "insight"`).
+
+            (2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max
+            6) — schedule periodic snapshots of one dashboard (`resource_type: "dashboard"`).
+
+            (3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report
+            (`resource_type: "ai_prompt"`). Available on PostHog Cloud (self-hosted production is not eligible) once the
+            organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create
+            is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
+            runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
+
+            Delivery is set by `target_type` — `email` or `slack`.
+
+            The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
+            rejected.
+
+            For insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting
+            `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to
+            have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the
+            create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.
+
+            IMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the
+            AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled:
+            true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the
+            summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt
+            subscriptions are themselves AI-generated, so this does not apply to them.)
+        exclude_params:
+            - deleted
+            - next_delivery_date
+            - resource_name
+            - insight_short_id
+            - invite_message
+    subscriptions-delete:
+        operation: subscriptions_destroy
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete subscription
+        description: >
+            Soft-delete a subscription. Stops all future deliveries and returns the subscription with `deleted: true`.
+            One-way via MCP — there is no restore tool, so re-create the subscription if you need it back. Deleting an
+            prompt subscription additionally requires the `query:read` scope (the backend gates every write touching a
+            prompt subscription on query access).
+        param_overrides:
+            id:
+                cast: string-int
+        soft_delete: true
+        response:
+            exclude:
+                - invite_message
+    subscriptions-deliveries-list:
+        operation: subscriptions_deliveries_list
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscription deliveries
+        description: >
+            List delivery history for a subscription — one row per send attempt. Each entry includes status (starting,
+            completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at,
+            finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated
+            newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes
+            and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.
+        response:
+            exclude:
+                - content_snapshot
+                - recipient_results
+                - error
+    subscriptions-deliveries-retrieve:
+        operation: subscriptions_deliveries_retrieve
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription delivery
+        description: >
+            Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value,
+            timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen
+            dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
+            recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking
+            recipient identifiers or upstream response bodies that may contain tokens / PII.
+        response:
+            exclude:
+                - content_snapshot
+                - recipient_results
+                - error
+    subscriptions-list:
+        operation: subscriptions_list
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscriptions
+        description: >
+            List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated
+            name of an unnamed insight), or dashboard name. Prompt subscriptions are only matched on their `title` — the
+            `prompt` text is not searchable.
+        response:
+            exclude:
+                - invite_message
+    subscriptions-partial-update:
+        operation: subscriptions_partial_update
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update subscription
+        description: >
+            Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions,
+            `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's
+            field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously
+            auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that
+            the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a
+            prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete
+            — `deleted` is not settable here.
+
+            For insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer
+            it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
+            processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
+        exclude_params:
+            - deleted
+            - next_delivery_date
+            - resource_name
+            - insight_short_id
+            - invite_message
+    subscriptions-retrieve:
+        operation: subscriptions_retrieve
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription
+        description: Retrieve a single subscription by ID.
+        response:
+            exclude:
+                - invite_message
+    subscriptions-summary-quota-retrieve:
+        operation: subscriptions_summary_quota_retrieve
+        enabled: false
+    subscriptions-test-delivery-create:
+        operation: subscriptions_test_delivery_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send test delivery
+        description: >
+            Trigger an immediate test delivery of a subscription to its configured target(s) (email or Slack). Runs the
+            same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can
+            inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the
+            delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
+            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
+            is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has been deleted.
+            Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs the AI HogQL
+            pipeline).
+    subscriptions-update:
+        operation: subscriptions_update
+        enabled: false

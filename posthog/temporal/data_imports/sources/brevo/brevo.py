@@ -134,9 +134,10 @@ def get_rows(
                 params["offset"] = offset
 
             data = fetch_page(params)
-            # Fail loudly if the expected envelope key is missing (e.g. an API-shape change),
-            # rather than silently reporting a successful sync of zero rows.
-            items = data[config.data_key]
+            # Brevo omits the array key entirely (or sets it to null) for an empty collection,
+            # e.g. {"count": 0} with no "campaigns"/"segments" key. Treat that as an empty page
+            # rather than crashing the sync.
+            items = data.get(config.data_key) or []
 
             if items:
                 yield items

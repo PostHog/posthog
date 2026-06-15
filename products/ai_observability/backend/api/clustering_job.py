@@ -10,7 +10,8 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models.cohort import Cohort
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency

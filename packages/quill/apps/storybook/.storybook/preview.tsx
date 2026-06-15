@@ -1,9 +1,9 @@
 import './storybook.css'
 
-import React, { useEffect, useState } from 'react'
+import { DocsContainer } from '@storybook/addon-docs'
 import type { Preview } from '@storybook/react'
 import { themes } from '@storybook/theming'
-import { DocsContainer } from '@storybook/addon-docs'
+import React, { useEffect, useState } from 'react'
 import { useDarkMode } from 'storybook-dark-mode'
 
 // The Docs container renders outside Storybook's preview-hooks context, so
@@ -47,6 +47,15 @@ const preview: Preview = {
         },
         docs: {
             container: ThemedDocsContainer,
+        },
+        options: {
+            // Deterministic sidebar: without this, order is file-discovery
+            // order, and the dev server appends newly created story files to
+            // the end of the live index until a restart.
+            storySort: {
+                order: ['Tokens', 'Examples', 'Primitives', 'Components'],
+                method: 'alphabetical',
+            },
         },
     },
     decorators: [

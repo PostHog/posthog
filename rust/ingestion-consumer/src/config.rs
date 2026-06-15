@@ -108,6 +108,11 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Maximum Kafka batches to process concurrently. Matches the Node.js
+    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
+    pub consumer_max_background_tasks: usize,
+
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
     #[envconfig(default = "http://localhost:9001")]
@@ -268,6 +273,10 @@ impl Config {
             info!(key = %key, value = %value, "Applying KAFKA_CONSUMER_ env override");
             builder = builder.set(key, value);
         }
+
+        // After all overrides: if KAFKA_CONSUMER_GROUP_PROTOCOL=consumer selected the
+        // KIP-848 protocol, drop the classic-only keys librdkafka would reject.
+        builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
     }

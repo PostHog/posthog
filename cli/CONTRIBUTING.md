@@ -20,13 +20,21 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
 5. Commits the release bump to `master`
 6. Runs cargo-dist against the release bump commit
-7. Creates the `posthog-cli/vX.Y.Z` GitHub release and publishes the npm package
+7. Creates the `posthog-cli/vX.Y.Z` GitHub release, refreshes `posthog-cli-latest` for stable releases, and publishes the npm package
 
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
 If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.
+
+The release workflow also builds `services/mcp` into `cli/lib/posthog-api-cli.mjs` before cargo-dist packages artifacts.
+This keeps `posthog-cli api` aligned with the generated MCP tool catalog at release time.
+To reproduce that release bundle locally, run:
+
+```bash
+pnpm --dir services/mcp run build:cli:release
+```
 
 We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
 

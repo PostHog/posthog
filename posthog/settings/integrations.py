@@ -116,6 +116,10 @@ PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 
+# Unlayer (server-side email design → HTML rendering for message templates)
+UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
+UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
+
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.

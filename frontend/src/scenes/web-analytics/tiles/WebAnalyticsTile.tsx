@@ -526,6 +526,9 @@ const SortableCell = (
     }
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
+    // findMounted() keeps this scene-agnostic: it only acts when webAnalyticsLogic is actually mounted
+    // (i.e. inside the web analytics scene), so reusing this context in product analytics is a no-op.
+    onDisableWebAnalyticsPrecompute: () => webAnalyticsLogic.findMounted()?.actions.setUseWebAnalyticsPrecompute(false),
     columns: {
         breakdown_value: {
             renderTitle: BreakdownValueTitle,

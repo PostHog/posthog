@@ -83,9 +83,9 @@ export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create a new evaluation run.
-
-This endpoint validates the request and enqueues a Temporal workflow
-to asynchronously execute the evaluation.
+ *
+ * This endpoint validates the request and enqueues a Temporal workflow
+ * to asynchronously execute the evaluation.
  */
 export const evaluationRunsCreateBodyEventDefault = `$ai_generation`
 
@@ -512,9 +512,9 @@ export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.o
 
 /**
  * Trigger a new clustering workflow run.
-
-This endpoint validates the request parameters and starts a Temporal workflow
-to perform trace clustering with the specified configuration.
+ *
+ * This endpoint validates the request parameters and starts a Temporal workflow
+ * to perform trace clustering with the specified configuration.
  */
 export const llmAnalyticsClusteringRunsCreateBodyLookbackDaysDefault = 7
 export const llmAnalyticsClusteringRunsCreateBodyLookbackDaysMax = 90
@@ -923,19 +923,19 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
 
 /**
  *
-Generate an AI-powered summary of evaluation results.
-
-This endpoint analyzes evaluation runs and identifies patterns in passing
-and failing evaluations, providing actionable recommendations.
-
-Data is fetched server-side by evaluation ID to ensure data integrity.
-
-**Use Cases:**
-- Understand why evaluations are passing or failing
-- Identify systematic issues in LLM responses
-- Get recommendations for improving response quality
-- Review patterns across many evaluation runs at once
-
+ * Generate an AI-powered summary of evaluation results.
+ *
+ * This endpoint analyzes evaluation runs and identifies patterns in passing
+ * and failing evaluations, providing actionable recommendations.
+ *
+ * Data is fetched server-side by evaluation ID to ensure data integrity.
+ *
+ * **Use Cases:**
+ * - Understand why evaluations are passing or failing
+ * - Identify systematic issues in LLM responses
+ * - Get recommendations for improving response quality
+ * - Review patterns across many evaluation runs at once
+ *
  */
 export const llmAnalyticsEvaluationSummaryCreateBodyFilterDefault = `all`
 export const llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax = 250
@@ -974,6 +974,27 @@ export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PUR
         .string()
         .nullish()
         .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
+})
+
+export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
+
+export const LlmAnalyticsParserRecipesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsParserRecipesCreateBodyNameMax)
+        .describe('Human-readable recipe name shown in the editor.'),
+    source: zod.string().describe('Raw YAML recipe source, compiled and validated client-side.'),
+})
+
+export const llmAnalyticsParserRecipesPartialUpdateBodyNameMax = 255
+
+export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsParserRecipesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable recipe name shown in the editor.'),
+    source: zod.string().optional().describe('Raw YAML recipe source, compiled and validated client-side.'),
 })
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
@@ -1322,27 +1343,27 @@ export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
 
 /**
  *
-Generate an AI-powered summary of an LLM trace or event.
-
-This endpoint analyzes the provided trace/event, generates a line-numbered text
-representation, and uses an LLM to create a concise summary with line references.
-
-**Two ways to use this endpoint:**
-
-1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
-   The backend fetches the data automatically. `summarize_type` is inferred.
-2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
-   This is how the frontend uses it.
-
-**Summary Format:**
-- Title (concise, max 10 words)
-- Mermaid flow diagram showing the main flow
-- 3-10 summary bullets with line references
-- "Interesting Notes" section for failures, successes, or unusual patterns
-- Line references in [L45] or [L45-52] format pointing to relevant sections
-
-The response includes the structured summary, the text representation, and metadata.
-
+ * Generate an AI-powered summary of an LLM trace or event.
+ *
+ * This endpoint analyzes the provided trace/event, generates a line-numbered text
+ * representation, and uses an LLM to create a concise summary with line references.
+ *
+ * **Two ways to use this endpoint:**
+ *
+ * 1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
+ *    The backend fetches the data automatically. `summarize_type` is inferred.
+ * 2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
+ *    This is how the frontend uses it.
+ *
+ * **Summary Format:**
+ * - Title (concise, max 10 words)
+ * - Mermaid flow diagram showing the main flow
+ * - 3-10 summary bullets with line references
+ * - "Interesting Notes" section for failures, successes, or unusual patterns
+ * - Line references in [L45] or [L45-52] format pointing to relevant sections
+ *
+ * The response includes the structured summary, the text representation, and metadata.
+ *
  */
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
@@ -1394,17 +1415,17 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  *
-Check which traces have cached summaries available.
-
-This endpoint allows batch checking of multiple trace IDs to see which ones
-have cached summaries. Returns only the traces that have cached summaries
-with their titles.
-
-**Use Cases:**
-- Load cached summaries on session view load
-- Avoid unnecessary LLM calls for already-summarized traces
-- Display summary previews without generating new summaries
-
+ * Check which traces have cached summaries available.
+ *
+ * This endpoint allows batch checking of multiple trace IDs to see which ones
+ * have cached summaries. Returns only the traces that have cached summaries
+ * with their titles.
+ *
+ * **Use Cases:**
+ * - Load cached summaries on session view load
+ * - Avoid unnecessary LLM calls for already-summarized traces
+ * - Display summary previews without generating new summaries
+ *
  */
 export const llmAnalyticsSummarizationBatchCheckCreateBodyTraceIdsMax = 100
 
@@ -1425,39 +1446,39 @@ export const LlmAnalyticsSummarizationBatchCheckCreateBody = /* @__PURE__ */ zod
 
 /**
  *
-Generate a human-readable text representation of an LLM trace event.
-
-This endpoint converts AI observability events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
-into formatted text representations suitable for display, logging, or analysis.
-
-**Supported Event Types:**
-- `$ai_generation`: Individual LLM API calls with input/output messages
-- `$ai_span`: Logical spans with state transitions
-- `$ai_embedding`: Embedding generation events (text input → vector)
-- `$ai_trace`: Full traces with hierarchical structure
-
-**Options:**
-- `max_length`: Maximum character count (default: 2000000)
-- `truncated`: Enable middle-content truncation within events (default: true)
-- `truncate_buffer`: Characters at start/end when truncating (default: 1000)
-- `include_markers`: Use interactive markers vs plain text indicators (default: true)
-  - Frontend: set true for `<<<TRUNCATED|base64|...>>>` markers
-  - Backend/LLM: set false for `... (X chars truncated) ...` text
-- `collapsed`: Show summary vs full trace tree (default: false)
-- `include_hierarchy`: Include tree structure for traces (default: true)
-- `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
-- `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
-  - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
-  - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
-- `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
-
-**Use Cases:**
-- Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
-- Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
-- Backend LLM context (full): `truncated: false`
-
-The response includes the formatted text and metadata about the rendering.
-
+ * Generate a human-readable text representation of an LLM trace event.
+ *
+ * This endpoint converts AI observability events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
+ * into formatted text representations suitable for display, logging, or analysis.
+ *
+ * **Supported Event Types:**
+ * - `$ai_generation`: Individual LLM API calls with input/output messages
+ * - `$ai_span`: Logical spans with state transitions
+ * - `$ai_embedding`: Embedding generation events (text input → vector)
+ * - `$ai_trace`: Full traces with hierarchical structure
+ *
+ * **Options:**
+ * - `max_length`: Maximum character count (default: 2000000)
+ * - `truncated`: Enable middle-content truncation within events (default: true)
+ * - `truncate_buffer`: Characters at start/end when truncating (default: 1000)
+ * - `include_markers`: Use interactive markers vs plain text indicators (default: true)
+ *   - Frontend: set true for `<<<TRUNCATED|base64|...>>>` markers
+ *   - Backend/LLM: set false for `... (X chars truncated) ...` text
+ * - `collapsed`: Show summary vs full trace tree (default: false)
+ * - `include_hierarchy`: Include tree structure for traces (default: true)
+ * - `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
+ * - `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
+ *   - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
+ *   - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
+ * - `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
+ *
+ * **Use Cases:**
+ * - Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
+ * - Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
+ * - Backend LLM context (full): `truncated: false`
+ *
+ * The response includes the formatted text and metadata about the rendering.
+ *
  */
 export const LlmAnalyticsTextReprCreateBody = /* @__PURE__ */ zod.object({
     event_type: zod
@@ -1661,214 +1682,6 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
         .describe(
             'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
-        ),
-})
-
-export const llmSkillsCreateBodyNameMax = 64
-
-export const llmSkillsCreateBodyDescriptionMax = 4096
-
-export const llmSkillsCreateBodyLicenseMax = 255
-
-export const llmSkillsCreateBodyCompatibilityMax = 500
-
-export const llmSkillsCreateBodyFilesItemPathMax = 500
-
-export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
-export const llmSkillsCreateBodyFilesItemContentTypeMax = 100
-
-export const LlmSkillsCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(llmSkillsCreateBodyNameMax)
-            .describe('Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.'),
-        description: zod
-            .string()
-            .max(llmSkillsCreateBodyDescriptionMax)
-            .describe('What this skill does and when to use it. Max 4096 characters.'),
-        body: zod.string().describe('The SKILL.md instruction content (markdown).'),
-        license: zod
-            .string()
-            .max(llmSkillsCreateBodyLicenseMax)
-            .optional()
-            .describe('License name or reference to a bundled license file.'),
-        compatibility: zod
-            .string()
-            .max(llmSkillsCreateBodyCompatibilityMax)
-            .optional()
-            .describe('Environment requirements (intended product, system packages, network access, etc.).'),
-        allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
-        metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
-        files: zod
-            .array(
-                zod.object({
-                    path: zod
-                        .string()
-                        .max(llmSkillsCreateBodyFilesItemPathMax)
-                        .describe(
-                            "File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."
-                        ),
-                    content: zod.string().describe('Text content of the file.'),
-                    content_type: zod
-                        .string()
-                        .max(llmSkillsCreateBodyFilesItemContentTypeMax)
-                        .default(llmSkillsCreateBodyFilesItemContentTypeDefault)
-                        .describe('MIME type of the file content.'),
-                })
-            )
-            .optional()
-            .describe('Bundled files to include with the initial version (scripts, references, assets).'),
-    })
-    .describe('Create serializer — accepts bundled files as write-only input on POST.')
-
-export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
-
-export const llmSkillsNamePartialUpdateBodyLicenseMax = 255
-
-export const llmSkillsNamePartialUpdateBodyCompatibilityMax = 500
-
-export const llmSkillsNamePartialUpdateBodyFilesItemPathMax = 500
-
-export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault = `text/plain`
-export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
-
-export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
-
-export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
-    body: zod
-        .string()
-        .optional()
-        .describe(
-            'Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits.'
-        ),
-    edits: zod
-        .array(
-            zod.object({
-                old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
-                new: zod.string().describe('Replacement text.'),
-            })
-        )
-        .optional()
-        .describe(
-            "List of find\/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body."
-        ),
-    description: zod
-        .string()
-        .max(llmSkillsNamePartialUpdateBodyDescriptionMax)
-        .optional()
-        .describe('Updated description for the new version.'),
-    license: zod
-        .string()
-        .max(llmSkillsNamePartialUpdateBodyLicenseMax)
-        .optional()
-        .describe('License name or reference.'),
-    compatibility: zod
-        .string()
-        .max(llmSkillsNamePartialUpdateBodyCompatibilityMax)
-        .optional()
-        .describe('Environment requirements.'),
-    allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
-    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
-    files: zod
-        .array(
-            zod.object({
-                path: zod
-                    .string()
-                    .max(llmSkillsNamePartialUpdateBodyFilesItemPathMax)
-                    .describe("File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."),
-                content: zod.string().describe('Text content of the file.'),
-                content_type: zod
-                    .string()
-                    .max(llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax)
-                    .default(llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault)
-                    .describe('MIME type of the file content.'),
-            })
-        )
-        .optional()
-        .describe(
-            'Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits.'
-        ),
-    file_edits: zod
-        .array(
-            zod.object({
-                path: zod
-                    .string()
-                    .max(llmSkillsNamePartialUpdateBodyFileEditsItemPathMax)
-                    .describe(
-                        'Path of the bundled file to edit. Must match an existing file on the current skill version.'
-                    ),
-                edits: zod
-                    .array(
-                        zod.object({
-                            old: zod.string().describe('Text to find in the target content. Must match exactly once.'),
-                            new: zod.string().describe('Replacement text.'),
-                        })
-                    )
-                    .describe("Sequential find\/replace operations to apply to this file's content."),
-            })
-        )
-        .optional()
-        .describe(
-            "Per-file find\/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
-        ),
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
-})
-
-export const llmSkillsNameDuplicateCreateBodyNewNameMax = 64
-
-export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
-    new_name: zod
-        .string()
-        .max(llmSkillsNameDuplicateCreateBodyNewNameMax)
-        .describe('Name for the duplicated skill. Must be unique.'),
-})
-
-export const llmSkillsNameFilesCreateBodyPathMax = 500
-
-export const llmSkillsNameFilesCreateBodyContentTypeDefault = `text/plain`
-export const llmSkillsNameFilesCreateBodyContentTypeMax = 100
-
-export const LlmSkillsNameFilesCreateBody = /* @__PURE__ */ zod.object({
-    path: zod
-        .string()
-        .max(llmSkillsNameFilesCreateBodyPathMax)
-        .describe("File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."),
-    content: zod.string().describe('Text content of the file.'),
-    content_type: zod
-        .string()
-        .max(llmSkillsNameFilesCreateBodyContentTypeMax)
-        .default(llmSkillsNameFilesCreateBodyContentTypeDefault)
-        .describe('MIME type of the file content.'),
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
-        ),
-})
-
-export const llmSkillsNameFilesRenameCreateBodyOldPathMax = 500
-
-export const llmSkillsNameFilesRenameCreateBodyNewPathMax = 500
-
-export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
-    old_path: zod.string().max(llmSkillsNameFilesRenameCreateBodyOldPathMax).describe('Current file path to rename.'),
-    new_path: zod
-        .string()
-        .max(llmSkillsNameFilesRenameCreateBodyNewPathMax)
-        .describe('New file path. Must not already exist in the skill.'),
-    base_version: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
 

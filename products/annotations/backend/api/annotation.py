@@ -1,10 +1,7 @@
-import dataclasses
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from django.db.models import Q, QuerySet
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 
 from rest_framework import filters, pagination, serializers, viewsets
 
@@ -12,24 +9,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
-
-
-@dataclasses.dataclass(frozen=True)
-class AnnotationContext(ActivityContextBase):
-    scope: str
-    dashboard_id: Optional[int] = None
-    dashboard_name: Optional[str] = None
-    dashboard_item_id: Optional[int] = None
-    dashboard_item_short_id: Optional[str] = None
-    dashboard_item_name: Optional[str] = None
-    recording_id: Optional[str] = None
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -55,6 +38,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
+            "emoji",
         ]
         read_only_fields = [
             "id",
@@ -91,7 +75,17 @@ class AnnotationSerializer(serializers.ModelSerializer):
                     "`recording` is deprecated and rejected."
                 ),
             },
+            "emoji": {
+                "help_text": "Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.",
+                "required": False,
+                "allow_null": True,
+                "allow_blank": True,
+            },
         }
+
+    def validate_emoji(self, value: str | None) -> str | None:
+        # Normalise blank strings to None so the DB has a single canonical "no emoji" state.
+        return value or None
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
@@ -204,40 +198,3 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         return queryset.filter(
             Q(scope=Annotation.Scope.ORGANIZATION, organization_id=team.organization_id) | Q(team=team)
         )
-
-
-@receiver(post_save, sender=Annotation, dispatch_uid="hook-annotation-created")
-def annotation_created(sender, instance, created, raw, using, **kwargs):
-    if instance.created_by:
-        event_name: str = "annotation created" if created else "annotation updated"
-        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
-
-
-@mutable_receiver(model_activity_signal, sender=Annotation)
-def handle_annotation_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    context = AnnotationContext(
-        scope=after_update.scope,
-        dashboard_id=after_update.dashboard_id,
-        dashboard_name=after_update.dashboard_name,
-        dashboard_item_id=after_update.dashboard_item_id,
-        dashboard_item_short_id=after_update.insight_short_id,
-        dashboard_item_name=after_update.insight_name,
-        recording_id=after_update.recording_id,
-    )
-
-    log_activity(
-        organization_id=after_update.organization_id or after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.content,
-            context=context,
-        ),
-    )

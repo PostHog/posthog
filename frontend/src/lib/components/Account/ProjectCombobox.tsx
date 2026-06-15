@@ -15,7 +15,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
 import { pendingInvitesLogic } from './pendingInvitesLogic'

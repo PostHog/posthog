@@ -46,7 +46,8 @@ class PersonDBRouter:
     # Apps whose models can live in the persons DB. FeatureFlagHashKeyOverride
     # was historically in the `posthog` app; it moved to `feature_flags` when the
     # FF models were extracted, but the physical table still lives in persons_db.
-    PERSONS_APP_LABELS = {"posthog", "feature_flags"}
+    # Likewise CohortPeople moved to `cohorts`, keeping its posthog_cohortpeople table.
+    PERSONS_APP_LABELS = {"posthog", "feature_flags", "cohorts"}
 
     def db_for_read(self, model, **hints):
         """
@@ -94,9 +95,9 @@ class PersonDBRouter:
             # GroupTypeMapping -> Project: GroupTypeMapping.project has db_constraint=False
             # GroupTypeMapping -> Dashboard: GroupTypeMapping.detail_dashboard has db_constraint=False
             from posthog.models import Person, Project, Team
-            from posthog.models.cohort import Cohort, CohortPeople
             from posthog.models.group_type_mapping import GroupTypeMapping
 
+            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
             from products.dashboards.backend.models.dashboard import Dashboard
 
             # Allow any persons_db model -> Team relation

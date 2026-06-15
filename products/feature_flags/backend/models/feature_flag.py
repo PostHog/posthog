@@ -18,7 +18,6 @@ from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -26,6 +25,8 @@ from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
+
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -142,6 +143,27 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
+
+    def _tombstone_suffix(self) -> str:
+        # Soft-deleting a flag that's still referenced (e.g. by a stopped experiment)
+        # renames its key to free the original for reuse. This is the single source of
+        # truth for that suffix — both tombstoned_key() and key_without_tombstone() use it.
+        return f":deleted:{self.id}"
+
+    def tombstoned_key(self) -> str:
+        # The key to store when soft-deleting this flag. The id keeps it unique while
+        # freeing the original key for a new flag.
+        return f"{self.key}{self._tombstone_suffix()}"
+
+    def key_without_tombstone(self) -> str:
+        # The original key, with the soft-delete tombstone stripped. Readers that need
+        # the pre-deletion key (e.g. experiment query runners resolving historical
+        # events) call this. Only strips when the flag is actually deleted, so a live
+        # flag whose key coincidentally ends this way is left untouched.
+        suffix = self._tombstone_suffix()
+        if self.deleted and self.key.endswith(suffix):
+            return self.key[: -len(suffix)]
+        return self.key
 
     def clean(self) -> None:
         """Reject encrypted payloads on non-remote-config flags.
@@ -401,7 +423,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
     ) -> list[int]:
-        from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
+        from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
         if seen_cohorts_cache is None:
             seen_cohorts_cache = {}

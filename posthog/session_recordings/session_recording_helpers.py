@@ -125,8 +125,8 @@ def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
 
 
 def preprocess_replay_events(
-    _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024, user_agent: str | None = None
-) -> Generator[Event, None, None]:
+    _events: list[Event] | Generator[Event], max_size_bytes=1024 * 1024, user_agent: str | None = None
+) -> Generator[Event]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
     1. Since posthog-js {version} we are grouping events on the frontend in a batch and passing their size in $snapshot_bytes
@@ -259,9 +259,7 @@ def preprocess_replay_events(
                         yield event
 
 
-def _process_windowed_events(
-    events: list[Event], fn: Callable[[list[Any]], Generator[Event, None, None]]
-) -> list[Event]:
+def _process_windowed_events(events: list[Event], fn: Callable[[list[Any]], Generator[Event]]) -> list[Event]:
     """
     Helper method to simplify grouping events by window_id and session_id, processing them with the given function,
     and then returning the flattened list
