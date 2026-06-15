@@ -7501,8 +7501,8 @@ def _make_postgres_source(
                 "cdc_slot_name": slot_name,
                 "cdc_publication_name": pub_name,
                 "cdc_auto_drop_slot": True,
-                "cdc_lag_warning_threshold_mb": 1024,
-                "cdc_lag_critical_threshold_mb": 10240,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 2048,
                 "cdc_consistent_point": "0/12345",
             }
         )
@@ -7736,8 +7736,8 @@ class TestEnableCDC(APIBaseTest):
                         payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
                     ),
                     "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
-                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
-                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 512),
+                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 2048),
                     "cdc_consistent_point": "0/ABCDEF",
                 }
             )
@@ -8280,8 +8280,8 @@ class TestUpdateCDCSettings(APIBaseTest):
         assert ji["cdc_publication_name"] == original_pub
         assert ji["cdc_management_mode"] == original_mode
         # Thresholds preserved at defaults.
-        assert int(ji["cdc_lag_warning_threshold_mb"]) == 1024
-        assert int(ji["cdc_lag_critical_threshold_mb"]) == 10240
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 512
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 2048
 
     def test_update_cdc_settings_empty_payload_is_unchanged(self) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)

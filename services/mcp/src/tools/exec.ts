@@ -40,6 +40,10 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+export interface ExecToolOptions {
+    requireDestructiveConfirmation?: boolean
+}
+
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
     return z.object({
         command: z.string().describe(commandReference),
@@ -55,6 +59,29 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+    let rest = input.trim()
+    let forceJson = false
+    let confirmed = false
+
+    while (rest) {
+        const parsed = parseCommand(rest)
+        if (parsed.verb === '--json') {
+            forceJson = true
+            rest = parsed.rest
+            continue
+        }
+        if (parsed.verb === '--confirm') {
+            confirmed = true
+            rest = parsed.rest
+            continue
+        }
+        break
+    }
+
+    return { forceJson, confirmed, rest }
+}
+
 // Extracts the inner tool name from an exec `call` command, e.g.
 // "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
 // malformed input. Used by analytics to surface the real tool being invoked
@@ -64,11 +91,11 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     if (verb !== 'call' || !rest) {
         return
     }
-    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
-    if (!argv) {
+    const callArgs = parseCallFlags(rest).rest
+    if (!callArgs) {
         return
     }
-    const innerName = parseCommand(argv).verb
+    const innerName = parseCommand(callArgs).verb
     return innerName || undefined
 }
 
@@ -165,7 +192,8 @@ export function createExecTool(
     commandReference: string,
     mcpConsumer: string | undefined,
     trackInnerCall?: ExecInnerCallTracker,
-    scopeGatedTools: ScopeGatedTool[] = []
+    scopeGatedTools: ScopeGatedTool[] = [],
+    options: ExecToolOptions = {}
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -316,15 +344,19 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
-                    const forceJson = rest.startsWith('--json ') || rest === '--json'
-                    const callArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
+                    if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
+                        throw new Error(
+                            `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
+                        )
+                    }
                     let input: Record<string, unknown>
                     if (!jsonBody) {
                         input = {}
