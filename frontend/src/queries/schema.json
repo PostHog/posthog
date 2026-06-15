@@ -874,6 +874,9 @@
                     "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -1132,6 +1135,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
                 }
             ]
         },
@@ -4508,6 +4514,29 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AttributeBreakdownRow": {
+            "additionalProperties": false,
+            "description": "One row of a span attribute breakdown: the spans matching the filters, grouped by one attribute's value. Spans without the attribute group under `value = ''`.",
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p50_duration_nano": {
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["value", "count", "error_count", "p50_duration_nano", "p95_duration_nano"],
             "type": "object"
         },
         "AttributionMode": {
@@ -9898,6 +9927,99 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/AggregatedSpanRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTraceSpansAttributeBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
                     },
                     "type": "array"
                 },
@@ -28376,6 +28498,7 @@
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
+                "TraceSpansAttributeBreakdownQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -35041,6 +35164,64 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "compare": {
+                            "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                            "items": {
+                                "$ref": "#/definitions/AttributeBreakdownRow"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/AttributeBreakdownRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -35999,6 +36180,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansTreeQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
@@ -41600,6 +41784,14 @@
             "required": ["results"],
             "type": "object"
         },
+        "TraceSpanBreakdownOrderBy": {
+            "enum": ["count", "error_count"],
+            "type": "string"
+        },
+        "TraceSpanBreakdownType": {
+            "enum": ["span_attribute", "span_resource_attribute"],
+            "type": "string"
+        },
         "TraceSpansAggregationQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41678,6 +41870,117 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/AggregatedSpanRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "TraceSpansAttributeBreakdownQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownKey": {
+                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`).",
+                    "type": "string"
+                },
+                "breakdownType": {
+                    "$ref": "#/definitions/TraceSpanBreakdownType",
+                    "description": "Where the key lives: span-level attributes or resource-level attributes."
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "TraceSpansAttributeBreakdownQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/TraceSpanBreakdownOrderBy",
+                    "description": "Order rows by span count or error count, descending. Defaults to count."
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["breakdownKey", "breakdownType", "dateRange", "kind"],
+            "type": "object"
+        },
+        "TraceSpansAttributeBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
                     },
                     "type": "array"
                 },
