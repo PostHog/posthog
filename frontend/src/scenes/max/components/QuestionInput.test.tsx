@@ -150,6 +150,13 @@ describe('QuestionInput', () => {
 
         it.each([
             { name: 'cmd-enter mode: plain Enter inserts a new line', sendOnCmdEnter: true, keyOpts: {} },
+            // Default mode would normally send on plain Enter; the isComposing guard must suppress it
+            // so CJK composition-commit Enter never sends the half-typed message.
+            {
+                name: 'default mode: Enter during IME composition',
+                sendOnCmdEnter: false,
+                keyOpts: { isComposing: true },
+            },
             {
                 name: 'default mode: Shift+Enter inserts a new line',
                 sendOnCmdEnter: false,

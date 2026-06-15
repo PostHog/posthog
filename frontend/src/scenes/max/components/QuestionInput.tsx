@@ -358,14 +358,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 setEditingQueueId(nextMessageId)
                                                 return
                                             }
-                                            // Submit on Enter, or only on Cmd/Ctrl+Enter when the user opted into that.
-                                            // Shift+Enter always inserts a new line; IME composition is left untouched.
+                                            // Enter submits here rather than via LemonTextArea's onPressEnter/
+                                            // onPressCmdEnter, which are mutually exclusive and so can't switch send
+                                            // mode at runtime. Shift+Enter always inserts a new line; IME composition
+                                            // is left untouched.
                                             if (
                                                 event.key === 'Enter' &&
                                                 !event.nativeEvent.isComposing &&
                                                 !event.shiftKey
                                             ) {
-                                                if (!sendOnCmdEnter || event.metaKey || event.ctrlKey) {
+                                                // In Cmd/Ctrl+Enter mode the modifier is required to send; otherwise any Enter sends.
+                                                const shouldSend = sendOnCmdEnter
+                                                    ? event.metaKey || event.ctrlKey
+                                                    : true
+                                                if (shouldSend) {
                                                     event.preventDefault()
                                                     submitFromComposer()
                                                 }
