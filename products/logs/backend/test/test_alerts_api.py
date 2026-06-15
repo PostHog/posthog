@@ -12,7 +12,9 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
@@ -1963,3 +1965,124 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         assert eval_events == sim_events, f"cadence={cadence}: eval={eval_events}\nsim={sim_events}"
         assert any(k == "fire" for _, k in eval_events)
         assert any(k == "resolve" for _, k in eval_events)
+
+
+class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+
+    def _make_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    # --- events action (GET detail, requires logs:read) ---
+
+    def test_events_action_allowed_with_logs_read_scope(self):
+        key = self._make_key(["logs:read"])
+        # Target a non-existent UUID so the action body doesn't run; a 404
+        # proves the scope gate was passed (403 = gate rejected the key).
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    def test_events_action_allowed_with_logs_write_scope(self):
+        key = self._make_key(["logs:write"])
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_events_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- simulate action (POST non-detail, requires logs:read) ---
+
+    def test_simulate_action_allowed_with_logs_read_scope(self):
+        key = self._make_key(["logs:read"])
+        url = f"{self.base_url}simulate/"
+        # Empty body triggers 400 from serializer validation — proves scope gate passed.
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    def test_simulate_action_allowed_with_logs_write_scope(self):
+        key = self._make_key(["logs:write"])
+        url = f"{self.base_url}simulate/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_simulate_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
+        url = f"{self.base_url}simulate/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- create_destination action (POST detail, requires logs:write) ---
+
+    def test_create_destination_allowed_with_logs_write_scope(self):
+        key = self._make_key(["logs:write"])
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_create_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- delete_destination action (POST detail, requires logs:write) ---
+
+    def test_delete_destination_allowed_with_logs_write_scope(self):
+        key = self._make_key(["logs:write"])
+        url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_delete_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()

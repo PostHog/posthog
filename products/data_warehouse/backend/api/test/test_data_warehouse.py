@@ -6,6 +6,12 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -650,3 +656,56 @@ class TestDataWarehouseAPI(APIBaseTest):
         new_id = second_response.json()["dashboard_id"]
         self.assertNotEqual(new_id, first_id)
         self.assertIsNotNone(new_id)
+
+
+class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
+    """Verify the data_health_issues action is reachable via personal API keys.
+
+    The custom action is not one of the default read actions, so without an explicit
+    `required_scopes` it returned None and rejected all personal API key access with a 403.
+    The action now declares `warehouse_view:read` + `external_data_source:read`, matching the
+    MCP tool definition.
+    """
+
+    CONFIG_AUTO_LOGIN = False
+
+    def _create_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def _get(self, value: str):
+        return self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/data_health_issues/",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @parameterized.expand(
+        [
+            ("both_read_scopes", ["warehouse_view:read", "external_data_source:read"]),
+            ("wildcard", ["*"]),
+        ]
+    )
+    def test_allowed_with_required_scopes(self, _name, scopes):
+        value = self._create_key(scopes=scopes)
+        response = self._get(value)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "results" in response.json()
+
+    @parameterized.expand(
+        [
+            # Both scopes are required; only one is insufficient.
+            ("only_warehouse_view", ["warehouse_view:read"]),
+            ("only_external_data_source", ["external_data_source:read"]),
+            ("unrelated_scope", ["insight:read"]),
+        ]
+    )
+    def test_rejected_without_all_required_scopes(self, _name, scopes):
+        value = self._create_key(scopes=scopes)
+        response = self._get(value)
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

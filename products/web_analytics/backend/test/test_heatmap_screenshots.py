@@ -10,6 +10,8 @@ from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
@@ -200,3 +202,40 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+
+
+class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _make_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_regenerate_allowed_with_heatmap_write_scope(self):
+        key = self._make_key(["heatmap:write"])
+        # Use a non-existent short_id; a 404 proves the scope gate was passed.
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code != 403, r.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["heatmap:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_regenerate_rejected_without_heatmap_write_scope(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code == 403, r.json()

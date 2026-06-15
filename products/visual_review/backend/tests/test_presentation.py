@@ -9,6 +9,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
@@ -503,3 +506,45 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(self._history_url("Components-Button--default v2.0"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
+
+
+class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.vr_project = api.create_repo(team_id=self.team.id, repo_external_id=77777, repo_full_name="org/scope-test")
+
+    def _make_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_finalize_allowed_with_visual_review_write_scope(self):
+        key = self._make_key(["visual_review:write"])
+        # Target a non-existent UUID; a 404 proves the scope gate was passed.
+        url = f"/api/projects/{self.team.id}/visual_review/runs/{uuid4()}/finalize/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code != 403, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["visual_review:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_finalize_rejected_without_visual_review_write_scope(self, _name: str, scopes: list[str]):
+        key = self._make_key(scopes)
+        url = f"/api/projects/{self.team.id}/visual_review/runs/{uuid4()}/finalize/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()

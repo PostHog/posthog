@@ -231,6 +231,18 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
+    # Scheduled changes only target feature flags, so gate personal API key / OAuth access
+    # on feature_flag scopes. The viewset stays INTERNAL (no implicit scope mapping); these
+    # per-action overrides selectively open it to programmatic reads/writes — the same pattern
+    # used by OrganizationFeatureFlagViewSet.copy_flags. `*` consent still cannot reach an
+    # INTERNAL viewset (see posthog/permissions.py).
+    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
+        if self.action in ("list", "retrieve"):
+            return ["feature_flag:read"]
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return ["feature_flag:write"]
+        return None
+
     @extend_schema(
         parameters=[
             OpenApiParameter(

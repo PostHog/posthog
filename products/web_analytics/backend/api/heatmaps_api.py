@@ -1023,7 +1023,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         description="Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders "
         "and re-renders at every target width; status returns to 'processing'.",
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["heatmap:write"])
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         if obj.type != SavedHeatmap.Type.SCREENSHOT:

@@ -6,6 +6,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import serializers, status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -598,3 +601,108 @@ class TestScheduledChange(APIBaseTest):
         assert scheduled_change.scheduled_at == original_scheduled_at, (
             f"scheduled_at changed to {scheduled_change.scheduled_at} (status={response.status_code})"
         )
+
+
+class TestScheduledChangePersonalAPIKey(APIBaseTest):
+    """Verify scheduled change actions are reachable via personal API keys carrying feature_flag scopes.
+
+    The viewset declares `scope_object = "INTERNAL"`, which would normally block all personal API key
+    access. The per-action `dangerously_get_required_scopes` override opens reads to `feature_flag:read`
+    and writes to `feature_flag:write`, matching the MCP tool definitions, while keeping the viewset
+    INTERNAL (so `*` consent still cannot reach it).
+    """
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="scheduled-flag", name="Scheduled Flag"
+        )
+        self.scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=str(self.feature_flag.id),
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+    def _create_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def _headers(self, value: str) -> dict:
+        return {"authorization": f"Bearer {value}"}
+
+    def test_list_allowed_with_read_scope(self):
+        value = self._create_key(scopes=["feature_flag:read"])
+        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/", headers=self._headers(value))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert any(item["id"] == self.scheduled_change.id for item in response.json()["results"])
+
+    def test_retrieve_allowed_with_read_scope(self):
+        value = self._create_key(scopes=["feature_flag:read"])
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/",
+            headers=self._headers(value),
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == self.scheduled_change.id
+
+    def test_create_allowed_with_write_scope(self):
+        value = self._create_key(scopes=["feature_flag:write"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(self.feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2024-02-01T12:00:00Z",
+            },
+            headers=self._headers(value),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            # Read scope cannot satisfy a write action.
+            ("read_scope_on_write", ["feature_flag:read"]),
+            # `*` consent intentionally does not satisfy an INTERNAL viewset even with required_scopes.
+            ("wildcard_on_internal_viewset", ["*"]),
+            # An unrelated scope is insufficient.
+            ("unrelated_scope", ["insight:read"]),
+        ]
+    )
+    def test_create_rejected_without_write_scope(self, _name, scopes):
+        value = self._create_key(scopes=scopes)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(self.feature_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": "2024-02-01T12:00:00Z",
+            },
+            headers=self._headers(value),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @parameterized.expand(
+        [
+            # `*` consent intentionally does not satisfy an INTERNAL viewset even with required_scopes.
+            ("wildcard_on_internal_viewset", ["*"]),
+            # An unrelated scope is insufficient.
+            ("unrelated_scope", ["insight:read"]),
+        ]
+    )
+    def test_list_rejected_without_read_scope(self, _name, scopes):
+        value = self._create_key(scopes=scopes)
+        response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/", headers=self._headers(value))
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

@@ -551,7 +551,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:read", "external_data_source:read"])
     def data_health_issues(self, request: Request, **kwargs) -> Response:
         """
         Returns failed/disabled data pipeline items for the Pipeline status side panel.
