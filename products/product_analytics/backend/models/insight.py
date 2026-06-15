@@ -416,23 +416,14 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             return query.get("kind")
 
     @property
-    def are_alerts_supported(self) -> bool:
-        return self._unwrapped_query_kind() == NodeKind.TRENDS_QUERY
-
-    @property
-    def can_have_alerts(self) -> bool:
-        """The insight's query kind can carry alerts at all.
-
-        Broader than ``are_alerts_supported`` (trends only, the unflagged path): SQL-backed alerts
-        are gated by a feature flag at creation time, but once created they must keep displaying
-        and must survive insight updates regardless of the flag.
-        """
-        return self._unwrapped_query_kind() in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY)
-
-    @property
-    def is_hogql_backed(self) -> bool:
-        """True when the underlying query (unwrapped from any wrapper) is a HogQLQuery."""
-        return self._unwrapped_query_kind() == NodeKind.HOG_QL_QUERY
+    def alertable_query_kind(self) -> NodeKind | None:
+        """The insight's alert-capable query kind (trends or SQL today), or None if alerts aren't
+        supported for it. This is a pure kind check — the SQL feature flag is enforced by the
+        caller that creates the alert, not here, so existing alerts keep displaying and survive
+        insight edits regardless of the flag. Callers layer their own constraint: alert creation
+        gates SQL on the flag; Max's tooling accepts only trends; display checks just for None."""
+        kind = self._unwrapped_query_kind()
+        return NodeKind(kind) if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY) else None
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

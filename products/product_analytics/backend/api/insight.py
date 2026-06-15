@@ -719,7 +719,7 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
-        if not updated_insight.can_have_alerts:
+        if updated_insight.alertable_query_kind is None:
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
 
@@ -936,7 +936,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
-        if not insight.can_have_alerts:
+        if insight.alertable_query_kind is None:
             return []
 
         # Use prefetched alerts data

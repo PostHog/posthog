@@ -22,6 +22,7 @@ from posthog.schema import (
     DetectorConfig,
     HogQLAlertConfig,
     InsightThreshold,
+    NodeKind,
     TrendsAlertConfig,
 )
 
@@ -526,13 +527,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def validate_insight(self, value):
         if not value:
             return value
-        if value.are_alerts_supported:
-            return value
-        if value.is_hogql_backed:
-            if not self._hogql_alerts_enabled():
-                raise ValidationError("SQL insight alerts are not enabled for your account.")
-            return value
-        raise ValidationError("Alerts are not supported for this insight.")
+        # The SQL feature flag is enforced here, at the boundary that creates the alert — the model
+        # stays flag-agnostic so existing alerts keep working when the flag is off.
+        kind = value.alertable_query_kind
+        if kind is None:
+            raise ValidationError("Alerts are not supported for this insight.")
+        if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
+            raise ValidationError("SQL insight alerts are not enabled for your account.")
+        return value
 
     def _hogql_alerts_enabled(self) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current

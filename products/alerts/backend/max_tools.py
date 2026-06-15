@@ -12,6 +12,7 @@ from posthog.schema import (
     AlertConditionType,
     InsightThresholdType,
     InsightVizNode,
+    NodeKind,
     QuerySchemaRoot,
 )
 
@@ -432,7 +433,9 @@ class UpsertAlertTool(MaxTool):
     ) -> tuple[Insight, bool]:
         insight, was_auto_saved = await self._resolve_insight(insight_id)
         await self.check_object_access(insight, "viewer", resource="insight", action=action_description)
-        if not await sync_to_async(lambda: insight.are_alerts_supported)():
+        # Max's alert tooling only builds trends configs, so it accepts only trends — narrower
+        # than the model's alertable_query_kind (which also allows SQL).
+        if await sync_to_async(lambda: insight.alertable_query_kind)() != NodeKind.TRENDS_QUERY:
             raise ValueError("Alerts are only supported for TrendsQuery insights. This insight type is not supported.")
         return insight, was_auto_saved
 
