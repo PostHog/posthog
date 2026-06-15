@@ -5182,6 +5182,10 @@ snapshots:
         hash: v1.k794b7964.b7b66559dccb763f858ee380c0d40d53762513df15f578847fb7d9e4d895bac8.6oo4h2VarntGAxWHNR2JnaPQL3-aBA8yjSewpfh1nK8
     scenes-app-insights-funnels--funnel-historical-trends--light:
         hash: v1.k794b7964.9fe64ca28742cf7dfb240b6aa406aaa4a2f432c37ee9bb8f48226288a0cc211a.cBV0X_j0CpIsQmxGgG-npGLQE1GhEHECWbdfi3lrviY
+    scenes-app-insights-funnels--funnel-historical-trends-compare--dark:
+        hash: v1.k794b7964.51f9e17a891ee9e734b149f3d3e0d75a17efed2739fca34b2a60303707df663a.ILben9P-htPVE30EG-LMY2AmDKjaCcboMcsAm88a5gc
+    scenes-app-insights-funnels--funnel-historical-trends-compare--light:
+        hash: v1.k794b7964.0c262649d9cccd6e0db23747e5dea4d4c6482ec8c39a843f85dc3d57e353dca8.WlfMvGeOV7nIb2BT5eLjcx5gG3UhzUIXXknUZ6p5xgw
     scenes-app-insights-funnels--funnel-historical-trends-edit--dark:
         hash: v1.k794b7964.ddf1de4101252c9ab760f84a933063eeb60ccb17365da86b45e17eb2e427f1de.XJJJZj03zYGcwzIfDinL9v1jjblvbhyoBw6vJrZ-uZk
     scenes-app-insights-funnels--funnel-historical-trends-edit--light:
@@ -5991,9 +5995,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
         hash: v1.k794b7964.1da10a4331fb41fd378fad352c416601d4eedf888bf9aae5e270b1074468b957.RU3clHXF0srO7U8dAFNMBVfuvSYvXcj2NAnY2uJvG9Y
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
-        hash: v1.k794b7964.da57f09dc2a46281190694062da7cf44a9c528eb27f834f2ae01b0ea940ff824.Uwfj_zKUG9Vian6Csuup4e9enicLXIapt-2IUAYReXk
+        hash: v1.k794b7964.4a627c125b4196ab9adfe9389e8fa20e9ba68c9110af68d1087ac9b6325da406.WVq_ojXXs-K3q725sJPCE3y4bmi1S_bf1T72JHY5vvE
     scenes-app-settings-environment--settings-environment-feature-flags--light:
-        hash: v1.k794b7964.2212126acb7ca31bd1b12dbc3a005e5432e04cafd7e12d0c6ce837ce71e3eb02.XtoRCdGDDADO1yjqHCQnnUhLQBYNZ4Anub3Y-WqpUzY
+        hash: v1.k794b7964.92334bc6fd2dd55af190426919a3b9e4d4adbfc11fb5b403c43e41ff5c807e0f.7rSxSA5cE1O6khSCYNePcBiM4iSKmdKYTzDOIbT-C3A
     scenes-app-settings-environment--settings-environment-heatmaps--dark:
         hash: v1.k794b7964.c5ae4e689d776785d04e8bde3a6675b2c0fc0ceeb813ad432d07bacd9facccc3.owsMNyDWX9zci-keIbmIuPyrbcpcucyoljX1RDy0n8g
     scenes-app-settings-environment--settings-environment-heatmaps--light:

@@ -18,8 +18,8 @@ class TestEngineeringAnalyticsMCPTools:
         assert entry["annotations"]["destructiveHint"] is False
         assert "engineering_analytics:read" in entry["required_scopes"]
 
-    def test_removed_report_tools_are_not_generated(self) -> None:
+    @pytest.mark.parametrize("tool", ["workflow-report", "time-to-merge"])
+    def test_removed_report_tools_are_not_generated(self, tool: str) -> None:
         definitions = json.loads(_DEFINITIONS.read_text())
 
-        assert "workflow-report" not in definitions
-        assert "time-to-merge" not in definitions
+        assert tool not in definitions

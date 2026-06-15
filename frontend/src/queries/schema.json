@@ -21879,6 +21879,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -29676,6 +29680,7 @@
                 "data_warehouse_saved_queries",
                 "early_access_features",
                 "endpoints",
+                "engineering_analytics",
                 "error_tracking",
                 "experiments",
                 "feature_flags",
@@ -29706,6 +29711,7 @@
                 "session_replay",
                 "replay_vision",
                 "site_apps",
+                "skills",
                 "subscriptions",
                 "streamlit_apps",
                 "surveys",
@@ -40302,6 +40308,10 @@
                 "avg_start_offset_nano": {
                     "description": "Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph.",
                     "type": "number"
+                },
+                "calls_per_parent_invocation": {
+                    "description": "How many times this child runs per parent invocation (edge count / parent span count). Separates fan-out volume from per-call cost: a child can dominate total_duration_nano purely by running many times per parent. Null for root edges (no parent invocation to ratio against).",
+                    "type": ["number", "null"]
                 },
                 "count": {
                     "$ref": "#/definitions/integer"

@@ -172,6 +172,22 @@ describe('hog-charts interaction', () => {
             expect(result?.position.y).toBe(5)
         })
 
+        it('skips a series whose value at the hovered index is a gap (null/NaN) instead of showing 0', () => {
+            // The renderer draws no point for a gap; the tooltip must not fabricate a `0` row.
+            const present = makeSeries({ key: 'present', data: [10, 20] })
+            const gapped = makeSeries({ key: 'gapped', data: [5, null as unknown as number] })
+            const result = buildTooltipContext(
+                1,
+                [present, gapped],
+                ['a', 'b'],
+                xConst,
+                yConst,
+                fakeCanvasBounds,
+                defaultResolveValue
+            )
+            expect(result?.seriesData.map((d) => d.series.key)).toEqual(['present'])
+        })
+
         it('includes correct pixel position from xScale and minimum yScale output', () => {
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [50] })
