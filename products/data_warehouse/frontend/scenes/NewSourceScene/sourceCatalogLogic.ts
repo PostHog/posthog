@@ -34,6 +34,10 @@ export const ALL_SOURCES_CATEGORY = 'all'
 // them in a sensible catalog bucket explicitly.
 const MANUAL_SOURCE_CATEGORY: DataWarehouseSourceCategory = 'File storage'
 
+// "Request a data warehouse source" survey. We render our own modal and submit the answer
+// directly as a `survey sent` event rather than using the posthog-js survey popover.
+export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
+
 export interface SourceCatalogLogicProps {
     /** When set, only managed sources whose name is in this list are shown. */
     allowedSources?: ExternalDataSourceType[]
@@ -83,12 +87,33 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         setSearch: (search: string) => ({ search }),
         setSelectedCategory: (category: SourceCategoryFilter) => ({ category }),
         registerInterest: (item: CatalogItem) => ({ item }),
+        showSourceRequest: true,
+        hideSourceRequest: true,
+        setSourceRequestText: (text: string) => ({ text }),
+        submitSourceRequest: true,
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         selectedCategory: [
             ALL_SOURCES_CATEGORY as SourceCategoryFilter,
             { setSelectedCategory: (_, { category }) => category },
+        ],
+        sourceRequestModalOpen: [
+            false,
+            {
+                showSourceRequest: () => true,
+                hideSourceRequest: () => false,
+                submitSourceRequest: () => false,
+            },
+        ],
+        sourceRequestText: [
+            '',
+            {
+                setSourceRequestText: (_, { text }) => text,
+                // Reset on open/close, but NOT on submit — the submit listener reads it first.
+                showSourceRequest: () => '',
+                hideSourceRequest: () => '',
+            },
         ],
     }),
     selectors({
@@ -163,6 +188,8 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                             count: counts.get(category) ?? 0,
                         })
                     )
+                    // Most-populated categories first; fall back to taxonomy order on a tie.
+                    .sort((a, b) => b.count - a.count)
                 return [
                     { category: ALL_SOURCES_CATEGORY, label: 'All sources', count: catalogItems.length },
                     ...present,
@@ -201,6 +228,21 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 email: values.user?.email,
             })
             lemonToast.success('Thank you for your interest! We will notify you when this source is available.')
+        },
+        showSourceRequest: () => {
+            posthog.capture('survey shown', { $survey_id: SOURCE_REQUEST_SURVEY_ID })
+        },
+        submitSourceRequest: () => {
+            const response = values.sourceRequestText.trim()
+            if (!response) {
+                return
+            }
+            // Submit straight to the survey behind the scenes — no posthog-js survey popover.
+            posthog.capture('survey sent', {
+                $survey_id: SOURCE_REQUEST_SURVEY_ID,
+                $survey_response: response,
+            })
+            lemonToast.success('Thanks! Your source request has been submitted.')
         },
     })),
 ])

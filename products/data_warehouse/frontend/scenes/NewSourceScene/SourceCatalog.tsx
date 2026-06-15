@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -13,9 +12,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
 import { CatalogItem, sourceCatalogLogic } from './sourceCatalogLogic'
-
-// "Request a data warehouse source" survey — shown when a user can't find the source they want.
-const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 
 // Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
 // height) so a wrapped name plus the "Notify me" button can never clip.
@@ -81,12 +77,12 @@ function SourceTile({
     )
 }
 
-function RequestSourceTile(): JSX.Element {
+function RequestSourceTile({ onRequest }: { onRequest: () => void }): JSX.Element {
     return (
         <button
             type="button"
             className={`${TILE_CLASS} border-dashed hover:border-primary cursor-pointer text-left`}
-            onClick={() => posthog.displaySurvey(SOURCE_REQUEST_SURVEY_ID)}
+            onClick={onRequest}
             data-attr="catalog-request-source"
         >
             <div className="shrink-0 flex items-center justify-center w-[60px]">
@@ -102,8 +98,17 @@ function RequestSourceTile(): JSX.Element {
 
 export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Element {
     const logic = sourceCatalogLogic({ allowedSources })
-    const { filteredItems, categoriesWithCounts, search, selectedCategory } = useValues(logic)
-    const { setSearch, setSelectedCategory, registerInterest } = useActions(logic)
+    const { filteredItems, categoriesWithCounts, search, selectedCategory, sourceRequestModalOpen, sourceRequestText } =
+        useValues(logic)
+    const {
+        setSearch,
+        setSelectedCategory,
+        registerInterest,
+        showSourceRequest,
+        hideSourceRequest,
+        setSourceRequestText,
+        submitSourceRequest,
+    } = useActions(logic)
 
     const accessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.ExternalDataSource,
@@ -153,9 +158,39 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                             onNotify={registerInterest}
                         />
                     ))}
-                    <RequestSourceTile />
+                    <RequestSourceTile onRequest={showSourceRequest} />
                 </div>
             </div>
+
+            <LemonModal
+                isOpen={sourceRequestModalOpen}
+                onClose={hideSourceRequest}
+                title="Request a source"
+                description="Tell us which source you'd like to connect and we'll take it into account."
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={hideSourceRequest}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={submitSourceRequest}
+                            disabledReason={!sourceRequestText.trim() ? 'Describe the source first' : undefined}
+                            data-attr="catalog-request-source-submit"
+                        >
+                            Submit request
+                        </LemonButton>
+                    </>
+                }
+            >
+                <LemonTextArea
+                    value={sourceRequestText}
+                    onChange={setSourceRequestText}
+                    placeholder="e.g. Acme CRM — https://acme.com/developers/api"
+                    minRows={3}
+                    autoFocus
+                />
+            </LemonModal>
         </div>
     )
 }
