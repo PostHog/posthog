@@ -43,6 +43,8 @@ class TestValidateFilterTree(SimpleTestCase):
             ("or_two_conditions", _or(_cond(), _cond(operator="contains", value="view"))),
             ("not_condition", _not(_cond())),
             ("nested_and_or", _and(_or(_cond(), _cond(value="click")), _cond(field="distinct_id", value="u"))),
+            ("ip_condition", _cond(field="ip", value="203.0.113.7")),
+            ("and_ip_and_event", _and(_cond(field="ip", value="203.0.113.7"), _cond())),
         ]
     )
     def test_valid_trees(self, _name: str, tree: dict):
@@ -214,6 +216,10 @@ class TestEvaluateFilterTree(SimpleTestCase):
             ("contains_no_match", _cond("event_name", "contains", "click"), {"event_name": "pageview"}, False),
             ("missing_field", _cond("event_name", "exact", "pageview"), {}, False),
             ("distinct_id_match", _cond("distinct_id", "exact", "u1"), {"distinct_id": "u1"}, True),
+            ("ip_exact_match", _cond("ip", "exact", "203.0.113.7"), {"ip": "203.0.113.7"}, True),
+            ("ip_exact_no_match", _cond("ip", "exact", "203.0.113.7"), {"ip": "203.0.113.8"}, False),
+            ("ip_contains_match", _cond("ip", "contains", "10.0.0."), {"ip": "10.0.0.42"}, True),
+            ("ip_missing_field", _cond("ip", "exact", "203.0.113.7"), {"event_name": "pageview"}, False),
         ]
     )
     def test_condition(self, _name: str, tree: dict, event: dict, expected: bool):
@@ -290,6 +296,14 @@ class TestValidateTestCases(SimpleTestCase):
             validate_test_cases([{"event_name": 123, "expected_result": "drop"}])
         self.assertIn("must be a string", str(ctx.exception))
 
+    def test_non_string_ip(self):
+        with self.assertRaises(ValidationError) as ctx:
+            validate_test_cases([{"ip": 123, "expected_result": "drop"}])
+        self.assertIn("must be a string", str(ctx.exception))
+
+    def test_valid_test_case_with_ip(self):
+        validate_test_cases([{"ip": "203.0.113.7", "expected_result": "drop"}])
+
 
 class TestRunTestCases(SimpleTestCase):
     def test_passing_test_cases(self):
@@ -330,6 +344,14 @@ class TestRunTestCases(SimpleTestCase):
         test_cases = [
             {"event_name": "pageview", "distinct_id": "bot-123", "expected_result": "drop"},
             {"event_name": "pageview", "distinct_id": "user-1", "expected_result": "ingest"},
+        ]
+        self.assertEqual(run_test_cases(tree, test_cases), [])
+
+    def test_test_case_with_ip(self):
+        tree = _and(_cond("event_name", "exact", "pageview"), _cond("ip", "contains", "10.0.0."))
+        test_cases = [
+            {"event_name": "pageview", "ip": "10.0.0.42", "expected_result": "drop"},
+            {"event_name": "pageview", "ip": "203.0.113.7", "expected_result": "ingest"},
         ]
         self.assertEqual(run_test_cases(tree, test_cases), [])
 

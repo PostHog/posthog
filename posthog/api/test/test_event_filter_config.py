@@ -106,6 +106,23 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(data["mode"], seed["mode"])
         self.assertEqual(data["id"], seed["id"])
 
+    def test_create_accepts_ip_condition(self):
+        self._seed_config()
+        new_tree = _or(_cond("ip", "exact", "203.0.113.7"))
+        new_test_cases = [
+            {"ip": "203.0.113.7", "expected_result": "drop"},
+            {"ip": "203.0.113.8", "expected_result": "ingest"},
+        ]
+
+        response = self.client.post(
+            self._url(), data={"filter_tree": new_tree, "test_cases": new_test_cases}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["filter_tree"], new_tree)
+        self.assertEqual(data["test_cases"], new_test_cases)
+
     def test_create_upserts_test_cases(self):
         seed = self._seed_config()
         new_test_cases = [{"event_name": "$pageview", "expected_result": "drop"}]

@@ -5,7 +5,7 @@ from django.db import models
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 
-ALLOWED_FIELDS = {"event_name", "distinct_id"}
+ALLOWED_FIELDS = {"event_name", "distinct_id", "ip"}
 ALLOWED_OPERATORS = {"exact", "contains"}
 NODE_TYPES = {"and", "or", "not", "condition"}
 EXPECTED_RESULTS = {"drop", "ingest"}
@@ -39,7 +39,7 @@ class EventFilterConfig(UUIDTModel):
             "Boolean expression tree. Nodes: "
             '{"type": "and"|"or", "children": [...]}, '
             '{"type": "not", "child": {...}}, '
-            '{"type": "condition", "field": "event_name"|"distinct_id", '
+            '{"type": "condition", "field": "event_name"|"distinct_id"|"ip", '
             '"operator": "exact"|"contains", "value": "<string>"}'
         ),
     )
@@ -48,7 +48,7 @@ class EventFilterConfig(UUIDTModel):
         blank=True,
         help_text=(
             "Test events to validate the filter. Each: "
-            '{"event_name": "...", "distinct_id": "...", '
+            '{"event_name": "...", "distinct_id": "...", "ip": "...", '
             '"expected_result": "drop"|"ingest"}'
         ),
     )
@@ -221,7 +221,7 @@ def validate_test_cases(test_cases: object) -> None:
         if tc["expected_result"] not in EXPECTED_RESULTS:
             raise ValidationError({"test_cases": f"Test case {i}: expected_result must be 'drop' or 'ingest'."})
 
-        for field in ("event_name", "distinct_id"):
+        for field in ("event_name", "distinct_id", "ip"):
             if field in tc and not isinstance(tc[field], str):
                 raise ValidationError({"test_cases": f"Test case {i}: {field} must be a string."})
 
