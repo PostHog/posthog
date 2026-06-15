@@ -22,7 +22,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
 from ee.hogai.tool import MaxTool
 
@@ -286,6 +286,14 @@ class SummarizeReplayVisionSummariesTool(MaxTool):
         return content, {"scanner_id": scanner_id, "summary_count": len(lines)}
 
 
+# Slugify each stored metadata tag before `hasAny`, so the case/format-insensitive match works against rows
+# whose fixed-vocab tags were stamped verbatim — no backfill. The caller passes already-slugified values in
+# `{tags}`. Built from hardcoded literals only (no user/LLM input), preserving the `_append_filter` invariant.
+_TAGS_FILTER_CLAUSE = (
+    f"hasAny(arrayMap(t -> {clickhouse_slugify_sql('t')}, JSONExtract(metadata, 'tags', 'Array(String)')), {{tags}})"
+)
+
+
 @dataclass(frozen=True)
 class _ObservationFilters:
     """Exact-outcome filters, applied inside the ClickHouse ranking query against the embedding metadata
@@ -310,18 +318,7 @@ class _ObservationFilters:
                 clauses, placeholders, "verdict", self.verdict, "JSONExtractString(metadata, 'verdict') IN {verdict}"
             )
         if self.tags:
-            # Slugify each stored metadata tag (mirroring `slugify_tag`) before `hasAny`, so the case/format-
-            # insensitive match works against rows whose fixed-vocab tags were stamped verbatim — no backfill.
-            # The caller passes already-slugified values in `{tags}`.
-            self._append_filter(
-                clauses,
-                placeholders,
-                "tags",
-                self.tags,
-                "hasAny("
-                "arrayMap(t -> replaceRegexpAll(replaceRegexpAll(lower(t), '[^a-z0-9_-]+', '_'), '^_+|_+$', ''), "
-                "JSONExtract(metadata, 'tags', 'Array(String)')), {tags})",
-            )
+            self._append_filter(clauses, placeholders, "tags", self.tags, _TAGS_FILTER_CLAUSE)
         if self.min_score is not None:
             self._append_filter(
                 clauses,
