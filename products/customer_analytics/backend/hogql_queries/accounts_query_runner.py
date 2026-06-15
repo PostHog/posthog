@@ -32,8 +32,9 @@ ROLE_FIELDS = {
     "accountOwner": "account_owner",
 }
 
-# Roles that make an account "mine" for the `assignedToCurrentUser` shortcut filter.
-CURRENT_USER_ROLE_KEYS = ("csm", "account_executive")
+# Roles that count as "assigned" for the `assignedToUserIds` filter — an account
+# is assigned to a user if they are its CSM or account executive.
+ASSIGNED_ROLE_KEYS = ("csm", "account_executive")
 
 
 class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
@@ -123,8 +124,8 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             for json_key in ROLE_FIELDS.values():
                 where_exprs.append(self._role_id_isnull(json_key))
 
-        if self.query.assignedToCurrentUser:
-            where_exprs.append(self._assigned_to_current_user_expr())
+        if self.query.assignedToUserIds:
+            where_exprs.append(self._assigned_to_users_expr(self.query.assignedToUserIds))
 
         if self.query.filterExpression and self.query.filterExpression.strip():
             where_exprs.append(parse_expr(self.query.filterExpression))
@@ -198,20 +199,16 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             {"role_key": ast.Constant(value=json_key)},
         )
 
-    def _assigned_to_current_user_expr(self) -> ast.Expr:
-        user_id = getattr(self.user, "id", None)
-        if user_id is None:
-            # No authenticated identity to match against, so "my accounts" matches nothing.
+    def _assigned_to_users_expr(self, user_ids: list[int]) -> ast.Expr:
+        # OR over the CSM/AE roles, reusing the same IN-list shape as the
+        # per-role filters: an account is "assigned to" a user if they hold
+        # either role. Explicit ids (not the requester) so a shared URL filtered
+        # by "my accounts" resolves to the same accounts for every viewer.
+        role_exprs = [self._role_filter_expr(json_key, user_ids) for json_key in ASSIGNED_ROLE_KEYS]
+        role_exprs = [expr for expr in role_exprs if expr is not None]
+        if not role_exprs:
             return ast.Constant(value=False)
-        return ast.Or(
-            exprs=[
-                parse_expr(
-                    "JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)') = {user_id}",
-                    {"role_key": ast.Constant(value=json_key), "user_id": ast.Constant(value=user_id)},
-                )
-                for json_key in CURRENT_USER_ROLE_KEYS
-            ]
-        )
+        return ast.Or(exprs=role_exprs)
 
     def _calculate(self) -> AccountsQueryResponse:
         metrics_results = self._compute_metrics_results(self.query.metrics) if self.query.metrics else None

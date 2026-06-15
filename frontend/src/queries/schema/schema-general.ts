@@ -2332,8 +2332,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     accountExecutive?: integer[]
     /** Match accounts whose account owner is any of these user ids (OR semantics). */
     accountOwner?: integer[]
-    /** Match accounts where the requesting user is the CSM or the account executive. The user id is resolved server-side from the authenticated request, never the client. */
-    assignedToCurrentUser?: boolean
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: integer[]
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression

@@ -20494,12 +20494,13 @@ class AccountsQuery(BaseModel):
         description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
     )
     allRolesUnassigned: bool | None = None
-    assignedToCurrentUser: bool | None = Field(
+    assignedToUserIds: list[int] | None = Field(
         default=None,
         description=(
-            "Match accounts where the requesting user is the CSM or the account"
-            " executive. The user id is resolved server-side from the authenticated"
-            " request, never the client."
+            "Match accounts where any of these user ids is the CSM or the account"
+            ' executive (OR over both roles). Drives the "My accounts" shortcut (the'
+            ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
+            " explicit so a shared URL resolves identically for every viewer."
         ),
     )
     csm: list[int] | None = Field(

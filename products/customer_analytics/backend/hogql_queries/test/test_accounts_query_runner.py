@@ -203,72 +203,80 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             ("account_executive", "account_executive"),
         ]
     )
-    def test_assigned_to_current_user_matches_when_user_holds_role(self, _name, role_key):
+    def test_assigned_to_user_matches_when_user_holds_role(self, _name, role_key):
         mine = create_account(
             team_id=self.team.id,
             name="Mine",
-            _properties={role_key: {"id": self.user.id, "email": self.user.email}},
+            _properties={role_key: {"id": 7, "email": "a@x.com"}},
         )
         create_account(
             team_id=self.team.id,
             name="Someone else's",
-            _properties={role_key: {"id": self.user.id + 1, "email": "other@x.com"}},
+            _properties={role_key: {"id": 8, "email": "other@x.com"}},
         )
-        self.assertEqual(self._ids(user=self.user, assignedToCurrentUser=True), [str(mine.id)])
+        self.assertEqual(self._ids(assignedToUserIds=[7]), [str(mine.id)])
 
-    def test_assigned_to_current_user_unions_csm_and_account_executive_but_not_owner(self):
-        as_csm = create_account(
-            team_id=self.team.id, name="As CSM", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
-        )
+    def test_assigned_to_user_unions_csm_and_account_executive_but_not_owner(self):
+        as_csm = create_account(team_id=self.team.id, name="As CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         as_ae = create_account(
             team_id=self.team.id,
             name="As AE",
-            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+            _properties={"account_executive": {"id": 7, "email": "a@x.com"}},
         )
         create_account(
             team_id=self.team.id,
             name="As owner only",
-            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+            _properties={"account_owner": {"id": 7, "email": "a@x.com"}},
         )
         create_account(team_id=self.team.id, name="Unassigned")
 
         self.assertEqual(
-            set(self._ids(user=self.user, assignedToCurrentUser=True)),
+            set(self._ids(assignedToUserIds=[7])),
             {str(as_csm.id), str(as_ae.id)},
         )
 
-    def test_assigned_to_current_user_without_authenticated_user_matches_nothing(self):
+    def test_assigned_to_user_matches_any_of_multiple_ids(self):
+        as_csm = create_account(team_id=self.team.id, name="CSM 7", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        as_ae = create_account(
+            team_id=self.team.id, name="AE 9", _properties={"account_executive": {"id": 9, "email": "b@x.com"}}
+        )
+        create_account(team_id=self.team.id, name="CSM 11", _properties={"csm": {"id": 11, "email": "c@x.com"}})
+        self.assertEqual(set(self._ids(assignedToUserIds=[7, 9])), {str(as_csm.id), str(as_ae.id)})
+
+    def test_assigned_to_user_is_independent_of_requesting_user(self):
+        # The ids are explicit, not the requester — a shared "my accounts" link
+        # resolves to the same accounts no matter which user opens it.
+        target = create_account(team_id=self.team.id, name="Target", _properties={"csm": {"id": 7, "email": "t@x.com"}})
+        create_account(team_id=self.team.id, name="Other", _properties={"csm": {"id": 8, "email": "o@x.com"}})
+        as_user = self._ids(user=self.user, assignedToUserIds=[7])
+        anonymous = self._ids(user=None, assignedToUserIds=[7])
+        self.assertEqual(as_user, [str(target.id)])
+        self.assertEqual(as_user, anonymous)
+
+    def test_assigned_to_user_unknown_id_matches_nothing(self):
         create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self.assertEqual(self._ids(user=None, assignedToCurrentUser=True), [])
+        self.assertEqual(self._ids(assignedToUserIds=[999999]), [])
 
-    def test_assigned_to_current_user_combines_with_search(self):
-        match = create_account(
-            team_id=self.team.id, name="Acme", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
-        )
-        create_account(
-            team_id=self.team.id, name="Globex", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
-        )
-        self.assertEqual(self._ids(user=self.user, assignedToCurrentUser=True, search="acme"), [str(match.id)])
+    def test_assigned_to_user_empty_ids_is_a_noop(self):
+        a = create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self.assertEqual(self._ids(assignedToUserIds=[]), [str(a.id)])
 
-    def test_assigned_to_current_user_respects_team_isolation(self):
+    def test_assigned_to_user_combines_with_search(self):
+        match = create_account(team_id=self.team.id, name="Acme", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        create_account(team_id=self.team.id, name="Globex", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self.assertEqual(self._ids(assignedToUserIds=[7], search="acme"), [str(match.id)])
+
+    def test_assigned_to_user_respects_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
-        create_account(
-            team_id=other_team.id, name="Theirs", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
-        )
-        mine = create_account(
-            team_id=self.team.id, name="Mine", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
-        )
-        self.assertEqual(self._ids(user=self.user, assignedToCurrentUser=True), [str(mine.id)])
+        create_account(team_id=other_team.id, name="Theirs", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        mine = create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self.assertEqual(self._ids(assignedToUserIds=[7]), [str(mine.id)])
 
-    def test_assigned_to_current_user_metrics_mode_counts_only_my_accounts(self):
-        create_account(
-            team_id=self.team.id, name="Mine", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
-        )
-        create_account(
-            team_id=self.team.id, name="Theirs", _properties={"csm": {"id": self.user.id + 1, "email": "x@x.com"}}
-        )
+    def test_assigned_to_user_metrics_mode_counts_only_matching_accounts(self):
+        create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        create_account(team_id=self.team.id, name="Theirs", _properties={"csm": {"id": 8, "email": "x@x.com"}})
         runner = AccountsQueryRunner(
-            query=AccountsQuery(metrics=["count()"], select=[], assignedToCurrentUser=True),
+            query=AccountsQuery(metrics=["count()"], select=[], assignedToUserIds=[7]),
             team=self.team,
             user=self.user,
         )

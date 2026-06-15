@@ -3,9 +3,12 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { userLogic } from 'scenes/userLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
+import type { UserType } from '~/types'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { accountsLogic } from './accountsLogic'
@@ -81,17 +84,33 @@ describe('AccountsTabFilters', () => {
     })
 
     it('reflects a restored my-accounts filter as checked', () => {
+        userLogic.actions.loadUserSuccess({ id: 42 } as unknown as UserType)
         logic.actions.setAssignedToCurrentUser(true)
         renderFilters()
 
         expect(myAccountsCheckbox().checked).toBe(true)
     })
 
-    it('clicking it enables the my-accounts filter on the logic', () => {
+    it('clicking it enables the my-accounts filter (resolved to the current user id)', () => {
+        userLogic.actions.loadUserSuccess({ id: 42 } as unknown as UserType)
         renderFilters()
 
         fireEvent.click(myAccountsCheckbox())
 
+        expect(logic.values.assignedToFilter).toEqual([42])
         expect(logic.values.assignedToCurrentUser).toBe(true)
+    })
+
+    it('renders the "Assigned to" picker with its default label', () => {
+        renderFilters()
+
+        expect(screen.getByText('Assigned to anyone')).toBeInTheDocument()
+    })
+
+    it('reflects a restored assigned-to filter as a count', () => {
+        logic.actions.setAssignedToFilter([1, 2])
+        renderFilters()
+
+        expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
     })
 })
