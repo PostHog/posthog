@@ -1,6 +1,6 @@
 import type { BarScaleSet } from '../../../core/scales'
 import { computeBoxBand } from '../computeBoxLayout'
-import type { BoxPlotSeries } from '../computeBoxLayout'
+import type { BoxPlotSeries } from '../types'
 
 /** Whether the cursor lies inside the band-axis extent of a box. Mirrors the
  *  bar-chart pattern of resolving "which sub-band is under the cursor" with a

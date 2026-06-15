@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -236,6 +237,10 @@ def resolve_user_for_workspace(
     # the user-facing failure reply.
     probe = workspace_result.candidates[0]
     slack_email = get_slack_email_for_user(probe, slack_user_id)
+
+    if settings.DEBUG:
+        # When running locally - match the local user
+        slack_email = "test@posthog.com"
 
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,

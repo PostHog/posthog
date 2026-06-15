@@ -255,7 +255,7 @@ class BaseAgentRunner(ABC):
         stream_subgraphs: bool = True,
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         state = await self._init_or_update_state()
         config = self._get_config()
 
@@ -600,6 +600,8 @@ class BaseAgentRunner(ABC):
 
         if isinstance(update, ConversationTitleAction):
             self._conversation.title = update.title
+            if update.topic is not None:
+                self._conversation.topic = update.topic
             self._pending_conversation_update = True
             return None
 

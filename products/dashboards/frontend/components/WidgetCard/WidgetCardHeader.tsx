@@ -27,6 +27,8 @@ export type WidgetCardHeaderProps = {
     showDescription?: boolean
     loading?: boolean
     showEditingControls?: boolean
+    /** When true, title is plain text so drag on the header does not compete with navigation. */
+    isDashboardEditMode?: boolean
     shouldHideMoreButton?: boolean
     moreButtonOverlay?: MoreProps['overlay']
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -37,7 +39,7 @@ type WidgetCardHeaderTitleProps = {
     defaultTitle?: string
     titleHref?: string
     loading?: boolean
-    showEditingControls?: boolean
+    isDashboardEditMode?: boolean
     headingLevel?: 'h3' | 'h4'
     className?: string
 }
@@ -47,18 +49,17 @@ function WidgetCardHeaderTitle({
     defaultTitle,
     titleHref,
     loading,
-    showEditingControls,
+    isDashboardEditMode,
     headingLevel = 'h4',
     className,
 }: WidgetCardHeaderTitleProps): JSX.Element {
     const displayTitle = title || defaultTitle || 'Untitled'
     const Heading = headingLevel
+    const linkTitle = !!titleHref && !isDashboardEditMode
 
     const titleContent = (
         <>
-            <span className={clsx('truncate', titleHref && !showEditingControls && 'text-primary')}>
-                {displayTitle}
-            </span>
+            <span className={clsx('truncate', linkTitle && 'text-primary')}>{displayTitle}</span>
             {loading && (
                 <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
                     <Spinner className="mr-1.5 text-base" textColored />
@@ -68,14 +69,13 @@ function WidgetCardHeaderTitle({
         </>
     )
 
-    const titleEl =
-        titleHref && !showEditingControls ? (
-            <Link to={titleHref} className="max-w-full truncate">
-                {titleContent}
-            </Link>
-        ) : (
-            titleContent
-        )
+    const titleEl = linkTitle ? (
+        <Link to={titleHref} className="max-w-full truncate">
+            {titleContent}
+        </Link>
+    ) : (
+        titleContent
+    )
 
     return (
         <Heading
@@ -83,7 +83,7 @@ function WidgetCardHeaderTitle({
             data-attr="widget-card-title"
             data-slot="widget-card-header-title"
             className={clsx(
-                titleHref && !showEditingControls && 'inline-flex items-center overflow-visible',
+                linkTitle && 'inline-flex items-center overflow-visible',
                 headingLevel === 'h3' && 'truncate text-sm font-semibold m-0',
                 className
             )}
@@ -158,6 +158,7 @@ export function WidgetCardHeader({
     showDescription = true,
     loading,
     showEditingControls,
+    isDashboardEditMode,
     shouldHideMoreButton,
     moreButtonOverlay,
     onDragHandleMouseDown,
@@ -180,7 +181,7 @@ export function WidgetCardHeader({
             defaultTitle={defaultTitle}
             titleHref={titleHref}
             loading={loading}
-            showEditingControls={showEditingControls}
+            isDashboardEditMode={isDashboardEditMode}
             headingLevel="h4"
         />
     )
@@ -236,7 +237,7 @@ export function WidgetCardHeader({
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
                         loading={loading}
-                        showEditingControls={showEditingControls}
+                        isDashboardEditMode={isDashboardEditMode}
                         headingLevel="h3"
                     />
                 </div>
@@ -246,7 +247,7 @@ export function WidgetCardHeader({
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
                         loading={loading}
-                        showEditingControls={showEditingControls}
+                        isDashboardEditMode={isDashboardEditMode}
                         headingLevel="h3"
                         className="flex-1"
                     />

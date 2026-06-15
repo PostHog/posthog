@@ -51,11 +51,16 @@ log = logging.getLogger(__name__)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
+    # libpq reports a bad password via SCRAM with a different wording than the line above.
+    "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "SSL connection has been closed unexpectedly": "The SSL/TLS connection to your database was closed unexpectedly. Check your database's SSL configuration and that the port is correct.",
 }
 
 
@@ -183,6 +188,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
+            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
+            # reduction before raising this. The conflict comes from the customer's read replica
+            # applying WAL that removes row versions our long-running read still needs
+            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
+            # condition is sustained, not a transient blip — retrying the whole activity just
+            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
+            # Matched substring excludes the volatile retry count and is distinct from the
+            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
+            "successive SerializationFailure errors. Aborting.": (
+                "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
+                '("canceling statement due to conflict with recovery"). This happens when the replica must '
+                "apply changes from the primary that remove rows the sync is still reading. Increase "
+                "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
+                "connection at the primary database, then re-enable the sync."
+            ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
@@ -260,15 +281,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 schema=config.schema,
                 names=names,
             )
-            db_foreign_keys = get_postgres_foreign_keys(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                names=names,
-            )
+            # Foreign keys are advisory metadata (they pre-populate relationship hints in the
+            # table picker). The discovery query joins three `information_schema` views, which
+            # can be expensive enough to OOM the source database on schemas with many
+            # constraints. Degrade gracefully on any failure — like PK and index discovery
+            # below — so optional metadata never breaks schema listing or the import.
+            try:
+                db_foreign_keys = get_postgres_foreign_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    names=names,
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
+                db_foreign_keys = {}
 
             if with_counts:
                 row_counts = get_postgres_row_count(

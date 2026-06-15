@@ -85,7 +85,12 @@ from products.error_tracking.backend.temporal.spike_event_cleanup.schedule impor
 from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import (
     create_error_tracking_symbol_set_cleanup_schedule,
 )
+from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
+    create_replay_vision_gemini_cleanup_sweep_schedule,
+)
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
@@ -647,6 +652,7 @@ schedules = [
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
+    create_experiment_precompute_canary_schedule,
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
@@ -662,13 +668,15 @@ schedules = [
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
+    create_replay_vision_estimates_schedule,
     create_evaluate_code_workstreams_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
-    # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
-    # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
+    # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
+    # deployment's own Redis index, so per-deployment scoping is inherent.
     schedules.append(create_gemini_cleanup_sweep_schedule)
+    schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:

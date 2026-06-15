@@ -57,7 +57,8 @@ test.describe('Batch export logs', () => {
 
         await page.goto(`/pipeline/batch-exports/${MOCK_EXPORT_ID}?tab=logs`)
 
-        // The logs tab should render the LogsViewer with its search input
-        await expect(page.getByPlaceholder('Search messages or invocation ID')).toBeVisible()
+        // The logs tab should render the LogsViewer with its search input.
+        // Batch exports label instances as "run", so the placeholder reads "run ID".
+        await expect(page.getByPlaceholder('Search messages or run ID')).toBeVisible()
     })
 })

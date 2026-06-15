@@ -101,6 +101,13 @@ pub async fn handle_single(
     Ok((model, embedding))
 }
 
+// Exponential backoff (base 2) with jitter, in milliseconds, for retry `attempt`.
+fn retry_backoff_ms(attempt: usize) -> u64 {
+    let base_ms = RETRY_BASE_SECS.pow(attempt as u32 + 1) * 1000;
+    let jitter_ms = rand::thread_rng().gen_range(RETRY_JITTER_RANGE);
+    (base_ms as i64 + jitter_ms).max(0) as u64
+}
+
 pub async fn generate_embedding(
     context: Arc<AppContext>,
     model: EmbeddingModel,
@@ -117,6 +124,7 @@ pub async fn generate_embedding(
 
     let mut last_status = None;
     let mut last_error_body = None;
+    let mut last_transport_error = None;
 
     for attempt in 0..MAX_RETRY_ATTEMPTS {
         let api_req = construct_request(
@@ -127,7 +135,28 @@ pub async fn generate_embedding(
         );
 
         counter!(REQUESTS_SENT, labels.render()).increment(1);
-        let response = context.client.execute(api_req).await?; // Unhandled - network errors etc
+        let response = match context.client.execute(api_req).await {
+            Ok(response) => response,
+            Err(e) => {
+                // Transport errors (timeouts, connection resets, etc.) are transient.
+                // Retry them with backoff like a 5xx rather than aborting the whole
+                // batch, which would panic and restart the worker.
+                if attempt < MAX_RETRY_ATTEMPTS - 1 {
+                    let sleep_ms = retry_backoff_ms(attempt);
+                    warn!(
+                        "Request to embedding provider failed ({}), retrying in {}ms (attempt {}/{})",
+                        e,
+                        sleep_ms,
+                        attempt + 1,
+                        MAX_RETRY_ATTEMPTS - 1
+                    );
+                    tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+                }
+                last_status = None;
+                last_transport_error = Some(e);
+                continue;
+            }
+        };
 
         let status = response.status();
         let response_labels = labels
@@ -159,9 +188,7 @@ pub async fn generate_embedding(
         }
 
         if attempt < MAX_RETRY_ATTEMPTS - 1 {
-            let base_ms = RETRY_BASE_SECS.pow(attempt as u32 + 1) * 1000;
-            let jitter_ms = rand::thread_rng().gen_range(RETRY_JITTER_RANGE);
-            let sleep_ms = (base_ms as i64 + jitter_ms).max(0) as u64;
+            let sleep_ms = retry_backoff_ms(attempt);
             warn!(
                 "Got {} from embedding provider, retrying in {}ms (attempt {}/{})",
                 status,
@@ -174,14 +201,26 @@ pub async fn generate_embedding(
     }
 
     // All attempts exhausted or non-retryable error
-    let status = last_status.unwrap();
-    error!(
-        "Failed to generate embeddings, got {} from {}",
-        status,
-        model.provider()
-    );
-    if let Some(error_message) = last_error_body {
-        error!("Error message from {}: {}", model.provider(), error_message);
+    match last_status {
+        Some(status) => {
+            error!(
+                "Failed to generate embeddings, got {} from {}",
+                status,
+                model.provider()
+            );
+            if let Some(error_message) = last_error_body {
+                error!("Error message from {}: {}", model.provider(), error_message);
+            }
+        }
+        None => {
+            error!(
+                "Failed to generate embeddings, no response from {}: {}",
+                model.provider(),
+                last_transport_error
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "unknown error".to_string())
+            );
+        }
     }
 
     Err(anyhow::anyhow!("Failed to generate embeddings"))

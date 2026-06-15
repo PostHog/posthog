@@ -486,6 +486,12 @@ build:
         cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt
             schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
+    build:widget-types:
+        steps:
+            - cmd: python bin/build-dashboard-widget-types.py
+            - cmd: pnpm --filter=@posthog/frontend exec node
+                  ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
+        description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
@@ -505,6 +511,7 @@ build:
     build:openapi:
         steps:
             - build:openapi-schema
+            - build:widget-types
             - build:openapi-types
             - build:openapi-mcp-types
             - build:openapi-mcp
@@ -799,6 +806,9 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:report:
+        click: hogli_commands.doctor:doctor_report
+        description: Dump a paste-ready dev-environment diagnostics report for devex triage
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure
@@ -1015,4 +1025,8 @@ environment:
     dev:sandbox:selftest:
         bin_script: dev-sandbox-selftest
         description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
+        hidden: true
+    build:dashboard:widget:types:
+        bin_script: build-dashboard-widget-types.py
+        description: Widget enum preflight, date options, and form-field manifest codegen
         hidden: true

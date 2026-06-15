@@ -14,6 +14,7 @@ import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
 import CLI_SYNTAX from '@/templates/sections/cli-syntax.md'
 import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
@@ -34,6 +35,10 @@ export interface InstructionsContext {
     /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
      *  prompt sections whose corresponding tool is flag-gated. */
     featureFlags?: EvaluatedFlags | undefined
+    /** Whether `render-ui` is actually available to this client (the `mcp-render-ui`
+     *  flag is on AND the client is an MCP Apps host). Gates the CLI rendering section
+     *  so it never reaches clients — like Claude Code — that can't mount the iframe. */
+    renderUiEnabled?: boolean | undefined
 }
 
 /**
@@ -86,6 +91,7 @@ export class InstructionsFormatter {
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
             CLI_ERROR_HANDLING,
+            ...(ctx.renderUiEnabled ? [CLI_RENDERING] : []),
             BASIC_FUNCTIONALITY,
             TOOL_SEARCH,
             RETRIEVING_DATA,

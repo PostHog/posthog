@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
-# from posthog.schema import PersonsOnEventsMode
+# from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import NodeKind, ProductKey
+from posthog.schema_enums import NodeKind, ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +28,22 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    PROJECT_SECRET_API_KEY = "project_secret_api_key"
+    TEAM_SECRET_TOKEN = "team_secret_token"
+
+
+# OAuth and sharing-token deliberately excluded: OAuth is user-consented, sharing-token is public read-only.
+_API_KEY_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(
+    {
+        AccessMethod.PERSONAL_API_KEY,
+        AccessMethod.PROJECT_SECRET_API_KEY,
+        AccessMethod.TEAM_SECRET_TOKEN,
+    }
+)
+
+
+def is_api_key_access_method(access_method: AccessMethod | str | None) -> bool:
+    return access_method in _API_KEY_ACCESS_METHODS
 
 
 class Product(StrEnum):
@@ -40,6 +56,7 @@ class Product(StrEnum):
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
+    GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
     INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
@@ -214,6 +231,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
+            | NodeKind.TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY
         ):
             return {"product": Product.LLM_ANALYTICS}
         case (
@@ -531,6 +549,24 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def tag_authentication(
+    *,
+    access_method: AccessMethod,
+    team_id: int | None,
+    user_id: int | None = None,
+    api_key_mask: str | None = None,
+    api_key_label: str | None = None,
+) -> None:
+    """Single funnel for authenticator query tagging — add new auth tags here, not in each authenticator."""
+    tag_queries(
+        user_id=user_id,
+        team_id=team_id,
+        access_method=access_method,
+        api_key_mask=api_key_mask,
+        api_key_label=api_key_label,
+    )
+
+
 def tag_contains_user_hogql() -> None:
     """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
 
@@ -670,7 +706,7 @@ class QueryCounter:
 
 
 @contextmanager
-def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
+def tags_context(**tags_to_set: Any) -> Generator[None]:
     """
     Context manager that saves all query tags on enter and restores them on exit.
     Optionally accepts key-value pairs to set after saving the original tags.

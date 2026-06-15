@@ -354,7 +354,7 @@ class TestTable(BaseTest):
         chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
         with (
             patch("products.warehouse_sources.backend.models.table.TEST", False),
-            patch("products.warehouse_sources.backend.models.table.chdb.query", return_value=chdb_result) as chdb_query,
+            patch("chdb.query", return_value=chdb_result) as chdb_query,
         ):
             getattr(table, method_name)()
 

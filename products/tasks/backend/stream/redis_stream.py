@@ -197,7 +197,7 @@ class TaskRunRedisStream:
         block_ms: int = 100,
         count: Optional[int] = TASK_RUN_STREAM_READ_COUNT,
         keepalive_interval_seconds: float | None = None,
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[dict]:
         async for item in self.read_stream_entries(
             start_id=start_id,
             block_ms=block_ms,
@@ -215,7 +215,7 @@ class TaskRunRedisStream:
         block_ms: int = 100,
         count: Optional[int] = TASK_RUN_STREAM_READ_COUNT,
         keepalive_interval_seconds: float | None = None,
-    ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive, None]:
+    ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
         """Read events from the Redis stream.
 
         Yields Redis stream IDs and parsed JSON dicts.

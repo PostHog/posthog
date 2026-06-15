@@ -16,7 +16,6 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
@@ -27,6 +26,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -167,6 +167,10 @@ class TestPromptBuilder(BaseTest):
         # agent-feedback tool so the scout system improves over time.
         assert "Report operational friction" in prompt
         assert "agent-feedback" in prompt
+        # Tag guidance teaches the scratchpad-taxonomy convention — the scout owns and
+        # evolves its vocabulary in the scout loop; the harness only carries the nudge.
+        assert "Tagging your findings" in prompt
+        assert "tags:<domain>:taxonomy" in prompt
         # The base prompt teaches scouts to format the description for the inbox
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.

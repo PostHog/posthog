@@ -304,7 +304,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary)
-        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+        # The columns are nullable, so the keys can be present with a None value
+        for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)

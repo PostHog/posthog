@@ -587,6 +587,10 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
     weight = models.FloatField()
     confidence = models.FloatField()
     severity = models.CharField(max_length=20, null=True, blank=True)
+    # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
+    # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt
+    # (`recent_tag_usage`), so the vocabulary derives from emitted behavior, not a maintained list.
+    tags = models.JSONField(default=list, blank=True)
     # Deterministic `run:<run_id>:finding:<finding_id>` — the join key back into the signal store
     # for the full embedding/grouping view of this finding.
     source_id = models.CharField(max_length=200)

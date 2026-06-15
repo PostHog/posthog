@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,7 +10,8 @@ from django.db import models, transaction
 
 import structlog
 
-from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -20,6 +21,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
@@ -323,7 +325,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
+        self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)

@@ -408,6 +408,7 @@ class TestSlackSourceGetSchemasForceRefresh:
         # Webhook is the only valid sync method: full-refresh would wipe the table and
         # reload nothing, incremental/append have no polling endpoint to read from.
         assert channel.supports_webhooks is True
+        assert channel.webhook_only is True
         assert channel.supports_incremental is False
         assert channel.supports_append is False
         assert channel.incremental_fields == []

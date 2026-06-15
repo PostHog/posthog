@@ -40,8 +40,12 @@ class _VisionAPITestCase(APIBaseTest):
             return_value=True,
         )
         self.flag_patcher.start()
+        # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
+        self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
+        self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
 
     def tearDown(self) -> None:
+        self.refresh_estimate_patcher.stop()
         self.flag_patcher.stop()
         super().tearDown()
 
@@ -577,6 +581,90 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         with self._patch_deny_session_recording():
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
+
+
+class TestScannerEstimatePersistence(_VisionAPITestCase):
+    def _create_payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "estimate-persistence",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_create_refreshes_estimate(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._create_payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.mock_refresh_estimate.assert_called_once()
+        self.assertEqual(str(self.mock_refresh_estimate.call_args.args[0].id), resp.json()["id"])
+
+    def test_create_succeeds_when_estimate_refresh_fails(self) -> None:
+        self.mock_refresh_estimate.side_effect = RuntimeError("clickhouse down")
+        resp = self.client.post(self.scanners_url, data=self._create_payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertIsNone(resp.json()["estimated_monthly_observations"])
+
+    def test_response_exposes_estimated_monthly_observations(self) -> None:
+        scanner = self._create_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=42, estimated_at=timezone.now()
+        )
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+        self.assertEqual(resp.json()["estimated_monthly_observations"], 42)
+
+    @parameterized.expand(
+        [
+            ("sampling_rate_change", {"sampling_rate": 0.5}, True),
+            ("query_change", {"query": {"kind": "RecordingsQuery", "operand": "AND"}}, True),
+            ("rename_only", {"name": "renamed"}, False),
+            ("sampling_rate_unchanged", {"sampling_rate": 1.0}, False),
+            ("disable", {"enabled": False}, False),
+        ]
+    )
+    def test_update_refreshes_only_on_volume_affecting_changes(
+        self, _name: str, body: dict[str, Any], expect_refresh: bool
+    ) -> None:
+        scanner = self._create_scanner(sampling_rate=1.0)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=10, estimated_at=timezone.now()
+        )
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=body, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
+
+    @parameterized.expand(
+        [
+            ("fresh_estimate_skips_inline_refresh", timedelta(hours=1), False),
+            ("stale_estimate_refreshes_inline", timedelta(days=2), True),
+        ]
+    )
+    def test_reenabling_refreshes_inline_only_when_stale(
+        self, _name: str, estimate_age: timedelta, expect_refresh: bool
+    ) -> None:
+        scanner = self._create_scanner(enabled=False)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=10, estimated_at=timezone.now() - estimate_age
+        )
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": True}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
+
+    def test_update_backfills_a_never_computed_estimate(self) -> None:
+        scanner = self._create_scanner()
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.mock_refresh_estimate.assert_called_once()
 
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):

@@ -71,6 +71,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   output. Its discriminator is concentration-vs-diffusion — friction that piles up
   in one place is signal, friction that tracks traffic is baseline; exceptions per
   se are the error-tracking scout's territory.
+- `signals-scout-replay-vision/` — agentic pull watcher over Replay Vision scanners
+  (the standing LLM probes that write `$recording_observed` events). Replay Vision is
+  the newer evolution of session replay, so this scout and `signals-scout-session-replay`
+  intentionally coexist for now. Watches two promises: that enabled scanners are
+  actually observing (throughput / success-rate cliffs, exhausted quota — a silent
+  watch gap), and that what the scanners see in aggregate gets surfaced (a monitor's
+  `yes`-rate or a scorer's mean stepping away from its own baseline, a classifier tag
+  or recurring summarizer theme concentrating across many sessions). It is the
+  complement to the per-session push path: scanners with `emits_signals: true` already
+  emit one signal per session (source `replay_vision`, type `scanner_finding`) into the
+  same inbox, so this scout never repeats them — it adds the cross-session shape the
+  per-session probe can't see. Its discriminators are
+  aggregate-shift-vs-per-session-baseline and
+  configured-to-observe-vs-actually-observing; raw friction / capture is the
+  session-replay scout's territory and exceptions are the error-tracking scout's.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
@@ -110,6 +125,15 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   prioritizes issues an agent can resolve via the MCP over credential-gated ones.
   Its discriminator is kind-concentration × severity × agent-fixability ×
   persistence, not raw firing count.
+- `signals-scout-inbox-validation/` — follow-up watcher for the inbox itself.
+  Watches reports that recently transitioned to `resolved` (implementation PR
+  merged), waits out a deployment soak window, then re-probes the entities the
+  report's underlying signals named (pre-fix baselines captured at enqueue time)
+  to check the fix actually held — plus a strictly-gated escalation check on
+  recently dismissed reports. Its discriminator is resolution-vs-reality — the
+  resolved status's promise against the post-deploy data stream. Emits only
+  failed validations; confirmations are scratchpad memory. It never detects new
+  problems — that's the rest of the fleet's territory.
 
 ### How the coordinator decides what runs
 
@@ -122,8 +146,9 @@ hourly) and a `last_run_at` stamp. Every tick the coordinator:
    `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI
    enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
-   (`_register_missing_configs`) — on an enrolled team, authoring a skill is enough
-   to get a scout.
+   (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team,
+   authoring a skill is enough to get a scout. To register (and tune) one immediately
+   instead, use the `signals-scout-config-create` endpoint.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`
@@ -131,7 +156,9 @@ hourly) and a `last_run_at` stamp. Every tick the coordinator:
 
 Pausing a scout is `enabled=False` on its config; slowing it is a larger
 `run_interval_minutes`. Both are tunable via the `signals-scout-config-update` MCP
-tool. See `scout_coordinator._collect_planned_runs` for the exact due-check.
+tool, and settable at creation time via `signals-scout-config-create` (an upsert that
+registers the config immediately instead of waiting for the tick). See
+`scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout
 

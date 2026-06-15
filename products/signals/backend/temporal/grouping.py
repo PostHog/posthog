@@ -30,6 +30,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
     EMBEDDING_MODEL,
@@ -940,111 +941,123 @@ async def _process_signal_batch(
 
     # === PARALLEL PHASE (steps 1-4) ===
 
-    # Step 1a: Fetch type examples if not cached (needed by query gen)
-    if cached_type_examples is not None:
-        type_examples_result = cached_type_examples
-    else:
-        type_examples_result = await workflow.execute_activity(
-            fetch_signal_type_examples_activity,
-            FetchSignalTypeExamplesInput(team_id=team_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-    # Step 1b: Embed all signals + generate search queries in parallel
-    # (query gen needs type examples but NOT the signal embeddings)
-    step1b_results = await asyncio.gather(
-        *[
-            workflow.execute_activity(
-                get_embedding_activity,
-                GenerateEmbeddingInput(team_id=team_id, content=s.description),
+    try:
+        # Step 1a: Fetch type examples if not cached (needed by query gen)
+        if cached_type_examples is not None:
+            type_examples_result = cached_type_examples
+        else:
+            type_examples_result = await workflow.execute_activity(
+                fetch_signal_type_examples_activity,
+                FetchSignalTypeExamplesInput(team_id=team_id),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            for s in batch
-        ],
-        *[
-            workflow.execute_activity(
-                generate_search_queries_activity,
-                GenerateSearchQueriesInput(
-                    team_id=team_id,
-                    description=s.description,
-                    source_product=s.source_product,
-                    source_type=s.source_type,
-                    signal_type_examples=type_examples_result.examples,
-                ),
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=5),
-            )
-            for s in batch
-        ],
-    )
-    signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
-    query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
 
-    # Step 3: Embed all queries across all signals (flatten → parallel embed)
-    all_queries_flat: list[tuple[int, str]] = []
-    for sig_idx, qr in enumerate(query_gen_results):
-        for q in qr.queries:
-            all_queries_flat.append((sig_idx, q))
-
-    all_query_embeddings: list[GenerateEmbeddingOutput] = list(
-        await asyncio.gather(
+        # Step 1b: Embed all signals + generate search queries in parallel
+        # (query gen needs type examples but NOT the signal embeddings)
+        step1b_results = await asyncio.gather(
             *[
                 workflow.execute_activity(
                     get_embedding_activity,
-                    GenerateEmbeddingInput(team_id=team_id, content=q_text),
+                    GenerateEmbeddingInput(team_id=team_id, content=s.description),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                for _, q_text in all_queries_flat
-            ]
-        )
-    )
-
-    # Step 4: Semantic search for all queries (all parallel)
-    all_search_results: list[RunSignalSemanticSearchOutput] = list(
-        await asyncio.gather(
+                for s in batch
+            ],
             *[
                 workflow.execute_activity(
-                    run_signal_semantic_search_activity,
-                    RunSignalSemanticSearchInput(team_id=team_id, embedding=emb.embedding, limit=10),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    generate_search_queries_activity,
+                    GenerateSearchQueriesInput(
+                        team_id=team_id,
+                        description=s.description,
+                        source_product=s.source_product,
+                        source_type=s.source_type,
+                        signal_type_examples=type_examples_result.examples,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=5),
                 )
-                for emb in all_query_embeddings
-            ]
+                for s in batch
+            ],
         )
-    )
+        signal_embeddings = cast(list[GenerateEmbeddingOutput], step1b_results[: len(batch)])
+        query_gen_results = cast(list[GenerateSearchQueriesOutput], step1b_results[len(batch) :])
 
-    # Regroup flat results back to per-signal
-    # Each query becomes an embedding vector for lookup
-    type EmbeddingVector = list[float]
-    # For each new signal, we generate a number N of query strings
-    type SignalQueries = list[str]
-    # For each new signal, we generate an embedding for each query (so N embeddings)
-    type SignalQueryEmbeddings = list[EmbeddingVector]
-    # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
-    type SignalQueryResults = list[SignalCandidate]
-    # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
-    type SignalMatchCandidates = list[SignalQueryResults]
-    per_signal_queries: list[SignalQueries] = [[] for _ in batch]
-    per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
-    per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
-    for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
-        per_signal_queries[sig_idx].append(q_text)
-        per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
-        per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
+        # Step 3: Embed all queries across all signals (flatten → parallel embed)
+        all_queries_flat: list[tuple[int, str]] = []
+        for sig_idx, qr in enumerate(query_gen_results):
+            for q in qr.queries:
+                all_queries_flat.append((sig_idx, q))
 
-    # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
-    all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
-    report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
-        fetch_report_contexts_activity,
-        FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
-        start_to_close_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-    report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
+        all_query_embeddings: list[GenerateEmbeddingOutput] = list(
+            await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        get_embedding_activity,
+                        GenerateEmbeddingInput(team_id=team_id, content=q_text),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for _, q_text in all_queries_flat
+                ]
+            )
+        )
+
+        # Step 4: Semantic search for all queries (all parallel)
+        all_search_results: list[RunSignalSemanticSearchOutput] = list(
+            await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        run_signal_semantic_search_activity,
+                        RunSignalSemanticSearchInput(team_id=team_id, embedding=emb.embedding, limit=10),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for emb in all_query_embeddings
+                ]
+            )
+        )
+
+        # Regroup flat results back to per-signal
+        # Each query becomes an embedding vector for lookup
+        type EmbeddingVector = list[float]
+        # For each new signal, we generate a number N of query strings
+        type SignalQueries = list[str]
+        # For each new signal, we generate an embedding for each query (so N embeddings)
+        type SignalQueryEmbeddings = list[EmbeddingVector]
+        # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
+        type SignalQueryResults = list[SignalCandidate]
+        # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
+        type SignalMatchCandidates = list[SignalQueryResults]
+        per_signal_queries: list[SignalQueries] = [[] for _ in batch]
+        per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
+        per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
+        for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
+            per_signal_queries[sig_idx].append(q_text)
+            per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
+            per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
+
+        # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
+        all_candidate_report_ids = list({c.report_id for results in all_search_results for c in results.candidates})
+        report_contexts_result: FetchReportContextsOutput = await workflow.execute_activity(
+            fetch_report_contexts_activity,
+            FetchReportContextsInput(team_id=team_id, report_ids=all_candidate_report_ids),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
+    except Exception as e:
+        # Nothing has been emitted yet, so the whole batch is explainable as dropped.
+        # The outer workflow handler can't emit these: it also catches post-emission
+        # failures (the CH wait in step 7), where signals were successfully assigned.
+        logger.exception(
+            "Failed to prepare signal batch",
+            team_id=team_id,
+            batch_size=len(batch),
+        )
+        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
     _PATCH_PARALLEL_SEQUENTIAL = "parallel-sequential-phase-v1"
@@ -1199,7 +1212,7 @@ async def _process_signal_batch(
                     assign_result.run_count,
                 )
 
-        except Exception:
+        except Exception as e:
             dropped += 1
             logger.exception(
                 "Failed to process signal in batch",
@@ -1208,6 +1221,7 @@ async def _process_signal_batch(
                 source_type=signal.source_type,
                 source_id=signal.source_id,
             )
+            await capture_signal_dropped(signal, e, stage="grouping_sequential")
 
     # Step 7: Wait for all emitted signals to land in CH so the next batch can find them
     if emitted_signals:

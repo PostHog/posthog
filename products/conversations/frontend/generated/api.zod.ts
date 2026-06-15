@@ -177,6 +177,30 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const conversationsTicketsReplyCreateBodyMessageMax = 5000
+
+export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
+
+export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().max(conversationsTicketsReplyCreateBodyMessageMax).describe('Reply content in markdown.'),
+        is_private: zod
+            .boolean()
+            .default(conversationsTicketsReplyCreateBodyIsPrivateDefault)
+            .describe(
+                "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
+            ),
+        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+    })
+    .describe('Payload for posting a reply or internal note to a ticket.')
+
+/**
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs

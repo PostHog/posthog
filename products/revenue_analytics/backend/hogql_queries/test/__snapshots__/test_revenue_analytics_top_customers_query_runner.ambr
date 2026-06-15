@@ -43,7 +43,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
@@ -79,7 +79,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -89,13 +89,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -156,7 +156,9 @@
             NULL AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
-     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime, `name` String, `email` String, `phone` String, `address` String, `metadata` String') AS outer) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime, `name` String, `email` String, `phone` String, `address` String, `metadata` String') AS outer
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -218,7 +220,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))
@@ -254,7 +256,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -264,13 +266,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -362,7 +364,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'), 0))
+     WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'non-existent-source'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -375,7 +377,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -422,7 +424,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -484,7 +488,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
@@ -520,7 +524,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -530,13 +534,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -628,7 +632,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -641,7 +645,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -688,7 +692,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -750,7 +756,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))))
@@ -786,7 +792,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -796,13 +802,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -894,7 +900,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-03-04 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -907,7 +913,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -954,7 +960,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1016,7 +1024,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
@@ -1052,7 +1060,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -1062,13 +1070,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   GROUP BY customer_id,
@@ -1162,7 +1170,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1175,7 +1183,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -1222,7 +1230,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   GROUP BY customer_id,
            name
   ORDER BY amount DESC
@@ -1286,7 +1296,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
@@ -1322,7 +1332,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -1332,13 +1342,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -1430,7 +1440,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1443,7 +1453,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -1490,7 +1500,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1552,7 +1564,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
@@ -1588,7 +1600,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -1598,13 +1610,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -1696,7 +1708,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+     WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1709,7 +1721,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -1756,7 +1768,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -1819,7 +1833,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
@@ -1855,7 +1869,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -1865,13 +1879,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -1963,7 +1977,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+     WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -1976,7 +1990,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -2023,7 +2037,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -2085,7 +2101,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
@@ -2121,7 +2137,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -2131,13 +2147,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -2229,7 +2245,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
+     WHERE and(and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC
@@ -2242,7 +2258,7 @@
             inner.email AS email,
             inner.phone AS phone,
             inner.address AS address,
-            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+            if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
             inner.country AS country,
             inner.cohort AS cohort,
             inner.initial_coupon AS initial_coupon,
@@ -2289,7 +2305,9 @@
                                parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at
               FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `subscription` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `period_start_at` DateTime, `period_end_at` DateTime, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
               WHERE notEquals(JSONExtractString(posthog_test_stripe_invoice.metadata, 'posthog_person_distinct_id'), '')) AS child_meta
-           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
+           GROUP BY child_meta.customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+     ORDER BY timestamp DESC
+     LIMIT 1 BY id) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
@@ -2351,7 +2369,7 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
      WHERE and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
@@ -2387,7 +2405,7 @@
                                                        FROM person
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
-                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
      INNER JOIN
        (SELECT DISTINCT events__person.id AS person_id
         FROM events
@@ -2397,13 +2415,13 @@
            FROM person_distinct_id_overrides
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         LEFT JOIN
           (SELECT person.id AS id
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
@@ -2495,7 +2513,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `status` String, `created` DateTime, `invoice` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `calculated_statement_descriptor` String, `source` String, `outcome` String, `payment_method_details` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))), 0))
+     WHERE and(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2025-04-21 23:59:59', 'UTC'))))
      GROUP BY customer_id,
               month
      ORDER BY amount DESC

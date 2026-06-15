@@ -103,6 +103,9 @@ services:
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ROLLOUT_PERCENTAGE: '100'
+            # AI provider keys for PostHog's AI features. Blank unless set in .env.
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -148,6 +151,9 @@ services:
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ROLLOUT_PERCENTAGE: '100'
+            # AI provider keys for PostHog's AI features. Blank unless set in .env.
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
         depends_on:
             - db
             - redis7
@@ -389,6 +395,9 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # AI provider keys for PostHog's AI features. Blank unless set in .env.
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
         depends_on:
             - db
             - redis7
@@ -535,6 +544,7 @@ services:
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
                     ingestion-clientwarnings-main-1 \
+                    heatmaps_ingestion \
                     clickhouse_groups \
                     clickhouse_person \
                     clickhouse_person_distinct_id \
