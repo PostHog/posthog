@@ -10,6 +10,7 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -17,6 +18,7 @@ import {
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -95,11 +97,17 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
+    DataWarehouseSourceConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
+    EngineeringAnalytics: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
+    EngineeringAnalyticsPullRequest: () =>
+        import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -218,10 +226,17 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
+    '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+    '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+        'EngineeringAnalyticsPullRequest',
+        'engineeringAnalyticsPullRequest',
+    ],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -594,6 +609,7 @@ export const productConfiguration: Record<string, any> = {
     },
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
+    DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -611,6 +627,20 @@ export const productConfiguration: Record<string, any> = {
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
+    EngineeringAnalytics: {
+        projectBased: true,
+        name: 'CI analytics',
+        layout: 'app-container',
+        description: 'Pull request and workflow CI health across connected GitHub repos.',
+        iconType: 'health',
+    },
+    EngineeringAnalyticsPullRequest: {
+        projectBased: true,
+        name: 'Pull request',
+        layout: 'app-container',
+        description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -928,6 +958,8 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    dataWarehouseSourceConnect: (kind?: string): string =>
+        `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -970,6 +1002,10 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
+    engineeringAnalytics: (): string => '/engineering-analytics',
+    engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+    engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
+        `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1454,6 +1490,16 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/SQL`,
+        type: 'insight',
+        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        displayLabel: 'New SQL',
+        iconType: 'insight/hog',
+        iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.sql,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Stickiness`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.STICKINESS }),
@@ -1518,6 +1564,19 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
         sceneKeys: ['BusinessKnowledge'],
+    },
+    {
+        path: 'CI analytics',
+        intents: [ProductKey.ENGINEERING_ANALYTICS],
+        category: ProductItemCategory.UNRELEASED,
+        type: 'engineering_analytics',
+        iconType: 'health' as FileSystemIconType,
+        iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+        href: urls.engineeringAnalytics(),
+        flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
+        tags: ['alpha'],
+        sceneKey: 'EngineeringAnalytics',
+        sceneKeys: ['EngineeringAnalytics', 'EngineeringAnalyticsPullRequest'],
     },
     {
         path: 'Clusters',
@@ -1587,6 +1646,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },
@@ -1970,7 +2030,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Skills',
-        intents: [ProductKey.LLM_PROMPTS],
+        intents: [ProductKey.SKILLS],
         category: ProductItemCategory.TOOLS,
         type: 'llm_skills',
         iconType: 'llm_prompts' as FileSystemIconType,
@@ -2226,6 +2286,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },

@@ -1085,6 +1085,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response_data["results"][1]["id"] == "2"
             assert response_data["results"][2]["id"] == "3"
 
+    def test_session_ids_filter_returns_recordings_outside_default_date_range(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            # outside the default date range
+            self.produce_replay_summary("user", "old-session", now() - relativedelta(days=10))
+
+            params_string = urlencode({"session_ids": '["old-session"]'})
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+            assert response.status_code == status.HTTP_200_OK
+            assert [r["id"] for r in response.json()["results"]] == ["old-session"]
+
+            # without explicit session_ids the default date range still hides it
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["results"] == []
+
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             Person.objects.create(

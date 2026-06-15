@@ -598,6 +598,7 @@ class EnterpriseExperimentsViewSet(
     )
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy an experiment into another project in the same organization as a new draft."""
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):

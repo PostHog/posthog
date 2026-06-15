@@ -145,6 +145,60 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _connect_with_dropped_retry(
+    connect: Callable[[], psycopg.Connection],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = 5,
+) -> psycopg.Connection:
+    """Open a connection via `connect`, retrying transient connection-dropped errors.
+
+    The streaming recovery path (offset chunking) is reached precisely because the
+    source just dropped our connection (idle cull, failover, mid-stream SSL EOF), so
+    the very reconnect that bootstraps the recovery can itself hit a still-recovering
+    source and fail with another connection-dropped error. Without this, that
+    transient failure escapes the recovery loop and fails the whole sync. Retry with
+    bounded backoff; permanent errors (auth failures, SSL-required) are re-raised
+    immediately because `_is_connection_dropped_error` only matches transient drops.
+    """
+    attempt = 0
+    while True:
+        try:
+            return connect()
+        except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+            if not _is_connection_dropped_error(e):
+                raise
+            attempt += 1
+            if attempt >= max_attempts:
+                raise
+            logger.debug(f"Connection attempt failed ({e}). Retrying (attempt {attempt}/{max_attempts})")
+            time.sleep(min(2 * attempt, 30))
+
+
+def _statement_timeout_as_non_retryable(
+    error: BaseException,
+    *,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+) -> QueryTimeoutException | None:
+    """Classify a statement_timeout (QueryCanceled) hit while streaming rows.
+
+    A chunk/fetch that exhausts the 10-min statement_timeout cannot complete in
+    time — usually a missing index on the incremental field or a deep OFFSET scan —
+    so retrying is futile. On incremental syncs, map it to the same non-retryable
+    QueryTimeoutException the server-cursor and windowed read paths already raise,
+    with an actionable message. Returns None when the error is not a statement
+    timeout, or the sync is non-incremental (the caller should re-raise the original
+    error so a full re-sync can reorder rows safely).
+    """
+    if not isinstance(error, psycopg.errors.QueryCanceled) or not should_use_incremental_field:
+        return None
+    return QueryTimeoutException(
+        f"10 min timeout statement reached. Please ensure your incremental field "
+        f"({incremental_field}) has an appropriate index created"
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class PostgresDiscoveredSchema:
     source_catalog: str | None
@@ -511,6 +565,23 @@ def _row_counts_from_conn(
         return {}
 
 
+def _is_unsupported_function_error(error: Exception, function_name: str) -> bool:
+    """True when `error` says the database doesn't implement `function_name`.
+
+    Real Postgres raises `UndefinedFunction` (SQLSTATE 42883), but Postgres-wire-compatible engines
+    (DuckDB/Flight-SQL-backed proxies, etc.) accept the connection yet lack Postgres-only catalog
+    functions like `row_security_active`, surfacing the failure as a generic error whose SQLSTATE we
+    can't rely on. Match the function name plus a "missing function" signal in the message so callers
+    can degrade quietly instead of alerting on an expected, already-handled shape.
+    """
+    if isinstance(error, psycopg.errors.UndefinedFunction):
+        return True
+    message = str(error).lower()
+    if function_name.lower() not in message:
+        return False
+    return any(marker in message for marker in ("does not exist", "unknown function", "not found", "no function"))
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -566,7 +637,12 @@ def _rls_active_from_conn(
                     result[display_name] = bool(rls_active)
             return result
     except Exception as e:
-        capture_exception(e)
+        # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
+        # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
+        # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
+        # than flooding error tracking. Still capture genuinely unexpected failures.
+        if not _is_unsupported_function_error(e, "row_security_active"):
+            capture_exception(e)
         return {}
 
 
@@ -1273,8 +1349,13 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
+        # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
+        # It shares its FROM/WHERE with the real extraction query, so any genuine problem
+        # (missing column, unpopulated materialized view, permissions, bad incremental field)
+        # resurfaces there and is classified through the normal retryable/non-retryable path.
+        # Capturing it here too would only flood error tracking with handled duplicates of
+        # user/upstream conditions we already tolerate, so we log at debug and fall back to 0.
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        capture_exception(e)
 
         if "temporary file size exceeds temp_file_limit" in str(e):
             raise TemporaryFileSizeExceedsLimitException(
@@ -1992,7 +2073,7 @@ def postgres_source(
 
                 successive_errors = 0
                 successive_conn_errors = 0
-                connection = get_connection()
+                connection = _connect_with_dropped_retry(get_connection, logger)
                 # Autocommit so each LIMIT/OFFSET query runs as its own statement
                 # and no transaction stays open across the slow delta-merge that
                 # happens between yields. A held transaction is what gets the
@@ -2049,6 +2130,22 @@ def postgres_source(
                         else:
                             # Linear backoff on successive errors to make sure we give the read replica time to catch up
                             time.sleep(2 * successive_errors)
+                    except psycopg.errors.QueryCanceled as e:
+                        # A chunk hit the 10-min statement_timeout. QueryCanceled
+                        # subclasses OperationalError, so this clause must precede the
+                        # connection-dropped handler below. Retrying won't help, so map
+                        # it to the same non-retryable QueryTimeoutException the
+                        # server-cursor and windowed paths raise instead of leaking a
+                        # raw, retryable QueryCanceled that Temporal keeps re-attempting.
+                        _safe_close_connection(connection)
+                        timeout_error = _statement_timeout_as_non_retryable(
+                            e,
+                            should_use_incremental_field=should_use_incremental_field,
+                            incremental_field=incremental_field,
+                        )
+                        if timeout_error is not None:
+                            raise timeout_error from e
+                        raise
                     except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
                         if not _is_connection_dropped_error(e):
                             _safe_close_connection(connection)
@@ -2068,7 +2165,7 @@ def postgres_source(
                             f"(attempt {successive_conn_errors})"
                         )
                         time.sleep(min(2 * successive_conn_errors, 30))
-                        connection = get_connection()
+                        connection = _connect_with_dropped_retry(get_connection, logger)
                         connection.autocommit = True
                     except Exception:
                         _safe_close_connection(connection)

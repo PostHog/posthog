@@ -47,6 +47,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
+                    hidden_contexts: [],
                     enabled: false,
                 },
             },

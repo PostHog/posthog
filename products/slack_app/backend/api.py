@@ -35,23 +35,23 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.posthog_code_slack_interactivity import (
     PostHogCodeSlackInteractivityInputs,
     PostHogCodeSlackTerminateTaskWorkflow,
 )
-from posthog.temporal.ai.posthog_code_slack_mention import (
-    PostHogCodeSlackMentionWorkflow,
+from posthog.temporal.ai.slack_app import (
+    PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
-from posthog.temporal.ai.posthog_code_slack_mention_command import (
-    PostHogCodeSlackMentionCommandWorkflow,
-    PostHogCodeSlackMentionCommandWorkflowInputs,
-)
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import (
@@ -65,7 +65,14 @@ from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unf
 
 logger = structlog.get_logger(__name__)
 
-HANDLED_EVENT_TYPES = ["app_mention", "link_shared", "message", "member_joined_channel"]
+HANDLED_EVENT_TYPES = [
+    "app_mention",
+    "link_shared",
+    "message",
+    "member_joined_channel",
+    "assistant_thread_started",
+    "assistant_thread_context_changed",
+]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
@@ -554,6 +561,16 @@ WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
 # re-flap routing for every subsequent event. Short TTL keeps us responsive when an integration
 # moves between regions; None answers are never cached.
 WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
+
+
+def _cross_region_routing_enabled() -> bool:
+    # Cross-region routing only makes sense between PostHog Cloud US and EU — they share the
+    # Slack app's signing secret and split workspace ownership between them. The hosted dev
+    # environment (CLOUD_DEPLOYMENT="DEV"), local dev, E2E, and self-hosted deployments all run
+    # as a single region; proxying their Slack events to us.posthog.com targets a different
+    # signing secret and a workspace this region doesn't own, which surfaces as a 403 on every
+    # webhook hit (see slack_app_region_proxy_non_success).
+    return get_instance_region() in ("US", "EU")
 
 
 def _us_region_domain() -> str:
@@ -1474,6 +1491,7 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
             f"slack_workspace:{slack_team_id}",
             groups={"organization": str(integration.team.organization_id)},
+            person_properties={"region": get_instance_region() or "unknown"},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -1597,17 +1615,22 @@ def _post_pick_a_project_hint(
     event: dict[str, Any],
 ) -> None:
     """Tell the user that this workspace is connected to multiple PostHog
-    projects, and that they should pick one via `@PostHog project <id>`.
+    projects, and that they should pick one.
+
+    The selection command differs by surface: in a channel the user mentions the app
+    (`@PostHog project <id>`), but in a DM there is no app to mention, so they just reply
+    with `project <id>`.
     """
     slack_user_id = event.get("user")
     channel = event.get("channel")
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
         return
+    pick_command = "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
     text = (
         "This Slack workspace is connected to multiple PostHog projects:\n"
         f"{format_project_candidate_list(candidates)}\n\n"
-        "Use `@PostHog project <id>` to pick one — that also saves it as your default."
+        f"Use {pick_command} to pick one — that also saves it as your default."
     )
     _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
@@ -1665,6 +1688,243 @@ def _start_posthog_code_workflow(
     )
 
 
+_ASSISTANT_FEATURE_FLAG = "slack-app-assistant"
+_ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
+_ASSISTANT_SUGGESTED_PROMPTS = [
+    {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
+    {"title": "Investigate an issue", "message": "Investigate why one of my insights is slow"},
+    {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
+]
+_ASSISTANT_WELCOME = (
+    "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
+    "open PRs in your connected repos to fix them!"
+)
+_ASSISTANT_INSTALL_WELCOME = (
+    "Thanks for adding PostHog! :tada: I'm an AI agent - DM me here or @mention me in a channel "
+    "to investigate issues or open PRs in your connected repos"
+)
+_ASSISTANT_UNAVAILABLE = (
+    "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
+    "email matches your PostHog account and that a repo is connected, then try again."
+)
+
+
+def _assistant_enabled(team: Team) -> bool:
+    # Evaluated on the workspace's team (a stable key) so the flag is a true kill-switch we can
+    # check before resolving the DMing user — i.e. the feature stays dark when off.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                _ASSISTANT_FEATURE_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                person_properties={"region": get_instance_region() or "unknown"},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("assistant_feature_flag_eval_failed", exc_info=True)
+        return False
+
+
+def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
+    """(slack_user_id, dm_channel_id, thread_ts, viewed_channel_id) for assistant events.
+
+    For `message` events the fields live at the top level; for `assistant_thread_*` events
+    they live under `assistant_thread` (with the viewed channel under `context`).
+    """
+    if event.get("type") == "message":
+        ts = event.get("thread_ts") or event.get("ts")
+        return (
+            str(event.get("user") or ""),
+            event.get("channel") if isinstance(event.get("channel"), str) else None,
+            ts if isinstance(ts, str) else None,
+            None,
+        )
+    thread = event.get("assistant_thread") or {}
+    ctx = thread.get("context") or {}
+    return (
+        str(thread.get("user_id") or ""),
+        thread.get("channel_id") if isinstance(thread.get("channel_id"), str) else None,
+        thread.get("thread_ts") if isinstance(thread.get("thread_ts"), str) else None,
+        ctx.get("channel_id") if isinstance(ctx.get("channel_id"), str) else None,
+    )
+
+
+def _assistant_context_cache_key(integration_id: int, channel_id: str, thread_ts: str) -> str:
+    return f"slack_assistant_ctx:{integration_id}:{channel_id}:{thread_ts}"
+
+
+def _store_assistant_channel_context(
+    integration_id: int, channel_id: str, thread_ts: str, viewed_channel_id: str | None
+) -> None:
+    if viewed_channel_id:
+        cache.set(
+            _assistant_context_cache_key(integration_id, channel_id, thread_ts),
+            viewed_channel_id,
+            timeout=_ASSISTANT_CONTEXT_TTL_SECONDS,
+        )
+
+
+def _get_assistant_channel_context(integration_id: int, channel_id: str, thread_ts: str) -> str | None:
+    value = cache.get(_assistant_context_cache_key(integration_id, channel_id, thread_ts))
+    return value if isinstance(value, str) else None
+
+
+def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, thread_ts: str) -> str:
+    """Greet the user and offer suggested prompts when they open the agent container."""
+    try:
+        slack.client.assistant_threads_setSuggestedPrompts(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            title="What can I help you ship?",
+            prompts=_ASSISTANT_SUGGESTED_PROMPTS,
+        )
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
+    except Exception:
+        logger.warning("assistant_thread_started_failed", exc_info=True)
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread_ts: str) -> None:
+    try:
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
+    except Exception:
+        logger.warning("assistant_unavailable_post_failed", exc_info=True)
+
+
+def send_assistant_install_welcome(integration: Integration) -> None:
+    """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
+    if not _assistant_enabled(integration.team):
+        return
+    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
+    if not slack_user_id:
+        return
+    try:
+        SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
+    except Exception:
+        logger.warning("assistant_install_welcome_failed", exc_info=True)
+
+
+# The DM/agent surface needs the base coding-agent scopes plus the assistant container scopes.
+# Kept separate from POSTHOG_CODE_REQUIRED_SLACK_SCOPES so the mention flow isn't gated on im:history.
+_ASSISTANT_REQUIRED_SLACK_SCOPES = POSTHOG_CODE_REQUIRED_SLACK_SCOPES | frozenset({"assistant:write", "im:history"})
+
+
+def _handle_assistant_dm_message(
+    event: dict,
+    integration: Integration,
+    slack_team_id: str,
+    event_id: str | None,
+    channel_id: str,
+    thread_ts: str,
+    *,
+    posthog_user: User,
+) -> str:
+    slack = SlackIntegration(integration)
+    missing = slack.missing_scopes(_ASSISTANT_REQUIRED_SLACK_SCOPES)
+    if missing:
+        _notify_missing_slack_scopes(slack, event, missing)
+        return ROUTE_HANDLED_LOCALLY
+
+    try:
+        slack.client.assistant_threads_setStatus(channel_id=channel_id, thread_ts=thread_ts, status="Working on it…")
+    except Exception:
+        logger.warning("assistant_set_status_failed", exc_info=True)
+
+    # Carry the channel the user was viewing (from assistant_thread_context_changed) so the agent
+    # can ground a "look into this" DM in that channel's context.
+    viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
+    agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
+    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
+
+
+def _route_assistant_event(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str,
+    can_defer: bool,
+) -> str:
+    """Route DM / agent-container events through the same region + project resolution as mentions."""
+    event_type = event.get("type")
+    slack_user_id, channel_id, thread_ts, ctx_channel = _assistant_event_fields(event)
+
+    # Only first-party human DMs proceed — ignore channel messages, bot echoes, and edits.
+    if event_type == "message" and (
+        event.get("channel_type") != "im"
+        or event.get("bot_id")
+        or event.get("subtype")
+        or not str(event.get("text") or "").strip()
+    ):
+        return ROUTE_HANDLED_LOCALLY
+    if not (slack_user_id and channel_id and thread_ts):
+        return ROUTE_HANDLED_LOCALLY
+
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+        user=None,
+        channel=channel_id,
+        thread_ts=thread_ts,
+    )
+    region_route = _resolve_region_or_terminal_route(
+        request,
+        slack_team_id,
+        candidates_present=bool(result.candidates),
+        kinds=[SLACK_INTEGRATION_KIND],
+        proxied=proxied,
+        other_domain=other_domain,
+        incoming_host=incoming_host,
+        can_defer=can_defer,
+    )
+    if region_route is not None:
+        return region_route
+
+    probe = result.integration if result.integration in result.candidates else result.candidates[0]
+
+    # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
+    if not _assistant_enabled(probe.team):
+        return ROUTE_HANDLED_LOCALLY
+
+    # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
+    # against projects the resolved PostHog user can actually access (no cross-org metadata leak).
+    resolution = resolve_user_for_workspace(
+        workspace_result=result,
+        slack_team_id=slack_team_id,
+        slack_user_id=slack_user_id,
+        event_id=event_id,
+    )
+    if resolution.user is None:
+        # Flag is on but the Slack user isn't a resolvable org member — tell them why (DMs only).
+        if event_type == "message":
+            _post_assistant_unavailable(SlackIntegration(probe), channel_id, thread_ts)
+        return ROUTE_HANDLED_LOCALLY
+    posthog_user = resolution.user
+
+    if event_type == "assistant_thread_started":
+        return _handle_assistant_thread_started(SlackIntegration(probe), channel_id, thread_ts)
+    if event_type == "assistant_thread_context_changed":
+        _store_assistant_channel_context(probe.id, channel_id, thread_ts, ctx_channel)
+        return ROUTE_HANDLED_LOCALLY
+
+    # message.im — run the agent against the user's accessible default project, else ask them to pick.
+    accessible = resolution.candidates
+    mention_target = resolution.integration or (accessible[0] if len(accessible) == 1 else None)
+    if mention_target is None:
+        _post_pick_a_project_hint(SlackIntegration(accessible[0]), accessible, event)
+        return ROUTE_HANDLED_LOCALLY
+    return _handle_assistant_dm_message(
+        event, mention_target, slack_team_id, event_id, channel_id, thread_ts, posthog_user=posthog_user
+    )
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1680,7 +1940,7 @@ def route_posthog_code_event_to_relevant_region(
     # In local dev we run a single instance, so cross-region routing is meaningless: the only
     # consumer is this process. Disable both the probe and the proxy hop and always handle
     # locally.
-    can_defer_to_other_region = not _is_us_host(incoming_host) and not proxied and not settings.DEBUG
+    can_defer_to_other_region = _cross_region_routing_enabled() and not _is_us_host(incoming_host) and not proxied
 
     logger.info(
         "posthog_code_route_enter",
@@ -1696,6 +1956,23 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    # Assistant surface: DMs to the app and agent-container events resolve the DMing user and run
+    # against their project. A ``message`` is a DM iff ``channel_type == "im"`` — channel ``message``
+    # events (untagged thread follow-ups) and ``app_mention`` share the pipeline below instead.
+    if event_type in ("assistant_thread_started", "assistant_thread_context_changed") or (
+        event_type == "message" and event.get("channel_type") == "im"
+    ):
+        return _route_assistant_event(
+            request,
+            event,
+            slack_team_id,
+            event_id,
+            proxied=proxied,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+            can_defer=can_defer_to_other_region,
+        )
 
     if event_type in ("app_mention", "message"):
         if event_type == "app_mention":
@@ -1741,11 +2018,18 @@ def route_posthog_code_event_to_relevant_region(
             channel=channel_str,
             thread_ts=thread_ts_str,
         )
-        if not workspace_result.candidates:
-            return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
-
-        if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
-            return _proxy_event_and_return_route(request, other_domain)
+        region_route = _resolve_region_or_terminal_route(
+            request,
+            slack_team_id,
+            candidates_present=bool(workspace_result.candidates),
+            kinds=[SLACK_INTEGRATION_KIND],
+            proxied=proxied,
+            other_domain=other_domain,
+            incoming_host=incoming_host,
+            can_defer=can_defer_to_other_region,
+        )
+        if region_route is not None:
+            return region_route
 
         # Threads we don't own (and orgs that haven't opted in) are dropped here
         # so the rest of the pipeline only runs for actionable messages.
@@ -1923,9 +2207,10 @@ def _route_to_other_region_or_drop(
 ) -> str:
     """No local match: either forward to the other region or drop if we are the second hop.
 
-    In local dev there is no other region to forward to, so we just record the miss and stop.
+    Single-region deployments (local dev, hosted dev, E2E, self-hosted) have no other region
+    to forward to, so we just record the miss and stop.
     """
-    if proxied or settings.DEBUG:
+    if proxied or not _cross_region_routing_enabled():
         logger.warning(
             "posthog_code_no_integration_found",
             slack_team_id=slack_team_id,
@@ -1933,6 +2218,30 @@ def _route_to_other_region_or_drop(
         )
         return ROUTE_NO_INTEGRATION
     return _proxy_event_and_return_route(request, other_domain)
+
+
+def _resolve_region_or_terminal_route(
+    request: HttpRequest,
+    slack_team_id: str,
+    *,
+    candidates_present: bool,
+    kinds: list[str],
+    proxied: bool,
+    other_domain: str,
+    incoming_host: str,
+    can_defer: bool,
+) -> str | None:
+    """Shared region gate for every coding-agent surface (mentions, channel followups, DMs).
+
+    Returns a terminal route when the event leaves this region — forwarded/dropped because no
+    local integration claims the workspace, or proxied to US under the US-precedence rule — else
+    ``None`` to signal the caller should keep handling the event locally.
+    """
+    if not candidates_present:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+    if _us_should_handle_instead(slack_team_id, kinds, can_defer, incoming_host):
+        return _proxy_event_and_return_route(request, other_domain)
+    return None
 
 
 def _start_command_workflow(
@@ -3204,8 +3513,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and dismiss_integration_id:
-        # Any reviewer who can see the inbox-item message may dismiss it (team-shared channels),
-        # so this isn't gated on a specific Slack user — only on owning the integration locally.
+        # Routing/region-ownership only — this just claims the workspace's integration locally.
+        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
+        # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
@@ -3228,10 +3538,11 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         proxied=proxied,
     )
 
-    if not local and not proxied and not settings.DEBUG:
+    if not local and not proxied and _cross_region_routing_enabled():
         # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
         # nothing new — just forward to the other region. The loop header keeps us at one hop.
-        # Skipped in local dev where there is only one region to talk to.
+        # Skipped in single-region deployments (local dev, hosted dev, E2E, self-hosted) where
+        # there is no other region to talk to.
         target = _other_region_domain(incoming_host)
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
