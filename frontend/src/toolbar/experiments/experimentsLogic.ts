@@ -48,10 +48,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
 
                     breakpoint()
 
-                    // Transient server errors aren't actionable for the user — soft-fail to an
-                    // empty list and let them retry rather than surfacing a scary error panel.
+                    // Transient server errors and network failures aren't actionable for the
+                    // user — soft-fail to an empty list and let them retry rather than surfacing
+                    // a scary error panel. toolbarFetch maps network-level rejections (offline,
+                    // ad/tracker blockers) to a synthetic 503, so they land here too.
                     if (response.status >= 500) {
-                        toolbarLogger.warn('experiments', 'Server error loading experiments, returning empty list', {
+                        toolbarLogger.warn('experiments', 'Server or network error loading experiments', {
                             status: response.status,
                             url,
                         })

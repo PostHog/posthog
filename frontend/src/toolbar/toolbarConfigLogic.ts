@@ -860,20 +860,42 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
-        method,
-        headers: buildHeaders(accessToken),
-        ...(body !== undefined ? { body } : {}),
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        didRetry = true
-        return await fetch(fullUrl, {
+    let response: Response
+    try {
+        response = await fetch(fullUrl, {
             method,
-            headers: buildHeaders(newAccessToken),
+            headers: buildHeaders(accessToken),
             ...(body !== undefined ? { body } : {}),
         })
-    })
+
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            didRetry = true
+            return await fetch(fullUrl, {
+                method,
+                headers: buildHeaders(newAccessToken),
+                ...(body !== undefined ? { body } : {}),
+            })
+        })
+    } catch (err) {
+        // fetch() itself rejects on network-level failures — offline, DNS/connection
+        // failure, CORS, or (very common for a toolbar running on arbitrary customer sites)
+        // an ad/tracker blocker severing the request. Soft-fail with a synthetic 503 so
+        // callers route through their existing >=500 handling instead of letting an uncaught
+        // "TypeError: Failed to fetch" flood error tracking with unactionable noise.
+        const { pathname } = combineUrl(url)
+        toolbarLogger.warn('fetch', 'Network error during toolbar request', {
+            pathname,
+            error: err instanceof Error ? err.message : String(err),
+        })
+        toolbarPosthogJS.capture('toolbar api request', {
+            method,
+            pathname,
+            status: 'network_error',
+            duration_ms: Math.round(performance.now() - startTime),
+            did_token_retry: didRetry,
+        })
+        return new Response(JSON.stringify({ results: [], detail: 'network_error' }), { status: 503 })
+    }
 
     const durationMs = Math.round(performance.now() - startTime)
     const { pathname } = combineUrl(url)

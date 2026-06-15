@@ -1493,4 +1493,30 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(body.results).toEqual([])
         })
     })
+
+    describe('toolbarFetch network failure handling', () => {
+        beforeEach(() => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+        })
+
+        it('returns a synthetic 503 with results: [] when fetch rejects', async () => {
+            // fetch() rejecting (offline, ad/tracker blocker severing the request) must not
+            // propagate as an uncaught "TypeError: Failed to fetch" — it should soft-fail.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            const res = await toolbarFetch('/api/projects/@current/web_experiments/')
+
+            expect(res.status).toBe(503)
+            const body = await res.json()
+            expect(body.detail).toBe('network_error')
+            expect(body.results).toEqual([])
+        })
+    })
 })
