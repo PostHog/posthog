@@ -17,6 +17,7 @@ import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import { waitForAction } from 'kea-waitfor'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -83,7 +84,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { DefaultReleaseConditionsResponse, defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -579,7 +580,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaultEvaluationContextsLogic,
             ['defaultEvaluationContexts'],
             defaultReleaseConditionsLogic,
-            ['defaultReleaseConditions'],
+            ['defaultReleaseConditions', 'defaultReleaseConditionsLoading'],
         ],
         actions: [
             featureFlagsLogic,
@@ -1287,19 +1288,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        // defaultReleaseConditionsLogic loads these asynchronously on mount, so the
-                        // connected value is usually still null when a new flag initializes here.
-                        // Fetch directly when missing so the project's configured defaults are applied.
-                        let conditionsConfig = values.defaultReleaseConditions
-                        if (!conditionsConfig && values.currentTeam?.id) {
-                            try {
-                                conditionsConfig = (await api.get(
-                                    `api/environments/${values.currentTeam.id}/default_release_conditions/`
-                                )) as DefaultReleaseConditionsResponse
-                            } catch (error) {
-                                console.warn('Failed to load default release conditions:', error)
+                        // defaultReleaseConditionsLogic loads these asynchronously, so the connected
+                        // value is usually still null when a new flag initializes here. Wait for the
+                        // load to settle before reading it, kicking it off only if it isn't already
+                        // in flight — so cold loads reuse the connected logic's request rather than
+                        // firing a duplicate.
+                        if (!values.defaultReleaseConditions) {
+                            if (!values.defaultReleaseConditionsLoading) {
+                                actions.loadDefaultReleaseConditions()
                             }
+                            await Promise.race([
+                                waitForAction(
+                                    defaultReleaseConditionsLogic.actionTypes.loadDefaultReleaseConditionsSuccess
+                                ),
+                                waitForAction(
+                                    defaultReleaseConditionsLogic.actionTypes.loadDefaultReleaseConditionsFailure
+                                ),
+                            ])
                         }
+                        const conditionsConfig = values.defaultReleaseConditions
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,

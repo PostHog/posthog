@@ -395,13 +395,17 @@ describe('featureFlagLogic', () => {
         ]
         const conditionsUrl = `/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`
 
-        it('applies the project default release conditions to a new flag', async () => {
-            // Regression: defaultReleaseConditionsLogic loads asynchronously on mount, so the
-            // connected value was still null when the new flag initialized and the defaults
-            // were silently dropped.
+        // Regression: defaultReleaseConditionsLogic loads asynchronously on mount, so the
+        // connected value was still null when the new flag initialized and the configured
+        // defaults were silently dropped. The only behavioural difference between the cases
+        // is the `enabled` flag, so the expected groups follow from it directly.
+        it.each([
+            { enabled: true, expectedGroups: DEFAULT_GROUPS },
+            { enabled: false, expectedGroups: NEW_FLAG.filters.groups },
+        ])('applies defaults to a new flag only when enabled is $enabled', async ({ enabled, expectedGroups }) => {
             useMocks({
                 get: {
-                    [conditionsUrl]: () => [200, { enabled: true, default_groups: DEFAULT_GROUPS }],
+                    [conditionsUrl]: () => [200, { enabled, default_groups: DEFAULT_GROUPS }],
                 },
             })
             router.actions.push('/')
@@ -410,23 +414,7 @@ describe('featureFlagLogic', () => {
             newLogic.mount()
             await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
 
-            expect(newLogic.values.featureFlag.filters.groups).toEqual(DEFAULT_GROUPS)
-            newLogic.unmount()
-        })
-
-        it('keeps the default catch-all group when defaults are disabled', async () => {
-            useMocks({
-                get: {
-                    [conditionsUrl]: () => [200, { enabled: false, default_groups: DEFAULT_GROUPS }],
-                },
-            })
-            router.actions.push('/')
-
-            const newLogic = featureFlagLogic({ id: 'new' })
-            newLogic.mount()
-            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
-
-            expect(newLogic.values.featureFlag.filters.groups).toEqual(NEW_FLAG.filters.groups)
+            expect(newLogic.values.featureFlag.filters.groups).toEqual(expectedGroups)
             newLogic.unmount()
         })
     })
