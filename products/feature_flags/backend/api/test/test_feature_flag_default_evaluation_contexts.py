@@ -345,6 +345,7 @@ class TestEvaluationContextSuggestions(APIBaseTest):
 
         response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["created"])
 
         ctx.refresh_from_db()
         self.assertFalse(ctx.hidden_from_suggestions)
@@ -363,6 +364,7 @@ class TestEvaluationContextSuggestions(APIBaseTest):
 
         response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["created"])
 
         ctx.refresh_from_db()
         self.assertTrue(ctx.hidden_from_suggestions)

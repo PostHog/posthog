@@ -32,11 +32,13 @@ describe('defaultEvaluationContextsLogic', () => {
                         name: contextName,
                     }
                     mockResponse.default_evaluation_contexts.push(newContext)
+                    // Adding a default unhides the name, mirroring the admin backend behavior.
+                    mockResponse.hidden_contexts = mockResponse.hidden_contexts.filter((c) => c !== contextName)
                     if (!mockResponse.available_contexts.includes(contextName)) {
                         mockResponse.available_contexts.push(contextName)
                         mockResponse.available_contexts.sort()
                     }
-                    return [200, { ...newContext, created: true }]
+                    return [200, { ...newContext, created: true, hidden_from_suggestions: false }]
                 },
                 '/api/environments/:team_id/evaluation_context_suggestions/': async (req) => {
                     const body = await req.json()
@@ -193,6 +195,22 @@ describe('defaultEvaluationContextsLogic', () => {
                 .toDispatchActions(['addContext', 'addContextSuccess'])
                 .toMatchValues({
                     contexts: [{ id: expect.any(Number), name: 'production' }],
+                })
+        })
+
+        it('should drop a name from hiddenContexts when adding it unhides it', async () => {
+            mockResponse.hidden_contexts = ['production']
+
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationContextsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.addContext('production')
+            })
+                .toDispatchActions(['addContext', 'addContextSuccess'])
+                .toMatchValues({
+                    availableContexts: ['production'],
+                    hiddenContexts: [],
                 })
         })
 

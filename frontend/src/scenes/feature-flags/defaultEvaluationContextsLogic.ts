@@ -97,6 +97,11 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         }
 
                         if (response.created) {
+                            // The server unhides the name when an admin adds it as a default, so drop it
+                            // from hidden_contexts when the response reports it's no longer hidden.
+                            const hiddenContexts = response.hidden_from_suggestions
+                                ? currentData.hidden_contexts
+                                : currentData.hidden_contexts.filter((name) => name !== response.name)
                             return {
                                 ...currentData,
                                 default_evaluation_contexts: [
@@ -104,6 +109,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                                     { id: response.id, name: response.name },
                                 ],
                                 available_contexts: [...currentData.available_contexts, response.name].sort(),
+                                hidden_contexts: hiddenContexts,
                             }
                         }
 
