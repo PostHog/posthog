@@ -190,8 +190,6 @@
     "integrations": [],
     "limits": {
         "max_turns": 30,
-        "max_cpu_cores": 0.25,
-        "max_memory_mb": 512,
         "max_tool_calls": 100,
         "max_wall_seconds": 600
     },
