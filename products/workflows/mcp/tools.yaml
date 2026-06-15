@@ -95,7 +95,7 @@ tools:
         description: >
             Create a workflow. Needs an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|tracking_pixel) plus action nodes —
-            function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch,
+            function/function_email/function_sms, delay (e.g. '30m'), conditional_branch,
             wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' =
             broadcast to an audience, one run per matching person (emails/messages). The audience is
             config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort
