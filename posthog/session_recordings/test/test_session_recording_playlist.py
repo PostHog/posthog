@@ -1137,9 +1137,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             )
 
         seen_db_ids: list[str] = []
+        seen_synth_ids: set[str] = set()
         offset = 0
         total_count: int | None = None
-        synth_count = 0
         while True:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/session_recording_playlists?order={order}&limit={limit}&offset={offset}"
@@ -1148,7 +1148,8 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             data = response.json()
             total_count = data["count"]
             results = data["results"]
-            synth_count = max(synth_count, sum(1 for r in results if r.get("is_synthetic")))
+            # Synthetics may span several pages, so accumulate unique ids across the walk.
+            seen_synth_ids.update(r["short_id"] for r in results if r.get("is_synthetic"))
 
             assert results, f"page at offset={offset} was unexpectedly empty"
             if offset + limit < total_count:
@@ -1159,8 +1160,8 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             if offset >= total_count:
                 break
 
-        assert synth_count > 0, "test relies on synthetic playlists being present"
-        assert total_count == db_playlist_count + synth_count
+        assert len(seen_synth_ids) > 0, "test relies on synthetic playlists being present"
+        assert total_count == db_playlist_count + len(seen_synth_ids)
         # Every DB playlist appears exactly once — no skips, no duplicates.
         assert len(seen_db_ids) == db_playlist_count
         assert len(set(seen_db_ids)) == db_playlist_count

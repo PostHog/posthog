@@ -678,15 +678,13 @@ class SessionRecordingPlaylistViewSet(
 
         if sort_field == "name":
             annotated = queryset.annotate(_name_lower=Coalesce(Lower("name"), Lower("derived_name"), Value("")))
-            ranks: builtins.list[int] = []
-            for synth_idx, synth in enumerate(sorted_synthetics):
-                synth_name = (synth.name or synth.derived_name or "").lower()
-                if is_descending:
-                    db_before = annotated.filter(_name_lower__gt=synth_name).count()
-                else:
-                    db_before = annotated.filter(_name_lower__lt=synth_name).count()
-                ranks.append(db_before + synth_idx)
-            return ranks
+            synth_names = [(s.name or s.derived_name or "").lower() for s in sorted_synthetics]
+            lookup = "_name_lower__gt" if is_descending else "_name_lower__lt"
+            # One query: a conditional COUNT of DB rows sorting before each synthetic.
+            counts = annotated.aggregate(
+                **{f"c{i}": Count("pk", filter=Q(**{lookup: name})) for i, name in enumerate(synth_names)}
+            )
+            return [counts[f"c{i}"] + i for i in range(len(synth_names))]
 
         # Timestamp (and unrecognised) orders: synthetics sort to datetime.max —
         # front of a descending list, back of an ascending one.
