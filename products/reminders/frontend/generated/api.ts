@@ -27,7 +27,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getRemindersListUrl = (projectId: string, params?: RemindersListParams) => {
+export const getRemindersListUrl = (params?: RemindersListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -38,32 +38,28 @@ export const getRemindersListUrl = (projectId: string, params?: RemindersListPar
 
     const stringifiedParams = normalizedParams.toString()
 
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/reminders/?${stringifiedParams}`
-        : `/api/projects/${projectId}/reminders/`
+    return stringifiedParams.length > 0 ? `/api/reminders/?${stringifiedParams}` : `/api/reminders/`
 }
 
 export const remindersList = async (
-    projectId: string,
     params?: RemindersListParams,
     options?: RequestInit
 ): Promise<PaginatedReminderListApi> => {
-    return apiMutator<PaginatedReminderListApi>(getRemindersListUrl(projectId, params), {
+    return apiMutator<PaginatedReminderListApi>(getRemindersListUrl(params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getRemindersCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/reminders/`
+export const getRemindersCreateUrl = () => {
+    return `/api/reminders/`
 }
 
 export const remindersCreate = async (
-    projectId: string,
     reminderApi: NonReadonly<ReminderApi>,
     options?: RequestInit
 ): Promise<ReminderApi> => {
-    return apiMutator<ReminderApi>(getRemindersCreateUrl(projectId), {
+    return apiMutator<ReminderApi>(getRemindersCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -71,28 +67,27 @@ export const remindersCreate = async (
     })
 }
 
-export const getRemindersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/reminders/${id}/`
+export const getRemindersRetrieveUrl = (id: string) => {
+    return `/api/reminders/${id}/`
 }
 
-export const remindersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<ReminderApi> => {
-    return apiMutator<ReminderApi>(getRemindersRetrieveUrl(projectId, id), {
+export const remindersRetrieve = async (id: string, options?: RequestInit): Promise<ReminderApi> => {
+    return apiMutator<ReminderApi>(getRemindersRetrieveUrl(id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getRemindersUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/reminders/${id}/`
+export const getRemindersUpdateUrl = (id: string) => {
+    return `/api/reminders/${id}/`
 }
 
 export const remindersUpdate = async (
-    projectId: string,
     id: string,
     reminderApi: NonReadonly<ReminderApi>,
     options?: RequestInit
 ): Promise<ReminderApi> => {
-    return apiMutator<ReminderApi>(getRemindersUpdateUrl(projectId, id), {
+    return apiMutator<ReminderApi>(getRemindersUpdateUrl(id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -100,17 +95,16 @@ export const remindersUpdate = async (
     })
 }
 
-export const getRemindersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/reminders/${id}/`
+export const getRemindersPartialUpdateUrl = (id: string) => {
+    return `/api/reminders/${id}/`
 }
 
 export const remindersPartialUpdate = async (
-    projectId: string,
     id: string,
     patchedReminderApi?: NonReadonly<PatchedReminderApi>,
     options?: RequestInit
 ): Promise<ReminderApi> => {
-    return apiMutator<ReminderApi>(getRemindersPartialUpdateUrl(projectId, id), {
+    return apiMutator<ReminderApi>(getRemindersPartialUpdateUrl(id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -118,12 +112,12 @@ export const remindersPartialUpdate = async (
     })
 }
 
-export const getRemindersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/reminders/${id}/`
+export const getRemindersDestroyUrl = (id: string) => {
+    return `/api/reminders/${id}/`
 }
 
-export const remindersDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getRemindersDestroyUrl(projectId, id), {
+export const remindersDestroy = async (id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getRemindersDestroyUrl(id), {
         ...options,
         method: 'DELETE',
     })

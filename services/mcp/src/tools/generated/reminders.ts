@@ -19,8 +19,13 @@ const reminderCreate = (): ToolBase<typeof ReminderCreateSchema, Schemas.Reminde
     name: 'reminder-create',
     schema: ReminderCreateSchema,
     handler: async (context: Context, params: z.infer<typeof ReminderCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.organization !== undefined) {
+            body['organization'] = params.organization
+        }
+        if (params.team !== undefined) {
+            body['team'] = params.team
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -50,7 +55,7 @@ const reminderCreate = (): ToolBase<typeof ReminderCreateSchema, Schemas.Reminde
         }
         const result = await context.api.request<Schemas.Reminder>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/reminders/`,
+            path: `/api/reminders/`,
             body,
         })
         return result
@@ -63,10 +68,9 @@ const remindersList = (): ToolBase<typeof RemindersListSchema, WithPostHogUrl<Sc
     name: 'reminders-list',
     schema: RemindersListSchema,
     handler: async (context: Context, params: z.infer<typeof RemindersListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReminderList>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/reminders/`,
+            path: `/api/reminders/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -76,31 +80,33 @@ const remindersList = (): ToolBase<typeof RemindersListSchema, WithPostHogUrl<Sc
     },
 })
 
-const ReminderGetSchema = RemindersRetrieveParams.omit({ project_id: true })
+const ReminderGetSchema = RemindersRetrieveParams
 
 const reminderGet = (): ToolBase<typeof ReminderGetSchema, Schemas.Reminder> => ({
     name: 'reminder-get',
     schema: ReminderGetSchema,
     handler: async (context: Context, params: z.infer<typeof ReminderGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Reminder>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/reminders/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
 })
 
-const ReminderUpdateSchema = RemindersPartialUpdateParams.omit({ project_id: true }).extend(
-    RemindersPartialUpdateBody.shape
-)
+const ReminderUpdateSchema = RemindersPartialUpdateParams.extend(RemindersPartialUpdateBody.shape)
 
 const reminderUpdate = (): ToolBase<typeof ReminderUpdateSchema, Schemas.Reminder> => ({
     name: 'reminder-update',
     schema: ReminderUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof ReminderUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.organization !== undefined) {
+            body['organization'] = params.organization
+        }
+        if (params.team !== undefined) {
+            body['team'] = params.team
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -130,23 +136,22 @@ const reminderUpdate = (): ToolBase<typeof ReminderUpdateSchema, Schemas.Reminde
         }
         const result = await context.api.request<Schemas.Reminder>({
             method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/reminders/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
     },
 })
 
-const ReminderDeleteSchema = RemindersDestroyParams.omit({ project_id: true })
+const ReminderDeleteSchema = RemindersDestroyParams
 
 const reminderDelete = (): ToolBase<typeof ReminderDeleteSchema, Schemas.Reminder> => ({
     name: 'reminder-delete',
     schema: ReminderDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof ReminderDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Reminder>({
             method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/reminders/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result

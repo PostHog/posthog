@@ -92,6 +92,13 @@ export interface UserBasicApi {
 
 export interface ReminderApi {
     readonly id: string
+    /** ID of the organization this reminder belongs to. You must be a member of it. */
+    organization: string
+    /**
+     * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+     * @nullable
+     */
+    team?: number | null
     /**
      * Short text shown as the notification title when the reminder fires.
      * @maxLength 255
@@ -100,13 +107,13 @@ export interface ReminderApi {
     /** Optional longer body for the notification. */
     message?: string
     /**
-     * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.
+     * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
      * @maxLength 50
      * @nullable
      */
     resource_type?: string | null
     /**
-     * ID of the referenced resource; must exist in this project.
+     * ID of the referenced resource; must exist in the chosen project.
      * @maxLength 200
      * @nullable
      */
@@ -130,7 +137,7 @@ export interface ReminderApi {
      */
     cron_expression?: string | null
     /**
-     * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone.
+     * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
      * @maxLength 64
      */
     timezone?: string
@@ -161,6 +168,13 @@ export interface PaginatedReminderListApi {
 
 export interface PatchedReminderApi {
     readonly id?: string
+    /** ID of the organization this reminder belongs to. You must be a member of it. */
+    organization?: string
+    /**
+     * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+     * @nullable
+     */
+    team?: number | null
     /**
      * Short text shown as the notification title when the reminder fires.
      * @maxLength 255
@@ -169,13 +183,13 @@ export interface PatchedReminderApi {
     /** Optional longer body for the notification. */
     message?: string
     /**
-     * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.
+     * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
      * @maxLength 50
      * @nullable
      */
     resource_type?: string | null
     /**
-     * ID of the referenced resource; must exist in this project.
+     * ID of the referenced resource; must exist in the chosen project.
      * @maxLength 200
      * @nullable
      */
@@ -199,7 +213,7 @@ export interface PatchedReminderApi {
      */
     cron_expression?: string | null
     /**
-     * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone.
+     * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
      * @maxLength 64
      */
     timezone?: string

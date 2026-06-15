@@ -5015,12 +5015,12 @@
         "system_prompt_hint": "List persons behind a trends data point"
     },
     "reminder-create": {
-        "description": "Create a reminder for yourself in the current project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due.",
+        "description": "Create a reminder for yourself. Set organization (required) and optionally team to scope it to a project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or task — reminders are how they get recurring in-app notifications without manual polling.",
         "category": "Reminders",
         "feature": "reminders",
         "summary": "Create reminder",
         "title": "Create reminder",
-        "required_scopes": ["reminder:write"],
+        "required_scopes": ["user:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -5034,7 +5034,7 @@
         "feature": "reminders",
         "summary": "Delete reminder",
         "title": "Delete reminder",
-        "required_scopes": ["reminder:write"],
+        "required_scopes": ["user:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -5048,7 +5048,7 @@
         "feature": "reminders",
         "summary": "Get reminder",
         "title": "Get reminder",
-        "required_scopes": ["reminder:read"],
+        "required_scopes": ["user:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5062,7 +5062,7 @@
         "feature": "reminders",
         "summary": "Update reminder",
         "title": "Update reminder",
-        "required_scopes": ["reminder:write"],
+        "required_scopes": ["user:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -5076,7 +5076,7 @@
         "feature": "reminders",
         "summary": "List reminders",
         "title": "List reminders",
-        "required_scopes": ["reminder:read"],
+        "required_scopes": ["user:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

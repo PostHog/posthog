@@ -20,6 +20,13 @@ export const remindersCreateBodyCronExpressionMax = 100
 export const remindersCreateBodyTimezoneMax = 64
 
 export const RemindersCreateBody = /* @__PURE__ */ zod.object({
+    organization: zod.uuid().describe('ID of the organization this reminder belongs to. You must be a member of it.'),
+    team: zod
+        .number()
+        .nullish()
+        .describe(
+            'Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.'
+        ),
     title: zod
         .string()
         .max(remindersCreateBodyTitleMax)
@@ -30,13 +37,13 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .max(remindersCreateBodyResourceTypeMax)
         .nullish()
         .describe(
-            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.'
+            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.'
         ),
     resource_id: zod
         .string()
         .max(remindersCreateBodyResourceIdMax)
         .nullish()
-        .describe('ID of the referenced resource; must exist in this project.'),
+        .describe('ID of the referenced resource; must exist in the chosen project.'),
     scheduled_at: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -65,7 +72,7 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .max(remindersCreateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -84,6 +91,13 @@ export const remindersUpdateBodyCronExpressionMax = 100
 export const remindersUpdateBodyTimezoneMax = 64
 
 export const RemindersUpdateBody = /* @__PURE__ */ zod.object({
+    organization: zod.uuid().describe('ID of the organization this reminder belongs to. You must be a member of it.'),
+    team: zod
+        .number()
+        .nullish()
+        .describe(
+            'Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.'
+        ),
     title: zod
         .string()
         .max(remindersUpdateBodyTitleMax)
@@ -94,13 +108,13 @@ export const RemindersUpdateBody = /* @__PURE__ */ zod.object({
         .max(remindersUpdateBodyResourceTypeMax)
         .nullish()
         .describe(
-            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.'
+            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.'
         ),
     resource_id: zod
         .string()
         .max(remindersUpdateBodyResourceIdMax)
         .nullish()
-        .describe('ID of the referenced resource; must exist in this project.'),
+        .describe('ID of the referenced resource; must exist in the chosen project.'),
     scheduled_at: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -129,7 +143,7 @@ export const RemindersUpdateBody = /* @__PURE__ */ zod.object({
         .max(remindersUpdateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -148,6 +162,16 @@ export const remindersPartialUpdateBodyCronExpressionMax = 100
 export const remindersPartialUpdateBodyTimezoneMax = 64
 
 export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    organization: zod
+        .uuid()
+        .optional()
+        .describe('ID of the organization this reminder belongs to. You must be a member of it.'),
+    team: zod
+        .number()
+        .nullish()
+        .describe(
+            'Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.'
+        ),
     title: zod
         .string()
         .max(remindersPartialUpdateBodyTitleMax)
@@ -159,13 +183,13 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(remindersPartialUpdateBodyResourceTypeMax)
         .nullish()
         .describe(
-            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.'
+            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.'
         ),
     resource_id: zod
         .string()
         .max(remindersPartialUpdateBodyResourceIdMax)
         .nullish()
-        .describe('ID of the referenced resource; must exist in this project.'),
+        .describe('ID of the referenced resource; must exist in the chosen project.'),
     scheduled_at: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -194,7 +218,7 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(remindersPartialUpdateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone."
+            "IANA timezone the schedule resolves in (e.g. 'America\/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })

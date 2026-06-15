@@ -8,25 +8,9 @@
  */
 import * as zod from 'zod'
 
-export const RemindersListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
 export const RemindersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const RemindersCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
 })
 
 export const remindersCreateBodyTitleMax = 255
@@ -40,6 +24,13 @@ export const remindersCreateBodyCronExpressionMax = 100
 export const remindersCreateBodyTimezoneMax = 64
 
 export const RemindersCreateBody = /* @__PURE__ */ zod.object({
+    organization: zod.string().describe('ID of the organization this reminder belongs to. You must be a member of it.'),
+    team: zod
+        .number()
+        .nullish()
+        .describe(
+            'Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.'
+        ),
     title: zod
         .string()
         .max(remindersCreateBodyTitleMax)
@@ -50,13 +41,13 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .max(remindersCreateBodyResourceTypeMax)
         .nullish()
         .describe(
-            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.'
+            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.'
         ),
     resource_id: zod
         .string()
         .max(remindersCreateBodyResourceIdMax)
         .nullish()
-        .describe('ID of the referenced resource; must exist in this project.'),
+        .describe('ID of the referenced resource; must exist in the chosen project.'),
     scheduled_at: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -85,7 +76,7 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
         .max(remindersCreateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone."
+            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -95,20 +86,10 @@ export const RemindersCreateBody = /* @__PURE__ */ zod.object({
 
 export const RemindersRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
 })
 
 export const RemindersPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
 })
 
 export const remindersPartialUpdateBodyTitleMax = 255
@@ -122,6 +103,16 @@ export const remindersPartialUpdateBodyCronExpressionMax = 100
 export const remindersPartialUpdateBodyTimezoneMax = 64
 
 export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    organization: zod
+        .string()
+        .optional()
+        .describe('ID of the organization this reminder belongs to. You must be a member of it.'),
+    team: zod
+        .number()
+        .nullish()
+        .describe(
+            'Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.'
+        ),
     title: zod
         .string()
         .max(remindersPartialUpdateBodyTitleMax)
@@ -133,13 +124,13 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(remindersPartialUpdateBodyResourceTypeMax)
         .nullish()
         .describe(
-            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking.'
+            'Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.'
         ),
     resource_id: zod
         .string()
         .max(remindersPartialUpdateBodyResourceIdMax)
         .nullish()
-        .describe('ID of the referenced resource; must exist in this project.'),
+        .describe('ID of the referenced resource; must exist in the chosen project.'),
     scheduled_at: zod.iso
         .datetime({ offset: true })
         .nullish()
@@ -168,7 +159,7 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(remindersPartialUpdateBodyTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone."
+            "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC."
         ),
     end_date: zod.iso
         .datetime({ offset: true })
@@ -178,9 +169,4 @@ export const RemindersPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const RemindersDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this reminder.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
 })
