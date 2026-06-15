@@ -884,9 +884,23 @@ request-level context (`path`, `attempt`).
 
 | Metric | Type | Labels | When |
 |---|---|---|---|
-| `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` | Every event outcome (success, error, timeout, reject) |
-| `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` | Successful ack only |
+| `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
+| `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Successful ack only |
 | `capture_v1_kafka_queue_full_retries_total` | counter | `mode`, `cluster`, `result` | QueueFull retry (`result` = `recovered` or `exhausted`) |
+
+Cardinality note: the `destination` label is bounded at 9 values
+(`Destination::as_tag()` collapses all `Custom(_)` topics to `custom`)
+and the client-controlled `attempt` label is capped at `6+`, so
+`capture_v1_kafka_publish_total` stays low-cardinality.
+
+#### Related pipeline metrics (emitted upstream of the sink)
+
+| Metric | Type | Labels | When |
+|---|---|---|---|
+| `capture_v1_event_adjustments_applied` | counter | `reason` (`future_timestamp_clamp`, `person_processing_disabled`) | An adjustment is applied to an accepted event. Counts adjustments, NOT unique events — one event can emit more than one reason. |
+| `capture_v1_events_restricted` | counter | `action` | Non-drop event-restriction action applied |
+| `capture_v1_batch_outcomes` | counter | `outcome`, `path` | One increment per request batch. `Warning` results count toward `all_ok` (the event was still accepted). |
+| `capture_v1_decompression_errors_total` | counter | `encoding` | Streaming decompression failure |
 
 #### Summary-level (post-batch)
 

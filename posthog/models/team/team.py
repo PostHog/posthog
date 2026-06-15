@@ -18,7 +18,6 @@ import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -39,8 +38,6 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
@@ -128,15 +125,12 @@ class TeamManager(models.Manager):
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
-        # Create default dashboards
-        default_app_template = DashboardTemplate.original_template()
-        dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="My App Dashboard",
-            pinned=True,
-            team=team,
-            description=default_app_template.dashboard_description or "",
+        # Create default dashboards (A/B via starter-dashboard-v2; demo projects skip above)
+        from posthog.helpers.signup_dashboard_experiment import (  # noqa: PLC0415 — breaks team import cycle
+            create_signup_primary_dashboard,
         )
-        create_dashboard_from_template("DEFAULT_APP", dashboard)
+
+        dashboard = create_signup_primary_dashboard(team, using=self.db)
         team.primary_dashboard = dashboard
 
         # Create default session recording playlists

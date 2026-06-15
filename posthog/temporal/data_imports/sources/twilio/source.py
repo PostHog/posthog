@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -37,6 +38,7 @@ class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TWILIO,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Twilio",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Twilio credentials to pull your Twilio data into the PostHog Data warehouse.
