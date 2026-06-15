@@ -449,7 +449,9 @@ class Database(BaseModel):
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
-        return self._week_start_day or WeekStartDay.SUNDAY
+        # `_week_start_day` may be a raw IntegerChoices int (e.g. from `team.week_start_day`),
+        # so coerce to the enum to honour the `-> WeekStartDay` contract for every caller.
+        return WeekStartDay(self._week_start_day) if self._week_start_day is not None else WeekStartDay.SUNDAY
 
     def get_serialization_errors(self) -> dict[str, str]:
         """Return any errors encountered during serialization."""
