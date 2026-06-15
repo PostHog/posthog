@@ -23,7 +23,6 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
-import { IncludeIncompletePeriodFilter } from 'scenes/insights/EditorFilters/IncludeIncompletePeriodFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -116,9 +115,9 @@ export function InsightDisplayConfig(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
-    // The slope graph only shows the two ends of the range, so the interval and most time-series
-    // options (compare, smoothing, multiple axes, alert/annotation overlays, statistical analysis)
-    // are meaningless for it.
+    // The slope graph shows the first vs last interval, so it keeps the group-by interval picker but
+    // drops the options that need the points between them (compare, smoothing, multiple axes,
+    // alert/annotation overlays, statistical analysis).
     const isSlopeGraph = display === ChartDisplayType.SlopeGraph
 
     const showCompare =
@@ -132,7 +131,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
-        (!isSlopeGraph && (isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
+        ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends &&
         !hasBreakdownFilter(breakdownFilter) &&
@@ -224,12 +223,11 @@ export function InsightDisplayConfig(): JSX.Element {
                                 },
                             ]
                           : isSlopeGraph
-                            ? // A slope only shows the start vs end of each series — the current-period
-                              // toggle and (when there are multiple series) the legend are all that apply.
-                              [
-                                  { label: () => <IncludeIncompletePeriodFilter /> },
-                                  ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                              ]
+                            ? // A slope only shows the first vs last interval of each series — the
+                              // legend (when there are multiple series) is the only display option that applies.
+                              hasLegend
+                                ? [{ label: () => <ShowLegendFilter /> }]
+                                : []
                             : [
                                   ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                   ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),

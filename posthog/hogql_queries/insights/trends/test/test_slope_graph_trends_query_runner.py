@@ -15,7 +15,7 @@ from posthog.hogql_queries.insights.trends.slope_graph_trends_query_runner impor
 from posthog.models.utils import uuid7
 
 
-@freeze_time("2024-01-20T00:00:00Z")
+@freeze_time("2024-06-15T12:00:00Z")
 class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         for distinct_id, timestamps in data:
@@ -31,56 +31,54 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties=rest[0] if rest else {},
                 )
 
-    def _run(self, date_from, date_to, series=None, breakdown=None, include_incomplete_period=False):
+    def _run(self, date_from, date_to, series=None, breakdown=None, interval="day"):
         query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
-            interval="day",
+            interval=interval,
             breakdownFilter=breakdown,
-            trendsFilter=TrendsFilter(
-                display=ChartDisplayType.SLOPE_GRAPH,
-                slopeIncludeIncompletePeriod=include_incomplete_period,
-            ),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH),
             series=series or [EventsNode(kind="EventsNode", event="$pageview", math="total")],
         )
         return SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
 
     @snapshot_clickhouse_queries
-    def test_returns_two_points_collapsing_first_and_second_half(self):
-        # Two events well inside the first half, three well inside the second half.
+    def test_returns_first_and_last_day_buckets_ignoring_the_middle(self):
         self._create_events(
             [
-                ("early", [("2024-01-02T10:00:00Z",), ("2024-01-03T10:00:00Z",)]),
-                ("late", [("2024-01-16T10:00:00Z",), ("2024-01-17T10:00:00Z",), ("2024-01-18T10:00:00Z",)]),
+                ("first_day", [("2024-05-01T10:00:00Z",), ("2024-05-01T11:00:00Z",)]),
+                ("middle", [("2024-05-05T10:00:00Z",), ("2024-05-06T10:00:00Z",)]),
+                ("last_day", [("2024-05-10T08:00:00Z",), ("2024-05-10T09:00:00Z",), ("2024-05-10T10:00:00Z",)]),
             ]
         )
-        response = self._run("2024-01-01", "2024-01-19")
+        response = self._run("2024-05-01", "2024-05-10")
 
         assert len(response.results) == 1
         result = response.results[0]
         assert len(result["data"]) == 2
-        assert len(result["labels"]) == 2
-        # The slope is the first-half total vs the second-half total — which together cover the range.
+        # Only the first and last day count — the middle days are never queried.
         assert result["data"][0] == 2
         assert result["data"][1] == 3
 
     @snapshot_clickhouse_queries
-    def test_event_on_the_split_day_is_counted_once_in_the_end_window(self):
+    def test_groups_by_month_returning_first_and_last_month(self):
         self._create_events(
             [
-                ("early", [("2024-01-02T10:00:00Z",)]),
-                ("on_split_day", [("2024-01-10T10:00:00Z",)]),
+                ("jan", [("2024-01-05T10:00:00Z",), ("2024-01-20T10:00:00Z",)]),
+                ("feb", [("2024-02-10T10:00:00Z",)]),
+                ("mar", [("2024-03-01T10:00:00Z",), ("2024-03-10T10:00:00Z",), ("2024-03-20T10:00:00Z",)]),
             ]
         )
-        response = self._run("2024-01-01", "2024-01-19")
+        response = self._run("2024-01-01", "2024-03-31", interval="month")
 
         result = response.results[0]
-        assert result["data"][0] == 1
-        assert result["data"][1] == 1
-        assert result["count"] == 2
+        # First month total vs last month total; February (the middle bucket) is ignored.
+        assert result["data"][0] == 2
+        assert result["data"][1] == 3
+        assert result["days"] == ["2024-01-01", "2024-03-01"]
 
     @snapshot_clickhouse_queries
     def test_no_events_yields_zero_endpoints(self):
-        response = self._run("2024-01-01", "2024-01-19")
+        response = self._run("2024-05-01", "2024-05-10")
         for result in response.results:
             assert len(result["data"]) == 2
             assert result["data"][0] == 0
@@ -90,13 +88,13 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_produces_one_two_point_line_per_value(self):
         self._create_events(
             [
-                ("a", [("2024-01-02T10:00:00Z", {"plan": "free"})]),
-                ("b", [("2024-01-16T10:00:00Z", {"plan": "paid"}), ("2024-01-17T10:00:00Z", {"plan": "paid"})]),
+                ("a", [("2024-05-01T10:00:00Z", {"plan": "free"})]),
+                ("b", [("2024-05-10T10:00:00Z", {"plan": "paid"}), ("2024-05-10T11:00:00Z", {"plan": "paid"})]),
             ]
         )
         response = self._run(
-            "2024-01-01",
-            "2024-01-19",
+            "2024-05-01",
+            "2024-05-10",
             breakdown=BreakdownFilter(breakdown="plan", breakdown_type="event"),
         )
 
@@ -106,24 +104,15 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(result["data"]) == 2
             assert len(result["labels"]) == 2
 
-    @parameterized.expand(
-        [
-            ("excluded_by_default", False, 2),
-            ("included_when_opted_in", True, 3),
-        ]
-    )
-    @freeze_time("2024-01-20T12:00:00Z")
-    def test_current_incomplete_period(self, _name, include_incomplete_period, expected_count):
-        self._create_events(
-            [
-                ("early", [("2024-01-11T10:00:00Z",)]),
-                ("yesterday", [("2024-01-19T10:00:00Z",)]),
-                ("today_so_far", [("2024-01-20T09:00:00Z",)]),
-            ]
-        )
-        response = self._run("2024-01-11", "2024-01-20", include_incomplete_period=include_incomplete_period)
+    @snapshot_clickhouse_queries
+    def test_last_bucket_is_the_current_partial_period_not_trimmed(self):
+        response = self._run("2024-04-01", "2024-06-15", interval="month")
 
-        assert response.results[0]["count"] == expected_count
+        result = response.results[0]
+        # The last bucket is the current, still-accumulating month — kept as-is (the frontend dashes it).
+        assert result["days"] == ["2024-04-01", "2024-06-01"]
+        assert response.resolved_date_range is not None
+        assert response.resolved_date_range.date_to.strftime("%Y-%m-%d") == "2024-06-15"
 
     @parameterized.expand(
         [

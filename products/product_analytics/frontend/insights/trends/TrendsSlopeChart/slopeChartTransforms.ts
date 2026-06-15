@@ -1,5 +1,7 @@
 import type { Series, SlopeSeriesMeta } from '@posthog/quill-charts'
 
+import { computeDashedFromIndex } from '../TrendsLineChart/trendsChartTransforms'
+
 export interface SlopeResultLike {
     id?: string | number
     label?: string | null
@@ -9,6 +11,9 @@ export interface SlopeResultLike {
 export interface BuildSlopeSeriesOpts<R extends SlopeResultLike> {
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
+    /** Negative offset from the end marking the in-progress tail. When the last bucket is the current
+     *  incomplete period, the connector to that endpoint is dashed, mirroring the line chart. */
+    incompletenessOffsetFromEnd?: number
 }
 
 /** One slope line per result — its first and last value `[start, end]`. Series hidden via the
@@ -27,11 +32,17 @@ export function buildSlopeSeries<R extends SlopeResultLike>(
         if (data.length < 2) {
             return
         }
+        const points = [data[0], data[data.length - 1]]
+        const dashedFromIndex = computeDashedFromIndex(
+            { ...r, data: points },
+            { incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd }
+        )
         series.push({
             key: String(r.id ?? index),
             label: r.label ?? '',
             color: opts.getColor(r, index),
-            data: [data[0], data[data.length - 1]],
+            data: points,
+            stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
         })
     })
     return series

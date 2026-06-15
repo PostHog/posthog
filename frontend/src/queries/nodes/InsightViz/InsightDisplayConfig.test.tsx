@@ -103,9 +103,9 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('slope graph display options', () => {
-        it('hides the "group by time period" interval picker', async () => {
+        it('shows the "group by time period" interval picker — grouping defines the slope', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
-            expect(screen.queryByText(/grouped/i)).not.toBeInTheDocument()
+            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
         })
 
         it('hides the compare picker', async () => {
@@ -113,12 +113,12 @@ describe('InsightDisplayConfig', () => {
             expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
         })
 
-        it('shows the current-period toggle and the legend in the Display section', async () => {
+        it('shows only the legend in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toEqual(['Include current period', 'Show legend'])
+            expect(items).toEqual(['Show legend'])
             // None of the time-series-only options should leak in.
             expect(items).not.toContain('Show values on series')
             expect(items).not.toContain('Show trend lines')

@@ -39,6 +39,16 @@ describe('slopeChartTransforms', () => {
             expect(series.map((s) => s.key)).toEqual(['0', '2'])
             expect(series.map((s) => s.color)).toEqual(['color-0', 'color-2'])
         })
+
+        it.each([
+            ['last bucket incomplete', -1, { partial: { fromIndex: 1 } }],
+            ['nothing incomplete', 0, undefined],
+            ['offset omitted', undefined, undefined],
+        ])('dashes the connector when %s', (_name, incompletenessOffsetFromEnd, expectedStroke) => {
+            const results: FakeResult[] = [{ id: 0, label: 'A', data: [10, 20] }]
+            const series = buildSlopeSeries(results, { getColor: COLOR, incompletenessOffsetFromEnd })
+            expect(series[0].stroke).toEqual(expectedStroke)
+        })
     })
 
     describe('slopeLabels', () => {

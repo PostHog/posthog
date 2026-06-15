@@ -29,17 +29,28 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps } = useValues(insightLogic)
 
-    const { indexedResults, currentPeriodResult, getTrendsColor, getTrendsHidden, trendsFilter } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        indexedResults,
+        currentPeriodResult,
+        getTrendsColor,
+        getTrendsHidden,
+        trendsFilter,
+        incompletenessOffsetFromEnd,
+    } = useValues(trendsDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
 
-    // The backend already returns exactly two points per series (first-half vs second-half totals);
-    // buildSlopeSeries just maps them to quill series, honoring legend show/hide.
+    // The backend returns exactly two points per series (the first and last interval bucket);
+    // buildSlopeSeries maps them to quill series, honoring legend show/hide and dashing the
+    // connector when the last bucket is the current incomplete period.
     const labels = useMemo(() => slopeLabels(currentPeriodResult?.labels ?? []), [currentPeriodResult?.labels])
     const series = useMemo(
-        () => buildSlopeSeries(indexedResults ?? [], { getColor: getTrendsColor, getHidden: getTrendsHidden }),
-        [indexedResults, getTrendsColor, getTrendsHidden]
+        () =>
+            buildSlopeSeries(indexedResults ?? [], {
+                getColor: getTrendsColor,
+                getHidden: getTrendsHidden,
+                incompletenessOffsetFromEnd,
+            }),
+        [indexedResults, getTrendsColor, getTrendsHidden, incompletenessOffsetFromEnd]
     )
 
     const config = useMemo<SlopeChartConfig>(

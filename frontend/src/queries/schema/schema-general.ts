@@ -1488,10 +1488,6 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
-    /** Include the current, still-incomplete period in the slope graph's start-vs-end comparison.
-     *  Off by default so a partial latest period (e.g. today, so far) doesn't read as a drop.
-     * @default false */
-    slopeIncludeIncompletePeriod?: boolean
 }
 
 export type CalendarHeatmapFilter = {

@@ -19,8 +19,8 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     [ChartDisplayType.CalendarHeatmap]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.BoxPlot]: ChartDisplayCategory.TimeSeries,
-    // Two aggregated endpoints, but kept in TimeSeries to retain the date-range picker and day
-    // interval the slope is computed from; InsightDisplayConfig hides the inapplicable options.
+    // The slope's two points are the first and last interval bucket, so it's time-series at heart;
+    // it keeps the group-by interval and InsightDisplayConfig hides the options between the ends.
     [ChartDisplayType.SlopeGraph]: ChartDisplayCategory.TimeSeries,
 }
 export const NON_TIME_SERIES_DISPLAY_TYPES = Object.entries(DISPLAY_TYPES_TO_CATEGORIES)
