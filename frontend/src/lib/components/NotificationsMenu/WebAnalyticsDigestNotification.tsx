@@ -30,7 +30,7 @@ export function WebAnalyticsDigestNotification({
     const pageviews = byKey('pageviews')
     const sessions = byKey('sessions')
     const subline = [pageviews, sessions]
-        .filter(Boolean)
+        .filter((metric): metric is WebAnalyticsDigestMetric => Boolean(metric))
         .map((metric) => `${metric.value} ${metric.label.toLowerCase()}`)
         .join(' · ')
 
