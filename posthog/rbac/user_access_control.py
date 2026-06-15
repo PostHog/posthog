@@ -613,7 +613,7 @@ class UserAccessControl:
         # Filter to specific access controls if requested
         if specific_only:
             access_controls = [
-                ac for ac in access_controls if ac.role is not None or ac.organization_member is not None
+                ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
             ]
             # If we're looking for specific access controls and there are none we don't want to return the default access level
             if not access_controls:
@@ -856,8 +856,11 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        # These are already pre-loaded so filter what's in memory
-        access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
+        # These are already pre-loaded so filter what's in memory - read the FK id columns, not the
+        # .role / .organization_member accessors, which would lazy-load one query per row.
+        access_controls = [
+            ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
+        ]
 
         # Check if any access control meets the required level
         for access_control in access_controls:
