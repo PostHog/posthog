@@ -17104,9 +17104,9 @@ export namespace Schemas {
     export interface EventFilterConfig {
       readonly id: string;
       mode?: EventFilterConfigModeEnum;
-      /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
+      /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id"|"ip", "operator": "exact"|"contains", "value": "<string>"} */
       filter_tree?: unknown;
-      /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
+      /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "ip": "...", "expected_result": "drop"|"ingest"} */
       test_cases?: unknown;
       readonly created_at: string;
       readonly updated_at: string;
