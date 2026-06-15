@@ -65,6 +65,18 @@ describe('experimentsLogic', () => {
             .toMatchValues({ allExperiments: [] })
     })
 
+    it('soft-fails to an empty list when fetch throws a network error', async () => {
+        // A network-level failure makes `fetch` itself reject with "Failed to fetch" — no Response.
+        global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch')))
+        mountLogic()
+
+        await expectLogic(logic, () => {
+            logic.actions.getExperiments()
+        })
+            .toDispatchActions(['getExperiments', 'getExperimentsSuccess'])
+            .toMatchValues({ allExperiments: [] })
+    })
+
     it.each([
         [
             'a non-2xx response',

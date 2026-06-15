@@ -33,7 +33,21 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
                     const url = '/api/projects/@current/web_experiments/'
-                    const response = await toolbarFetch(url)
+
+                    let response: Response
+                    try {
+                        response = await toolbarFetch(url)
+                    } catch (error) {
+                        // A network-level failure (offline, DNS, CORS, aborted load) makes the
+                        // underlying `fetch` throw "Failed to fetch" before any response exists.
+                        // It isn't actionable for the user, so soft-fail to an empty list rather
+                        // than letting it escape as an unhandled rejection.
+                        toolbarLogger.warn('experiments', 'Network error loading experiments, returning empty list', {
+                            error: error instanceof Error ? error.message : String(error),
+                            url,
+                        })
+                        return []
+                    }
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
