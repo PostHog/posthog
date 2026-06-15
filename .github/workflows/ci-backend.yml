@@ -2649,7 +2649,7 @@ jobs:
             - name: Check dependency results
               run: |
                   deterministic_failure=false
-                  failure_count=0
+                  failed=false
 
                   if [[ "${{ needs.repo-checks.result }}" == "failure" && "${{ needs.repo-checks.outputs.setup_complete }}" == "true" ]]; then
                     echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
@@ -2661,26 +2661,31 @@ jobs:
                     deterministic_failure=true
                   fi
 
+                  # cancel_ok tolerates a bare 'cancelled' result (the optional snapshot commit job);
+                  # required jobs treat an unexpected cancel as a failure.
                   check_required_result() {
                     local label="$1"
                     local result="$2"
+                    local cancel_ok="${3:-false}"
 
                     if [[ "$result" == "success" || "$result" == "skipped" ]]; then
                       return
                     fi
 
-                    if [[ "$deterministic_failure" == "true" && "$result" == "cancelled" ]]; then
-                      echo "::notice::$label was cancelled after a deterministic failure."
-                      return
-                    fi
-
                     if [[ "$result" == "cancelled" ]]; then
+                      if [[ "$deterministic_failure" == "true" ]]; then
+                        echo "::notice::$label was cancelled after a deterministic failure."
+                        return
+                      fi
+                      if [[ "$cancel_ok" == "true" ]]; then
+                        return
+                      fi
                       echo "::error::$label was cancelled or timed out."
                     else
                       echo "::error::$label failed with result '$result'."
                     fi
 
-                    failure_count=$((failure_count + 1))
+                    failed=true
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
@@ -2690,15 +2695,9 @@ jobs:
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
+                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
 
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "::error::Snapshot commit job failed."
-                    failure_count=$((failure_count + 1))
-                  elif [[ "$deterministic_failure" == "true" && "${{ needs.handle-snapshots.result }}" == "cancelled" ]]; then
-                    echo "::notice::Snapshot commit job was cancelled after a deterministic failure."
-                  fi
-
-                  if [[ "$deterministic_failure" == "true" || "$failure_count" -gt 0 ]]; then
+                  if [[ "$deterministic_failure" == "true" || "$failed" == "true" ]]; then
                     exit 1
                   fi
 
