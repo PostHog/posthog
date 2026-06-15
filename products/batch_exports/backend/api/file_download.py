@@ -3,6 +3,7 @@ import time
 import uuid
 import datetime as dt
 import posixpath
+from typing import Any
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -130,7 +131,13 @@ _FILE_DOWNLOAD_MODEL_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="FileDownloadModel",
-        serializers=_FILE_DOWNLOAD_MODEL_SERIALIZERS,
+        # Inline literal (not the shared dict) so drf-spectacular's expected-type context
+        # widens it to the param's invariant `dict[str, Serializer | type[Serializer]]`.
+        serializers={
+            "events": FileDownloadEventsModelSerializer,
+            "persons": FileDownloadPersonsModelSerializer,
+            "sessions": FileDownloadSessionsModelSerializer,
+        },
         resource_type_field_name="type",
     )
 )
@@ -143,11 +150,12 @@ class FileDownloadModelField(serializers.Field):
     `exclude` event-name filters.
     """
 
-    def to_internal_value(self, data: dict) -> dict:
+    def to_internal_value(self, data: Any) -> dict:
         if not isinstance(data, dict):
             raise ValidationError("Expected an object describing the model to export.")
 
-        serializer_class = _FILE_DOWNLOAD_MODEL_SERIALIZERS.get(data.get("type"))
+        model_type = data.get("type")
+        serializer_class = _FILE_DOWNLOAD_MODEL_SERIALIZERS.get(model_type) if isinstance(model_type, str) else None
         if serializer_class is None:
             raise ValidationError(
                 {"type": f"Unknown model type. Expected one of {sorted(_FILE_DOWNLOAD_MODEL_SERIALIZERS)}."}
@@ -385,7 +393,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         )
         return self._create_and_start_run(serializer)
 
-    def _create_and_start_run(self, serializer: serializers.Serializer) -> response.Response:
+    def _create_and_start_run(self, serializer: serializers.BaseSerializer) -> response.Response:
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():

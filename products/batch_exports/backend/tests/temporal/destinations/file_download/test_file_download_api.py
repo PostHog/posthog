@@ -481,6 +481,7 @@ async def test_file_download_mcp_create_starts_run(
     run = await BatchExportRun.objects.select_related("batch_export_on_demand__destination").aget(
         id=response.json()["id"]
     )
+    assert run.batch_export_on_demand is not None
     assert run.batch_export_on_demand.model == model_payload["type"]
 
     config = run.batch_export_on_demand.destination.config
