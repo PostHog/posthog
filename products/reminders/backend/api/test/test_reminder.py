@@ -22,6 +22,7 @@ class TestReminderAPI(APIBaseTest):
         self.assertEqual(body["status"], "active")
         reminder = Reminder.objects.unscoped().get(id=body["id"])
         self.assertEqual(reminder.created_by, self.user)
+        assert reminder.next_fire_at is not None
         self.assertEqual(reminder.next_fire_at.isoformat(), future)
 
     def test_create_recurring_cron_reminder(self) -> None:
