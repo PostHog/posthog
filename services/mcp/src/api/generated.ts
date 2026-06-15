@@ -20104,8 +20104,6 @@ export namespace Schemas {
     /**
      * * `continue` - continue
      * * `abort` - abort
-     * * `complete` - complete
-     * * `branch` - branch
      */
     export type OnErrorEnum = typeof OnErrorEnum[keyof typeof OnErrorEnum];
 
@@ -20113,8 +20111,6 @@ export namespace Schemas {
     export const OnErrorEnum = {
       Continue: 'continue',
       Abort: 'abort',
-      Complete: 'complete',
-      Branch: 'branch',
     } as const;
 
     /**
@@ -20161,12 +20157,10 @@ export namespace Schemas {
       name: string;
       /** Optional description. */
       description?: string;
-      /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+      /** On failure: continue (skip the action and proceed) or abort (stop the run).
        *
        * * `continue` - continue
-       * * `abort` - abort
-       * * `complete` - complete
-       * * `branch` - branch */
+       * * `abort` - abort */
       on_error?: OnErrorEnum | null;
       /** Created at (epoch ms). Frontend-managed. */
       created_at?: number;
@@ -20175,7 +20169,7 @@ export namespace Schemas {
       /** Property filters gating this action. */
       filters?: HogFunctionFilters | null;
       /**
-         * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+         * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
          * @maxLength 100
          */
       type: string;
@@ -20385,6 +20379,10 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       description?: string;
+      /** On failure: continue (skip the action and proceed) or abort (stop the run).
+       *
+       * * `continue` - continue
+       * * `abort` - abort */
       on_error?: OnErrorEnum | null;
       created_at?: number;
       updated_at?: number;
