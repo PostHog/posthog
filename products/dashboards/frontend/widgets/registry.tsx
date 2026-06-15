@@ -4,6 +4,7 @@ import type { ComponentType } from 'react'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
+import type { DashboardWidgetHeaderEyebrowProps } from '../components/WidgetCard/WidgetCardHeader'
 export type DashboardWidgetTileFiltersProps = {
     tileId: number
     config: Record<string, unknown>
@@ -22,6 +23,7 @@ import { ErrorTrackingWidgetTileFilters } from './error_tracking/ErrorTrackingWi
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
+import { SessionReplayWidgetHeaderEyebrow } from './session_replay/SessionReplayWidgetHeaderEyebrow'
 import { SessionReplayWidgetTileFilters } from './session_replay/SessionReplayWidgetTileFilters'
 
 export type DashboardWidgetConfigApiErrorParser = (
@@ -75,6 +77,8 @@ export type DashboardWidgetDefinition = {
     Component: ComponentType<DashboardWidgetComponentProps>
     TileFilters?: ComponentType<DashboardWidgetTileFiltersProps>
     EditModal?: ComponentType<DashboardWidgetEditModalProps>
+    /** Optional per-widget-type header eyebrow ("Type • meta") override for the tile header. */
+    HeaderEyebrow?: ComponentType<DashboardWidgetHeaderEyebrowProps>
     productAccess?: DashboardWidgetProductAccess
     /** Maps dashboard PATCH API errors to edit-modal field errors for this widget type. */
     parseConfigApiError: DashboardWidgetConfigApiErrorParser
@@ -134,6 +138,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         Component: SessionReplayWidget,
         TileFilters: SessionReplayWidgetTileFilters,
         EditModal: EditSessionReplayWidgetModal,
+        HeaderEyebrow: SessionReplayWidgetHeaderEyebrow,
         productAccess: 'session_recording',
         parseConfigApiError: parseSessionReplayWidgetConfigApiError,
     },

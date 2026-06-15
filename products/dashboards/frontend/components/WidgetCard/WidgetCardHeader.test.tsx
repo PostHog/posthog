@@ -40,7 +40,7 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     })
 
-    it('surfaces the saved filter instead of the date range when one is active', () => {
+    it('renders an injected per-widget eyebrow in place of the default date range', () => {
         render(
             <WidgetCardHeader
                 layout="dashboard_tile"
@@ -48,11 +48,11 @@ describe('WidgetCardHeader', () => {
                 widgetTypeLabel="Session replay"
                 config={{ dateRange: { date_from: '-14d' }, savedFilterId: 'abc123' }}
                 headerMeta={{ showWidgetType: true, showDateRange: true }}
+                HeaderEyebrow={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
             />
         )
 
-        expect(screen.getByText('Session replay')).toBeInTheDocument()
-        expect(screen.getByText('Saved filter')).toBeInTheDocument()
+        expect(screen.getByText('Session replay • My saved filter')).toBeInTheDocument()
         expect(screen.queryByText('Last 14 days')).not.toBeInTheDocument()
     })
 

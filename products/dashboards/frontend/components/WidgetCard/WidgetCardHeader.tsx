@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React from 'react'
+import React, { type ComponentType } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -13,6 +13,15 @@ import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
 
+/** Per-widget-type eyebrow override (the "Type • meta" row). Lets a widget render meta the generic
+ * header can't derive from config alone — e.g. resolving a saved filter's name. */
+export type DashboardWidgetHeaderEyebrowProps = {
+    config: Record<string, unknown>
+    widgetTypeLabel?: string
+    showWidgetType: boolean
+    dateText?: string | null
+}
+
 export type WidgetCardHeaderProps = {
     layout: DashboardWidgetHeaderLayout
     title: string
@@ -23,6 +32,8 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
+    /** Optional per-widget-type eyebrow component; falls back to the type + date range when absent. */
+    HeaderEyebrow?: ComponentType<DashboardWidgetHeaderEyebrowProps>
     description?: string
     showDescription?: boolean
     loading?: boolean
@@ -154,6 +165,7 @@ export function WidgetCardHeader({
     widgetTypeLabel,
     config,
     headerMeta,
+    HeaderEyebrow,
     description,
     showDescription = true,
     loading,
@@ -165,18 +177,24 @@ export function WidgetCardHeader({
 }: WidgetCardHeaderProps): JSX.Element {
     const showWidgetType = headerMeta?.showWidgetType ?? true
     const showDateRange = headerMeta?.showDateRange ?? false
-    // A saved filter overrides the widget's date range, so surface that instead of a now-misleading range.
-    const savedFilterId = config?.savedFilterId
-    const hasSavedFilter = typeof savedFilterId === 'string' && savedFilterId.length > 0
     const dateText =
         widgetTypeLabel && showDateRange
-            ? hasSavedFilter
-                ? 'Saved filter'
-                : widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
+            ? widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
             : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText) ? (
-            <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+            // A widget type can inject its own eyebrow (e.g. session replay surfaces the active saved filter
+            // name in place of the now-overridden date range); otherwise fall back to the type + date range.
+            HeaderEyebrow ? (
+                <HeaderEyebrow
+                    config={config ?? {}}
+                    widgetTypeLabel={widgetTypeLabel}
+                    showWidgetType={showWidgetType}
+                    dateText={dateText}
+                />
+            ) : (
+                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+            )
         ) : null
     const resolvedTopHeading = topHeading !== undefined ? topHeading : derivedTopHeading
 
