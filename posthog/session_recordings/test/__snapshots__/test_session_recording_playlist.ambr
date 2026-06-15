@@ -257,7 +257,8 @@
          AND NOT "posthog_sessionrecordingplaylist"."deleted"
          AND NOT "posthog_sessionrecordingplaylist"."deleted"
          AND "posthog_sessionrecordingplaylist"."type" = 'filters')
-  ORDER BY "posthog_sessionrecordingplaylist"."last_modified_at" DESC
+  ORDER BY "posthog_sessionrecordingplaylist"."last_modified_at" DESC,
+           "posthog_sessionrecordingplaylist"."id" ASC
   LIMIT 100
   '''
 # ---
@@ -908,7 +909,8 @@
          AND NOT "posthog_sessionrecordingplaylist"."deleted"
          AND NOT "posthog_sessionrecordingplaylist"."deleted"
          AND "posthog_sessionrecordingplaylist"."type" = 'collection')
-  ORDER BY "posthog_sessionrecordingplaylist"."last_modified_at" DESC
+  ORDER BY "posthog_sessionrecordingplaylist"."last_modified_at" DESC,
+           "posthog_sessionrecordingplaylist"."id" ASC
   LIMIT 93
   '''
 # ---
@@ -2012,7 +2014,8 @@
          AND "posthog_sessionrecordingplaylist"."team_id" = 99999
          AND NOT "posthog_sessionrecordingplaylist"."deleted"
          AND NOT "posthog_sessionrecordingplaylist"."deleted")
-  ORDER BY "posthog_sessionrecordingplaylist"."last_modified_at" DESC
+  ORDER BY "posthog_sessionrecordingplaylist"."last_modified_at" DESC,
+           "posthog_sessionrecordingplaylist"."id" ASC
   LIMIT 93
   '''
 # ---
