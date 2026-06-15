@@ -143,12 +143,29 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+            # Newer Supabase/Supavisor pooler wording for a missing tenant/user. The older
+            # "Tenant or user not found connection to server" / "FATAL: Tenant or user not found"
+            # patterns don't substring-match this, so it needs its own key.
+            'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
+        # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
+        # so confirm it's specifically the new key that recognises this message.
+        error_msg = (
+            'connection failed: connection to server at "52.45.94.125", port 6543 failed: '
+            "FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert "(ENOTFOUND) tenant/user" in non_retryable
+        assert "Tenant or user not found connection to server" not in error_msg
+        assert "FATAL: Tenant or user not found" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
 
     @pytest.mark.parametrize(
         "error_msg",

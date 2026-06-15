@@ -171,6 +171,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
+            # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
+            # wording than the two lines above ("FATAL: (ENOTFOUND) tenant/user <user> not found").
+            # It means the pooler can't resolve the project ref or pooler username — the project is
+            # paused/deleted or the credentials are wrong — so it's permanent until the customer
+            # fixes their config. Match the stable fragment and exclude the volatile username/host.
+            "(ENOTFOUND) tenant/user": (
+                "Your database connection pooler couldn't find the tenant or user "
+                '("tenant/user not found"). This usually means the database project is paused or '
+                "deleted, or the pooler username/host is wrong. Check that your database is active "
+                "and the connection details are correct, then re-enable the sync."
+            ),
             "error received from server in SCRAM exchange: Wrong password": None,
             "could not translate host name": None,
             "timeout expired connection to server at": None,
