@@ -105,6 +105,13 @@ def _usage_update_line(used: int = 1000, cost: float | None = None) -> str:
     )
 
 
+def _console_line(message: str = "agentsh network events", method: str = "_posthog/console") -> str:
+    # An observability side-channel the relay interleaves into the turn log (agentsh network audit,
+    # sandbox credential refresh, stdout). It carries no turn-state and can land AFTER the agent's
+    # closing usage_update — the dropped-finalization tail check must skip it, not stop on it.
+    return json.dumps({"notification": {"method": method, "params": {"level": "debug", "message": message}}})
+
+
 def _cost_less_usage_update_line(used: int = 1000) -> str:
     # Older sandbox builds omit cost entirely — must NOT read as the null-cost fingerprint.
     return json.dumps(
