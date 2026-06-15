@@ -342,9 +342,8 @@ def shrink_to_shape(
     reduction can't wander onto a different bug.
 
     Returns the original query unchanged on any failure — a bad reduction
-    (or a missing shrinkray install) must never abort the grind. Callers that
-    want shrinking should probe `_shrink.is_available()` up front and surface
-    an install hint; this fallback is the last line of defence."""
+    must never abort the grind, so this fallback is the last line of
+    defence."""
 
     def is_interesting(candidate: str) -> bool:
         return _shape_for(candidate, rule, oracle_backend, candidate_backend) == target_shape
@@ -617,11 +616,7 @@ def shrink_failures(
     `candidate_reject` shrink toward their recomputed `DivergenceShape`;
     crashes (`candidate_crash` / `oracle_crash`) are left verbatim — a crash
     isn't a stable shape to reduce toward (same limitation as the PBT path).
-    Progress goes to stderr because shrinking a large failure set is slow.
-
-    Probe `_shrink.is_available()` before calling; without shrinkray
-    installed every `shrink_to_shape` falls back to the original query and
-    this becomes an expensive no-op."""
+    Progress goes to stderr because shrinking a large failure set is slow."""
     out: list[Failure] = []
     total = len(failures)
     for i, fa in enumerate(failures):

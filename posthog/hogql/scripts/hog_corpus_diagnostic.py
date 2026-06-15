@@ -73,7 +73,6 @@ from posthog.hogql.scripts._diagnostic_common import (
     shrink_failures,
     write_failures,
 )
-from posthog.hogql.scripts._shrink import is_available as shrinkray_available
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DUMP = REPO_ROOT / "posthog" / "hogql" / "scripts" / ".local" / "hog_corpus.json"
@@ -219,12 +218,6 @@ def main() -> int:
             f"WARNING: --oracle and --candidate are both {args.oracle!r} — "
             f"this is not a parity check; every program will trivially 'pass'."
         )
-    if args.shrink_failures and not shrinkray_available():
-        print(
-            "ERROR: --shrink-failures needs shrinkray, which isn't installed.\n"
-            "  install it with `uv sync --group hogql-parser-parity`, or drop --shrink-failures"
-        )
-        return 1
 
     print(f"=== Hog-program corpus diagnostic: oracle={args.oracle} candidate={args.candidate} ===")
     print()

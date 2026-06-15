@@ -91,7 +91,6 @@ from posthog.hogql.scripts._diagnostic_common import (
     _safe_parse,
     shrink_to_shape,
 )
-from posthog.hogql.scripts._shrink import is_available as shrinkray_available
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
 from posthog.hogql.test.test_parser_grammar_pbt import (
     _PBT_SETTINGS,
@@ -227,16 +226,6 @@ def main() -> int:
         if err is not None:
             print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
             return 1
-
-    # --shrink-failures needs the optional shrinkray dependency. Probe up
-    # front so a long grind doesn't reach the first failure only to find it
-    # can't shrink it.
-    if args.shrink_failures and not shrinkray_available():
-        print(
-            "ERROR: --shrink-failures needs shrinkray, which isn't installed.\n"
-            "  install it with `uv sync --group hogql-parser-parity`, or drop --shrink-failures"
-        )
-        return 1
 
     counts: Counter[str] = Counter()
     # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`. We

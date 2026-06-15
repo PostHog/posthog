@@ -276,18 +276,21 @@ check: a query the backends agree on exits non-zero with the reason on
 stderr. An agent brainstorming edge cases pipes each candidate through
 it and keeps the ones that come back shrunk.
 
-### Shrinking needs the optional parity group
+### The diagnostics need the optional parity group
 
-`shrink_query.py` and the corpus runners' `--shrink-failures` are powered
-by [shrinkray](https://github.com/DRMacIver/shrinkray), an optional
-dependency kept out of the default dev install:
+Shrinking is powered by [shrinkray](https://github.com/DRMacIver/shrinkray),
+which lives in the `hogql-parser-parity` group rather than the default dev
+install (its transitive deps — textual, libcst, black — are heavy). The
+parity scripts in `posthog/hogql/scripts/` import it at module level, so
+they require that group:
 
 ```bash
 uv sync --group hogql-parser-parity
 ```
 
-Without it the corpus diagnostics still run; they just refuse
-`--shrink-failures` with an install hint.
+Without it they fail fast at startup with a `ModuleNotFoundError` — these
+are parity-work-only tools, so they just require the parity dependency
+rather than degrading to a no-shrink mode.
 
 ### Perf bench via `posthog/hogql/scripts/parser_bench.py`
 

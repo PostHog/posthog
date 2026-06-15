@@ -9,12 +9,13 @@ test-case reducer by the author of Hypothesis. shrinkray shrinks *within*
 tokens too (smaller identifiers, smaller numbers, collapsed structure), so
 it lands on tighter repros than token deletion alone.
 
-shrinkray is an **optional** dependency — it lives in the
-`hogql-parser-parity` dependency group, not the default dev install, so its
-heavy transitive deps (textual, libcst, black) aren't forced on every dev.
-Callers gate on `is_available()` and only reach `shrink()` once it's
-confirmed present; the imports here are deferred so importing this module
-(and the diagnostics) never hard-requires shrinkray.
+shrinkray lives in the optional `hogql-parser-parity` dependency group, not
+the default dev install, so its heavy transitive deps (textual, libcst,
+black) aren't forced on every dev. The parity diagnostics that import this
+module therefore require that group — `uv sync --group hogql-parser-parity`
+— and fail at import with a plain `ModuleNotFoundError` without it. That's
+the deliberate trade: these are parity-work-only scripts, so they may simply
+require the parity dependency rather than carry a graceful-degradation path.
 
 `shrink()` is generic over a `str -> bool` interestingness predicate, so it
 knows nothing about divergence shapes — the diagnostic-aware wrapper
@@ -26,24 +27,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from random import Random
 
-
-class ShrinkrayUnavailable(RuntimeError):
-    """shrinkray (an optional dependency) isn't importable.
-
-    Raised by `shrink()` when the `hogql-parser-parity` group hasn't been
-    installed. Callers should probe `is_available()` up front and surface a
-    clear install hint rather than letting this fire mid-grind.
-    """
-
-
-def is_available() -> bool:
-    """Whether shrinkray (and its trio runtime) can be imported."""
-    try:
-        import trio  # noqa: F401, PLC0415 — optional dep probe
-        import shrinkray  # noqa: F401, PLC0415 — optional dep probe
-    except ImportError:
-        return False
-    return True
+import trio
+from shrinkray.problem import BasicReductionProblem, InvalidInitialExample
+from shrinkray.reducer import ShrinkRay
+from shrinkray.work import Volume, WorkContext
 
 
 def shrink(initial: str, is_interesting: Callable[[str], bool], *, parallelism: int = 1) -> str:
@@ -62,19 +49,7 @@ def shrink(initial: str, is_interesting: Callable[[str], bool], *, parallelism: 
     so `initial` is returned unchanged. Any other shrinkray error
     propagates — the grind-robustness fallback (return the original query on
     failure) lives in the caller, so this stays a thin, reusable utility.
-
-    Raises `ShrinkrayUnavailable` if shrinkray isn't installed.
     """
-    try:
-        import trio  # noqa: PLC0415 — optional dep, kept off the import path
-        from shrinkray.problem import BasicReductionProblem, InvalidInitialExample  # noqa: PLC0415
-        from shrinkray.reducer import ShrinkRay  # noqa: PLC0415
-        from shrinkray.work import Volume, WorkContext  # noqa: PLC0415
-    except ImportError as e:
-        raise ShrinkrayUnavailable(
-            "shrinkray is not installed — install the optional parity group with "
-            "`uv sync --group hogql-parser-parity`, or re-run without --shrink-failures"
-        ) from e
 
     async def predicate(test_case: bytes) -> bool:
         try:

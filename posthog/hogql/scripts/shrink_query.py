@@ -48,7 +48,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
 from posthog.hogql.scripts._diagnostic_common import _probe_backend, _safe_parse, _shape_for, shrink_to_shape
-from posthog.hogql.scripts._shrink import is_available as shrinkray_available
 
 
 def _explain_no_divergence(query: str, rule: str, oracle: str, candidate: str) -> str:
@@ -94,13 +93,6 @@ def main() -> int:
         if err is not None:
             print(f"ERROR: {label} backend {backend!r} unavailable: {err}", file=sys.stderr)
             return 1
-    if not shrinkray_available():
-        print(
-            "ERROR: shrinking needs shrinkray, which isn't installed.\n"
-            "  install it with `uv sync --group hogql-parser-parity`",
-            file=sys.stderr,
-        )
-        return 1
 
     query = sys.stdin.read()
     if not query.strip():
