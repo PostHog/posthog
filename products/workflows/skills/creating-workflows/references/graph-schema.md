@@ -33,7 +33,7 @@ Use **only** these `type` values — they are the complete supported set. An unk
 | `trigger`                | a trigger config (see below). Exactly one trigger node per workflow.                                                                                                                        |
 | `delay`                  | `{ "delay_duration": "30m" }` — see duration rules below.                                                                                                                                   |
 | `conditional_branch`     | `{ "conditions": [ { "filters": {"properties": [<cond>]}, "name?": "" } ] }`. Index N pairs with the `branch` edge `index: N`.                                                              |
-| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages split the population.                                                                                                  |
+| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages should sum to 100 — a shortfall leaves an unrouted remainder, an excess makes later cohorts unreachable.               |
 | `wait_until_condition`   | `{ "condition": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. Duration rules as `delay`.                               |
 | `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                       |
 | `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                           |
@@ -47,8 +47,20 @@ Discriminated on `config.type`:
 
 - `event` — `{ "type": "event", "filters": { "events": [{ "id": "<event>", "name": "<event>", "type": "events", "order": 0, "properties": [<cond>] }], "properties": [<cond>], "filter_test_accounts": false } }`. Fires on **every** matching occurrence. Throttle repeats with `trigger_masking` (dedup/sampling — not behavioral filtering).
 - `webhook` / `manual` / `tracking_pixel` — `{ "type": "webhook", "template_id": "<id>", "inputs": { ... } }`. Function-style triggers; discover the `template_id` and its inputs the same way as `function` nodes (see "Discovering function templates").
-- `batch` — `{ "type": "batch", "filters": { "properties": [<cond>] } }`. The audience: person-property conditions and/or cohort references. **No event/action filters** (silently dropped, so rejected). Does not fire on enable — dispatch with `workflows-run-batch` or `workflows-schedule-create`.
-- `schedule` — `{ "type": "schedule" }`. Audience resolves offline like `batch`; the recurrence lives on a separate schedule resource.
+- `batch` — `{ "type": "batch", "filters": { "properties": [<cond>] } }`. The audience: person-property conditions and/or cohort references. **No event/action filters** (silently dropped, so rejected). Does not fire on enable — dispatch a one-off broadcast with `workflows-run-batch`, or make it **recurring** with `workflows-schedule-create` (attaches an RRULE schedule; each firing re-broadcasts to this same `config.filters.properties` audience). A recurring workflow is a `batch` trigger plus a schedule — there is no separate "schedule" trigger type to author.
+
+### Trigger masking (throttling an event trigger)
+
+`trigger_masking` is a top-level workflow field (not an action) that throttles an already-matching `event` trigger — it dedups/samples firings, it does not decide who enters.
+
+```json
+"trigger_masking": { "hash": "{person.id}", "ttl": 3600, "threshold": null }
+```
+
+- `hash` — HogQL template defining the dedup key. `"{person.id}"` = once per person.
+- `ttl` — seconds to suppress repeats of the same hash (60–94608000).
+- `threshold?` — fire once per N matches of the same hash (a sampler: N=3 fires on the 1st, 4th, 7th…). Omit to fire once then suppress within `ttl`.
+- Don't send `bytecode` — compiled server-side from `hash`.
 
 ### Condition shape (`<cond>`)
 
