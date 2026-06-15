@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import type { ComponentType } from 'react'
+import { type ComponentType, isValidElement } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
@@ -133,10 +133,10 @@ export function ErrorTrackingIngestionPrompt({
                                 targetBlank
                                 onClick={onDocsLinkClick}
                                 icon={
-                                    typeof image === 'string' ? (
-                                        <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
-                                    ) : image ? (
+                                    isValidElement(image) ? (
                                         <span className="flex w-5 h-5 [&_svg]:w-full [&_svg]:h-full">{image}</span>
+                                    ) : image ? (
+                                        <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
                                     ) : undefined
                                 }
                             >
