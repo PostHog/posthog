@@ -1031,3 +1031,11 @@ environment:
         bin_script: build-dashboard-widget-types.py
         description: Widget enum preflight, date options, and form-field manifest codegen
         hidden: true
+    verify:metrics:pipe:
+        bin_script: verify-metrics-pipe
+        description: 'Verify the local metrics pipe reached ClickHouse metrics1'
+        hidden: true
+    send:dev:metrics:
+        bin_script: send-dev-metrics.sh
+        description: 'Send a synthetic OTLP counter/gauge/histogram through the metrics ingest chain'
+        hidden: true

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -89,6 +90,7 @@ class CopperSource(ResumableSource[CopperSourceConfig, CopperResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.COPPER,
+            category=DataWarehouseSourceCategory.CRM,
             label="Copper",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Sync your Copper CRM data into the PostHog Data warehouse.

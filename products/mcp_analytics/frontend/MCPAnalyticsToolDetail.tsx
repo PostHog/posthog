@@ -376,7 +376,7 @@ function DescriptionBlock({
     return (
         <div className="flex flex-col gap-1 max-w-3xl">
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
-            <LemonMarkdown className="text-sm leading-snug" lowKeyHeadings>
+            <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
                 {latest.description}
             </LemonMarkdown>
             {older.length > 0 ? (

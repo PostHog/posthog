@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -34,6 +35,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.POLAR,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Polar",
             caption=(
                 "Connect your Polar.sh account using an "
