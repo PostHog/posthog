@@ -5,8 +5,7 @@ how the pieces fit, how to bring up the stack, how to drive it end-to-end
 (including via the local MCP server), and how to add a test for any new
 vital feature so future regressions land with the change that broke them.
 
-Companion to [deploy-runbook.md](deploy-runbook.md) (env vars per service
-in prod). This doc is dev-mode only.
+This doc is dev-mode only.
 
 ## The stack at a glance
 
@@ -22,21 +21,21 @@ in prod). This doc is dev-mode only.
                               │ HTTP (x-internal-secret)
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ services/agent-janitor          (port 3031)                         │
+│ products/agent_platform/services/agent-janitor          (port 3031)                         │
 │   /revisions/* authoring API · /native_tools · /healthz             │
 │   sweeps stuck running/waiting sessions on a timer                  │
 └─────────────────────────────────────────────────────────────────────┘
                               │ writes to AGENT_DB
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ services/agent-ingress          (port 3030)                         │
+│ products/agent_platform/services/agent-ingress          (port 3030)                         │
 │   /agents/<slug>/run · /send · /listen (SSE) · /webhook · MCP       │
 │   resolves slug → application + live revision → enqueues session    │
 └─────────────────────────────────────────────────────────────────────┘
                               │ enqueues to AGENT_DB.agent_session
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ services/agent-runner            (no inbound HTTP)                  │
+│ products/agent_platform/services/agent-runner            (no inbound HTTP)                  │
 │   Worker loop: claim → load revision + bundle → pi-ai call →        │
 │     dispatch native/custom tools → write conversation → publish     │
 │     lifecycle events → loop or park                                 │
@@ -44,9 +43,9 @@ in prod). This doc is dev-mode only.
 ```
 
 Shared building blocks (queue, bundle store, sandbox pool, spec
-schema, log sink) live in [services/agent-shared](../../../services/agent-shared/).
+schema, log sink) live in [products/agent_platform/services/agent-shared](../../../products/agent_platform/services/agent-shared/).
 Tools the runner can dispatch (`@posthog/query`, `@posthog/meta-*`,
-etc.) live in [services/agent-tools](../../../services/agent-tools/).
+etc.) live in [products/agent_platform/services/agent-tools](../../../products/agent_platform/services/agent-tools/).
 
 ### Two databases
 
@@ -54,7 +53,7 @@ etc.) live in [services/agent-tools](../../../services/agent-tools/).
   `agent_revision`. Written by Django; read by ingress + runner.
 - **AGENT_DB** — node-owned. Tables: `agent_session`, `agent_user`,
   `agent_sandbox_instance`, `agent_tool_approval_request`. Schema is
-  managed by [@posthog/agent-migrations](../../../services/agent-migrations/);
+  managed by [@posthog/agent-migrations](../../../products/agent_platform/services/agent-migrations/);
   the runner applies pending migrations on boot (idempotent).
 
 In dev they're the same Postgres (`postgres://posthog:posthog@localhost:5432`),
@@ -133,7 +132,7 @@ The gateway is a drop-in proxy — point an existing provider SDK at
 runner mirrors that contract: pi-ai resolves `spec.model` to a Model
 with the correct api shape per provider (`openai-completions` /
 `openai-responses` / `anthropic-messages`), and
-[`posthogAiGatewayModel`](../../../services/agent-runner/src/models/ai-gateway-model.ts)
+[`posthogAiGatewayModel`](../../../products/agent_platform/services/agent-runner/src/models/ai-gateway-model.ts)
 overrides only `baseUrl` (with the shape-appropriate suffix) and the
 `provider` tag. OpenAI agents hit `/v1/chat/completions` or
 `/v1/responses`; Anthropic agents hit `/v1/messages` — all on the
@@ -234,11 +233,11 @@ Workarounds until invocation tools land:
   `agent-listen` MCP tools (and a scripted test-run surface) so the
   authoring AI can iterate end-to-end without leaving MCP.
 
-## E2E tests — `services/agent-tests`
+## E2E tests — `products/agent_platform/services/agent-tests`
 
 Every vital platform feature has a case in
-[services/agent-tests/src/cases/](../../../services/agent-tests/src/cases/).
-The harness ([src/harness/cluster.ts](../../../services/agent-tests/src/harness/cluster.ts))
+[products/agent_platform/services/agent-tests/src/cases/](../../../products/agent_platform/services/agent-tests/src/cases/).
+The harness ([src/harness/cluster.ts](../../../products/agent_platform/services/agent-tests/src/harness/cluster.ts))
 boots ingress + runner + janitor in-process against a real test DB,
 real filesystem, real express, real Worker, real PiAiClient — mocked
 **only** at the model layer via pi-ai's `faux` provider. You arm the
@@ -273,7 +272,7 @@ files: `chat-trigger`, `slack-trigger`, `worker-resume`, `strict-principal`,
 
 ### Real-inference variant
 
-[src/cases/real-inference.test.ts](../../../services/agent-tests/src/cases/real-inference.test.ts)
+[src/cases/real-inference.test.ts](../../../products/agent_platform/services/agent-tests/src/cases/real-inference.test.ts)
 runs the same harness against a real provider model. **It runs by
 default and fails if no provider key is found** — that's the only way
 to know v2 talks to a real model end-to-end. Key discovery order:
@@ -324,7 +323,6 @@ auth predicates). Anything that crosses two services belongs in
 ## Where the canonical docs live
 
 - This file — local dev + testing.
-- [deploy-runbook.md](deploy-runbook.md) — env vars per service in prod.
 - [../plans/\_ROADMAP.md](../plans/_ROADMAP.md) — what we're building next.
 - [products/agent_platform/CLAUDE.md](../../../products/agent_platform/CLAUDE.md) — Django-side rules.
-- [services/agent-tests/CLAUDE.md](../../../services/agent-tests/CLAUDE.md) — test conventions.
+- [products/agent_platform/services/agent-tests/CLAUDE.md](../../../products/agent_platform/services/agent-tests/CLAUDE.md) — test conventions.
