@@ -204,8 +204,11 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         # per-role filters: an account is "assigned to" a user if they hold
         # either role. Explicit ids (not the requester) so a shared URL filtered
         # by "my accounts" resolves to the same accounts for every viewer.
-        role_exprs = [self._role_filter_expr(json_key, user_ids) for json_key in ASSIGNED_ROLE_KEYS]
-        role_exprs = [expr for expr in role_exprs if expr is not None]
+        role_exprs: list[ast.Expr] = []
+        for json_key in ASSIGNED_ROLE_KEYS:
+            role_expr = self._role_filter_expr(json_key, user_ids)
+            if role_expr is not None:
+                role_exprs.append(role_expr)
         if not role_exprs:
             return ast.Constant(value=False)
         return ast.Or(exprs=role_exprs)

@@ -283,6 +283,18 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         response = runner.calculate()
         self.assertEqual(response.metricsResults, [1])
 
+    def test_assigned_to_user_id_is_part_of_the_cache_key(self):
+        # Regression: "my accounts" must not collide in the query cache across users.
+        # The user id that selects the accounts rides in the query (assignedToUserIds),
+        # so it lands in get_cache_payload()["query"] and therefore in get_cache_key().
+        # (Pre-fix, the boolean assignedToCurrentUser was identical across users while
+        # the results differed by the server-resolved self.user.id, so one user's cached
+        # accounts could be served to another.)
+        runner_a = AccountsQueryRunner(query=AccountsQuery(assignedToUserIds=[1]), team=self.team, user=self.user)
+        runner_b = AccountsQueryRunner(query=AccountsQuery(assignedToUserIds=[2]), team=self.team, user=self.user)
+        self.assertEqual(runner_a.get_cache_payload()["query"]["assignedToUserIds"], [1])
+        self.assertNotEqual(runner_a.get_cache_key(), runner_b.get_cache_key())
+
     def test_ordering_by_name_asc(self):
         banana = create_account(team_id=self.team.id, name="Banana")
         apple = create_account(team_id=self.team.id, name="Apple")
