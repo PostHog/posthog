@@ -108,7 +108,7 @@ tools:
     input_schema: ActionCreateSchema # named export from src/schema/tool-inputs.ts
     response_type: Schemas.Action[] # optional TypeScript return type override for generated handlers
     list: true # marks as a list endpoint
-    enrich_url: "{id}" # appended to url_prefix for result URLs
+    enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
     include_params: [field] # whitelist params (excludes all others)
     response: # filter response fields (applied per-item on list endpoints)
