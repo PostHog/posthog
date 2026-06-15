@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.tags import slugify_tag
 
 from ee.hogai.tool import MaxTool
 
@@ -124,7 +125,9 @@ SEARCH_OBSERVATIONS_TOOL_DESCRIPTION = dedent("""
     applied first, then the semantic ranking runs only over the matching recordings — so always pass these when
     the user states an exact result:
     - `verdict` for monitor scanners (e.g. ["yes"] for "recordings that had a YES result because of ...")
-    - `tags` for classifier scanners (e.g. ["abandoned"] for "sessions classified as abandoned because of ...")
+    - `tags` for classifier scanners (e.g. ["abandoned"] for "sessions classified as abandoned because of ...").
+      Pass the tag as the user phrases it — matching is case/format-insensitive (e.g. "Frustrated Or Confused"
+      matches the stored `frustrated_or_confused`).
     - `min_score` / `max_score` for scorer scanners (e.g. max_score=0 for "scored 0 because of ...")
     Put only the meaning in `query` (e.g. "broken checkout button"), and the exact outcome in these filters.
 
@@ -307,12 +310,17 @@ class _ObservationFilters:
                 clauses, placeholders, "verdict", self.verdict, "JSONExtractString(metadata, 'verdict') IN {verdict}"
             )
         if self.tags:
+            # Slugify each stored metadata tag (mirroring `slugify_tag`) before `hasAny`, so the case/format-
+            # insensitive match works against rows whose fixed-vocab tags were stamped verbatim — no backfill.
+            # The caller passes already-slugified values in `{tags}`.
             self._append_filter(
                 clauses,
                 placeholders,
                 "tags",
                 self.tags,
-                "hasAny(JSONExtract(metadata, 'tags', 'Array(String)'), {tags})",
+                "hasAny("
+                "arrayMap(t -> replaceRegexpAll(replaceRegexpAll(lower(t), '[^a-z0-9_-]+', '_'), '^_+|_+$', ''), "
+                "JSONExtract(metadata, 'tags', 'Array(String)')), {tags})",
             )
         if self.min_score is not None:
             self._append_filter(
@@ -363,7 +371,8 @@ class SearchObservationsArgs(BaseModel):
     )
     tags: list[str] | None = Field(
         default=None,
-        description='Keep only classifier results carrying any of these tags. e.g. ["abandoned"].',
+        description='Keep only classifier results carrying any of these tags. e.g. ["abandoned"]. '
+        "Matching is case/format-insensitive, so pass the tag as the user phrases it.",
     )
     min_score: float | None = Field(
         default=None, description="Keep only scorer results whose score is at least this value."
@@ -403,7 +412,15 @@ class SearchReplayVisionObservationsTool(MaxTool):
         if not query or not query.strip():
             return "No search query provided. Please describe what to look for.", {"error": "empty_query"}
 
-        filters = _ObservationFilters(verdict=verdict, tags=tags, min_score=min_score, max_score=max_score)
+        # Slugify Max's tag guess ("Frustrated Or Confused" -> "frustrated_or_confused") so it matches the
+        # normalized stored side; order-preserving dedup, dropping anything that slugs to empty.
+        normalized_tags = list(dict.fromkeys(s for t in (tags or []) if (s := slugify_tag(t)))) or None
+        # Verdicts are a closed lowercase enum (yes/no/inconclusive) stored verbatim, so lowercase Max's input
+        # to absorb a casing slip ("Yes") that would otherwise silently match nothing.
+        normalized_verdict = list(dict.fromkeys(v.strip().lower() for v in (verdict or []) if v.strip())) or None
+        filters = _ObservationFilters(
+            verdict=normalized_verdict, tags=normalized_tags, min_score=min_score, max_score=max_score
+        )
         try:
             return await self._search(str(resolved_id) if resolved_id else None, query.strip(), filters, limit)
         except Exception as e:
