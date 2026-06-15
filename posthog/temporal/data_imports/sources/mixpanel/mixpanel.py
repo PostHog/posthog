@@ -64,8 +64,6 @@ def _parse_retry_after(value: Optional[str]) -> Optional[float]:
         retry_dt = parsedate_to_datetime(value)
     except (TypeError, ValueError):
         return None
-    if retry_dt is None:
-        return None
     if retry_dt.tzinfo is None:
         retry_dt = retry_dt.replace(tzinfo=UTC)
     delta = (retry_dt - datetime.now(UTC)).total_seconds()
