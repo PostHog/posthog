@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
@@ -34,6 +35,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINEAR,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Linear",
             releaseStatus="beta",
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",

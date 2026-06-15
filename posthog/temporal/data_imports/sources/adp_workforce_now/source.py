@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class AdpWorkforceNowSource(SimpleSource[AdpWorkforceNowSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ADP_WORKFORCE_NOW,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
+            keywords=["adp"],
             label="ADP Workforce Now",
             iconPath="/static/services/adp_workforce_now.png",
             fields=cast(list[FieldType], []),

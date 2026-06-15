@@ -68,11 +68,31 @@ export type ProcessBufferWithSamplingResult = {
     bytesDropped: number
     /** Sum of per-row `bytes_uncompressed` for dropped lines, attributed to the first matching rule UUID. */
     bytesDroppedByRuleId: Map<string, number>
+    /** Sum of customer-content bytes (body + attributes + event_name) for dropped lines. Billing pro-rate numerator. */
+    contentBytesDropped: number
+    /** Sum of customer-content bytes across ALL decoded rows (kept + dropped). Billing pro-rate denominator. */
+    contentBytesTotal: number
     /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
     allDropped: boolean
 }
 
 const recordBytes = (r: LogRecord): number => r.bytes_uncompressed ?? 0
+
+/**
+ * Customer-sent content bytes of a row: body + attributes + event_name. The billing
+ * pro-rate weight — deliberately NOT `bytes_uncompressed`, which includes per-row
+ * denormalization overhead (resource attributes duplicated onto every row, server
+ * uuid, id placeholders). That overhead is near-constant per row, so as a ratio
+ * weight it would skew the pro-rate toward record-count weighting instead of
+ * "share of what the customer sent".
+ */
+const contentBytes = (r: LogRecord): number => {
+    let total = Buffer.byteLength(r.body ?? '') + Buffer.byteLength(r.event_name ?? '')
+    for (const [k, v] of Object.entries(r.attributes ?? {})) {
+        total += Buffer.byteLength(k) + Buffer.byteLength(v ?? '')
+    }
+    return total
+}
 
 export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
@@ -102,6 +122,8 @@ export class LogsSamplingService {
         const recordsDroppedByRuleId = new Map<string, number>()
         let bytesDropped = 0
         const bytesDroppedByRuleId = new Map<string, number>()
+        let contentBytesDropped = 0
+        const contentBytesTotal = records.reduce((sum, r) => sum + contentBytes(r), 0)
 
         const useRate = Boolean(ruleSet.hasRateLimitRules && teamId != null)
 
@@ -126,6 +148,7 @@ export class LogsSamplingService {
                         const rb = recordBytes(record)
                         recordsDropped++
                         bytesDropped += rb
+                        contentBytesDropped += contentBytes(record)
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
                         bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
                         continue
@@ -137,6 +160,7 @@ export class LogsSamplingService {
                     const rb = recordBytes(record)
                     recordsDropped++
                     bytesDropped += rb
+                    contentBytesDropped += contentBytes(record)
                     if (c.ruleId != null) {
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
                         bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
@@ -152,6 +176,7 @@ export class LogsSamplingService {
                     const rb = recordBytes(record)
                     recordsDropped++
                     bytesDropped += rb
+                    contentBytesDropped += contentBytes(record)
                     if (ruleId != null) {
                         recordsDroppedByRuleId.set(ruleId, (recordsDroppedByRuleId.get(ruleId) ?? 0) + 1)
                         bytesDroppedByRuleId.set(ruleId, (bytesDroppedByRuleId.get(ruleId) ?? 0) + rb)
@@ -179,6 +204,8 @@ export class LogsSamplingService {
                 recordsDroppedByRuleId,
                 bytesDropped,
                 bytesDroppedByRuleId,
+                contentBytesDropped,
+                contentBytesTotal,
                 allDropped: true,
             }
         }
@@ -190,6 +217,8 @@ export class LogsSamplingService {
             recordsDroppedByRuleId,
             bytesDropped,
             bytesDroppedByRuleId,
+            contentBytesDropped,
+            contentBytesTotal,
             allDropped: false,
         }
     }

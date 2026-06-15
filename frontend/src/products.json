@@ -120,6 +120,13 @@
             "intents": ["endpoints"]
         },
         {
+            "path": "CI analytics",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": "engineering_analytics",
+            "intents": ["engineering_analytics"]
+        },
+        {
             "path": "Error tracking",
             "category": "App monitoring",
             "iconType": null,
@@ -207,7 +214,7 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
-        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["llm_prompts"] },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {

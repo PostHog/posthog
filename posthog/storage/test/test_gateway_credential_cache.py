@@ -21,6 +21,7 @@ from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, gene
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
+    GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
     clear_gateway_credential,
     credential_hash,
     gateway_credential_hypercache as hypercache,
@@ -29,6 +30,7 @@ from posthog.storage.gateway_credential_cache import (
 )
 from posthog.tasks.gateway_credential import (
     refresh_gateway_credentials,
+    reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
 )
@@ -304,6 +306,26 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
 
+class TestGatewayCredentialTTL(GatewayCredentialTestMixin):
+    def test_secret_key_written_with_capped_ttl(self):
+        # Secret keys never expire, so the blob is capped at the short secret-key TTL the
+        # hourly refresh keeps warm — not the 7-day default.
+        key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        with patch.object(hypercache, "set_cache_value_redis_only") as mock_set:
+            project_gateway_credential(key)
+        self.assertEqual(mock_set.call_args.kwargs["ttl"], GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL)
+
+    def test_oauth_blob_ttl_tracks_remaining_lifetime(self):
+        # OAuth blobs live only as long as the token, so the gateway can't authenticate a
+        # token past its expiry off a stale blob.
+        credential = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=2)
+        with patch.object(hypercache, "set_cache_value_redis_only") as mock_set:
+            project_gateway_credential(credential)
+        ttl = mock_set.call_args.kwargs["ttl"]
+        self.assertGreater(ttl, 2 * 60 * 60 - 60)
+        self.assertLessEqual(ttl, 2 * 60 * 60)
+
+
 class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
     def test_refresh_projects_eligible_credentials(self):
         # Many keys share the team's one gateway; secret_key, oauth, and ignored all resolve by team.
@@ -333,6 +355,32 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         # reproject_user is user-scoped, so it covers OAuth only; secret keys have no user.
         oauth = self._make_oauth(GATEWAY_SCOPE)
         reproject_user_gateway_credentials_task(self.user.pk)
+        self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
+
+    def test_reproject_team_task_projects_secret_keys_including_child_envs(self):
+        # The team reproject catches secret keys on the team and its child environments;
+        # a child-env key bills the canonical parent project.
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        parent_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        child_token = generate_random_token_secret()
+        child_key = ProjectSecretAPIKey.objects.create(
+            label="child key", team=child, secure_value=hash_key_value(child_token), scopes=[GATEWAY_SCOPE]
+        )
+        hypercache.cache_client.clear()
+
+        reproject_team_gateway_credentials_task(self.team.pk)
+
+        self.assertIsNotNone(self._read_blob(credential_hash(parent_key)))
+        self.assertIsNotNone(self._read_blob(credential_hash(child_key)))
+
+    def test_reproject_team_task_projects_org_oauth_tokens(self):
+        # An OAuth token resolves by its application's org, so the team reproject catches
+        # every gateway token in the team's organization.
+        oauth = self._make_oauth(GATEWAY_SCOPE)
+        hypercache.cache_client.clear()
+
+        reproject_team_gateway_credentials_task(self.team.pk)
+
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
 
     @patch("posthog.tasks.gateway_credential.settings")
@@ -394,6 +442,25 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
+    @patch("posthog.storage.gateway_credential_signal_handlers.clear_gateway_credential")
+    def test_revoke_falls_back_to_async_when_sync_clear_fails(
+        self, mock_clear, mock_delay, mock_settings, mock_transaction
+    ):
+        # Scope removed but the synchronous clear fails (e.g. transient Redis): queue the
+        # task so the revoke self-heals instead of waiting out the blob TTL.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        mock_clear.side_effect = Exception("redis down")
+        secret_key.scopes = ["feature_flag:read"]
+        secret_key.save()
+
+        mock_delay.assert_called_with(SECRET_KEY_KIND, str(secret_key.pk))
+
+    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_user_team_change_does_not_reproject(self, mock_delay, mock_settings, mock_transaction):
         # team_id comes from the bound gateway now, so a current-team switch
@@ -421,20 +488,30 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
-    def test_user_deactivation_reprojects(self, mock_delay, mock_settings, mock_transaction):
+    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task")
+    def test_reproject_retries_async_only_when_sync_fails(self, mock_task, mock_settings, mock_transaction):
+        # A successful sync reprojection needs no retry; a sync failure (e.g. transient
+        # Redis) must fall back to an async retry so a revoked blob can't outlive the TTL.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         user = User.objects.get(pk=self.user.pk)
         user.is_active = False
         user.save()
+        mock_task.assert_called_with(user.pk)  # synchronous attempt
+        mock_task.delay.assert_not_called()  # succeeded — no retry queued
 
-        mock_delay.assert_called_with(user.pk)
+        mock_task.reset_mock()
+        mock_task.side_effect = Exception("redis down")
+        user.is_active = True
+        user.save()
+        mock_task.assert_called_with(user.pk)  # synchronous attempt
+        mock_task.delay.assert_called_with(user.pk)  # failed — retry queued
 
     def test_user_deactivation_clears_blob_synchronously(self):
         # The on_commit invalidation reprojects synchronously, so a deactivated user's
-        # blob is gone without waiting for the Celery task — only .delay is the retry path.
+        # blob is gone without waiting for the Celery task; .delay fires only if the sync
+        # reprojection raises.
         oauth = self._make_oauth(GATEWAY_SCOPE)
         project_gateway_credential(oauth)
         cache_hash = credential_hash(oauth)
@@ -452,18 +529,26 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             user.save()
 
         self.assertIsNone(self._read_blob(cache_hash))
-        mock_delay.assert_called_with(self.user.pk)
+        mock_delay.assert_not_called()  # sync clear succeeded, no async retry needed
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
     def test_membership_delete_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        # Losing org membership clears the user's OAuth blob synchronously; .delay is the
+        # retry path and fires only if the sync reprojection raises.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
+        oauth = self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(oauth)
+        cache_hash = credential_hash(oauth)
+        assert self._read_blob(cache_hash) is not None
+
         self.organization_membership.delete()
 
-        mock_delay.assert_called_with(self.user.pk)
+        self.assertIsNone(self._read_blob(cache_hash))
+        mock_delay.assert_not_called()
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
@@ -534,25 +619,10 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @pytest.mark.ee
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay")
-    def test_role_membership_change_reprojects_user(self, mock_delay, mock_settings, mock_transaction):
-        from ee.models.rbac.role import Role, RoleMembership
-
-        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
-        mock_transaction.on_commit.side_effect = lambda fn: fn()
-
-        role = Role.objects.create(name="engineers", organization=self.organization)
-        RoleMembership.objects.create(user=self.user, role=role)
-
-        mock_delay.assert_called_with(self.user.pk)
-
-    @pytest.mark.ee
-    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
-    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task")
     def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
-        # Role membership is per-user, so it reprojects synchronously (then queues the
-        # retry/warm task), unlike the team-wide access-control handler.
+        # Role membership is per-user, so it reprojects synchronously, unlike the
+        # team-wide access-control handler. The async retry fires only on sync failure.
         from ee.models.rbac.role import Role, RoleMembership
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
@@ -562,7 +632,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         RoleMembership.objects.create(user=self.user, role=role)
 
         mock_task.assert_called_with(self.user.pk)  # synchronous reprojection
-        mock_task.delay.assert_called_with(self.user.pk)  # retry/warm path
+        mock_task.delay.assert_not_called()  # sync succeeded — no retry queued
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
