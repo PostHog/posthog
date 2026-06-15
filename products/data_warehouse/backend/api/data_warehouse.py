@@ -48,6 +48,21 @@ from ee.billing.billing_manager import BillingManager
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Managed-warehouse connection presentation. The user-chosen warehouse name is the
+# SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the database to connect to
+# is always "ducklake"; the DNS zone is selected by the deployment.
+MANAGED_WAREHOUSE_DATABASE = "ducklake"
+_MANAGED_WAREHOUSE_DOMAINS = {
+    "US": "us.postwh.com",
+    "EU": "eu.postwh.com",
+    "DEV": "dev.postwh.com",
+}
+
+
+def _managed_warehouse_domain() -> str:
+    deployment = (getattr(django_settings, "CLOUD_DEPLOYMENT", None) or "").upper()
+    return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
+
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
@@ -899,11 +914,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             fields={"database_name": serializers.CharField(help_text="Name for the new database")},
         ),
         responses={
-            200: inline_serializer(
+            202: inline_serializer(
                 "ProvisionWarehouseResponse",
                 fields={
-                    "status": serializers.CharField(),
-                    "team": serializers.CharField(),
+                    "status": serializers.CharField(
+                        help_text="Provisioning lifecycle message, e.g. 'provisioning started'"
+                    ),
+                    "org": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
+                    "username": serializers.CharField(help_text="Root database username"),
+                    "password": serializers.CharField(
+                        help_text="Root database password — returned only here at provision time and on reset-password"
+                    ),
                 },
             )
         },
@@ -919,17 +940,21 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "/provision",
             json_body={
                 "database_name": database_name,
-                "metadata_store": {"type": "aurora", "aurora": {"min_acu": 0.5, "max_acu": 2}},
+                "ducklake": {"enabled": True},
+                "metadata_store": {"type": "cnpg-shard"},
+                "data_store": {"type": "s3bucket"},
             },
         )
 
     @extend_schema(
         responses={
-            200: inline_serializer(
+            202: inline_serializer(
                 "DeprovisionWarehouseResponse",
                 fields={
-                    "status": serializers.CharField(),
-                    "team": serializers.CharField(),
+                    "status": serializers.CharField(
+                        help_text="Deprovisioning lifecycle message, e.g. 'deprovisioning started'"
+                    ),
+                    "org": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
                 },
             )
         },
@@ -952,13 +977,35 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: inline_serializer(
                 "WarehouseStatusResponse",
                 fields={
-                    "team_name": serializers.CharField(),
+                    "org_id": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
                     "state": serializers.ChoiceField(
-                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"]
+                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"],
+                        help_text="Overall provisioning lifecycle state",
                     ),
-                    "status_message": serializers.CharField(),
-                    "ready_at": serializers.DateTimeField(allow_null=True),
-                    "failed_at": serializers.DateTimeField(allow_null=True),
+                    "status_message": serializers.CharField(help_text="Human-readable detail for the current state"),
+                    "s3_state": serializers.CharField(help_text="Object-store sub-resource provisioning state"),
+                    "metadata_store_state": serializers.CharField(
+                        help_text="Metadata-store sub-resource provisioning state"
+                    ),
+                    "identity_state": serializers.CharField(
+                        help_text="Worker identity sub-resource provisioning state"
+                    ),
+                    "secrets_state": serializers.CharField(help_text="Credentials sub-resource provisioning state"),
+                    "ready_at": serializers.DateTimeField(allow_null=True, help_text="When the warehouse became ready"),
+                    "failed_at": serializers.DateTimeField(allow_null=True, help_text="When provisioning failed"),
+                    "connection": inline_serializer(
+                        "WarehouseConnection",
+                        fields={
+                            "host": serializers.CharField(
+                                help_text="Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
+                            ),
+                            "port": serializers.IntegerField(help_text="Postgres wire-protocol port"),
+                            "database": serializers.CharField(help_text="Database to connect to — always 'ducklake'"),
+                            "username": serializers.CharField(help_text="Root database username"),
+                        },
+                        required=False,
+                        allow_null=True,
+                    ),
                 },
             )
         },
@@ -967,13 +1014,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
         resp = self._provisioning_request("GET", "/warehouse/status")
-        # Override connection host/port with the public-facing duckgres PG endpoint
-        if resp.status_code == 200 and isinstance(resp.data, dict) and resp.data.get("connection"):
-            pg_url = getattr(django_settings, "DUCKGRES_PG_URL", None)
-            pg_port = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
-            if pg_url:
-                resp.data["connection"]["host"] = pg_url
-                resp.data["connection"]["port"] = pg_port
+        # Present the public-facing connection: the user-chosen warehouse name (returned
+        # by duckgres as `database`) is the SNI subdomain, and the database to connect to
+        # is always "ducklake".
+        if resp.status_code == 200 and isinstance(resp.data, dict) and isinstance(resp.data.get("connection"), dict):
+            connection = resp.data["connection"]
+            subdomain = connection.get("database")
+            if subdomain:
+                connection["host"] = f"{subdomain}.dw.{_managed_warehouse_domain()}"
+            connection["port"] = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
+            connection["database"] = MANAGED_WAREHOUSE_DATABASE
         return resp
 
     @extend_schema(

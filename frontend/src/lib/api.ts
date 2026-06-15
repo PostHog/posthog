@@ -5828,7 +5828,7 @@ const api = {
         async resetPassword(): Promise<{ username: string; password: string }> {
             return await new ApiRequest()
                 .dataWarehouse()
-                .withAction('reset_password')
+                .withAction('reset-password')
                 .create({} as any)
         },
     },
