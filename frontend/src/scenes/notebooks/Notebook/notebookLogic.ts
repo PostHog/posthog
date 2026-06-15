@@ -37,6 +37,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
@@ -320,6 +321,8 @@ export const notebookLogic = kea<notebookLogicType>([
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
+        downloadMarkdown: true,
+        copyMarkdown: true,
         showConflictWarning: true,
         onUpdateEditor: true,
         registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
@@ -1773,6 +1776,18 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+        downloadMarkdown: () => {
+            const file = new File(
+                [getMarkdownNotebookMarkdown(values.content)],
+                `${slugify(values.title ?? 'untitled')}.md`,
+                { type: 'text/markdown' }
+            )
+
+            downloadFile(file)
+        },
+        copyMarkdown: async () => {
+            await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
         },
 
         discardLocalChanges: () => {
