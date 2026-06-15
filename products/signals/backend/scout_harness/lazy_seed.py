@@ -5,6 +5,7 @@ import json
 import hashlib
 import logging
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from django.db import IntegrityError, transaction
@@ -250,6 +251,24 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
         by_name[skill.name] = entry
         discovered.append(skill)
     return tuple(discovered)
+
+
+@lru_cache(maxsize=1)
+def canonical_skill_names() -> frozenset[str]:
+    """Frontmatter names of the canonical `signals-scout-*` skills shipped on disk.
+
+    The single derived source of truth for "is this a scout the harness ships". Unlike a
+    hardcoded list it tracks the on-disk fleet automatically, so it never goes stale when a
+    canonical scout is added or removed. Cached for the process — the shipped fleet only
+    changes on deploy. A malformed canonical skill degrades to an empty set (everything reads
+    `custom`) rather than 500-ing read endpoints; the parse error still fails loud on the
+    harness's own sync path. See `views._scout_origin` for the consumer.
+    """
+    try:
+        return frozenset(skill.name for skill in discover_canonical_skills())
+    except CanonicalSkillParseError:
+        logger.warning("canonical_skill_names: malformed canonical skill on disk; treating fleet as empty")
+        return frozenset()
 
 
 def _compute_canonical_hash(canonical: CanonicalSkill) -> str:

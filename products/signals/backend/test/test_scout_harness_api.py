@@ -677,19 +677,31 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "Foo scout."
+        # The partial_update path resolves skill_info independently of list — assert origin too.
+        assert response.json()["scout_origin"] == "custom"
 
     @parameterized.expand(
         [
-            ("harness_seeded", {"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"}, "canonical"),
-            ("hand_authored_no_metadata", {}, "custom"),
-            ("hand_authored_other_seed", {"seeded_by": "some_other_thing"}, "custom"),
+            # (label, skill_name, metadata, expected). `signals-scout-general` is a real on-disk
+            # canonical scout; `signals-scout-my-fork` is a name the harness never ships.
+            (
+                "harness_seeded_canonical_name",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+                "canonical",
+            ),
+            ("hand_authored_no_metadata", "signals-scout-general", {}, "custom"),
+            ("hand_authored_other_seed", "signals-scout-general", {"seeded_by": "some_other_thing"}, "custom"),
+            # A fork via duplicate_skill() inherits the source row's seeded_by tag, but a fork can
+            # never take a canonical name — so the name guard reclassifies it as custom.
+            ("seeded_tag_but_non_canonical_name", "signals-scout-my-fork", {"seeded_by": HARNESS_SEEDED_BY}, "custom"),
         ]
     )
-    def test_list_classifies_origin_from_skill_metadata(self, _name: str, metadata: dict, expected_origin: str) -> None:
-        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
-        LLMSkill.objects.create(
-            team=self.team, name="signals-scout-errors", description="d", body="...", metadata=metadata
-        )
+    def test_list_classifies_origin_from_skill_metadata(
+        self, _name: str, skill_name: str, metadata: dict, expected_origin: str
+    ) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="...", metadata=metadata)
 
         response = self.client.get(self._list_url())
 
