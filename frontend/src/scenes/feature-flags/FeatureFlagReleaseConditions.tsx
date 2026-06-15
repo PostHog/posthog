@@ -26,13 +26,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import {
-    capitalizeFirstLetter,
-    clamp,
-    dateFilterToText,
-    dateStringToComponents,
-    pluralize,
-} from 'lib/utils'
+import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, pluralize } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
