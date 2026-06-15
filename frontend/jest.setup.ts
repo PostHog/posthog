@@ -3,6 +3,7 @@ import 'whatwg-fetch'
 
 import { configure } from '@testing-library/react'
 import { TextDecoder, TextEncoder } from 'util'
+import { deserialize, serialize } from 'v8'
 
 // Jest/JSDom don't know about TextEncoder but the browsers we support do
 // https://github.com/jsdom/jsdom/issues/2524
@@ -62,6 +63,11 @@ if (typeof localStorage === 'undefined') {
     ;(globalThis as any).localStorage = localStorageStub
     ;(window as any).localStorage = localStorageStub
     ;(global as any).localStorage = localStorageStub
+}
+
+// jsdom does not implement structuredClone — polyfill via Node's v8 serializer
+if (typeof globalThis.structuredClone !== 'function') {
+    globalThis.structuredClone = <T>(value: T): T => deserialize(serialize(value))
 }
 
 // jsdom does not implement AbortSignal.timeout — polyfill for tests

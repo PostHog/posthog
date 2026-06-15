@@ -104,7 +104,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -2390,6 +2390,8 @@ export namespace Schemas {
       resultCustomizations?: FunnelsFilterResultCustomizations;
       /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
       showAnnotations?: boolean | null;
+      /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
+      showLegend?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -6237,7 +6239,7 @@ export namespace Schemas {
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
-      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently. */
       pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
@@ -6246,9 +6248,7 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
-      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
       useQueryV2?: boolean | null;
-      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
       useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -7889,6 +7889,18 @@ export namespace Schemas {
       Linear: 'linear',
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
+    } as const;
+
+    /**
+     * * `oauth` - oauth
+     * * `credentials` - credentials
+     */
+    export type AuthMethodEnum = typeof AuthMethodEnum[keyof typeof AuthMethodEnum];
+
+
+    export const AuthMethodEnum = {
+      Oauth: 'oauth',
+      Credentials: 'credentials',
     } as const;
 
     export interface Author {
@@ -11359,6 +11371,70 @@ export namespace Schemas {
       previous: string | null;
     }
 
+    export interface CohortUsedInCohort {
+      /** Cohort database ID */
+      id: number;
+      /** Cohort display name; falls back to 'Unnamed' when empty */
+      name: string;
+    }
+
+    export interface CohortUsedInCohortsBlock {
+      /** Cohorts that include this cohort as a criterion, capped at 100 results */
+      results: CohortUsedInCohort[];
+      /** Total number of cohorts referencing this cohort, before truncation */
+      total: number;
+      /** True when more cohorts exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInFlag {
+      /** Feature flag database ID */
+      id: number;
+      /** Feature flag key (URL slug) */
+      key: string;
+      /**
+         * Feature flag display name
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface CohortUsedInFlagsBlock {
+      /** Feature flags referencing this cohort, capped at 100 results */
+      results: CohortUsedInFlag[];
+      /** Total number of feature flags referencing this cohort, before truncation */
+      total: number;
+      /** True when more feature flags exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInInsight {
+      /** Insight database ID */
+      id: number;
+      /** Insight short ID used for routing in the frontend */
+      short_id: string;
+      /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+      name: string;
+    }
+
+    export interface CohortUsedInInsightsBlock {
+      /** Insights referencing this cohort, capped at 100 results */
+      results: CohortUsedInInsight[];
+      /** Total number of insights referencing this cohort, before truncation */
+      total: number;
+      /** True when more insights exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface CohortUsedInResponse {
+      /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+      feature_flags: CohortUsedInFlagsBlock;
+      /** Insights referencing this cohort with truncation metadata */
+      insights: CohortUsedInInsightsBlock;
+      /** Other cohorts that include this cohort as a criterion, with truncation metadata */
+      cohorts: CohortUsedInCohortsBlock;
+    }
+
     /**
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
@@ -11497,6 +11573,22 @@ export namespace Schemas {
       Utf8: 'utf-8',
       Base64: 'base64',
     } as const;
+
+    export interface ContextGeneration {
+      /**
+         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ContextGenerationSet {
+      /**
+         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+         * @nullable
+         */
+      task_id: string | null;
+    }
 
     export type ConversationMessagesItem = { [key: string]: unknown };
 
@@ -13521,6 +13613,12 @@ export namespace Schemas {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -13753,6 +13851,12 @@ export namespace Schemas {
       SapSuccessFactors: 'SapSuccessFactors',
       OracleEbs: 'OracleEbs',
       OracleFusion: 'OracleFusion',
+      AmazonSNS: 'AmazonSNS',
+      AmazonEventBridge: 'AmazonEventBridge',
+      AmazonSQS: 'AmazonSQS',
+      AmazonKinesis: 'AmazonKinesis',
+      AmazonCloudWatch: 'AmazonCloudWatch',
+      OpenAIAds: 'OpenAIAds',
       Custom: 'Custom',
     } as const;
 
@@ -13992,6 +14096,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -14659,12 +14769,63 @@ export namespace Schemas {
       text?: string | null;
     }
 
+    /**
+     * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+     */
+    export type EmailTemplateDesignCounters = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyRowsItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyHeadersItem = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBodyFootersItem = { [key: string]: unknown };
+
+    /**
+     * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+     */
+    export type EmailTemplateDesignBodyValues = { [key: string]: unknown };
+
+    export type EmailTemplateDesignBody = {
+      /** Any unique string. */
+      id?: string;
+      /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+      rows: EmailTemplateDesignBodyRowsItem[];
+      headers?: EmailTemplateDesignBodyHeadersItem[];
+      footers?: EmailTemplateDesignBodyFootersItem[];
+      /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+      values?: EmailTemplateDesignBodyValues;
+    };
+
+    /**
+     * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+     */
+    export type EmailTemplateDesign = {
+      /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+      counters?: EmailTemplateDesignCounters;
+      /** Design schema version, e.g. 16. */
+      schemaVersion: number;
+      body: EmailTemplateDesignBody;
+    };
+
     export interface EmailTemplate {
+      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
       subject?: string;
+      /** Plain-text fallback body for clients that can't render the email. */
       text?: string;
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
       html?: string;
-      design?: unknown;
+      /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+      design?: EmailTemplateDesign;
     }
+
+    export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
+
+
+    export const EmbeddingStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Disabled: 'disabled',
+    } as const;
 
     /**
      * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
@@ -18067,6 +18228,12 @@ export namespace Schemas {
        * * `SapSuccessFactors` - SapSuccessFactors
        * * `OracleEbs` - OracleEbs
        * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -18861,6 +19028,109 @@ export namespace Schemas {
     }
 
     /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type FieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type FieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    /**
+     * * `pending` - Pending
+     * * `acknowledged` - Acknowledged
+     * * `resolved` - Resolved
+     * * `dismissed` - Dismissed
+     */
+    export type FieldNoteStatusEnum = typeof FieldNoteStatusEnum[keyof typeof FieldNoteStatusEnum];
+
+
+    export const FieldNoteStatusEnum = {
+      Pending: 'pending',
+      Acknowledged: 'acknowledged',
+      Resolved: 'resolved',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface FieldNote {
+      readonly id: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: FieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: FieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+    }
+
+    /**
      * * `events` - events
      * * `persons` - persons
      * * `sessions` - sessions
@@ -19019,6 +19289,8 @@ export namespace Schemas {
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
       commit_to_github?: boolean;
+      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+      add_images_to_comment_on_pr?: boolean;
     }
 
     export interface FlagValueItem {
@@ -21212,6 +21484,8 @@ export namespace Schemas {
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
+      /** False when the recording was included in list results via a direct link despite not matching the filters. */
+      matches_filters?: boolean | null;
       /** List of matching events. * */
       matching_events?: MatchedRecording[] | null;
       /** count of all mouse activity in the recording, not just clicks */
@@ -21884,6 +22158,33 @@ export namespace Schemas {
     }
 
     /**
+     * One ranked chunk from a business knowledge search.
+     *
+     * Output-only — the rows come from the ``search_knowledge_for_team`` logic
+     * helper (a ``KnowledgeSearchResult`` dataclass), not the ORM.
+     */
+    export interface KnowledgeSearchResult {
+      /** Stable identifier of this chunk. */
+      readonly chunk_id: string;
+      /** ID of the parent document. Pass to the document-window endpoint with `around_ordinal` to drill down. */
+      readonly document_id: string;
+      /** Zero-based position of this chunk within its document. Use as `around_ordinal` in the document-window endpoint. */
+      readonly ordinal: number;
+      /** ID of the knowledge source this chunk belongs to. */
+      readonly source_id: string;
+      /** Human label of the knowledge source this chunk belongs to. */
+      readonly source_name: string;
+      /** Source type (text, url, or file). */
+      readonly source_type: string;
+      /** Title of the document this chunk belongs to. */
+      readonly document_title: string;
+      /** Breadcrumb of section headings this chunk sits under. Empty when the document has no heading structure. */
+      readonly heading_path: string;
+      /** The chunk's text content. */
+      readonly content: string;
+    }
+
+    /**
      * * `text` - Text
      * * `url` - URL
      * * `file` - File
@@ -21972,6 +22273,8 @@ export namespace Schemas {
       readonly next_refresh_at: string | null;
       /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
       readonly has_unsafe_documents: boolean;
+      /** Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`. */
+      readonly embedding_status: EmbeddingStatusEnum;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -22550,6 +22853,7 @@ export namespace Schemas {
     /**
      * * `slack` - slack
      * * `webhook` - webhook
+     * * `teams` - teams
      */
     export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
 
@@ -22557,6 +22861,7 @@ export namespace Schemas {
     export const NotificationDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
+      Teams: 'teams',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -22658,10 +22963,11 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
+      /** Destination type — slack, webhook, or teams.
        *
        * * `slack` - slack
-       * * `webhook` - webhook */
+       * * `webhook` - webhook
+       * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -22669,7 +22975,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
+      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
       webhook_url?: string;
     }
 
@@ -23510,24 +23816,50 @@ export namespace Schemas {
       scores: MessageSentimentScores;
     }
 
+    /**
+     * * `liquid` - liquid
+     */
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
+
+
+    export const MessageTemplateContentTemplatingEnum = {
+      Liquid: 'liquid',
+    } as const;
+
     export interface MessageTemplateContent {
-      templating?: HogFunctionTemplatingEnum;
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+       *
+       * * `liquid` - liquid */
+      templating?: MessageTemplateContentTemplatingEnum;
+      /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
 
     export interface MessageTemplate {
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -23741,6 +24073,44 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookCollabCursor {
+      /**
+         * ProseMirror selection head position (rich v1 notebooks).
+         * @minimum 0
+         */
+      head?: number;
+      /**
+         * Index of the caret's block node in the markdown notebook document (markdown notebooks).
+         * @minimum 0
+         */
+      node_index?: number;
+      /**
+         * Caret offset in the plain text of the focused editable element, in UTF-16 code units.
+         * @minimum 0
+         */
+      offset?: number;
+      /**
+         * Index of the focused list item when the caret is inside a list block.
+         * @minimum 0
+         */
+      list_item_index?: number;
+    }
+
+    export interface NotebookCollabPresence {
+      /**
+         * Unique identifier for the client session, used to skip self-echo on the update stream.
+         * @maxLength 200
+         */
+      client_id: string;
+      /**
+         * The notebook version the cursor position is relative to.
+         * @minimum 0
+         */
+      version: number;
+      /** The caller's caret position, broadcast to other clients on this notebook's collab stream. */
+      cursor: NotebookCollabCursor;
+    }
+
     export interface NotebookCollabSave {
       /** Unique identifier for the client session. */
       client_id: string;
@@ -23759,6 +24129,21 @@ export namespace Schemas {
          * @nullable
          */
       cursor_head?: number | null;
+    }
+
+    export interface NotebookMarkdownSave {
+      /** Unique identifier for the client session, used to skip self-echo on the update stream. */
+      client_id: string;
+      /** The notebook version the submitted content is based on (optimistic concurrency baseline). */
+      version: number;
+      /** The full markdown notebook document: a ProseMirror doc wrapping a single markdown node. */
+      content: unknown;
+      /** Plain text for search indexing. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
+      /** The author's caret in the saved markdown, broadcast with the update so other clients can move the author's remote caret together with the text change. */
+      cursor?: NotebookCollabCursor;
     }
 
     export interface NotebookMinimal {
@@ -23794,6 +24179,7 @@ export namespace Schemas {
      * * `survey` - SURVEY
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
+     * * `customer_analytics` - CUSTOMER_ANALYTICS
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -23807,6 +24193,7 @@ export namespace Schemas {
       Survey: 'survey',
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface NotificationEvent {
@@ -25120,6 +25507,15 @@ export namespace Schemas {
       results: FeatureFlag[];
     }
 
+    export interface PaginatedFieldNoteList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FieldNote[];
+    }
+
     export interface PaginatedFileSystemList {
       count: number;
       /** @nullable */
@@ -25735,6 +26131,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       archived?: boolean;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedProductTourList {
@@ -25756,6 +26154,8 @@ export namespace Schemas {
       readonly id: number;
       readonly uuid: string;
       readonly organization: string;
+      /** ID of the project this environment belongs to. */
+      readonly project_id: number;
       readonly api_token: string;
       readonly name: string;
       readonly completed_snippet_onboarding: boolean;
@@ -26045,6 +26445,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -26484,6 +26889,8 @@ export namespace Schemas {
       readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
     }
 
     export interface PaginatedSessionRecordingList {
@@ -27350,6 +27757,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       form_content?: unknown;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface PaginatedSurveyList {
@@ -28464,7 +28873,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
     }
 
@@ -28736,7 +29145,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
          * @maxLength 400
          * @nullable
          */
@@ -30424,6 +30833,93 @@ export namespace Schemas {
       is_remote_configuration?: boolean | null;
     }
 
+    /**
+     * Structured element metadata (inferred selectors, attributes, component hints).
+     */
+    export type PatchedFieldNoteElementContext = { [key: string]: unknown };
+
+    /**
+     * Viewport size when the field note was made, as {width, height}.
+     * @nullable
+     */
+    export type PatchedFieldNoteViewport = {
+      /** Viewport width in pixels. */
+      width?: number;
+      /** Viewport height in pixels. */
+      height?: number;
+    } | null;
+
+    export interface PatchedFieldNote {
+      readonly id?: string;
+      /**
+         * The note the user wrote about the element.
+         * @maxLength 5000
+         */
+      comment?: string;
+      /** Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.
+       *
+       * * `pending` - Pending
+       * * `acknowledged` - Acknowledged
+       * * `resolved` - Resolved
+       * * `dismissed` - Dismissed */
+      field_note_status?: FieldNoteStatusEnum;
+      /**
+         * Optional note left by the agent when acknowledging, resolving, or dismissing the field note.
+         * @nullable
+         */
+      resolution?: string | null;
+      /**
+         * Full URL of the page the field note was made on.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Hostname of the page, used to scope field notes to a site.
+         * @maxLength 255
+         */
+      host?: string;
+      /**
+         * Path portion of the URL.
+         * @maxLength 2048
+         * @nullable
+         */
+      pathname?: string | null;
+      /**
+         * CSS selector that locates the element on the page.
+         * @maxLength 4096
+         */
+      selector?: string;
+      /**
+         * Visible text of the element, if any.
+         * @maxLength 2048
+         * @nullable
+         */
+      element_text?: string | null;
+      /**
+         * Serialized autocapture-style element chain from the element up to the document root.
+         * @maxLength 20000
+         * @nullable
+         */
+      element_chain?: string | null;
+      /** Structured element metadata (inferred selectors, attributes, component hints). */
+      element_context?: PatchedFieldNoteElementContext;
+      /**
+         * Viewport size when the field note was made, as {width, height}.
+         * @nullable
+         */
+      viewport?: PatchedFieldNoteViewport;
+      /**
+         * URL of an uploaded screenshot captured with the field_note.
+         * @maxLength 2048
+         * @nullable
+         */
+      screenshot_url?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
+    }
+
     export interface PatchedFileSystem {
       readonly id?: string;
       path?: string;
@@ -31303,17 +31799,29 @@ export namespace Schemas {
 
     export interface PatchedMessageTemplate {
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
       name?: string;
+      /** What the template is for and when to use it. */
       description?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
-      /** @maxLength 24 */
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
       type?: string;
-      /** @nullable */
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
       message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
     }
 
@@ -31777,6 +32285,8 @@ export namespace Schemas {
       updated_at?: string;
     };
 
+    export type PatchedProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
+
     /**
      * * `30d` - 30 Days
      * * `90d` - 90 Days
@@ -31804,6 +32314,50 @@ export namespace Schemas {
       Number0: 0,
       Number1: 1,
     } as const;
+
+    export interface TeamRevenueAnalyticsConfig {
+      base_currency?: BaseCurrencyEnum;
+      events?: unknown;
+      goals?: unknown;
+      filter_test_accounts?: boolean;
+    }
+
+    export interface TeamMarketingAnalyticsConfig {
+      sources_map?: unknown;
+      conversion_goals?: unknown;
+      /**
+         * @minimum 1
+         * @maximum 90
+         */
+      attribution_window_days?: number;
+      attribution_mode?: AttributionModeEnum;
+      campaign_name_mappings?: unknown;
+      custom_source_mappings?: unknown;
+      campaign_field_preferences?: unknown;
+    }
+
+    export interface TeamCustomerAnalyticsConfig {
+      /** Event used as the activity signal (DAU/WAU/MAU). */
+      activity_event?: unknown;
+      /** Event used to count signup pageviews on dashboards. */
+      signup_pageview_event?: unknown;
+      /** Event used to count signups on dashboards. */
+      signup_event?: unknown;
+      /** Event used to count subscriptions on dashboards. */
+      subscription_event?: unknown;
+      /** Event used to count payments on dashboards. */
+      payment_event?: unknown;
+      /**
+         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
+         * @nullable
+         */
+      account_group_type_index?: number | null;
+    }
+
+    export interface TeamWorkflowsConfig {
+      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+      capture_workflows_engagement_events?: boolean;
+    }
 
     /**
      * Mixin for serializers to add user access control fields
@@ -32593,6 +33147,50 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion?: boolean | null;
+      /** ID of the project this environment belongs to. */
+      readonly project_id?: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
+      readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
+      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
+      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
+      customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      workflows_config?: TeamWorkflowsConfig;
+      base_currency?: BaseCurrencyEnum;
+      /**
+         * Enables capturing clicks that had no effect (rage-click detection).
+         * @nullable
+         */
+      capture_dead_clicks?: boolean | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
+      /** @nullable */
+      human_friendly_comparison_periods?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_enabled?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_message?: string | null;
+      /**
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
+      default_evaluation_contexts_enabled?: boolean | null;
+      /**
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
+      require_evaluation_contexts?: boolean | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      default_data_theme?: number | null;
+      onboarding_tasks?: unknown;
+      /** @nullable */
+      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -32682,6 +33280,11 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
+      /**
+         * Latest projected observations/month for this scanner. Null until first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_observations?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -32930,6 +33533,8 @@ export namespace Schemas {
       readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters?: boolean;
     }
 
     /**
@@ -33549,6 +34154,10 @@ export namespace Schemas {
       placeholder?: string;
       shuffleQuestions?: boolean;
       surveyPopupDelaySeconds?: number;
+      /** Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false. */
+      allowGoBack?: boolean;
+      /** Optional override for the back button label. Defaults to 'Back'. */
+      backButtonText?: string;
       widgetType?: WidgetTypeEnum;
       widgetSelector?: string;
       widgetLabel?: string;
@@ -34057,50 +34666,6 @@ export namespace Schemas {
 
     export type PatchedTeamManagedViewsets = {[key: string]: boolean};
 
-    export interface TeamRevenueAnalyticsConfig {
-      base_currency?: BaseCurrencyEnum;
-      events?: unknown;
-      goals?: unknown;
-      filter_test_accounts?: boolean;
-    }
-
-    export interface TeamMarketingAnalyticsConfig {
-      sources_map?: unknown;
-      conversion_goals?: unknown;
-      /**
-         * @minimum 1
-         * @maximum 90
-         */
-      attribution_window_days?: number;
-      attribution_mode?: AttributionModeEnum;
-      campaign_name_mappings?: unknown;
-      custom_source_mappings?: unknown;
-      campaign_field_preferences?: unknown;
-    }
-
-    export interface TeamCustomerAnalyticsConfig {
-      /** Event used as the activity signal (DAU/WAU/MAU). */
-      activity_event?: unknown;
-      /** Event used to count signup pageviews on dashboards. */
-      signup_pageview_event?: unknown;
-      /** Event used to count signups on dashboards. */
-      signup_event?: unknown;
-      /** Event used to count subscriptions on dashboards. */
-      subscription_event?: unknown;
-      /** Event used to count payments on dashboards. */
-      payment_event?: unknown;
-      /**
-         * Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.
-         * @nullable
-         */
-      account_group_type_index?: number | null;
-    }
-
-    export interface TeamWorkflowsConfig {
-      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
-      capture_workflows_engagement_events?: boolean;
-    }
-
     export interface PatchedTeam {
       readonly id?: number;
       readonly uuid?: string;
@@ -34538,7 +35103,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
     }
 
@@ -35017,6 +35582,8 @@ export namespace Schemas {
       onboarding_completed_at?: string | null;
       updated_at?: string;
     };
+
+    export type ProjectBackwardCompatManagedViewsets = {[key: string]: boolean};
 
     /**
      * Mixin for serializers to add user access control fields
@@ -35806,6 +36373,50 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion: boolean | null;
+      /** ID of the project this environment belongs to. */
+      readonly project_id: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
+      revenue_analytics_config?: TeamRevenueAnalyticsConfig;
+      marketing_analytics_config?: TeamMarketingAnalyticsConfig;
+      customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      workflows_config?: TeamWorkflowsConfig;
+      base_currency?: BaseCurrencyEnum;
+      /**
+         * Enables capturing clicks that had no effect (rage-click detection).
+         * @nullable
+         */
+      capture_dead_clicks?: boolean | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
+      /** @nullable */
+      human_friendly_comparison_periods?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_enabled?: boolean | null;
+      /** @nullable */
+      feature_flag_confirmation_message?: string | null;
+      /**
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
+      default_evaluation_contexts_enabled?: boolean | null;
+      /**
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
+      require_evaluation_contexts?: boolean | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      default_data_theme?: number | null;
+      onboarding_tasks?: unknown;
+      /** @nullable */
+      web_analytics_pre_aggregated_tables_enabled?: boolean | null;
     }
 
     /**
@@ -39626,6 +40237,30 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for registering a scout config without waiting for the coordinator tick.
+     *
+     * Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+     * registered the row, the provided tunables are applied to it instead.
+     */
+    export interface SignalScoutConfigCreate {
+      /**
+         * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+         * @maxLength 200
+         */
+      skill_name: string;
+      /** Whether this scout runs on its schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). Defaults to 60 (hourly).
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+    }
+
+    /**
      * One finding a scout run emitted to the inbox — the persisted, queryable record of
      * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
      * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
@@ -40049,6 +40684,277 @@ export namespace Schemas {
       runs: SlackThreadContextRun[];
     }
 
+    export interface SourceConnectLink {
+      /** The source type the link is for. */
+      source_type: string;
+      /** What the user will do on the connect page: 'oauth' = authorize an account in their browser; 'credentials' = enter connection details (or pick OAuth where the source offers both). Either way secrets never pass through the agent, and the result is always a stored credential id.
+       *
+       * * `oauth` - oauth
+       * * `credentials` - credentials */
+      auth_method: AuthMethodEnum;
+      /** Full URL to share with the user. It opens the source's connection form in PostHog — credentials never pass through the agent or the chat. */
+      connect_url: string;
+      /** Next steps for the agent to relay to the user. */
+      instructions: string;
+    }
+
+    export interface SourceCredential {
+      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
+      credential_id: string;
+      /** The source type the stored credentials are for. */
+      source_type: string;
+      /** When the credentials were stored. */
+      created_at: string;
+      /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
+      expires_at: string;
+    }
+
+    /**
+     * Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.
+     */
+    export type SourceCredentialCreatePayload = { [key: string]: unknown };
+
+    export interface SourceCredentialCreate {
+      /** The source type these credentials are for (e.g. 'Stripe', 'Postgres').
+       *
+       * * `Ashby` - Ashby
+       * * `Supabase` - Supabase
+       * * `CustomerIO` - CustomerIO
+       * * `Github` - Github
+       * * `Stripe` - Stripe
+       * * `Hubspot` - Hubspot
+       * * `Postgres` - Postgres
+       * * `Zendesk` - Zendesk
+       * * `Snowflake` - Snowflake
+       * * `Salesforce` - Salesforce
+       * * `MySQL` - MySQL
+       * * `MongoDB` - MongoDB
+       * * `MSSQL` - MSSQL
+       * * `Vitally` - Vitally
+       * * `BigQuery` - BigQuery
+       * * `Chargebee` - Chargebee
+       * * `Clerk` - Clerk
+       * * `GoogleAds` - GoogleAds
+       * * `GoogleSearchConsole` - GoogleSearchConsole
+       * * `TemporalIO` - TemporalIO
+       * * `DoIt` - DoIt
+       * * `GoogleSheets` - GoogleSheets
+       * * `MetaAds` - MetaAds
+       * * `Klaviyo` - Klaviyo
+       * * `Mailchimp` - Mailchimp
+       * * `Braze` - Braze
+       * * `Mailjet` - Mailjet
+       * * `Redshift` - Redshift
+       * * `Polar` - Polar
+       * * `RevenueCat` - RevenueCat
+       * * `LinkedinAds` - LinkedinAds
+       * * `RedditAds` - RedditAds
+       * * `TikTokAds` - TikTokAds
+       * * `BingAds` - BingAds
+       * * `Shopify` - Shopify
+       * * `Attio` - Attio
+       * * `SnapchatAds` - SnapchatAds
+       * * `Linear` - Linear
+       * * `Intercom` - Intercom
+       * * `Amplitude` - Amplitude
+       * * `Mixpanel` - Mixpanel
+       * * `Jira` - Jira
+       * * `ActiveCampaign` - ActiveCampaign
+       * * `Marketo` - Marketo
+       * * `Adjust` - Adjust
+       * * `AppsFlyer` - AppsFlyer
+       * * `Freshdesk` - Freshdesk
+       * * `GoogleAnalytics` - GoogleAnalytics
+       * * `Pipedrive` - Pipedrive
+       * * `SendGrid` - SendGrid
+       * * `Slack` - Slack
+       * * `PagerDuty` - PagerDuty
+       * * `Asana` - Asana
+       * * `Notion` - Notion
+       * * `Airtable` - Airtable
+       * * `Greenhouse` - Greenhouse
+       * * `BambooHR` - BambooHR
+       * * `Lever` - Lever
+       * * `GitLab` - GitLab
+       * * `Datadog` - Datadog
+       * * `Sentry` - Sentry
+       * * `Pendo` - Pendo
+       * * `FullStory` - FullStory
+       * * `AmazonAds` - AmazonAds
+       * * `PinterestAds` - PinterestAds
+       * * `AppleSearchAds` - AppleSearchAds
+       * * `QuickBooks` - QuickBooks
+       * * `Xero` - Xero
+       * * `NetSuite` - NetSuite
+       * * `WooCommerce` - WooCommerce
+       * * `BigCommerce` - BigCommerce
+       * * `PayPal` - PayPal
+       * * `Square` - Square
+       * * `Zoom` - Zoom
+       * * `Trello` - Trello
+       * * `Monday` - Monday
+       * * `ClickUp` - ClickUp
+       * * `Confluence` - Confluence
+       * * `Recurly` - Recurly
+       * * `SalesLoft` - SalesLoft
+       * * `Outreach` - Outreach
+       * * `Gong` - Gong
+       * * `Calendly` - Calendly
+       * * `Typeform` - Typeform
+       * * `Iterable` - Iterable
+       * * `ZohoCRM` - ZohoCRM
+       * * `Close` - Close
+       * * `Oracle` - Oracle
+       * * `DynamoDB` - DynamoDB
+       * * `Elasticsearch` - Elasticsearch
+       * * `Kafka` - Kafka
+       * * `LaunchDarkly` - LaunchDarkly
+       * * `Braintree` - Braintree
+       * * `Recharge` - Recharge
+       * * `HelpScout` - HelpScout
+       * * `Gorgias` - Gorgias
+       * * `Instagram` - Instagram
+       * * `YouTubeAnalytics` - YouTubeAnalytics
+       * * `FacebookPages` - FacebookPages
+       * * `TwitterAds` - TwitterAds
+       * * `Workday` - Workday
+       * * `ServiceNow` - ServiceNow
+       * * `Pardot` - Pardot
+       * * `Copper` - Copper
+       * * `Front` - Front
+       * * `ChartMogul` - ChartMogul
+       * * `Zuora` - Zuora
+       * * `Paddle` - Paddle
+       * * `CircleCI` - CircleCI
+       * * `CockroachDB` - CockroachDB
+       * * `Firebase` - Firebase
+       * * `AzureBlob` - AzureBlob
+       * * `GoogleDrive` - GoogleDrive
+       * * `OneDrive` - OneDrive
+       * * `SharePoint` - SharePoint
+       * * `Box` - Box
+       * * `SFTP` - SFTP
+       * * `MicrosoftTeams` - MicrosoftTeams
+       * * `Aircall` - Aircall
+       * * `Webflow` - Webflow
+       * * `Okta` - Okta
+       * * `Auth0` - Auth0
+       * * `Productboard` - Productboard
+       * * `Smartsheet` - Smartsheet
+       * * `Wrike` - Wrike
+       * * `Plaid` - Plaid
+       * * `SurveyMonkey` - SurveyMonkey
+       * * `Eventbrite` - Eventbrite
+       * * `RingCentral` - RingCentral
+       * * `Twilio` - Twilio
+       * * `Freshsales` - Freshsales
+       * * `Shortcut` - Shortcut
+       * * `ConvertKit` - ConvertKit
+       * * `Drip` - Drip
+       * * `CampaignMonitor` - CampaignMonitor
+       * * `MailerLite` - MailerLite
+       * * `Omnisend` - Omnisend
+       * * `Brevo` - Brevo
+       * * `Postmark` - Postmark
+       * * `Granola` - Granola
+       * * `BuildBetter` - BuildBetter
+       * * `Convex` - Convex
+       * * `ClickHouse` - ClickHouse
+       * * `Plain` - Plain
+       * * `Resend` - Resend
+       * * `PgAnalyze` - PgAnalyze
+       * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
+      payload: SourceCredentialCreatePayload;
+    }
+
     export interface SourceMappingSuggestion {
       /** The raw utm_source value seen on events */
       raw_utm_source: string;
@@ -40073,6 +40979,288 @@ export namespace Schemas {
       Auto: 'auto',
       Mapped: 'mapped',
     } as const;
+
+    /**
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     */
+    export type SourceSetupPayload = { [key: string]: unknown };
+
+    export interface SourceSetup {
+      /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
+       *
+       * * `Ashby` - Ashby
+       * * `Supabase` - Supabase
+       * * `CustomerIO` - CustomerIO
+       * * `Github` - Github
+       * * `Stripe` - Stripe
+       * * `Hubspot` - Hubspot
+       * * `Postgres` - Postgres
+       * * `Zendesk` - Zendesk
+       * * `Snowflake` - Snowflake
+       * * `Salesforce` - Salesforce
+       * * `MySQL` - MySQL
+       * * `MongoDB` - MongoDB
+       * * `MSSQL` - MSSQL
+       * * `Vitally` - Vitally
+       * * `BigQuery` - BigQuery
+       * * `Chargebee` - Chargebee
+       * * `Clerk` - Clerk
+       * * `GoogleAds` - GoogleAds
+       * * `GoogleSearchConsole` - GoogleSearchConsole
+       * * `TemporalIO` - TemporalIO
+       * * `DoIt` - DoIt
+       * * `GoogleSheets` - GoogleSheets
+       * * `MetaAds` - MetaAds
+       * * `Klaviyo` - Klaviyo
+       * * `Mailchimp` - Mailchimp
+       * * `Braze` - Braze
+       * * `Mailjet` - Mailjet
+       * * `Redshift` - Redshift
+       * * `Polar` - Polar
+       * * `RevenueCat` - RevenueCat
+       * * `LinkedinAds` - LinkedinAds
+       * * `RedditAds` - RedditAds
+       * * `TikTokAds` - TikTokAds
+       * * `BingAds` - BingAds
+       * * `Shopify` - Shopify
+       * * `Attio` - Attio
+       * * `SnapchatAds` - SnapchatAds
+       * * `Linear` - Linear
+       * * `Intercom` - Intercom
+       * * `Amplitude` - Amplitude
+       * * `Mixpanel` - Mixpanel
+       * * `Jira` - Jira
+       * * `ActiveCampaign` - ActiveCampaign
+       * * `Marketo` - Marketo
+       * * `Adjust` - Adjust
+       * * `AppsFlyer` - AppsFlyer
+       * * `Freshdesk` - Freshdesk
+       * * `GoogleAnalytics` - GoogleAnalytics
+       * * `Pipedrive` - Pipedrive
+       * * `SendGrid` - SendGrid
+       * * `Slack` - Slack
+       * * `PagerDuty` - PagerDuty
+       * * `Asana` - Asana
+       * * `Notion` - Notion
+       * * `Airtable` - Airtable
+       * * `Greenhouse` - Greenhouse
+       * * `BambooHR` - BambooHR
+       * * `Lever` - Lever
+       * * `GitLab` - GitLab
+       * * `Datadog` - Datadog
+       * * `Sentry` - Sentry
+       * * `Pendo` - Pendo
+       * * `FullStory` - FullStory
+       * * `AmazonAds` - AmazonAds
+       * * `PinterestAds` - PinterestAds
+       * * `AppleSearchAds` - AppleSearchAds
+       * * `QuickBooks` - QuickBooks
+       * * `Xero` - Xero
+       * * `NetSuite` - NetSuite
+       * * `WooCommerce` - WooCommerce
+       * * `BigCommerce` - BigCommerce
+       * * `PayPal` - PayPal
+       * * `Square` - Square
+       * * `Zoom` - Zoom
+       * * `Trello` - Trello
+       * * `Monday` - Monday
+       * * `ClickUp` - ClickUp
+       * * `Confluence` - Confluence
+       * * `Recurly` - Recurly
+       * * `SalesLoft` - SalesLoft
+       * * `Outreach` - Outreach
+       * * `Gong` - Gong
+       * * `Calendly` - Calendly
+       * * `Typeform` - Typeform
+       * * `Iterable` - Iterable
+       * * `ZohoCRM` - ZohoCRM
+       * * `Close` - Close
+       * * `Oracle` - Oracle
+       * * `DynamoDB` - DynamoDB
+       * * `Elasticsearch` - Elasticsearch
+       * * `Kafka` - Kafka
+       * * `LaunchDarkly` - LaunchDarkly
+       * * `Braintree` - Braintree
+       * * `Recharge` - Recharge
+       * * `HelpScout` - HelpScout
+       * * `Gorgias` - Gorgias
+       * * `Instagram` - Instagram
+       * * `YouTubeAnalytics` - YouTubeAnalytics
+       * * `FacebookPages` - FacebookPages
+       * * `TwitterAds` - TwitterAds
+       * * `Workday` - Workday
+       * * `ServiceNow` - ServiceNow
+       * * `Pardot` - Pardot
+       * * `Copper` - Copper
+       * * `Front` - Front
+       * * `ChartMogul` - ChartMogul
+       * * `Zuora` - Zuora
+       * * `Paddle` - Paddle
+       * * `CircleCI` - CircleCI
+       * * `CockroachDB` - CockroachDB
+       * * `Firebase` - Firebase
+       * * `AzureBlob` - AzureBlob
+       * * `GoogleDrive` - GoogleDrive
+       * * `OneDrive` - OneDrive
+       * * `SharePoint` - SharePoint
+       * * `Box` - Box
+       * * `SFTP` - SFTP
+       * * `MicrosoftTeams` - MicrosoftTeams
+       * * `Aircall` - Aircall
+       * * `Webflow` - Webflow
+       * * `Okta` - Okta
+       * * `Auth0` - Auth0
+       * * `Productboard` - Productboard
+       * * `Smartsheet` - Smartsheet
+       * * `Wrike` - Wrike
+       * * `Plaid` - Plaid
+       * * `SurveyMonkey` - SurveyMonkey
+       * * `Eventbrite` - Eventbrite
+       * * `RingCentral` - RingCentral
+       * * `Twilio` - Twilio
+       * * `Freshsales` - Freshsales
+       * * `Shortcut` - Shortcut
+       * * `ConvertKit` - ConvertKit
+       * * `Drip` - Drip
+       * * `CampaignMonitor` - CampaignMonitor
+       * * `MailerLite` - MailerLite
+       * * `Omnisend` - Omnisend
+       * * `Brevo` - Brevo
+       * * `Postmark` - Postmark
+       * * `Granola` - Granola
+       * * `BuildBetter` - BuildBetter
+       * * `Convex` - Convex
+       * * `ClickHouse` - ClickHouse
+       * * `Plain` - Plain
+       * * `Resend` - Resend
+       * * `PgAnalyze` - PgAnalyze
+       * * `WorkOS` - WorkOS
+       * * `AmazonS3` - AmazonS3
+       * * `GoogleCloudStorage` - GoogleCloudStorage
+       * * `Databricks` - Databricks
+       * * `Dynamics365` - Dynamics365
+       * * `SalesforceMarketingCloud` - SalesforceMarketingCloud
+       * * `Db2` - Db2
+       * * `Heap` - Heap
+       * * `AdobeAnalytics` - AdobeAnalytics
+       * * `Matomo` - Matomo
+       * * `Optimizely` - Optimizely
+       * * `Adyen` - Adyen
+       * * `GoCardless` - GoCardless
+       * * `Mollie` - Mollie
+       * * `CheckoutCom` - CheckoutCom
+       * * `Branch` - Branch
+       * * `Criteo` - Criteo
+       * * `Outbrain` - Outbrain
+       * * `Taboola` - Taboola
+       * * `AdRoll` - AdRoll
+       * * `DisplayVideo360` - DisplayVideo360
+       * * `GoogleAdManager` - GoogleAdManager
+       * * `CampaignManager360` - CampaignManager360
+       * * `SearchAds360` - SearchAds360
+       * * `AdobeCommerce` - AdobeCommerce
+       * * `AmazonSellingPartner` - AmazonSellingPartner
+       * * `Ebay` - Ebay
+       * * `Commercetools` - Commercetools
+       * * `LightspeedRetail` - LightspeedRetail
+       * * `ShipStation` - ShipStation
+       * * `ConstantContact` - ConstantContact
+       * * `Mailgun` - Mailgun
+       * * `Eloqua` - Eloqua
+       * * `Sailthru` - Sailthru
+       * * `Ortto` - Ortto
+       * * `Attentive` - Attentive
+       * * `Kustomer` - Kustomer
+       * * `Dixa` - Dixa
+       * * `Gladly` - Gladly
+       * * `Qualtrics` - Qualtrics
+       * * `Delighted` - Delighted
+       * * `AzureDevOps` - AzureDevOps
+       * * `Rollbar` - Rollbar
+       * * `Opsgenie` - Opsgenie
+       * * `IncidentIo` - IncidentIo
+       * * `Pingdom` - Pingdom
+       * * `Cloudflare` - Cloudflare
+       * * `CosmosDB` - CosmosDB
+       * * `PlanetScale` - PlanetScale
+       * * `SapHana` - SapHana
+       * * `Rippling` - Rippling
+       * * `HiBob` - HiBob
+       * * `Personio` - Personio
+       * * `Deel` - Deel
+       * * `AdpWorkforceNow` - AdpWorkforceNow
+       * * `Paylocity` - Paylocity
+       * * `Gusto` - Gusto
+       * * `CultureAmp` - CultureAmp
+       * * `Lattice` - Lattice
+       * * `SageIntacct` - SageIntacct
+       * * `FreshBooks` - FreshBooks
+       * * `Expensify` - Expensify
+       * * `Ramp` - Ramp
+       * * `Brex` - Brex
+       * * `Coupa` - Coupa
+       * * `SapConcur` - SapConcur
+       * * `Apollo` - Apollo
+       * * `Crunchbase` - Crunchbase
+       * * `ZoomInfo` - ZoomInfo
+       * * `Clari` - Clari
+       * * `Chorus` - Chorus
+       * * `Coda` - Coda
+       * * `Guru` - Guru
+       * * `Dropbox` - Dropbox
+       * * `Docusign` - Docusign
+       * * `PandaDoc` - PandaDoc
+       * * `SapErp` - SapErp
+       * * `SapSuccessFactors` - SapSuccessFactors
+       * * `OracleEbs` - OracleEbs
+       * * `OracleFusion` - OracleFusion
+       * * `AmazonSNS` - AmazonSNS
+       * * `AmazonEventBridge` - AmazonEventBridge
+       * * `AmazonSQS` - AmazonSQS
+       * * `AmazonKinesis` - AmazonKinesis
+       * * `AmazonCloudWatch` - AmazonCloudWatch
+       * * `OpenAIAds` - OpenAIAds
+       * * `Custom` - Custom */
+      source_type: ExternalDataSourceTypeEnum;
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      payload?: SourceSetupPayload;
+      /**
+         * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
+         * @maxLength 100
+         * @nullable
+         */
+      prefix?: string | null;
+      /**
+         * Human-readable description.
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+    }
+
+    export interface SourceSetupWebhook {
+      /** Whether the webhook was registered with the external service. When true, webhook-capable tables (including webhook-only ones) sync via real-time webhooks; when false, tables fall back to the polling sync defaults and webhook-only tables stay disabled. */
+      success: boolean;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /**
+         * Why webhook registration failed (e.g. the credentials lack webhook permissions).
+         * @nullable
+         */
+      error: string | null;
+      /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
+      pending_inputs: string[];
+    }
+
+    export interface SourceSetupResponse {
+      /** ID of the created external data source. */
+      id: string;
+      /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
+      webhook?: SourceSetupWebhook;
+    }
 
     /**
      * * `severity` - severity
@@ -42099,6 +43287,8 @@ export namespace Schemas {
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
+      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_observations: number;
     }
 
     /**
@@ -42748,7 +43938,7 @@ export namespace Schemas {
     } as const;
 
     export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
        *
@@ -42812,7 +44002,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Property filters for the count. */
       filterGroup?: _SpanPropertyFilter[];
@@ -42845,7 +44035,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
@@ -42874,7 +44064,7 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -42886,7 +44076,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
     }
 
@@ -43140,6 +44330,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsConversationsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -43152,6 +44353,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsCoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -44088,6 +45300,13 @@ export namespace Schemas {
       errors?: string[];
     };
 
+    export type EnvironmentsExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
+    };
+
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -44101,6 +45320,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
     };
 
     export type EnvironmentsFileDownloadBatchExportsListParams = {
@@ -44233,6 +45463,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type EnvironmentsGroupsRelatedRetrieveParams = {
@@ -46082,6 +47316,62 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsMaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMcpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsMcpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -46574,6 +47864,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsPropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type EnvironmentsPropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -46715,6 +48027,27 @@ export namespace Schemas {
     export const EnvironmentsSubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+    } as const;
+
+    export type EnvironmentsSubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: EnvironmentsSubscriptionsDeliveriesListStatus;
+    };
+
+    export type EnvironmentsSubscriptionsDeliveriesListStatus = typeof EnvironmentsSubscriptionsDeliveriesListStatus[keyof typeof EnvironmentsSubscriptionsDeliveriesListStatus];
+
+
+    export const EnvironmentsSubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
     } as const;
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
@@ -47116,127 +48449,6 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
-
-    export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
-
-    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
-
-    export type McpAnalyticsFeedbackListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsMissingCapabilitiesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsSessionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
-     */
-    order_by?: string;
-    /**
-     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
-     */
-    search?: string;
-    };
-
-    export type McpAnalyticsSessionsToolCallsParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PropertyAccessControlsRetrieveParams = {
-    /**
-     * The property definition ID to fetch access control rules for.
-     */
-    property_definition_id: string;
-    };
-
-    export type PropertyAccessControlsDestroyParams = {
-    /**
-     * The organization member UUID whose override should be deleted.
-     */
-    organization_member?: string;
-    /**
-     * The property definition ID the rule applies to.
-     */
-    property_definition_id: string;
-    /**
-     * The role UUID whose override should be deleted.
-     */
-    role?: string;
-    };
-
-    export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus;
-    };
-
-    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
-
-
-    export const SubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
-    } as const;
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
@@ -47783,6 +48995,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -47862,6 +49075,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -47927,6 +49141,7 @@ export namespace Schemas {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -47994,6 +49209,7 @@ export namespace Schemas {
       Subscription: 'Subscription',
       PersonalAPIKey: 'PersonalAPIKey',
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+      OAuthApplication: 'OAuthApplication',
       User: 'User',
       Action: 'Action',
       AlertConfiguration: 'AlertConfiguration',
@@ -48263,6 +49479,17 @@ export namespace Schemas {
     radius?: number;
     };
 
+    export type BusinessKnowledgeDocumentsSearchListParams = {
+    /**
+     * Maximum number of ranked chunks to return. Defaults to 10, capped at 20.
+     */
+    limit?: number;
+    /**
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     */
+    query: string;
+    };
+
     export type BusinessKnowledgeSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -48410,6 +49637,17 @@ export namespace Schemas {
       Task: 'task',
     } as const;
 
+    export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsTicketsListParams = {
     /**
      * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
@@ -48534,6 +49772,17 @@ export namespace Schemas {
     };
 
     export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -49747,6 +50996,13 @@ export namespace Schemas {
       errors?: string[];
     };
 
+    export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
+     */
+    source_type: string;
+    };
+
     export type ExternalDataSourcesConnectionsListParams = {
     /**
      * Number of results to return per page.
@@ -49760,6 +51016,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesStoredCredentialsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
+    /**
+     * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
     };
 
     export type FeatureFlagsListParams = {
@@ -49879,6 +51146,35 @@ export namespace Schemas {
      */
     groups?: string;
     };
+
+    export type FieldNotesListParams = {
+    /**
+     * Filter to field notes in this lifecycle state (e.g. `pending` for unaddressed feedback).
+     */
+    field_note_status?: FieldNotesListFieldNoteStatus;
+    /**
+     * Filter to field notes made on this hostname (e.g. `app.example.com`).
+     */
+    host?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type FieldNotesListFieldNoteStatus = typeof FieldNotesListFieldNoteStatus[keyof typeof FieldNotesListFieldNoteStatus];
+
+
+    export const FieldNotesListFieldNoteStatus = {
+      Acknowledged: 'acknowledged',
+      Dismissed: 'dismissed',
+      Pending: 'pending',
+      Resolved: 'resolved',
+    } as const;
 
     export type FileDownloadBatchExportsListParams = {
     /**
@@ -50017,6 +51313,10 @@ export namespace Schemas {
      * Specify the group type to find
      */
     group_type_index: number;
+    /**
+     * When true, do not lazily create the group's CRM notebook. Use for read-only lookups (e.g. resolving a group's display name) that should not have side effects.
+     */
+    skip_create_notebook?: boolean;
     };
 
     export type GroupsRelatedRetrieveParams = {
@@ -51996,6 +53296,62 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -52547,6 +53903,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type PropertyDefinitionsListParams = {
     /**
      * If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded
@@ -53023,6 +54401,27 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+    } as const;
+
+    export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus;
+    };
+
+    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
+
+
+    export const SubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
     } as const;
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {

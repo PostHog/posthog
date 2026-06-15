@@ -141,6 +141,10 @@ export function InsightDisplayConfig(): JSX.Element {
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
     const showAxisLabelsConfig =
         isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
+    const showFunnelLegendConfig =
+        isTrendsFunnel &&
+        hasBreakdownFilter(breakdownFilter) &&
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
@@ -219,7 +223,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
-                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(hasLegend || showFunnelLegendConfig ? [{ label: () => <ShowLegendFilter /> }] : []),
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
                                     : []),
@@ -401,7 +405,7 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && showLegend ? 1 : 0) +
+        ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +

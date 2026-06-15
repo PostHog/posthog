@@ -43,6 +43,16 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     },
 }))
 
+const mockUsedInResponse = {
+    feature_flags: {
+        results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
+        total: 1,
+        has_more: false,
+    },
+    insights: { results: [], total: 0, has_more: false },
+    cohorts: { results: [], total: 0, has_more: false },
+}
+
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
     async function initCohortLogic(props: CohortLogicProps = { id: 'new' }): Promise<void> {
@@ -64,6 +74,7 @@ describe('cohortEditLogic', () => {
             get: {
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
                 '/api/projects/:team_id/cohorts/:id/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse,
             },
             post: {
                 '/api/projects/:team_id/cohorts/': mockCohort,
@@ -81,7 +92,15 @@ describe('cohortEditLogic', () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['fetchCohort'])
 
-            expect(api.get).toHaveBeenCalledTimes(1)
+            // One call for the cohort itself, one for its used-in references
+            expect(api.get).toHaveBeenCalledTimes(2)
+        })
+
+        it('loads used-in references on mount before the cohort has resolved', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
         it('loads new cohort on mount', async () => {
@@ -158,7 +177,13 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            }).toDispatchActions([
+                'setCohort',
+                'submitCohort',
+                'submitCohortSuccess',
+                'saveCohortSuccess',
+                'loadUsedIn',
+            ])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 

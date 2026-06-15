@@ -38,7 +38,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..facade.api import run_count_query
+from ..facade.api import run_count_query, run_duration_histogram_query
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
@@ -77,7 +77,7 @@ _SPAN_ALL_OPERATORS = _SPAN_STRING_OPERATORS + _SPAN_NUMERIC_OPERATORS + _SPAN_E
 
 class _SpanPropertyFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
-        help_text='Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").',
+        help_text='Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").',
     )
     type = serializers.ChoiceField(
         choices=_SPAN_PROPERTY_TYPE_CHOICES,
@@ -107,7 +107,7 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     statusCodes = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="Filter by HTTP status codes.",
+        help_text="Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
     )
     orderBy = serializers.ChoiceField(
         choices=["timestamp", "duration"],
@@ -158,7 +158,7 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -174,7 +174,7 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     excludeAttributes = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+        help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -312,7 +312,7 @@ class _TracingCountBodySerializer(serializers.Serializer):
     statusCodes = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="Filter by HTTP status codes.",
+        help_text="Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
     )
     filterGroup = serializers.ListField(
         child=_SpanPropertyFilterSerializer(),
@@ -539,6 +539,32 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
         response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_TracingQueryRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
+    def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_duration_histogram_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+        )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 

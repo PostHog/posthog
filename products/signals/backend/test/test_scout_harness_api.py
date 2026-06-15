@@ -15,7 +15,6 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalScoutConfig,
@@ -24,6 +23,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -603,6 +603,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def _detail_url(self, config_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
 
+    def _make_skill(self, name: str, team: Team | None = None) -> LLMSkill:
+        return LLMSkill.objects.create(
+            team=team or self.team,
+            name=name,
+            description="test scout",
+            body="# test scout",
+        )
+
     def test_list_returns_team_configs_ordered_by_skill(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
@@ -707,3 +715,168 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
+        # The list MCP tool is annotated readOnly — a scout skill without a config must not
+        # get one minted by a GET; registration is the coordinator's or `create`'s job.
+        self._make_skill("signals-scout-fresh")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-fresh").exists()
+
+    def test_create_registers_config_with_provided_fields(self) -> None:
+        self._make_skill("signals-scout-fresh")
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 120, "emit": False},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["skill_name"] == "signals-scout-fresh"
+        assert body["run_interval_minutes"] == 120
+        assert body["emit"] is False
+        assert body["enabled"] is True
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.created_by_id == self.user.id
+        assert config.enabled_by_id == self.user.id
+
+    def test_create_disabled_config_does_not_stamp_enabled_by(self) -> None:
+        self._make_skill("signals-scout-fresh")
+
+        response = self.client.post(
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "enabled": False}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.enabled is False
+        assert config.enabled_by_id is None
+
+    def test_create_upserts_existing_config(self) -> None:
+        self._make_skill("signals-scout-fresh")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-fresh", enabled=False)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-fresh", "enabled": True, "run_interval_minutes": 120},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.enabled is True
+        assert config.run_interval_minutes == 120
+        assert config.enabled_by_id == self.user.id
+
+    def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
+        self._make_skill("signals-scout-fresh")
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-fresh", emit=False, run_interval_minutes=120
+        )
+
+        # Set only `emit` — the schedule must stay where it was.
+        response = self.client.post(
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "emit": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.emit is True
+        assert config.run_interval_minutes == 120
+
+    _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
+
+    def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(self._CAP_PATCH, 1):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-second", "enabled": False}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-second")
+        assert config.enabled is False
+
+    @parameterized.expand(["create", "partial_update"])
+    def test_enable_past_team_cap_is_rejected(self, surface: str) -> None:
+        # Both write surfaces enforce the same cap: with one enabled scout filling the
+        # (patched) cap, flipping a second scout on must 400 and leave it disabled.
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=False)
+
+        with patch(self._CAP_PATCH, 1):
+            if surface == "create":
+                response = self.client.post(
+                    self._list_url(), data={"skill_name": "signals-scout-second", "enabled": True}, format="json"
+                )
+            else:
+                response = self.client.patch(self._detail_url(str(second.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "enabled scouts" in response.json()["detail"]
+        second.refresh_from_db()
+        assert second.enabled is False
+
+    @parameterized.expand(
+        [
+            # Re-asserting `enabled=True` on the already-enabled scout: it's excluded from
+            # its own cap count, so the upsert must not read as exceeding the cap.
+            ("create_reassert_enabled", "create", {"skill_name": "signals-scout-first", "enabled": True}),
+            # Tuning a field on an already-enabled scout isn't a net-new enable, so the cap
+            # check is skipped entirely.
+            ("partial_update_tune", "partial_update", {"run_interval_minutes": 120}),
+        ]
+    )
+    def test_tuning_enabled_scout_is_allowed_at_team_cap(self, _name: str, surface: str, data: dict) -> None:
+        self._make_skill("signals-scout-first")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+
+        with patch(self._CAP_PATCH, 1):
+            if surface == "create":
+                response = self.client.post(self._list_url(), data=data, format="json")
+            else:
+                response = self.client.patch(self._detail_url(str(config.id)), data=data, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("unknown_skill", "signals-scout-nonexistent"),
+            ("non_scout_prefix", "my-ordinary-skill"),
+        ]
+    )
+    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str) -> None:
+        if not skill_name.startswith("signals-scout-"):
+            self._make_skill(skill_name)
+        response = self.client.post(self._list_url(), data={"skill_name": skill_name}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists()
+
+    def test_create_rejects_skill_belonging_to_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._make_skill("signals-scout-fresh", team=other_team)
+
+        response = self.client.post(self._list_url(), data={"skill_name": "signals-scout-fresh"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            not SignalScoutConfig.all_teams.filter(skill_name="signals-scout-fresh").exclude(team=other_team).exists()
+        )
+
+    def test_create_rejects_interval_below_min(self) -> None:
+        self._make_skill("signals-scout-fresh")
+        response = self.client.post(
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 5}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

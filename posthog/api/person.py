@@ -1395,7 +1395,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team_id, uuids)
+        # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.
+        persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
         results: dict[str, Any] = {}
         for person in persons:

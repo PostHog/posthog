@@ -4,6 +4,7 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { ToolInputValidationError } from '@/lib/errors'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
@@ -206,6 +207,32 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.success).toBe(true)
             expect(calls[0]!.properties.output_format).toBe('json')
             expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+            expect(calls[0]!.properties.input_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.output_tokens).toBeGreaterThan(0)
+        })
+
+        it('estimates inner output tokens from the serialized output (TOON vs JSON)', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const exec = createExecTool(
+                [makeMockTool()],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+
+            const toonOutput = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const jsonOutput = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            // Each estimate matches the text actually returned, not a re-stringified object.
+            expect(calls[0]!.properties.output_tokens).toBe(estimateTokens(toonOutput))
+            expect(calls[1]!.properties.output_tokens).toBe(estimateTokens(jsonOutput))
+            // TOON and JSON serialize to different sizes — the estimate tracks the wire format.
+            expect(calls[0]!.properties.output_tokens).not.toBe(calls[1]!.properties.output_tokens)
         })
 
         it('passes inline JSON arguments to the inner tool', async () => {
@@ -328,6 +355,9 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
             expect(calls[0]!.properties.output_format).toBe('text')
+            // Token estimates are success-only — nothing useful to measure on a throw.
+            expect(calls[0]!.properties.input_tokens).toBeUndefined()
+            expect(calls[0]!.properties.output_tokens).toBeUndefined()
         })
 
         it('invokes the inner-call tracker with validation_error=true when input fails validation', async () => {
