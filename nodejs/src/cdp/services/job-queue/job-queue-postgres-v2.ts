@@ -71,9 +71,11 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     /**
-     * Register a per-poll hook that clamps the dequeue batch size. Postgres-V2
-     * only — used by the email worker to gate dequeue behind the SES rate
-     * limiter. Must be called before `startAsConsumer` to take effect.
+     * Register a per-poll hook that clamps the dequeue batch size. Must be
+     * called before `startAsConsumer` to take effect.
+     *
+     * Intended to be called only by `RateLimitedJobQueue` (the decorator);
+     * other consumers should not touch this directly.
      */
     public setDynamicBatchLimit(fn: () => Promise<CyclotronV2BatchLimit | undefined>): void {
         this.dynamicBatchLimit = fn
