@@ -91,12 +91,9 @@ def _events_json_subcolumn_string_expr(column: str, property_name: str, table_al
 
 
 def _date_property_expr(property_expr: str) -> str:
-    numeric_value = f"toFloat64OrNull({property_expr})"
-    numeric_timestamp = f"if(isNull({numeric_value}), NULL, fromUnixTimestamp64Milli(toInt64({numeric_value} * 1000)))"
     return (
         f"coalesce(parseDateTimeBestEffortOrNull({property_expr}), "
-        f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)), "
-        f"{numeric_timestamp})"
+        f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)))"
     )
 
 

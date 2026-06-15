@@ -353,7 +353,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
                 elif len(aggregations) > 0:
                     order_by = [ast.OrderExpr(expr=aggregations[0], order="DESC")]
-                elif not has_any_aggregation:
+                elif "timestamp" in select_input:
                     order_by = [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
                 elif len(select) > 0:
                     order_by = [ast.OrderExpr(expr=select[0], order="ASC")]

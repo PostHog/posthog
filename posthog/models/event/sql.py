@@ -1114,6 +1114,25 @@ SELECT
     events.distinct_id AS distinct_id,
     events.elements_chain AS elements_chain,
     events.created_at AS created_at
+FROM {events_table} AS events
+{properties_join}
+WHERE
+events.team_id = %(team_id)s
+{conditions}
+{filters}
+ORDER BY events.timestamp {order} {limit}
+"""
+
+SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_WITH_PROPERTIES_JOIN_SQL = """
+SELECT
+    events.uuid AS uuid,
+    events.event AS event,
+    {properties_column},
+    events.timestamp AS timestamp,
+    events.team_id AS team_id,
+    events.distinct_id AS distinct_id,
+    events.elements_chain AS elements_chain,
+    events.created_at AS created_at
 FROM (
     SELECT
         events.uuid AS uuid,
