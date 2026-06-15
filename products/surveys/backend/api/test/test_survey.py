@@ -6763,22 +6763,29 @@ class TestSurveySummarizeByQuestionId(APIBaseTest):
     @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")
     @patch("products.surveys.backend.api.survey.summarize_responses")
     @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["because it's great"])
+    @parameterized.expand(
+        [
+            # index 0 is falsy — guard against `if not question_index` style regressions
+            ("first_question", "q0", 0),
+            ("second_question", "q1", 1),
+        ]
+    )
     def test_summarize_by_question_id_backfills_index(
-        self, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
+        self, _name, question_id, expected_index, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
     ):
         mock_summarize.return_value = MagicMock(summary="summary", trace_id="trace-123")
 
         # Request a per-question summary by question_id only (no question_index) — the path that
         # previously passed question_index=None into getSurveyResponse() and 500'd.
         response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id={question_id}"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # The index must be resolved from the question_id so the index-based response key fallback
         # works and the HogQL function receives a valid integer.
-        self.assertEqual(mock_fetch.call_args.kwargs["question_index"], 1)
-        self.assertEqual(mock_fetch.call_args.kwargs["question_id"], "q1")
+        self.assertEqual(mock_fetch.call_args.kwargs["question_index"], expected_index)
+        self.assertEqual(mock_fetch.call_args.kwargs["question_id"], question_id)
 
 
 class TestSurveyLifecycleActions(APIBaseTest):
