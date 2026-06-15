@@ -2,99 +2,59 @@
  * Generic webhook trigger. Body is delivered verbatim as the agent's first
  * user message (JSON-stringified). Used for arbitrary integrations.
  *
- * Auth is applied per the agent's `spec.auth`. The principal is captured on
+ * Auth is `agent_spec`: the mount guard runs the agent's `spec.auth` before
+ * the handler, which receives the authenticated principal and captures it on
  * the session for later strict-match enforcement.
  */
 
-import { Request, Response, Router } from 'express'
+import { Request } from 'express'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
-import { SessionQueue, triggerAuthConfig } from '@posthog/agent-shared'
-
 import { principalDisplay } from '../enqueue/acl'
-import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
-import { asyncHandler } from '../routing/http-utils'
-import { RevisionResolver } from '../routing/resolver'
-import { resolveAgent } from './resolve'
-import type { TriggerModule } from './types'
+import type { AuthedRouteCtx, TriggerModule } from './types'
 import { WebhookBodySchema } from './webhook.schemas'
 
-export interface WebhookTriggerDeps {
-    resolver: RevisionResolver
-    queue: SessionQueue
-    authProvider?: AuthProvider
-}
-
-export function webhookRouter(deps: WebhookTriggerDeps): Router {
-    const r = Router({ mergeParams: true })
-    r.post(
-        '/webhook',
-        asyncHandler(async (req: Request, res: Response) => {
-            const resolved = await resolveAgent(deps.resolver, req, res)
-            if (!resolved) {
-                if (!res.headersSent) {
-                    res.status(404).json({ error: 'no_agent' })
-                }
-                return
-            }
-            const trigger = resolved.revision.spec.triggers.find((t) => t.type === 'webhook')
-            const authConfig = trigger ? triggerAuthConfig(trigger) : null
-            if (!authConfig) {
-                res.status(404).json({ error: 'no_webhook_trigger' })
-                return
-            }
-            const parsed = WebhookBodySchema.safeParse(req.body)
-            if (!parsed.success) {
-                res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
-                return
-            }
-            const auth = await authorize(
-                req,
-                resolved.application,
-                authConfig,
-                deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
-            )
-            if (!auth.ok) {
-                res.status(auth.status).json({ error: auth.reason })
-                return
-            }
-            const externalKeyHeader = req.headers['x-external-key']
-            const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-            const idempotencyKey = extractProviderIdempotencyKey(req, parsed.data)
-            const sessionPrincipal = auth.principal
-            const outcome = await enqueueOrResume(
-                { queue: deps.queue },
-                {
-                    application: resolved.application,
-                    revision: resolved.revision,
-                    externalKey,
-                    idempotencyKey,
-                    seed: {
-                        role: 'user',
-                        content: JSON.stringify(parsed.data),
-                        timestamp: Date.now(),
-                        sender: sessionPrincipal,
-                    },
-                    principal: sessionPrincipal,
-                    trigger: 'webhook',
-                    requesterDisplay: principalDisplay(sessionPrincipal),
-                }
-            )
-            if (outcome.kind === 'elevation_required') {
-                res.status(403).json({
-                    error: 'elevation_required',
-                    elevation_request_id: outcome.elevationRequestId,
-                    session_id: outcome.sessionId,
-                    owner_display: outcome.existingPrincipalDisplay,
-                })
-                return
-            }
-            res.json({ ok: true, session_id: outcome.sessionId, resumed: outcome.isResume })
-        })
+async function webhookHandler(ctx: AuthedRouteCtx): Promise<void> {
+    const { req, res, deps, resolved } = ctx
+    const parsed = WebhookBodySchema.safeParse(req.body)
+    if (!parsed.success) {
+        res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
+        return
+    }
+    const externalKeyHeader = req.headers['x-external-key']
+    const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
+    const idempotencyKey = extractProviderIdempotencyKey(req, parsed.data)
+    const sessionPrincipal = ctx.principal
+    const outcome = await enqueueOrResume(
+        { queue: deps.queue },
+        {
+            application: resolved.application,
+            revision: resolved.revision,
+            externalKey,
+            idempotencyKey,
+            seed: {
+                role: 'user',
+                content: JSON.stringify(parsed.data),
+                timestamp: Date.now(),
+                sender: sessionPrincipal,
+            },
+            principal: sessionPrincipal,
+            trigger: 'webhook',
+            requesterDisplay: principalDisplay(sessionPrincipal),
+        }
     )
-    return r
+    if (outcome.kind === 'elevation_required') {
+        res.status(403).json({
+            error: 'elevation_required',
+            elevation_request_id: outcome.elevationRequestId,
+            session_id: outcome.sessionId,
+            owner_display: outcome.existingPrincipalDisplay,
+        })
+        return
+    }
+    res.json({ ok: true, session_id: outcome.sessionId, resumed: outcome.isResume })
 }
 
 /**
@@ -140,13 +100,13 @@ function extractProviderIdempotencyKey(req: Request, parsedBody: unknown): strin
  *  so the seed message isn't `"null"`. */
 export const webhookTrigger: TriggerModule = {
     type: 'webhook',
-    router: webhookRouter,
     routes: [
         {
             method: 'POST',
             path: '/webhook',
             bodySchema: z.toJSONSchema(WebhookBodySchema),
             auth: 'agent_spec',
+            handler: webhookHandler,
         },
     ],
 }

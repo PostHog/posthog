@@ -1,25 +1,23 @@
 /**
  * Chat trigger: POST /run starts a new session, POST /send appends to an
- * existing one, GET /listen streams events (SSE). Used by the in-PostHog chat
- * scene and any HTTP client that wants a thread-shaped conversation.
+ * existing one, GET /listen streams events (SSE), POST /cancel cancels, and
+ * POST /client_tool_result answers a runner-emitted client tool call. Used by
+ * the in-PostHog chat scene and any HTTP client that wants a thread-shaped
+ * conversation.
+ *
+ * Auth: every route is `agent_spec` — the mount guard runs the agent's auth
+ * modes before the handler, so each handler receives an authenticated
+ * `principal`. The write/stream paths additionally enforce session ownership
+ * (ACL) on the principal the guard produced.
  */
 
-import { Request, Response, Router } from 'express'
+import { Response } from 'express'
 import { z } from 'zod'
 
-import {
-    buildClientToolResultMarker,
-    CredentialBroker,
-    SessionEventBus,
-    SessionQueue,
-    triggerAuthConfig,
-} from '@posthog/agent-shared'
+import { buildClientToolResultMarker } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
-import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER, VerifyOk } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
-import { asyncHandler } from '../routing/http-utils'
-import { ResolvedAgent, RevisionResolver } from '../routing/resolver'
 import {
     ChatCancelBodySchema,
     ChatClientToolResultBodySchema,
@@ -27,8 +25,7 @@ import {
     ChatRunBodySchema,
     ChatSendBodySchema,
 } from './chat.schemas'
-import { resolveAgent } from './resolve'
-import type { TriggerModule } from './types'
+import type { AuthedRouteCtx, TriggerModule } from './types'
 
 /**
  * Turn a zod error into the structured 400 body. Same shape as the janitor's
@@ -38,389 +35,255 @@ function badRequest(res: Response, err: z.ZodError): void {
     res.status(400).json({ error: 'invalid_body', issues: err.issues })
 }
 
-/**
- * Resolve the agent for a chat request and run its auth gate, writing the
- * matching 404/401/403 to `res` and returning null on any failure (caller
- * bails with `if (!gate) return`). Mirrors the resolve → authConfig →
- * authorize sequence inlined in /run and /send so every chat handler shares
- * one fail-closed path.
- */
-async function authenticateChatRequest(
-    deps: ChatTriggerDeps,
-    req: Request,
-    res: Response
-): Promise<{ resolved: ResolvedAgent; auth: VerifyOk } | null> {
-    const resolved = await resolveAgent(deps.resolver, req, res)
-    if (!resolved) {
-        // resolveAgent may have already written a 400 (ambiguous prefix).
-        if (!res.headersSent) {
-            res.status(404).json({ error: 'no_agent' })
+async function runHandler(ctx: AuthedRouteCtx): Promise<void> {
+    const { req, res, deps, resolved } = ctx
+    const parsed = ChatRunBodySchema.safeParse(req.body)
+    if (!parsed.success) {
+        badRequest(res, parsed.error)
+        return
+    }
+    const { message, external_key: externalKey = null } = parsed.data
+    const sessionPrincipal = ctx.principal
+    const outcome = await enqueueOrResume(
+        { queue: deps.queue },
+        {
+            application: resolved.application,
+            revision: resolved.revision,
+            externalKey,
+            seed: { role: 'user', content: message, timestamp: Date.now(), sender: sessionPrincipal },
+            principal: sessionPrincipal,
+            trigger: 'chat',
+            requesterDisplay: principalDisplay(sessionPrincipal),
         }
-        return null
+    )
+    if (outcome.kind === 'elevation_required') {
+        res.status(403).json({
+            error: 'elevation_required',
+            elevation_request_id: outcome.elevationRequestId,
+            session_id: outcome.sessionId,
+            owner_display: outcome.existingPrincipalDisplay,
+        })
+        return
     }
-    const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
-    const authConfig = chatTrigger ? triggerAuthConfig(chatTrigger) : null
-    if (!authConfig) {
-        res.status(404).json({ error: 'no_chat_trigger' })
-        return null
-    }
-    const auth = await authorize(req, resolved.application, authConfig, deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER)
-    if (!auth.ok) {
-        res.status(auth.status).json({ error: auth.reason })
-        return null
-    }
-    return { resolved, auth }
+    // Write per-session auth materials into the broker keyed by the freshly
+    // minted session id. Tools resolve through this at call time; nothing
+    // token-bearing lands on the session row.
+    await deps.broker.write(outcome.sessionId, ctx.credentials)
+    res.json({
+        ok: true,
+        session_id: outcome.sessionId,
+        resumed: outcome.isResume,
+        principal: ctx.principal,
+    })
 }
 
-export interface ChatTriggerDeps {
-    resolver: RevisionResolver
-    queue: SessionQueue
-    bus: SessionEventBus
-    authProvider?: AuthProvider
-    /**
-     * Broker for per-session auth credentials. Required — prod wires
-     * `PgCredentialBroker`, the harness wires the same against the test DB.
-     * There is no in-memory fallback (it silently diverged from prod when
-     * processes restarted).
-     */
-    broker: CredentialBroker
+async function sendHandler(ctx: AuthedRouteCtx): Promise<void> {
+    const { req, res, deps, resolved } = ctx
+    const parsed = ChatSendBodySchema.safeParse(req.body)
+    if (!parsed.success) {
+        badRequest(res, parsed.error)
+        return
+    }
+    const { session_id: sessionId, message, client_tool_result } = parsed.data
+    const existing = await deps.queue.get(sessionId)
+    if (!existing) {
+        res.status(404).json({ error: 'session_not_found' })
+        return
+    }
+    // Strict principal match: the guard authenticated the caller; compare to
+    // the principal stored at /run time.
+    const incomingPrincipal = ctx.principal
+    const aclCheck = requireAclAccess(existing, incomingPrincipal)
+    if (aclCheck.kind === 'denied') {
+        const proposed: string =
+            message ??
+            (client_tool_result ? `[client_tool_result for ${client_tool_result.call_id}]` : '[unknown payload]')
+        const elevation = await recordElevationRequest(deps.queue, existing, {
+            requester: incomingPrincipal,
+            requesterDisplay: principalDisplay(incomingPrincipal),
+            trigger: 'chat',
+            proposedMessage: {
+                role: 'user',
+                content: proposed,
+                timestamp: Date.now(),
+                sender: incomingPrincipal,
+            },
+        })
+        res.status(403).json(buildElevationResponse(existing, elevation))
+        return
+    }
+    // Terminal-state policy (see session-restart redesign):
+    //   - `failed` / `cancelled`: always 410. Restarting either would likely
+    //     just re-fail or re-cancel.
+    //   - `closed`: 410 unless the chat trigger spec opts into `allow_restart`.
+    //   - `completed` / `queued` / `running`: append the message, re-queue.
+    //     `completed` is open by design.
+    if (existing.state === 'failed' || existing.state === 'cancelled') {
+        res.status(410).json({ error: 'session_terminal', state: existing.state })
+        return
+    }
+    if (existing.state === 'closed') {
+        const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
+        const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
+        if (!allowRestart) {
+            res.status(410).json({ error: 'session_terminal', state: 'closed' })
+            return
+        }
+    }
+    if (client_tool_result) {
+        const payload = client_tool_result.error
+            ? { call_id: client_tool_result.call_id, error: client_tool_result.error }
+            : {
+                  call_id: client_tool_result.call_id,
+                  result: (client_tool_result.result ?? {}) as Record<string, unknown>,
+              }
+        await deps.queue.appendPendingInput(sessionId, {
+            role: 'user',
+            content: buildClientToolResultMarker(payload),
+            timestamp: Date.now(),
+            sender: incomingPrincipal,
+        })
+    } else {
+        await deps.queue.appendPendingInput(sessionId, {
+            role: 'user',
+            content: message!,
+            timestamp: Date.now(),
+            sender: incomingPrincipal,
+        })
+    }
+    await deps.queue.update(sessionId, { state: 'queued' })
+    // Refresh broker creds with whatever the client just supplied — OAuth
+    // tokens may have rotated since /run, and the worker may have evicted the
+    // prior entry.
+    await deps.broker.write(sessionId, ctx.credentials)
+    res.json({ ok: true })
 }
 
-export function chatRouter(deps: ChatTriggerDeps): Router {
-    const r = Router({ mergeParams: true })
-    const broker = deps.broker
+async function cancelHandler(ctx: AuthedRouteCtx): Promise<void> {
+    const { req, res, deps } = ctx
+    const parsed = ChatCancelBodySchema.safeParse(req.body)
+    if (!parsed.success) {
+        badRequest(res, parsed.error)
+        return
+    }
+    const { session_id: sessionId } = parsed.data
+    const existing = await deps.queue.get(sessionId)
+    if (!existing) {
+        res.status(404).json({ error: 'session_not_found' })
+        return
+    }
+    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+        res.status(403).json({ error: 'forbidden' })
+        return
+    }
+    // Cancel is idempotent: terminal sessions return ok without changing state.
+    if (existing.state === 'closed' || existing.state === 'failed' || existing.state === 'cancelled') {
+        res.json({ ok: true, idempotent: true, state: existing.state })
+        return
+    }
+    await deps.queue.update(sessionId, { state: 'cancelled' })
+    res.json({ ok: true, state: 'cancelled' })
+}
 
-    r.post(
-        '/run',
-        asyncHandler(async (req: Request, res: Response) => {
-            const resolved = await resolveAgent(deps.resolver, req, res)
-            if (!resolved) {
-                // resolveAgent may have already written a 400 (ambiguous prefix).
-                if (!res.headersSent) {
-                    res.status(404).json({ error: 'no_agent' })
-                }
-                return
-            }
-            const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
-            const authConfig = chatTrigger ? triggerAuthConfig(chatTrigger) : null
-            if (!authConfig) {
-                res.status(404).json({ error: 'no_chat_trigger' })
-                return
-            }
-            const parsed = ChatRunBodySchema.safeParse(req.body)
-            if (!parsed.success) {
-                badRequest(res, parsed.error)
-                return
-            }
-            const { message, external_key: externalKey = null } = parsed.data
-            const auth = await authorize(
-                req,
-                resolved.application,
-                authConfig,
-                deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
-            )
-            if (!auth.ok) {
-                res.status(auth.status).json({ error: auth.reason })
-                return
-            }
-            const sessionPrincipal = auth.principal
-            const outcome = await enqueueOrResume(
-                { queue: deps.queue },
-                {
-                    application: resolved.application,
-                    revision: resolved.revision,
-                    externalKey,
-                    seed: { role: 'user', content: message, timestamp: Date.now(), sender: sessionPrincipal },
-                    principal: sessionPrincipal,
-                    trigger: 'chat',
-                    requesterDisplay: principalDisplay(sessionPrincipal),
-                }
-            )
-            if (outcome.kind === 'elevation_required') {
-                res.status(403).json({
-                    error: 'elevation_required',
-                    elevation_request_id: outcome.elevationRequestId,
-                    session_id: outcome.sessionId,
-                    owner_display: outcome.existingPrincipalDisplay,
-                })
-                return
-            }
-            // Write per-session auth materials into the broker keyed by
-            // the freshly-minted session id. Tools resolve through this
-            // at call time; nothing token-bearing lands on the session row.
-            await broker.write(outcome.sessionId, auth.credentials)
-            res.json({
-                ok: true,
-                session_id: outcome.sessionId,
-                resumed: outcome.isResume,
-                principal: auth.principal,
-            })
-        })
-    )
+async function listenHandler(ctx: AuthedRouteCtx): Promise<void> {
+    const { req, res, deps } = ctx
+    const parsed = ChatListenQuerySchema.safeParse(req.query)
+    if (!parsed.success) {
+        badRequest(res, parsed.error)
+        return
+    }
+    const { session_id: sessionId } = parsed.data
+    const existing = await deps.queue.get(sessionId)
+    if (!existing) {
+        res.status(404).json({ error: 'session_not_found' })
+        return
+    }
+    // The stream replays the whole conversation, so gate it the same as the
+    // write paths. EventSource can't set headers, so the bearer rides in
+    // `?token=` (handled in readBearer, which the guard already consumed).
+    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+        res.status(403).json({ error: 'forbidden' })
+        return
+    }
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+    const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`)
+    })
+    req.on('close', () => unsubscribe())
+}
 
-    r.post(
-        '/send',
-        asyncHandler(async (req: Request, res: Response) => {
-            const parsed = ChatSendBodySchema.safeParse(req.body)
-            if (!parsed.success) {
-                badRequest(res, parsed.error)
-                return
-            }
-            const { session_id: sessionId, message, client_tool_result } = parsed.data
-            const existing = await deps.queue.get(sessionId)
-            if (!existing) {
-                res.status(404).json({ error: 'session_not_found' })
-                return
-            }
-            // Strict principal match: re-authenticate against the agent's auth
-            // mode and compare to the principal stored at /run time.
-            const resolved = await resolveAgent(deps.resolver, req, res)
-            if (!resolved) {
-                // resolveAgent may have already written a 400 (ambiguous prefix).
-                if (!res.headersSent) {
-                    res.status(404).json({ error: 'no_agent' })
-                }
-                return
-            }
-            const chatTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'chat')
-            const authConfig = chatTrigger ? triggerAuthConfig(chatTrigger) : null
-            if (!authConfig) {
-                res.status(404).json({ error: 'no_chat_trigger' })
-                return
-            }
-            const auth = await authorize(
-                req,
-                resolved.application,
-                authConfig,
-                deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
-            )
-            if (!auth.ok) {
-                res.status(auth.status).json({ error: auth.reason })
-                return
-            }
-            const incomingPrincipal = auth.principal
-            const aclCheck = requireAclAccess(existing, incomingPrincipal)
-            if (aclCheck.kind === 'denied') {
-                const proposed: string =
-                    message ??
-                    (client_tool_result
-                        ? `[client_tool_result for ${client_tool_result.call_id}]`
-                        : '[unknown payload]')
-                const req = await recordElevationRequest(deps.queue, existing, {
-                    requester: incomingPrincipal,
-                    requesterDisplay: principalDisplay(incomingPrincipal),
-                    trigger: 'chat',
-                    proposedMessage: {
-                        role: 'user',
-                        content: proposed,
-                        timestamp: Date.now(),
-                        sender: incomingPrincipal,
-                    },
-                })
-                res.status(403).json(buildElevationResponse(existing, req))
-                return
-            }
-            // Terminal-state policy (see session-restart redesign):
-            //   - `failed` / `cancelled`: always 410. Restarting either
-            //     would likely just re-fail or re-cancel.
-            //   - `closed`: 410 unless the chat trigger spec opts into
-            //     `allow_restart`.
-            //   - `completed` / `queued` / `running`: append the message,
-            //     re-queue. `completed` is open by design.
-            if (existing.state === 'failed' || existing.state === 'cancelled') {
-                res.status(410).json({ error: 'session_terminal', state: existing.state })
-                return
-            }
-            if (existing.state === 'closed') {
-                const allowRestart = chatTrigger?.type === 'chat' ? (chatTrigger.config.allow_restart ?? false) : false
-                if (!allowRestart) {
-                    res.status(410).json({ error: 'session_terminal', state: 'closed' })
-                    return
-                }
-            }
-            if (client_tool_result) {
-                const payload = client_tool_result.error
-                    ? { call_id: client_tool_result.call_id, error: client_tool_result.error }
-                    : {
-                          call_id: client_tool_result.call_id,
-                          result: (client_tool_result.result ?? {}) as Record<string, unknown>,
-                      }
-                await deps.queue.appendPendingInput(sessionId, {
-                    role: 'user',
-                    content: buildClientToolResultMarker(payload),
-                    timestamp: Date.now(),
-                    sender: incomingPrincipal,
-                })
-            } else {
-                await deps.queue.appendPendingInput(sessionId, {
-                    role: 'user',
-                    content: message!,
-                    timestamp: Date.now(),
-                    sender: incomingPrincipal,
-                })
-            }
-            await deps.queue.update(sessionId, { state: 'queued' })
-            // Refresh broker creds with whatever the client just supplied —
-            // OAuth tokens may have been rotated since /run, and the
-            // worker may have evicted the prior entry.
-            await broker.write(sessionId, auth.credentials)
-            res.json({ ok: true })
-        })
-    )
-
-    r.post(
-        '/cancel',
-        asyncHandler(async (req: Request, res: Response) => {
-            const parsed = ChatCancelBodySchema.safeParse(req.body)
-            if (!parsed.success) {
-                badRequest(res, parsed.error)
-                return
-            }
-            const { session_id: sessionId } = parsed.data
-            const existing = await deps.queue.get(sessionId)
-            if (!existing) {
-                res.status(404).json({ error: 'session_not_found' })
-                return
-            }
-            // Authenticate against the agent's auth mode, then confirm the
-            // caller owns (or has been granted access to) this session before
-            // letting them cancel it.
-            const gate = await authenticateChatRequest(deps, req, res)
-            if (!gate) {
-                return
-            }
-            if (requireAclAccess(existing, gate.auth.principal).kind === 'denied') {
-                res.status(403).json({ error: 'forbidden' })
-                return
-            }
-            // Cancel is idempotent: terminal sessions return ok without changing state.
-            if (existing.state === 'closed' || existing.state === 'failed' || existing.state === 'cancelled') {
-                res.json({ ok: true, idempotent: true, state: existing.state })
-                return
-            }
-            await deps.queue.update(sessionId, { state: 'cancelled' })
-            res.json({ ok: true, state: 'cancelled' })
-        })
-    )
-
-    r.get(
-        '/listen',
-        asyncHandler(async (req: Request, res: Response) => {
-            const parsed = ChatListenQuerySchema.safeParse(req.query)
-            if (!parsed.success) {
-                badRequest(res, parsed.error)
-                return
-            }
-            const { session_id: sessionId } = parsed.data
-            const existing = await deps.queue.get(sessionId)
-            if (!existing) {
-                res.status(404).json({ error: 'session_not_found' })
-                return
-            }
-            // The event stream replays the whole conversation, so gate it the
-            // same as the write paths. EventSource can't set headers, so the
-            // bearer rides in `?token=` (handled in readBearer).
-            const gate = await authenticateChatRequest(deps, req, res)
-            if (!gate) {
-                return
-            }
-            if (requireAclAccess(existing, gate.auth.principal).kind === 'denied') {
-                res.status(403).json({ error: 'forbidden' })
-                return
-            }
-            res.setHeader('Content-Type', 'text/event-stream')
-            res.setHeader('Cache-Control', 'no-cache')
-            res.setHeader('Connection', 'keep-alive')
-            res.flushHeaders()
-            const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
-                res.write(`data: ${JSON.stringify(event)}\n\n`)
-            })
-            req.on('close', () => unsubscribe())
-        })
-    )
-
-    /**
-     * Receive a client-tool result the connecting client computed in
-     * response to a runner-emitted `client_tool_call` event. Publishes
-     * a `client_tool_result` bus event with the same `call_id`; the
-     * runner's per-session subscriber (set up in `loop/driver.ts`)
-     * resolves the matching pending promise so the model turn unblocks.
-     */
-    r.post(
-        '/client_tool_result',
-        asyncHandler(async (req: Request, res: Response) => {
-            const parsed = ChatClientToolResultBodySchema.safeParse(req.body)
-            if (!parsed.success) {
-                badRequest(res, parsed.error)
-                return
-            }
-            const { session_id: sessionId, call_id, result, error } = parsed.data
-            const existing = await deps.queue.get(sessionId)
-            if (!existing) {
-                res.status(404).json({ error: 'no_session' })
-                return
-            }
-            // A tool result feeds straight into the running turn — authenticate
-            // and confirm session ownership before publishing it.
-            const gate = await authenticateChatRequest(deps, req, res)
-            if (!gate) {
-                return
-            }
-            if (requireAclAccess(existing, gate.auth.principal).kind === 'denied') {
-                res.status(403).json({ error: 'forbidden' })
-                return
-            }
-            await deps.bus.publish({
-                session_id: sessionId,
-                kind: 'client_tool_result',
-                data: error ? { call_id, error } : { call_id, result },
-                ts: new Date().toISOString(),
-            })
-            res.json({ ok: true })
-        })
-    )
-
-    return r
+async function clientToolResultHandler(ctx: AuthedRouteCtx): Promise<void> {
+    const { req, res, deps } = ctx
+    const parsed = ChatClientToolResultBodySchema.safeParse(req.body)
+    if (!parsed.success) {
+        badRequest(res, parsed.error)
+        return
+    }
+    const { session_id: sessionId, call_id, result, error } = parsed.data
+    const existing = await deps.queue.get(sessionId)
+    if (!existing) {
+        res.status(404).json({ error: 'no_session' })
+        return
+    }
+    // A tool result feeds straight into the running turn — confirm session
+    // ownership before publishing it.
+    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+        res.status(403).json({ error: 'forbidden' })
+        return
+    }
+    await deps.bus.publish({
+        session_id: sessionId,
+        kind: 'client_tool_result',
+        data: error ? { call_id, error } : { call_id, result },
+        ts: new Date().toISOString(),
+    })
+    res.json({ ok: true })
 }
 
 /**
- * Self-description of the chat trigger's HTTP surface. The ingress reads this
- * to auto-publish the agent's API via `GET /agents/<slug>/schemas` — there's
- * no separate place that has to be kept in sync with the handlers above.
+ * Chat trigger module. The `auth` on each route is enforced by the mount guard
+ * (see `mount.ts`) and published verbatim by `GET /agents/<slug>/schemas`.
  */
 export const chatTrigger: TriggerModule = {
     type: 'chat',
-    router: chatRouter,
     routes: [
         {
             method: 'POST',
             path: '/run',
             bodySchema: z.toJSONSchema(ChatRunBodySchema),
             auth: 'agent_spec',
+            handler: runHandler,
         },
         {
             method: 'POST',
             path: '/send',
             bodySchema: z.toJSONSchema(ChatSendBodySchema),
             auth: 'agent_spec',
+            handler: sendHandler,
         },
         {
             method: 'POST',
             path: '/cancel',
             bodySchema: z.toJSONSchema(ChatCancelBodySchema),
             auth: 'agent_spec',
+            handler: cancelHandler,
         },
         {
             method: 'GET',
             path: '/listen',
             querySchema: z.toJSONSchema(ChatListenQuerySchema),
             auth: 'agent_spec',
+            handler: listenHandler,
         },
         {
             method: 'POST',
             path: '/client_tool_result',
             bodySchema: z.toJSONSchema(ChatClientToolResultBodySchema),
             auth: 'agent_spec',
+            handler: clientToolResultHandler,
         },
     ],
 }

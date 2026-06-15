@@ -18,6 +18,7 @@ import type { AuthConfig } from '@posthog/agent-shared'
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { chatTrigger } from '../triggers/chat'
 import { mcpTrigger } from '../triggers/mcp'
+import { mountTrigger } from '../triggers/mount'
 import { resolveAgent } from '../triggers/resolve'
 import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
@@ -27,11 +28,12 @@ import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
  * The full set of trigger modules the ingress knows about. Each module is
- * self-describing — `router` for assembly, `routes` for `/schemas`. Adding a
- * new trigger means writing one module file and dropping it in this array;
- * mounting, schema publication, and auth advertisement all cascade.
+ * self-describing — its `routes` drive mounting (via `mountTrigger`), the
+ * `/schemas` response, and the per-route auth guard. Adding a new trigger
+ * means writing one module file and dropping it in this array. Exported so
+ * the auth contract test can assert every declared route enforces its `auth`.
  */
-const TRIGGER_MODULES: TriggerModule[] = [chatTrigger, slackTrigger, webhookTrigger, mcpTrigger]
+export const TRIGGER_MODULES: TriggerModule[] = [chatTrigger, slackTrigger, webhookTrigger, mcpTrigger]
 
 /**
  * Fallback resolver used when callers (mostly dev / harness paths) don't wire
@@ -217,7 +219,7 @@ export function buildApp(opts: BuildAppOpts): Express {
     )
 
     for (const m of TRIGGER_MODULES) {
-        app.use(mount, m.router(triggerDeps))
+        app.use(mount, mountTrigger(triggerDeps, m))
     }
 
     // Last in the chain. Catches rejections from `asyncHandler`-wrapped

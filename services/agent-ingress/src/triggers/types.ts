@@ -1,40 +1,43 @@
 /**
  * Trigger module interface.
  *
- * Each trigger ships exactly one module — a router plus a self-description of
- * the HTTP routes it owns. The ingress assembles modules at boot:
- *
- *   1. Mount every module's router under the agent slug.
- *   2. Read every module's `routes` to publish the agent's API surface via
- *      `GET /agents/<slug>/schemas`.
- *
- * That single registration is the only place a new trigger needs to plug in —
- * `/schemas`, router mounting, and (eventually) docs all cascade from it. No
- * hand-maintained map of "which trigger types are published" to keep in sync.
+ * Each trigger ships exactly one module — a list of self-describing routes.
+ * Every route declares the auth it requires *and* the handler that runs, in
+ * the same object. The ingress mounts each route through a guard derived from
+ * that `auth` field (see `mount.ts`) and publishes the same field via
+ * `GET /agents/<slug>/schemas`. Declared auth and enforced auth are therefore
+ * the same data — a route cannot advertise `agent_spec` while its handler
+ * forgets to authenticate, which is the class of bug that previously left
+ * `/listen` and `/mcp/stream` open.
  *
  * Adding a new trigger:
  *
  *   1. Write `triggers/<name>.ts` exporting a `TriggerModule`.
- *   2. Add the new module to `TRIGGER_MODULES` in `routing/server.ts`.
- *   3. Done — schemas, mounting, and auth advertisement come for free.
+ *   2. Add the module to `TRIGGER_MODULES` in `routing/server.ts`.
+ *   3. Done — guards, schemas, and auth advertisement all cascade from `routes`.
  */
 
-import { Router } from 'express'
+import type { Request, Response } from 'express'
+import type { Pool } from 'pg'
 
 import type {
+    AuthConfig,
     CredentialBroker,
+    CredentialMap,
     HttpFetcher,
     IdentityStore,
+    IntegrationStore,
     SecretResolver,
     SessionEventBus,
+    SessionPrincipal,
     SessionQueue,
     Trigger,
 } from '@posthog/agent-shared'
 
-import type { AuthProvider } from '../enqueue/auth'
-import type { RevisionResolver, RoutingMode } from '../routing/resolver'
+import type { AuthProvider, VerifyResult } from '../enqueue/auth'
+import type { ResolvedAgent, RevisionResolver, RoutingMode } from '../routing/resolver'
 
-/** Superset of every dep any trigger router needs. Triggers pick what they use. */
+/** Superset of every dep any trigger handler needs. Handlers pick what they use. */
 export interface TriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
@@ -49,6 +52,14 @@ export interface TriggerDeps {
      * tests wire the same against the test DB.
      */
     broker: CredentialBroker
+    /**
+     * Read-only access to PostHog's integration table. Slack trigger uses it
+     * to fetch a workspace bot token for the Slack → PostHog user bridge.
+     * Optional — when absent, the bridge is skipped.
+     */
+    integrations?: IntegrationStore | null
+    /** Direct posthog DB pool for the Slack → PostHog user bridge's email lookup. */
+    posthogDb?: Pool | null
     /**
      * Outbound HTTP — currently only the slack trigger consumes it (for
      * the identity bridge's Slack `users.info` call). Wired at the
@@ -67,35 +78,68 @@ export interface TriggerDeps {
 export type TriggerType = Trigger['type']
 
 /**
- * How a route is authenticated. Resolved against the agent's `spec.auth` at
- * `/schemas` render-time so the response tells callers exactly what creds to
- * bring per agent — not just per trigger type.
+ * How a route is authenticated. Drives both the guard the route is mounted
+ * behind (`mount.ts`) and the shape `/schemas` publishes per agent.
  *
- * - `agent_spec` — uses the agent's `spec.auth` block (public / pat /
- *   posthog_internal / shared_secret + optional header name).
+ * - `agent_spec` — the agent's `spec.auth` block. The guard runs `authorize`
+ *   and the handler receives an `AuthedRouteCtx` with a guaranteed principal.
+ * - `custom` — the agent is resolved and `authConfig` is provided, but the
+ *   guard does NOT authorize; the handler calls `ctx.authorize()` itself.
+ *   For routes that multiplex several logical operations with different auth
+ *   over one HTTP endpoint (MCP's JSON-RPC `/mcp`, where `initialize` is
+ *   pre-auth).
  * - `slack_signing` — Slack signature verification on the request body.
- * - `public` — no auth (healthz-style or fully open routes).
+ * - `public` — no auth (discovery / healthz-style routes).
  */
-export type RouteAuthKind = 'agent_spec' | 'slack_signing' | 'public'
+export type RouteAuthKind = 'agent_spec' | 'custom' | 'slack_signing' | 'public'
 
-export interface TriggerRoute {
+/** Context every route handler receives. The agent is always resolved. */
+export interface RouteCtx {
+    req: Request
+    res: Response
+    deps: TriggerDeps
+    resolved: ResolvedAgent
+}
+
+/** `agent_spec` routes: the guard authenticated the caller before the handler ran. */
+export interface AuthedRouteCtx extends RouteCtx {
+    authConfig: AuthConfig
+    principal: SessionPrincipal
+    credentials: CredentialMap
+}
+
+/** `custom` routes: agent + authConfig resolved; the handler authorizes on demand. */
+export interface CustomAuthRouteCtx extends RouteCtx {
+    authConfig: AuthConfig
+    /** Run the agent's auth gate (per JSON-RPC method, etc.). */
+    authorize(): Promise<VerifyResult>
+}
+
+interface RouteCommon {
     method: 'GET' | 'POST'
     /** Path relative to the agent mount (e.g. `/run`, `/slack/events`). */
     path: string
     /** JSON Schema for the request body. POST routes only. Omit when the
-     *  trigger genuinely accepts arbitrary payloads (e.g. webhook) — callers
-     *  read this as "we don't enforce a shape here." */
+     *  trigger genuinely accepts arbitrary payloads (e.g. webhook). */
     bodySchema?: object
     /** JSON Schema for the query string. GET routes that read params. */
     querySchema?: object
-    /** What's required to call this route. Rendered concretely per-agent. */
-    auth: RouteAuthKind
 }
+
+/**
+ * A route + its auth + its handler, in one object. The `auth` discriminant
+ * fixes the context the handler receives, so the type system enforces that an
+ * `agent_spec` route reads `ctx.principal` (guaranteed) while a `public` route
+ * cannot.
+ */
+export type TriggerRoute =
+    | (RouteCommon & { auth: 'agent_spec'; handler: (ctx: AuthedRouteCtx) => Promise<void> })
+    | (RouteCommon & { auth: 'custom'; handler: (ctx: CustomAuthRouteCtx) => Promise<void> })
+    | (RouteCommon & { auth: 'slack_signing'; handler: (ctx: RouteCtx) => Promise<void> })
+    | (RouteCommon & { auth: 'public'; handler: (ctx: RouteCtx) => Promise<void> })
 
 export interface TriggerModule {
     type: TriggerType
-    /** Express router for this trigger, factory-style so deps are runtime. */
-    router: (deps: TriggerDeps) => Router
-    /** Routes this trigger publishes. Drives `/schemas` directly. */
+    /** Routes this trigger owns — drives mounting, guards, and `/schemas`. */
     routes: TriggerRoute[]
 }
