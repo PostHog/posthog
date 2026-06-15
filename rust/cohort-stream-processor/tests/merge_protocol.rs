@@ -1191,6 +1191,176 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
     );
 }
 
+/// `B`, `C`, `D` on one shared partition (distinct, off `avoid`), so a chain `B → C → D` resolves
+/// entirely inline on that partition while `A` (off it) drains cross-partition into the chain. Scans
+/// uuids once, returning the first partition (≠ `avoid`) that accumulates three of them.
+fn colocated_chain_off(avoid: u16) -> (u16, Uuid, Uuid, Uuid) {
+    let mut by_partition: std::collections::HashMap<u16, Vec<Uuid>> =
+        std::collections::HashMap::new();
+    for n in 1u128.. {
+        let person = Uuid::from_u128(n);
+        let p = part(person);
+        if p == avoid {
+            continue;
+        }
+        let bucket = by_partition.entry(p).or_default();
+        bucket.push(person);
+        if bucket.len() == 3 {
+            return (p, bucket[0], bucket[1], bucket[2]);
+        }
+    }
+    unreachable!("the uuid space fills three slots on some partition off the avoided one")
+}
+
+/// The same-partition raced-then-extended hazard the original-target dual-write closes. `A → B`
+/// applies *after* `B → C` already drained, so it resolves inline to C and writes its marker under
+/// C — and, with the fix, also under the original target B. `C → D` then drains (counts move to D,
+/// the C marker stays at C). A redelivered `A → B` re-resolves B → C → D; the resolved-target probe
+/// under D misses (the marker is under C), but the fixed-origin probe under B hits and dedups —
+/// without it, A's leaves would be summed into D a second time.
+#[test]
+fn raced_chain_then_extends_dedups_on_the_origin_marker() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+
+    // A off the chain's partition; B, C, D colocated so B → C → D resolves inline.
+    let a = Uuid::from_u128(0xA);
+    let a_part = part(a);
+    let (bcd_part, b, c, d) = colocated_chain_off(a_part);
+    assert_ne!(a_part, bcd_part, "A drains cross-partition into the chain");
+
+    // One $pageview each (daily = 1 per person).
+    fold_pageview(&store, &filters, a_part, a, 10, 0);
+    fold_pageview(&store, &filters, bcd_part, b, 20, 0);
+    fold_pageview(&store, &filters, bcd_part, c, 30, 0);
+    fold_pageview(&store, &filters, bcd_part, d, 40, 0);
+
+    // 1) B → C is a same-partition fast-path merge → B tombstoned to C, C = B + C (daily 2). No apply
+    //    marker is written by a fast-path drain.
+    let mut bc_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_merge_event(
+            bcd_part,
+            &store,
+            &filters,
+            &merge_event(b, c),
+            (5, 200),
+            &mut bc_queue,
+        )
+        .unwrap(),
+        DrainOutcome::FastPath { .. }
+    ));
+
+    // 2) A → B drains cross-partition (B's tombstone lives on the chain's slice, not A's, so the
+    //    drain assist does not retarget) → transfer keyed to B.
+    let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
+    assert_eq!(
+        a_to_b.new_person_uuid, b,
+        "transfer keyed to the raw target B"
+    );
+
+    // 3) Apply A → B on the chain's partition: B is tombstoned to C, C is live here → resolve Inline
+    //    to C, apply into C → C = A + B + C (daily 3). Marker written under C and (the fix) under B.
+    let mut chain_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_transfer(
+            bcd_part,
+            &store,
+            &filters,
+            &a_to_b,
+            (5, 80),
+            &mut chain_queue
+        )
+        .unwrap(),
+        ApplyOutcome::Applied { .. }
+    ));
+    let (_, c_daily, _) = behavioral_states(&store, &filters, bcd_part, c);
+    assert_eq!(daily_sum(&c_daily.unwrap()), 3, "C summed A + B + C");
+
+    let c_marker = MergeAppliedKey {
+        partition_id: bcd_part,
+        team_id: TEAM as u64,
+        new_person: c,
+        source_partition: a_to_b.source_partition,
+        source_offset: a_to_b.source_offset,
+    };
+    let b_marker = MergeAppliedKey {
+        new_person: b,
+        ..c_marker
+    };
+    assert!(
+        store.get_merge_applied(&c_marker).unwrap().is_some(),
+        "resolved-target marker under C",
+    );
+    assert!(
+        store.get_merge_applied(&b_marker).unwrap().is_some(),
+        "fixed-origin marker also under the original target B",
+    );
+
+    // 4) C → D is a same-partition fast-path merge → C tombstoned to D, D = A + B + C + D (daily 4).
+    //    The C marker is untouched (a fast-path drain writes no apply marker), so it now sits under a
+    //    person no redelivery resolves to.
+    let mut cd_queue = EvictionQueue::<Stage1Key>::new();
+    assert!(matches!(
+        handle_merge_event(
+            bcd_part,
+            &store,
+            &filters,
+            &merge_event(c, d),
+            (5, 300),
+            &mut cd_queue,
+        )
+        .unwrap(),
+        DrainOutcome::FastPath { .. }
+    ));
+    let (_, d_daily, _) = behavioral_states(&store, &filters, bcd_part, d);
+    assert_eq!(
+        daily_sum(&d_daily.unwrap()),
+        4,
+        "the chain folded A + B + C + D into D",
+    );
+
+    // 5) Redeliver A → B (fresh transfer coords). It re-resolves B → C → D; the resolved-target probe
+    //    under D misses (the marker is under C). The fixed-origin probe under B is the dedup.
+    let redelivered = handle_transfer(
+        bcd_part,
+        &store,
+        &filters,
+        &a_to_b,
+        (61, 999),
+        &mut chain_queue,
+    )
+    .unwrap();
+    assert_eq!(
+        redelivered,
+        ApplyOutcome::AlreadyApplied,
+        "the fixed-origin marker under B absorbs the raced-then-extended redelivery",
+    );
+
+    // D's leaf counts are NOT doubled — without the dual-write the redelivery would re-sum A into D
+    // (daily 5, compressed 5) and a recomposition could spuriously enter.
+    let (d_single, d_daily_after, d_compressed_after) =
+        behavioral_states(&store, &filters, bcd_part, d);
+    assert!(matches!(
+        d_single,
+        Some(Stage1State::BehavioralSingle {
+            has_match: true,
+            ..
+        })
+    ));
+    assert_eq!(
+        daily_sum(&d_daily_after.unwrap()),
+        4,
+        "the redelivery did not double-count D's daily buckets",
+    );
+    assert_eq!(
+        compressed_sum(&d_compressed_after.unwrap()),
+        4,
+        "the redelivery did not double-count D's compressed history",
+    );
+}
+
 /// Drain-side same-slice assist: a merge `A → B` where B is already tombstoned to a *same-partition*
 /// C folds straight into C in one drain (the fast path with the assist), skipping a hop.
 #[test]

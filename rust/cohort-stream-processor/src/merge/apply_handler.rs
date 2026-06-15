@@ -189,6 +189,23 @@ fn apply_into(
             batch.merge_person_index(&target_index, IndexOp::Append(*lsk));
         }
         batch.put_merge_applied(&target_applied_key, &stamp.encode());
+        // Fixed-origin dedup: also stamp under the original `new_person_uuid` when the chain
+        // retargeted (`target != new_person_uuid`). `new_person_uuid` is the one identity stable
+        // across every redelivery of this merge's transfer, so a redelivered copy whose chain has
+        // since extended further (C → D → …) hits the `handle_transfer` original-target probe and
+        // dedups — even though the resolved-target marker now sits under a later survivor, not under
+        // this `target`. Closes the same-partition raced-then-extended double-apply. One extra put,
+        // atomic with the leaf writes and the target marker.
+        //
+        // Residual: a chain that later extends to a survivor on *another* partition still misses —
+        // `cf_merge_applied` markers are partition-local and the cross-partition `Forward` path
+        // writes none here. Bounded by `MAX_TRANSFER_FORWARD_HOPS` (short chains ⇒ rare); fully
+        // closing it needs marker-forwarding during drain (deferred, see SESSION.md).
+        if target != transfer.new_person_uuid {
+            let original_key =
+                applied_key(partition_id, team_u64, transfer.new_person_uuid, transfer);
+            batch.put_merge_applied(&original_key, &stamp.encode());
+        }
     })?;
 
     for (key, deadline) in &apply.schedules {
