@@ -1,5 +1,7 @@
 import typing
 
+import pytest
+
 from posthog.temporal.data_imports.sources.common import config
 
 
@@ -320,7 +322,25 @@ def test_to_config_union_nested_configs_with_alias():
     assert a_cfg.inner.a == "test"
 
 
-def test_to_config_scalar_under_nested_config_key():
+@pytest.mark.parametrize(
+    "config_dict,expected_selection,expected_integration_id,expected_account_id",
+    [
+        # Flat select payload: the option value as a scalar with the option's fields as
+        # siblings. The scalar isn't mapped to `selection`, so it keeps its default and
+        # the siblings are parsed flat.
+        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "api_key", 123, "acct_x"),
+        # Nested form keeps working unchanged.
+        (
+            {"auth_method": {"selection": "oauth", "integration_id": 456}, "account_id": "acct_y"},
+            "oauth",
+            456,
+            "acct_y",
+        ),
+    ],
+)
+def test_to_config_scalar_under_nested_config_key(
+    config_dict, expected_selection, expected_integration_id, expected_account_id
+):
     """A scalar under a nested-config key must not crash `to_config`.
 
     A flat select payload (e.g. `auth_method: "oauth"` with the option's fields as
@@ -341,26 +361,17 @@ def test_to_config_scalar_under_nested_config_key():
         auth_method: AuthMethod
         account_id: str | None = None
 
-    config_dict = {"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}
-
-    # Validation accepts the payload (`selection` has a default), so construction must
-    # not crash — the two functions have to agree.
+    # Validation accepts both shapes, so construction must not crash — the two functions
+    # have to agree.
     is_valid, errors = SourceConfig.validate_dict(config_dict)
     assert is_valid is True
     assert errors == []
 
     cfg = SourceConfig.from_dict(config_dict)
     assert isinstance(cfg.auth_method, AuthMethod)
-    assert cfg.auth_method.integration_id == 123
-    assert cfg.account_id == "acct_x"
-
-    # The nested form keeps working unchanged.
-    nested = SourceConfig.from_dict(
-        {"auth_method": {"selection": "oauth", "integration_id": 456}, "account_id": "acct_y"}
-    )
-    assert nested.auth_method.selection == "oauth"
-    assert nested.auth_method.integration_id == 456
-    assert nested.account_id == "acct_y"
+    assert cfg.auth_method.selection == expected_selection
+    assert cfg.auth_method.integration_id == expected_integration_id
+    assert cfg.account_id == expected_account_id
 
 
 def test_validate_dict():
