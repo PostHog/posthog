@@ -29,6 +29,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
@@ -937,7 +938,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def deprovision(self, request: Request, **kwargs) -> Response:
         """Start deprovisioning the organization's managed warehouse. Restricted to organization admins."""
         membership = OrganizationMembership.objects.filter(
-            organization_id=self.team.organization_id, user=request.user
+            organization_id=self.team.organization_id, user=cast(User, request.user)
         ).first()
         if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
             return Response(

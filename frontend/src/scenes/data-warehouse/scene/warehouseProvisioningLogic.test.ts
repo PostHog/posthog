@@ -1,0 +1,70 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { initKeaTests } from '~/test/init'
+
+import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
+
+describe('warehouseProvisioningLogic', () => {
+    let logic: ReturnType<typeof warehouseProvisioningLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.spyOn(api.dataWarehouse, 'warehouseStatus').mockResolvedValue(null as any)
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('loads warehouse status on mount', async () => {
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatus', 'loadWarehouseStatusSuccess'])
+        expect(api.dataWarehouse.warehouseStatus).toHaveBeenCalled()
+    })
+
+    it('treats a 404 status as no warehouse', async () => {
+        jest.spyOn(api.dataWarehouse, 'warehouseStatus').mockRejectedValueOnce({ status: 404 })
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+        expect(logic.values.warehouseStatus).toBeNull()
+    })
+
+    it('validates database names and gates provisioning on availability', async () => {
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setDatabaseName('Bad Name')
+        }).toMatchValues({ isValidDatabaseName: false, canProvision: false })
+
+        await expectLogic(logic, () => {
+            logic.actions.setDatabaseName('valid-name')
+            logic.actions.setDatabaseNameAvailable(true)
+        }).toMatchValues({ isValidDatabaseName: true, canProvision: true })
+    })
+
+    it('surfaces an info message instead of an error when a sibling project already provisioned (409)', async () => {
+        jest.spyOn(api.dataWarehouse, 'provisionWarehouse').mockRejectedValueOnce({ status: 409 })
+        const infoToast = jest.spyOn(lemonToast, 'info').mockReturnValue(undefined as any)
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse' })
+        }).toDispatchActions(['provisionWarehouse', 'loadWarehouseStatus', 'provisionWarehouseComplete'])
+
+        expect(infoToast).toHaveBeenCalledTimes(1)
+        expect(errorToast).not.toHaveBeenCalled()
+    })
+})
