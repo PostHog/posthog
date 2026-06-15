@@ -168,9 +168,8 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
             {useInputTrigger ? (
                 <MenuInputTrigger
                     iconButton={
-                        // Matches the armed menu's `inputTriggerIcon` (a plain
-                        // tertiary LemonButton) so the resting placeholder and the
-                        // live trigger look identical — no visual jump on first click.
+                        // Keep the resting placeholder visually identical to the armed trigger.
+                        // data-attr differs from the armed trigger's — intentional for analytics.
                         <LemonButton
                             size="small"
                             icon={<IconFilter />}
