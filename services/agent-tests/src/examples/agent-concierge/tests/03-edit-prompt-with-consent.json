@@ -51,6 +51,6 @@
         "assistant_text_matches_any": ["(?i)confirm|promote|reply.*promote|ready to ship"],
         "max_turns": 15,
         "must_complete_within_ms": 90000,
-        "final_state": "waiting_for_input"
+        "final_state": "completed"
     }
 }

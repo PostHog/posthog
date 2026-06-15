@@ -7,42 +7,41 @@ all acting under the user's PostHog OAuth principal.
 
 ## Status
 
-**Reference bundle.** Loadable + faux-testable today. Production
-deployment is gated on platform pieces — client-fulfilled tools, runtime MCPs, OAuth principal
-threading, the validate / test-run / secrets-punch-out MCP verbs.
-
-The bundle itself doesn't need any of those to load and parse;
-the gaps only matter at runtime when the agent actually tries to
-call the tools.
+**Reference bundle.** Loadable, faux-testable, and deployable on the
+current platform. The pieces this bundle leans on have shipped:
+`kind: "client"` tool support is in the spec schema (and exercised by
+the `focus_*` / `set_secret` entries), the runner opens the clients
+declared in `spec.mcps`, and the `@posthog/agent-applications-*`
+authoring surface is a set of native in-process tools resolved through
+the registry.
 
 ## What it does
 
-| Mode                  | Trigger                                                     | Primary skill             |
-| --------------------- | ----------------------------------------------------------- | ------------------------- |
-| Inspect               | "what does X do?" / "is X healthy?" / "show me Y"           | `reading-an-agent`        |
-| Debug                 | "why did session Y fail?" / "X is broken" / "X did Z wrong" | `debugging-sessions`      |
-| Edit                  | "change X" / "tweak the prompt" / "add a tool"              | `editing-agents-safely`   |
-| Author                | "build me a new agent that..."                              | `authoring-new-agents`    |
-| Audit                 | "audit my team's agents" / "where's our cost going?"        | `cost-and-quota-analysis` |
-| Fleet audit (nightly) | the `nightly-fleet-audit` cron — no human                   | `auditing-the-fleet`      |
+| Mode                     | Trigger                                                     | Primary skill             |
+| ------------------------ | ----------------------------------------------------------- | ------------------------- |
+| Inspect                  | "what does X do?" / "is X healthy?" / "show me Y"           | `reading-an-agent`        |
+| Debug                    | "why did session Y fail?" / "X is broken" / "X did Z wrong" | `debugging-sessions`      |
+| Edit                     | "change X" / "tweak the prompt" / "add a tool"              | `editing-agents-safely`   |
+| Author                   | "build me a new agent that..."                              | `authoring-new-agents`    |
+| Audit                    | "audit my team's agents" / "where's our cost going?"        | `cost-and-quota-analysis` |
+| Fleet audit (on request) | user asks for a fleet-wide sweep                            | `auditing-the-fleet`      |
 
-### The nightly fleet audit
+### The fleet audit
 
-A `cron` trigger (`nightly-fleet-audit`, daily 07:00 PT) fires the
-concierge unattended against the whole team: it sweeps every agent,
+When the user asks for a fleet-wide sweep ("audit my agents" / "what's
+underperforming?"), the concierge sweeps every agent in the team,
 mines each one's recent sessions for failures / anomalies / degraded
 behaviour, diagnoses root causes, and for each concrete fix branches
 a **draft** revision with the change applied (validated, never frozen
 or promoted — drafts are proposals a human reviews). The findings
 land as a structured report in memory (`reports/fleet-audit/{date}.md`
 
-- `latest.md`) and a condensed digest is posted to the team's
-  configured Slack channel.
+- `latest.md`) and a condensed digest is optionally posted to the
+  team's configured Slack channel.
 
-The run is deliberately read-and-propose: with no human attached
-there is no `session_principal` to approve a promote, the `focus_*` /
-`toast` / `set_secret` client tools time out, and the skill forbids
-freeze / promote / archive / delete. See
+The run is deliberately read-and-propose: the skill forbids
+freeze / promote / archive / delete, leaving the validated drafts for
+the user to review and promote themselves. See
 [`skills/auditing-the-fleet/SKILL.md`](skills/auditing-the-fleet/SKILL.md).
 
 **Operator config.** Slack delivery is opt-in: set
@@ -52,7 +51,7 @@ secret. Without a channel the audit skips the post silently — the
 memory report is the source of truth regardless.
 
 For each mode, the concierge calls the same `agent-applications-*`
-MCP tools that the authoring AI uses,
+native tools that the authoring AI uses,
 acting under the connected user's principal so every write shows
 up in the activity log as **the user**, not as the concierge.
 
@@ -78,7 +77,7 @@ agent-concierge/
     ├── working-outside-the-console/SKILL.md # MCP / IDE mode; no client tools
     ├── cost-and-quota-analysis/SKILL.md     # LLM analytics views
     ├── querying-ai-observability/SKILL.md   # $ai_* event contract + debug/improve queries
-    ├── auditing-the-fleet/SKILL.md          # the unattended nightly cron sweep
+    ├── auditing-the-fleet/SKILL.md          # fleet-wide sweep (on request)
     └── safety-and-boundaries/SKILL.md       # hard rules
 ```
 
@@ -88,12 +87,14 @@ agent-concierge/
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation.                                     |
 | Native (telemetry) | `@posthog/query`                                                                                                         | HogQL the agent's LLM-observability events (`$ai_generation` / `$ai_span` / `$ai_trace`) the runner captured into the team's project. Powers debug + improve evidence — see `querying-ai-observability`. |
-| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                 | Durable outputs of the unattended `nightly-fleet-audit` cron — persist the report to memory, post the digest to Slack (reads the agent's own `SLACK_BOT_TOKEN`).                                         |
-| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console (time out under the cron trigger).                                                                              |
+| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                 | Durable outputs of a fleet audit — persist the report to memory, post the digest to Slack (reads the agent's own `SLACK_BOT_TOKEN`).                                                                     |
+| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console.                                                                                                                |
 
 ## Auth model
 
-The bundle uses `spec.auth.mode: posthog_internal`. Both entry
+Auth is configured **per trigger** — there is no top-level
+`spec.auth`. Each of the concierge's triggers sets
+`auth.modes: [posthog, posthog_internal]` (an array), so both entry
 points map to the same effective auth:
 
 1. **Console** — user logs into `console.agents.posthog.com` via
@@ -106,36 +107,33 @@ points map to the same effective auth:
 
 The concierge holds no fallback credential.
 
-## Prerequisites for production deployment
+## Platform pieces it relies on (all shipped)
 
-These are platform-side, not bundle-side:
+These are platform-side, not bundle-side — and they're in place:
 
-1. **`kind: "client"` tool support in the spec** — Today
-   the spec parser doesn't accept `kind: "client"`; the bundle's
-   `focus_*` and `toast` entries will fail
-   validation at load.
-2. **Runtime MCP support** —
-   Today the runner reads `spec.mcps[]` but doesn't open clients.
-   The concierge would silently lose every `posthog__*` tool call.
-3. **OAuth principal threading** —
-   Without it, the concierge couldn't act as the user.
-4. **The MCP verbs the concierge calls** —
-   `agent-applications-*` are scaffolded in
-   [`services/mcp/definitions/agent_platform.yaml`](../../../../mcp/definitions/agent_platform.yaml).
-   `validate-create` is `enabled: true` but the underlying action
-   is a stub; `test-run` / `secrets-issue-write-token` / `diff`
-   aren't there yet.
+1. **`kind: "client"` tool support in the spec** — the spec schema
+   accepts `kind: "client"`; the bundle's `focus_*`, `toast`, and
+   `set_secret` entries parse and validate.
+2. **Runtime MCP support** — the runner opens the clients declared in
+   `spec.mcps` at session start. (The concierge declares none —
+   `spec.mcps` is empty — because its authoring surface is native, not
+   a remote MCP server.)
+3. **OAuth principal threading** — the session principal threads
+   through every tool call, so writes attribute to the user.
+4. **The native authoring tools** — `@posthog/agent-applications-*`
+   are native in-process tools resolved through the tool registry
+   (not a separate MCP server), including the draft-edit + validate
+   verbs the concierge uses.
 
-See the plan for the full gap list + phasing.
-
-## Deploying once gaps land
+## Deploying
 
 Through the authoring MCP (preferred — same as other example bundles):
 
 ```text
 agent-applications-create slug=agent-concierge name="Agent concierge"
 agent-applications-revisions-create application_id=<id>
-# upload all bundle files via agent-applications-revisions-bundle-update
+# write bundle resources via the granular per-resource tools:
+#   agent-applications-revisions-agent-md-update / -skills-update / -tools-update
 agent-applications-revisions-partial-update revision_id=<rid> spec=<contents of spec.json>
 agent-applications-revisions-validate-create revision_id=<rid>
 agent-applications-revisions-freeze-create revision_id=<rid>
@@ -143,28 +141,32 @@ agent-applications-revisions-promote-create revision_id=<rid>
 ```
 
 The concierge lives in **PostHog's primary org** so it's
-available to every team via the standard MCP / chat ingress. The
-spec's `auth.mode: posthog_internal` means it's not callable as
-a random external bot — only the console's signed session-
-principal token + verified user PATs get through.
+available to every team via the standard MCP / chat ingress. Each
+trigger's `auth.modes: [posthog, posthog_internal]` means it's not
+callable as a random external bot — only the console's signed
+session-principal token (`posthog_internal`) + verified user PATs
+(`posthog`) get through.
 
 ## Regression test
 
 [`services/agent-tests/src/cases/example-agent-concierge.test.ts`](../../cases/example-agent-concierge.test.ts)
 loads the bundle from disk and asserts:
 
-- `spec.json` parses against `AgentSpecSchema`
 - Every `spec.skills[].path` exists in the bundle
-- `agent.md` is present
-- The MCP routes the concierge declares in `spec.mcps[].tools`
-  all match the catalog in
-  [`services/mcp/definitions/agent_platform.yaml`](../../../../mcp/definitions/agent_platform.yaml)
+- `agent.md` is present and non-trivial
+- `spec.mcps` is empty (the concierge authors via native tools only —
+  no external MCP server in the write path) **and** every declared
+  native tool id resolves in the native catalog (`listNativeTools()`)
+- Both `chat` and `mcp` triggers are declared
+- The `kind: "client"` tools (`focus_*`, `toast`, `get_context`,
+  `set_secret`) are present, and the destructive native writes
+  (`promote`, `archive`) carry inline `requires_approval` +
+  `approval_policy`
 
 NOT a real-inference test — the model is faux. This is the wiring
-regression net, not a quality bar. (When the platform gaps in
-§8 of the plan close, add a real-inference case that drives a
-realistic inspect / debug flow with mocked authoring MCP
-responses.)
+regression net, not a quality bar. (A future real-inference case
+could drive a realistic inspect / debug flow with mocked authoring
+tool responses.)
 
 Run with:
 

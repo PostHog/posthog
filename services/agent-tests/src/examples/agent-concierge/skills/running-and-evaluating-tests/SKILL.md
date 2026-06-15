@@ -115,7 +115,7 @@ agent-applications-revisions-test-results-retrieve test_run_id=<id>
        conversation, tool_calls, logs, usage } ] }
 ```
 
-In the console, `@posthog/ui/focus` to the test run as it
+In the console, `focus_session` to the test run as it
 streams. The user wants to watch.
 
 ## Reading results

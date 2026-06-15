@@ -19,8 +19,8 @@ mental model from earlier in the session.
    `live_revision_id`. Capture `spec` (the full JSON) and
    `bundle_sha256`.
 
-3. **Pre-focus in the console.** If you have `@posthog/ui/focus`,
-   fire `{ kind: 'revision', revision_id: <live_revision_id> }`
+3. **Pre-focus in the console.** If you have `focus_revision`,
+   fire `focus_revision({ slug, revisionId: <live_revision_id> })`
    now so the user sees the same screen you do.
 
 4. **Read the system prompt.** Call
@@ -56,7 +56,7 @@ mcp / slack entry points.
 Model: anthropic/claude-sonnet-4-6, reasoning: medium.
 
 Tools (5): @posthog/query, @posthog/slack-post-message,
-@posthog/load-skill, @posthog/end-turn, @posthog/end-session.
+@posthog/load-skill, @posthog/meta-end-turn, @posthog/meta-end-session.
 
 Skills (3): query-recipes, slack-formatting, digest-template.
 
@@ -85,7 +85,9 @@ output? pull cost over the last 90 days?
 - Revision age — agents that haven't been touched in months are
   red flags worth surfacing
 - Any session in `failed` state in the last 7 days
-- Any pending approvals (call `agent-applications-approvals-list`)
+- Any pending approvals surfaced by the session you're inspecting
+  (the concierge has no approvals-read tool — note them when they
+  show up in session logs, don't promise to fetch them)
 
 **Suppress unless asked:**
 

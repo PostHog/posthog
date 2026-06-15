@@ -1,11 +1,10 @@
 # Skill — auditing the fleet
 
-The unattended nightly sweep. Once a day the `nightly-fleet-audit`
-cron fires this session with no human attached: you look at **every**
-agent in the team, find where each one tripped up, propose concrete
-fixes as draft revisions, and leave a report behind. Nobody reads
-your chat in real time — the memory report and the Slack digest are
-the only outputs that survive.
+The fleet-wide sweep. When the user asks for a fleet-wide sweep
+("audit my fleet"), you look at **every** agent in the team, find
+where each one tripped up, propose concrete fixes as draft revisions,
+and leave a report behind. The memory report and the Slack digest are
+the durable outputs that survive past the conversation.
 
 This skill is the orchestration. It leans on two others:
 
@@ -14,39 +13,47 @@ This skill is the orchestration. It leans on two others:
 - `editing-agents-safely` — the draft → validate mechanics. Load it
   before you branch your first proposal.
 
-## What "unattended" changes
+## What a fleet-wide sweep changes
 
-Read this before anything else — it inverts several defaults:
+This runs **interactively** — a user asked for a fleet-wide sweep
+("audit my fleet"), and a human is reachable while you work. Read this
+before anything else; it shifts several defaults away from the
+single-agent flow:
 
-1. **No client tools.** `focus_*`, `toast`, `set_secret` all time
-   out (no browser). Never call them. Narrate nothing for a UI that
-   isn't there.
-2. **No promotes, ever.** There is no `session_principal` to approve
-   one, so `promote` / `archive` are unreachable by design — and they
-   would be wrong here anyway. You **propose**; a human disposes. Your
-   write surface this run is: `new-draft-create`, the bundle edit
-   tools (`agent-md-update`, `skills-update`, `tools-update`,
+1. **A human is reachable.** Ask a clarifying question if the scope is
+   ambiguous (whole fleet vs a subset, time window). The `focus_*` /
+   `toast` client tools work when the user is in the console — use
+   them to follow along as you sweep; outside the console they degrade
+   to text. Don't use `set_secret` mid-sweep — credential fixes are
+   recommendations for the user to action after (see step 4).
+2. **No promotes, ever — propose, don't dispose.** Even with the user
+   reachable, an audit's job is to surface and propose, not to ship.
+   `promote` / `archive` need explicit consent (`session_principal`
+   approval) and are out of scope for the sweep itself. Your write
+   surface this run is: `new-draft-create`, the bundle edit tools
+   (`agent-md-update`, `skills-update`, `tools-update`,
    `partial-update`), and `validate-create`. Stop at validate. Do
    **not** `freeze` — a frozen revision reads as "ready to ship", and
    these are unreviewed.
-3. **You act under the cron principal, scoped to this team.** Every
-   agent you can `list` is in-scope; you can't reach another team's
-   fleet, and you shouldn't try.
+3. **You act under the user's principal (the person who asked for the
+   sweep), scoped to this team.** Every agent you can `list` is
+   in-scope; you can't reach another team's fleet, and you shouldn't
+   try.
 4. **Budget is finite.** `max_tool_calls` covers the whole fleet, not
    one agent. Triage breadth-first (below) so a 30-agent team doesn't
    spend the entire budget on agent #1.
 
 ## The sweep, step by step
 
-### 1. Carry-over — read yesterday first
+### 1. Carry-over — read the last report first
 
 `memory-read` `reports/fleet-audit/latest.md` (and/or
-`memory-search` for `fleet-audit`). You want yesterday's findings so
-today's report can say **what changed** instead of re-listing the
-same five issues. Hold the prior issue list in mind as you go; tag
-each of today's findings new / recurring / resolved.
+`memory-search` for `fleet-audit`). You want the prior sweep's
+findings so this report can say **what changed** instead of
+re-listing the same five issues. Hold the prior issue list in mind as
+you go; tag each of this run's findings new / recurring / resolved.
 
-If there's no prior report, this is the first run — note that in the
+If there's no prior report, this is the first sweep — note that in the
 report and audit everything fresh.
 
 ### 2. Enumerate the fleet
@@ -61,11 +68,12 @@ cheap signal is bad:
 
 1. `agent-applications-sessions-list` for the agent, last ~24–48h.
    Bucket by `state`. The cheap red flags:
-   - any `failed` / `errored` / `stuck` sessions
+   - any `failed` sessions
    - `completed` sessions pinned at the turn / tool-call cap (ran to
      the limit = probably looping or under-instructed)
    - a cost or turn-count outlier vs the agent's own norm
-   - `waiting` sessions whose approval looks abandoned
+   - sessions re-queued by the janitor (stuck-running detection) or
+     stalled on an approval that has since `expired`
 2. If the buckets are clean, write one line ("healthy, N sessions,
    no failures") and move on. **Most agents should be one line.**
 3. If a bucket is dirty, open the worst 1–3 sessions with
@@ -123,7 +131,7 @@ needs you to decide X" than a draft that papers over it.
 
 - `reports/fleet-audit/{date}.md` — the dated archive.
 - `reports/fleet-audit/latest.md` — same content, the stable handle
-  tomorrow's carry-over reads.
+  the next sweep's carry-over reads.
 
 Report shape:
 
@@ -131,15 +139,15 @@ Report shape:
 # Fleet audit — {date}
 
 ## TL;DR
-- {1–4 bullets: the things a human should act on today, worst first}
-- New since yesterday: {…}   Resolved: {…}   Still open: {…}
+- {1–4 bullets: the things a human should act on, worst first}
+- New since last sweep: {…}   Resolved: {…}   Still open: {…}
 
 ## Findings
 ### {agent-slug} — {healthy | degraded | failing}
 - symptom (session ids: …)
 - root cause
 - proposal: draft {revision-id} — {one line}  |  recommendation: {…}
-- vs yesterday: new | recurring | resolved
+- vs last sweep: new | recurring | resolved
 
 ### {next agent} …
 
@@ -147,8 +155,8 @@ Report shape:
 {agents with nothing to report, one line each}
 ```
 
-Lead with the delta. A reviewer skimming at 8am wants "what's new or
-worse" in the first five lines, not a re-read of last night.
+Lead with the delta. A reviewer skimming the report wants "what's new
+or worse" in the first five lines, not a re-read of the last sweep.
 
 ### 6. Post the Slack digest
 

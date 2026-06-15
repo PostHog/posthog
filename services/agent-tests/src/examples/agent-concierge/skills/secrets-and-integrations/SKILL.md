@@ -23,11 +23,11 @@ conversation, you:
 
 People conflate these. Be precise.
 
-| Concept         | Scope           | Where it lives                             | How to set                                                          |
-| --------------- | --------------- | ------------------------------------------ | ------------------------------------------------------------------- |
-| **Secret**      | Per-application | `agent_application.encrypted_env` (Fernet) | Punch-out form OR `agent-applications-set-env-create` (raw — avoid) |
-| **Integration** | Per-team        | `posthog_integration` (OAuth tokens)       | Team admin installs via PostHog integrations UI                     |
-| **Spec.auth**   | Per-application | `spec.auth.mode`                           | Edit on the draft revision; controls who can invoke the agent       |
+| Concept          | Scope           | Where it lives                             | How to set                                                          |
+| ---------------- | --------------- | ------------------------------------------ | ------------------------------------------------------------------- |
+| **Secret**       | Per-application | `agent_application.encrypted_env` (Fernet) | Punch-out form OR `agent-applications-set-env-create` (raw — avoid) |
+| **Integration**  | Per-team        | `posthog_integration` (OAuth tokens)       | Team admin installs via PostHog integrations UI                     |
+| **Trigger auth** | Per-trigger     | `spec.triggers[].auth.modes`               | Edit on the draft revision; controls who can invoke the agent       |
 
 A Slack-posting agent needs Slack **secrets** (`SLACK_SIGNING_SECRET` +
 `SLACK_BOT_TOKEN`) on the agent — not a team integration. Each agent
@@ -135,7 +135,7 @@ Loop:
    If already set and the failure mode suggests the value is wrong,
    pass `mode: "rotate"`; otherwise omit / `mode: "set"`.
 2. **Invoke `set_secret`** with `{ agent_slug, secret, mode?, purpose? }`:
-   - `agent_slug` is required — pull it from `get_context` or from
+   - `agent_slug` is required — pull it from `get_context` (bare) or from
      the agent the user is configuring. Do NOT assume "the agent on
      screen" — the user may navigate while the form is up.
    - `purpose` is a one-line hint shown above the input. Keep it
@@ -181,9 +181,9 @@ secrets editor and wait for a session callback. Loop:
    /agents/<slug>/connections?edit_secret=<KEY>&callback_session=<this session id>
    ```
 
-   `<this session id>` comes from `@posthog/ui/get_context`. Render
-   as markdown: `[Set ANTHROPIC_KEY](/agents/...)`. Don't use
-   `@posthog/ui/focus` for this — the editor wants its own modal,
+   `<this session id>` comes from `get_context`. Render
+   as markdown: `[Set ANTHROPIC_KEY](/agents/...)`. Don't use a
+   `focus_*` tool for this — the editor wants its own modal,
    not a panel hand-off.
 
 3. **Wait for the callback.** When the user saves, the console
@@ -250,9 +250,10 @@ Standard flow:
 
 1. User updates the underlying provider (rotates the Stripe key,
    etc.).
-2. User triggers the punch-out form (you call
-   `agent-applications-secrets-issue-write-token`) and enters the
-   new value.
+2. You drive the same punch-out flow as Path A above, but invoke
+   `set_secret` with `mode: "rotate"` (the `env-keys-get` precheck
+   will show the key is already set). The user enters the new value
+   in the inline form.
 3. The next session opened uses the new value (the runner reads
    it at session start, not at agent-define time).
 
@@ -264,8 +265,8 @@ secret is resolved once per session.
 Common patterns:
 
 - `provider_error: invalid_api_key` — the secret is wrong / expired
-- `gateway_unavailable` on the Slack integration — the integration
-  was revoked
+- A raw Slack error like `invalid_auth` from `@posthog/slack-post-message`
+  — the agent's `SLACK_BOT_TOKEN` is wrong or revoked
 - `403 Forbidden` from the PostHog MCP — the user's principal
   doesn't have the scope (`agent_application:write` etc.)
 
@@ -282,8 +283,8 @@ Don't try to "retry with different auth". Surface the failure:
   tool.** Plaintext secrets leak into model context AND don't
   benefit from rotation. Always `spec.secrets[]` + nonce-substitution
   at session start.
-- **Don't suggest disabling auth.** "Change `spec.auth.mode` to
-  `public` to fix the 401" is almost always wrong. Find the auth
+- **Don't suggest disabling auth.** "Add `public` to a trigger's
+  `auth.modes` to fix the 401" is almost always wrong. Find the auth
   bug; don't remove the lock.
 - **Don't infer integration state.** If a Slack call fails, you
   can't tell from your side whether the integration is broken or
@@ -295,10 +296,10 @@ Don't try to "retry with different auth". Surface the failure:
 
 ## Quick reference — what each error means
 
-| Symptom                                         | Cause                                         | Action                                                                       |
-| ----------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
-| `validate_error: missing_secret`                | `spec.secrets[]` has a name with no value set | Trigger punch-out for that key                                               |
-| `provider_error: invalid_api_key`               | The secret value is wrong                     | Trigger punch-out + tell user the previous value was rejected                |
-| `gateway_unavailable: integration_revoked`      | OAuth token expired / revoked                 | Tell user to re-install integration                                          |
-| `403` from the PostHog MCP                      | User's principal scope insufficient           | Surface the missing scope; user gets it via OAuth re-auth or asking an admin |
-| `set-env-create` succeeds but agent still fails | Old session in flight using old value         | Wait for in-flight sessions to drain; new sessions get the new value         |
+| Symptom                                                 | Cause                                         | Action                                                                       |
+| ------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
+| `validate_error: missing_secret`                        | `spec.secrets[]` has a name with no value set | Trigger punch-out for that key                                               |
+| `provider_error: invalid_api_key`                       | The secret value is wrong                     | Trigger punch-out + tell user the previous value was rejected                |
+| Slack `invalid_auth` from `@posthog/slack-post-message` | `SLACK_BOT_TOKEN` wrong / revoked             | Rotate `SLACK_BOT_TOKEN` via the punch-out; next session picks it up         |
+| `403` from the PostHog MCP                              | User's principal scope insufficient           | Surface the missing scope; user gets it via OAuth re-auth or asking an admin |
+| `set-env-create` succeeds but agent still fails         | Old session in flight using old value         | Wait for in-flight sessions to drain; new sessions get the new value         |
