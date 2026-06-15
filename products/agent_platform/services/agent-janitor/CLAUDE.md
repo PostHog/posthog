@@ -69,9 +69,6 @@ cover HTTP shape + threshold math but not the cross-service flow.
 
 - **Local dev + MCP local + e2e overview** —
   [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
-- **Prod env vars** —
-  [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md)
-  (look for `agent-janitor`).
 - **Django proxy client** —
   [products/agent_platform/backend/janitor_client.py](../../products/agent_platform/backend/janitor_client.py).
 - **Test conventions** —

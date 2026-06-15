@@ -92,8 +92,7 @@ TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
    Service `index.ts` reads `loadConfigFromEnv(...)` once at boot and
    passes the typed object onwards. Don't reach for `process.env.X`
    inline — it bypasses the schema (no default, no validation, no
-   prod fail-fast) and the value disappears from the deploy-runbook
-   list. The platform-shared fields (DB URLs, REDIS_URL,
+   prod fail-fast). The platform-shared fields (DB URLs, REDIS_URL,
    ENCRYPTION_SALT_KEYS, HTTPS_PROXY, …) belong here so every service
    gets them for free; service-specific knobs go on the service's own
    schema. Also forbidden in tests: pass an explicit `env` object to

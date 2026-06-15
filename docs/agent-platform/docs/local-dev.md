@@ -5,8 +5,7 @@ how the pieces fit, how to bring up the stack, how to drive it end-to-end
 (including via the local MCP server), and how to add a test for any new
 vital feature so future regressions land with the change that broke them.
 
-Companion to [deploy-runbook.md](deploy-runbook.md) (env vars per service
-in prod). This doc is dev-mode only.
+This doc is dev-mode only.
 
 ## The stack at a glance
 
@@ -324,7 +323,6 @@ auth predicates). Anything that crosses two services belongs in
 ## Where the canonical docs live
 
 - This file — local dev + testing.
-- [deploy-runbook.md](deploy-runbook.md) — env vars per service in prod.
 - [../plans/\_ROADMAP.md](../plans/_ROADMAP.md) — what we're building next.
 - [products/agent_platform/CLAUDE.md](../../../products/agent_platform/CLAUDE.md) — Django-side rules.
 - [products/agent_platform/services/agent-tests/CLAUDE.md](../../../products/agent_platform/services/agent-tests/CLAUDE.md) — test conventions.

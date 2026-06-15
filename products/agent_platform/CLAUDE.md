@@ -66,8 +66,6 @@ pattern.
 
 - **Local dev + MCP local + e2e overview** —
   [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
-- **Prod env vars per service** —
-  [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md).
 - **Janitor HTTP surface** —
   [products/agent_platform/services/agent-janitor/src/server.ts](../../products/agent_platform/services/agent-janitor/src/server.ts).
 - **Spec shape (source of truth)** —

@@ -77,9 +77,6 @@ replace the e2e case.
 
 - **Local dev + MCP local + e2e overview** —
   [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
-- **Prod env vars** —
-  [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md)
-  (look for `agent-runner`).
 - **Shared building blocks** —
   [services/agent-shared/](../agent-shared/) (queue, bundle, spec,
   sandbox, storage).

@@ -78,9 +78,6 @@ without a matching case will regress silently.
 
 - **Local dev + MCP local + e2e overview** —
   [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
-- **Prod env vars** —
-  [docs/agent-platform/docs/deploy-runbook.md](../../docs/agent-platform/docs/deploy-runbook.md)
-  (look for `agent-ingress`).
 - **Test conventions** —
   [services/agent-tests/CLAUDE.md](../agent-tests/CLAUDE.md).
 - **Shared building blocks (queue, identity store, event bus types)** —
