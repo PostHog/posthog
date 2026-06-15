@@ -3,9 +3,10 @@
 use chrono_tz::Tz;
 
 use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
-use crate::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
+use crate::stage1::bucket_tz::{
+    day_idx_in_tz, day_idx_of_naive_date, start_of_day_ms_in_tz, DayIdx,
+};
 use crate::stage1::state::StateVariant;
-use crate::stage1::time::clickhouse_timestamp_to_millis;
 
 /// A cohort time interval with its fixed second-count (the `INTERVAL_TO_SECONDS` contract).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +58,18 @@ pub enum EvictionWindow {
     RelativeDays { days: u32 },
     /// A sub-day window (`hour`/`minute`): deadline is `newest_event + seconds`.
     RelativeSeconds { seconds: i64 },
-    /// A fixed explicit date range. Once matched, membership is permanent (never evicted).
-    Explicit { to_ms: Option<i64> },
+    /// A fixed **absolute** date range (`explicit_datetime`(_to) that parse as absolute datetimes).
+    /// Bounds are tz-naive calendar **day** indices (days since 1970-01-01); either side `None` means
+    /// unbounded on that side. The oracle treats a bare/naive `explicit_datetime` as a tz-naive
+    /// calendar date (`toDate('2026-05-01')` is the literal date, tz-invariant), so the bound is a day,
+    /// not a UTC instant — storing it as a day keeps it from shifting under a UTC-offset team timezone.
+    /// Once matched within the range, membership is permanent (never evicted) — the oracle compares
+    /// against fixed calendar dates, so a match can never age out. The day-granularity in-range check
+    /// lives in the event path (`mutate_behavioral`), keyed off these bounds.
+    Explicit {
+        from_day: Option<DayIdx>,
+        to_day: Option<DayIdx>,
+    },
 }
 
 impl EvictionWindow {
@@ -127,6 +138,18 @@ pub enum UnsupportedVariant {
     MissingWindow,
     #[error("behavioral value does not contribute realtime bytecode")]
     NonRealtimeValue,
+    /// An `explicit_datetime` range the sweep cannot model: a relative *upper* bound, or a relative
+    /// lower bound paired with any upper bound. These need delayed entry and double-ended eviction
+    /// (a person enters only once the relative `from` slides past and leaves once the relative `to`
+    /// does), which the single-deadline sweep does not represent. Skipping the leaf is the safe
+    /// choice — no realtime state, hence no wrong members — until that machinery exists.
+    #[error("explicit_datetime relative range is unsupported")]
+    RelativeRangeUnsupported,
+    /// A *present* `explicit_datetime`(_to) bound that parses as neither an absolute date nor a known
+    /// relative grammar. Skipping the leaf (no realtime state) is safe; silently nulling the bound
+    /// would turn a closed range open-ended and create permanent members past the intended end.
+    #[error("explicit_datetime bound is unparseable")]
+    UnparseableExplicitBound,
 }
 
 /// Pick the [`StateVariant`] and eviction window for a behavioral leaf, or why it is unsupported.
@@ -151,31 +174,188 @@ pub fn pick_state_variant(
 }
 
 /// Derive the eviction window from a leaf's datetime/interval config.
+///
+/// `explicit_datetime`(_to) takes precedence over `time_value`/`time_interval` (mirroring the
+/// oracle's `if prop.explicit_datetime` branch in `hogql_cohort_query.py`). The oracle resolves each
+/// `explicit_datetime` bound as either an absolute datetime or a relative offset (`relative_date_parse`,
+/// same convention as every analytics date filter), so we classify each present bound the same way:
+///   - **absolute** (parses as a datetime) → an [`EvictionWindow::Explicit`] bound;
+///   - **relative lower-only** (`"-Nd"` with no upper bound) → the equivalent relative window, which
+///     is byte-identical to the `time_value:N, time_interval:<unit>` path the oracle also funnels
+///     through `relative_date_parse` — so a sliding window recovers the common case correctly;
+///   - **relative with any upper bound, or a relative upper bound** → [`UnsupportedVariant`], because
+///     the sweep cannot model delayed entry / double-ended eviction.
 fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, UnsupportedVariant> {
     if leaf.explicit_datetime.is_some() || leaf.explicit_datetime_to.is_some() {
-        let to_ms = leaf
-            .explicit_datetime_to
-            .as_deref()
-            .and_then(clickhouse_timestamp_to_millis);
-        return Ok(EvictionWindow::Explicit { to_ms });
+        return explicit_eviction_window(
+            leaf.explicit_datetime.as_deref(),
+            leaf.explicit_datetime_to.as_deref(),
+        );
     }
     let interval = leaf
         .time_interval
         .as_deref()
         .and_then(TimeInterval::from_wire)
         .ok_or(UnsupportedVariant::MissingWindow)?;
-    // A negative or absent time_value clamps to 0 rather than going negative.
-    let time_value = leaf.time_value.unwrap_or(0).max(0);
+    Ok(relative_window_from_interval(interval, leaf.time_value))
+}
+
+/// Classify an `explicit_datetime`(_to) pair into an eviction window. See [`eviction_window`].
+fn explicit_eviction_window(
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<EvictionWindow, UnsupportedVariant> {
+    // Each present bound is absolute (parses as a datetime) or relative (parses as `-N<unit>`).
+    let from_kind = from.map(classify_bound);
+    let to_kind = to.map(classify_bound);
+
+    match (from_kind, to_kind) {
+        // A *present* bound that parses as neither absolute nor a known relative grammar must skip the
+        // leaf, not be silently nulled — dropping one side of a closed range would make it open-ended
+        // and create permanent members past the intended end. Only a genuinely ABSENT (`None`) bound
+        // means "unbounded on that side".
+        (Some(Bound::Unparseable), _) | (_, Some(Bound::Unparseable)) => {
+            Err(UnsupportedVariant::UnparseableExplicitBound)
+        }
+        // A relative *upper* bound (with or without a lower bound) needs delayed double-ended
+        // eviction the sweep does not model.
+        (_, Some(Bound::Relative(_))) => Err(UnsupportedVariant::RelativeRangeUnsupported),
+        // A relative *lower* bound combined with any upper bound is the same problem: the person
+        // would enter only once the relative `from` slides past, then leave at the upper bound.
+        (Some(Bound::Relative(_)), Some(Bound::Absolute(_))) => {
+            Err(UnsupportedVariant::RelativeRangeUnsupported)
+        }
+        // Relative lower bound, no upper bound — the dominant `performed_event` shape ("in the last
+        // N days"). Map it to the matching sliding window; an unrepresentable unit (e.g. `q`) skips.
+        (Some(Bound::Relative(window)), None) => {
+            window.ok_or(UnsupportedVariant::RelativeRangeUnsupported)
+        }
+        // Absolute (or absent) on both sides — a fixed calendar range, permanent membership.
+        (from_kind, to_kind) => Ok(EvictionWindow::Explicit {
+            from_day: from_kind.and_then(Bound::absolute_day),
+            to_day: to_kind.and_then(Bound::absolute_day),
+        }),
+    }
+}
+
+/// One classified `explicit_datetime` bound.
+#[derive(Debug, Clone, Copy)]
+enum Bound {
+    /// An absolute datetime, as a tz-naive calendar **day** index (its written date).
+    Absolute(DayIdx),
+    /// A relative offset (`-N<unit>`), mapped to its sliding window — or `None` for a known-relative
+    /// grammar we cannot represent (e.g. a quarter, which has no `TimeInterval`).
+    Relative(Option<EvictionWindow>),
+    /// Parses as neither an absolute datetime nor a recognized relative grammar.
+    Unparseable,
+}
+
+impl Bound {
+    /// The absolute calendar-day index, if this bound is absolute.
+    fn absolute_day(self) -> Option<DayIdx> {
+        match self {
+            Self::Absolute(day) => Some(day),
+            Self::Relative(_) | Self::Unparseable => None,
+        }
+    }
+}
+
+/// Classify a single `explicit_datetime` bound string.
+fn classify_bound(raw: &str) -> Bound {
+    if let Some(day) = absolute_datetime_to_day(raw) {
+        return Bound::Absolute(day);
+    }
+    match relative_offset_to_window(raw) {
+        Some(window) => Bound::Relative(window),
+        None => Bound::Unparseable,
+    }
+}
+
+/// Extract an absolute `explicit_datetime` bound's calendar **date** (date part), **tz-naively**, as a
+/// day index. The oracle treats a naive `explicit_datetime` as a tz-naive calendar date stamped in the
+/// project tz, so `toDate('2026-05-01')` is the literal `2026-05-01` regardless of timezone — the bound
+/// must therefore be a day, not a UTC instant (storing it as a UTC instant shifts it one calendar day
+/// earlier for a UTC-offset team). Accepts every naive shape the system emits:
+///   - bare `%Y-%m-%d` (the date-picker's date-only / oracle `strptime("%Y-%m-%d")` fallback),
+///   - `%Y-%m-%dT%H:%M:%S` (the date-picker's T-separated naive form — `dateFilterLogic.ts`),
+///   - `%Y-%m-%d %H:%M:%S%.f` (the space-separated ClickHouse form),
+///   - RFC3339 with offset (a non-UI edge): take its **written local date** via `.date_naive()`, not the
+///     UTC-normalized one — the oracle's `toDate` is on the project-tz wall clock, and an offset-bearing
+///     bound is not produced by the cohort date picker, so the written-date reading is the conservative
+///     match.
+///
+/// Relative strings (`"-30d"`) return [`None`].
+fn absolute_datetime_to_day(raw: &str) -> Option<DayIdx> {
+    use chrono::{DateTime, NaiveDate, NaiveDateTime};
+
+    // Offset-bearing RFC3339: take the written local date, not the UTC-normalized instant.
+    if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
+        return Some(day_idx_of_naive_date(dt.date_naive()));
+    }
+    // Naive datetime, T-separated (the date picker) or space-separated (ClickHouse) — date part only.
+    let naive = NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.f")
+        .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f"))
+        .map(|dt| dt.date())
+        // Bare date.
+        .or_else(|_| NaiveDate::parse_from_str(raw, "%Y-%m-%d"))
+        .ok()?;
+    Some(day_idx_of_naive_date(naive))
+}
+
+/// Parse a relative offset (`-N<unit>`) into its sliding [`EvictionWindow`], matching the oracle's
+/// `relative_date_parse` grammar. Returns:
+///   - `Some(Some(window))` for a unit with a clean `TimeInterval` equivalent (`d`/`w`/`m`/`y`/`h`/`M`);
+///   - `Some(None)` for a recognized-but-unrepresentable unit (`q` quarter, `s` second — no cohort UI
+///     emits these and they have no `TimeInterval`), signalling "relative, but skip the leaf";
+///   - `None` when the string is not a relative offset at all.
+///
+/// `m` is **months** and `M` is **minutes** (Python's `[hdwmqysHDWMQY]` grammar is case-sensitive on
+/// `m`/`M`). Mapping each unit through [`TimeInterval`] keeps a relative `-N<unit>` byte-identical to
+/// the `time_value:N, time_interval:<unit>` path, which is exactly how the oracle treats them.
+fn relative_offset_to_window(raw: &str) -> Option<Option<EvictionWindow>> {
+    let rest = raw.strip_prefix('-')?;
+    // Split into the leading digit run and the trailing unit (+ optional `Start`/`End`, which we drop
+    // — the cohort UI never emits it and it does not change the window length).
+    let split = rest.find(|c: char| !c.is_ascii_digit())?;
+    let (digits, tail) = rest.split_at(split);
+    let count: i32 = digits.parse().ok()?;
+    let unit = tail
+        .strip_suffix("Start")
+        .or_else(|| tail.strip_suffix("End"))
+        .unwrap_or(tail);
+    let interval = match unit {
+        "d" => TimeInterval::Day,
+        "w" => TimeInterval::Week,
+        "m" => TimeInterval::Month,
+        "y" => TimeInterval::Year,
+        "h" => TimeInterval::Hour,
+        "M" => TimeInterval::Minute,
+        // `q` (quarter) and `s` (second) are valid relative grammar but have no `TimeInterval`; the
+        // cohort UI never emits them. Signal "relative, unrepresentable" so the leaf is skipped.
+        "q" | "s" => return Some(None),
+        _ => return None,
+    };
+    Some(Some(relative_window_from_interval(interval, Some(count))))
+}
+
+/// Build the sliding [`EvictionWindow`] for `time_value × interval`. Sub-day intervals yield
+/// [`EvictionWindow::RelativeSeconds`]; whole-day intervals yield [`EvictionWindow::RelativeDays`].
+/// A negative or absent `time_value` clamps to 0 rather than going negative.
+fn relative_window_from_interval(
+    interval: TimeInterval,
+    time_value: Option<i32>,
+) -> EvictionWindow {
+    let time_value = time_value.unwrap_or(0).max(0);
     if interval.to_days() == 0 {
-        Ok(EvictionWindow::RelativeSeconds {
+        EvictionWindow::RelativeSeconds {
             seconds: i64::from(time_value).saturating_mul(interval.seconds()),
-        })
+        }
     } else {
-        Ok(EvictionWindow::RelativeDays {
+        EvictionWindow::RelativeDays {
             days: u32::try_from(time_value)
                 .unwrap_or(0)
                 .saturating_mul(interval.to_days()),
-        })
+        }
     }
 }
 
@@ -197,11 +377,12 @@ pub(crate) fn effective_window_days(leaf: &BehavioralLeafConfig) -> u32 {
 mod tests {
     use std::sync::Arc;
 
-    use chrono::{TimeZone, Utc};
+    use chrono::{NaiveDate, TimeZone, Utc};
     use chrono_tz::America::New_York;
     use chrono_tz::UTC;
 
     use super::*;
+
     use crate::stage1::key::LeafStateKey;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
@@ -211,6 +392,11 @@ mod tests {
         Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
             .unwrap()
             .timestamp_millis()
+    }
+
+    /// The tz-naive calendar-day index of a `Y-M-D` date — what an absolute bound resolves to.
+    fn day_of(year: i32, month: u32, day: u32) -> DayIdx {
+        day_idx_of_naive_date(NaiveDate::from_ymd_opt(year, month, day).unwrap())
     }
 
     fn leaf(
@@ -438,16 +624,215 @@ mod tests {
         );
     }
 
-    #[test]
-    fn explicit_datetime_yields_an_explicit_window() {
+    /// Build a `performed_event` leaf carrying an explicit datetime range.
+    fn explicit_leaf(from: Option<&str>, to: Option<&str>) -> BehavioralLeafConfig {
         let mut l = leaf(BehavioralValue::PerformedEvent, None, None);
-        l.explicit_datetime = Some("2026-01-01 00:00:00.000000".to_string());
-        l.explicit_datetime_to = Some("2026-02-01 00:00:00.000000".to_string());
-        let l = l.with_state_key();
-        let (variant, window) = pick_state_variant(&l).unwrap();
-        assert_eq!(variant, StateVariant::BehavioralSingle);
-        let to_ms = clickhouse_timestamp_to_millis("2026-02-01 00:00:00.000000");
-        assert_eq!(window, Some(EvictionWindow::Explicit { to_ms }));
+        l.explicit_datetime = from.map(str::to_string);
+        l.explicit_datetime_to = to.map(str::to_string);
+        l.with_state_key()
+    }
+
+    #[test]
+    fn absolute_explicit_datetime_yields_an_explicit_window() {
+        // The space-separated ClickHouse form and the date picker's T-separated naive form must both
+        // resolve to the same calendar-day bounds — the date part, tz-naively.
+        for (from, to) in [
+            ("2026-01-01 00:00:00.000000", "2026-02-01 00:00:00.000000"),
+            ("2026-01-01T00:00:00", "2026-02-01T00:00:00"),
+        ] {
+            let (variant, window) =
+                pick_state_variant(&explicit_leaf(Some(from), Some(to))).unwrap();
+            assert_eq!(variant, StateVariant::BehavioralSingle);
+            assert_eq!(
+                window,
+                Some(EvictionWindow::Explicit {
+                    from_day: Some(day_of(2026, 1, 1)),
+                    to_day: Some(day_of(2026, 2, 1)),
+                }),
+                "{from}..{to}",
+            );
+        }
+    }
+
+    #[test]
+    fn absolute_explicit_from_only_leaves_upper_bound_unbounded() {
+        let from = "2026-01-01 00:00:00.000000";
+        let (_, window) = pick_state_variant(&explicit_leaf(Some(from), None)).unwrap();
+        assert_eq!(
+            window,
+            Some(EvictionWindow::Explicit {
+                from_day: Some(day_of(2026, 1, 1)),
+                to_day: None,
+            }),
+        );
+    }
+
+    #[test]
+    fn absolute_explicit_to_only_leaves_lower_bound_unbounded() {
+        let to = "2026-02-01 00:00:00.000000";
+        let (_, window) = pick_state_variant(&explicit_leaf(None, Some(to))).unwrap();
+        assert_eq!(
+            window,
+            Some(EvictionWindow::Explicit {
+                from_day: None,
+                to_day: Some(day_of(2026, 2, 1)),
+            }),
+        );
+    }
+
+    #[test]
+    fn absolute_datetime_to_day_is_the_literal_date_for_every_accepted_shape() {
+        // Bare, T-separated naive (the date picker), space-separated ClickHouse, and RFC3339-with-offset
+        // must all yield the same tz-naive calendar day — the written date, never UTC-shifted.
+        let expected = day_of(2026, 5, 1);
+        for raw in [
+            "2026-05-01",
+            "2026-05-01T00:00:00",
+            "2026-05-01 00:00:00.000000",
+            "2026-05-01T12:34:56-04:00", // offset-bearing: written local date is still 2026-05-01
+        ] {
+            assert_eq!(absolute_datetime_to_day(raw), Some(expected), "{raw}");
+        }
+        // A relative offset is not an absolute date.
+        assert_eq!(absolute_datetime_to_day("-30d"), None);
+    }
+
+    #[test]
+    fn bare_date_explicit_bound_parses_as_the_literal_calendar_day() {
+        // The cohort date picker can emit a date-only absolute bound; the oracle accepts it via its
+        // `strptime("%Y-%m-%d")` fallback. It resolves to the literal calendar day, tz-invariant.
+        let (_, window) = pick_state_variant(&explicit_leaf(Some("2026-01-01"), None)).unwrap();
+        assert_eq!(
+            window,
+            Some(EvictionWindow::Explicit {
+                from_day: Some(day_of(2026, 1, 1)),
+                to_day: None,
+            }),
+        );
+    }
+
+    #[test]
+    fn ui_t_separated_upper_bound_parses_and_bounds_the_range() {
+        // Bug 2: the date picker emits the upper bound as `dayjs(...).format('YYYY-MM-DDTHH:mm:ss')`
+        // (T-separated, no offset). It must parse to the correct `to_day`, not be silently dropped —
+        // dropping it would turn the closed range open-ended.
+        let (_, window) = pick_state_variant(&explicit_leaf(
+            Some("2026-01-01"),
+            Some("2026-12-31T00:00:00"),
+        ))
+        .unwrap();
+        assert_eq!(
+            window,
+            Some(EvictionWindow::Explicit {
+                from_day: Some(day_of(2026, 1, 1)),
+                to_day: Some(day_of(2026, 12, 31)),
+            }),
+        );
+    }
+
+    #[test]
+    fn a_present_but_unparseable_bound_skips_the_leaf_rather_than_nulling_that_side() {
+        // A present bound that is neither absolute nor relative-grammar must skip the leaf (no state),
+        // NOT be nulled — nulling one side of a closed range would create permanent members past the
+        // intended end.
+        for (from, to) in [
+            (Some("garbage"), Some("2026-12-31")),
+            (Some("2026-01-01"), Some("garbage")),
+            (Some("garbage"), None),
+        ] {
+            assert_eq!(
+                pick_state_variant(&explicit_leaf(from, to)),
+                Err(UnsupportedVariant::UnparseableExplicitBound),
+                "{from:?}..{to:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn relative_lower_only_explicit_maps_to_the_matching_sliding_window() {
+        // "-Nd"/"-Nw"/"-Nm"/"-Ny"/"-Nh"/"-NM" with no upper bound are the dominant `performed_event`
+        // shape; each maps to the identical window as `time_value:N, time_interval:<unit>`.
+        let cases = [
+            ("-30d", EvictionWindow::RelativeDays { days: 30 }),
+            ("-1w", EvictionWindow::RelativeDays { days: 7 }),
+            ("-2m", EvictionWindow::RelativeDays { days: 2 * 30 }),
+            ("-1y", EvictionWindow::RelativeDays { days: 365 }),
+            (
+                "-2h",
+                EvictionWindow::RelativeSeconds { seconds: 2 * 3_600 },
+            ),
+            ("-15M", EvictionWindow::RelativeSeconds { seconds: 15 * 60 }),
+        ];
+        for (raw, expected) in cases {
+            let (variant, window) = pick_state_variant(&explicit_leaf(Some(raw), None)).unwrap();
+            assert_eq!(variant, StateVariant::BehavioralSingle, "{raw}");
+            assert_eq!(window, Some(expected), "{raw}");
+        }
+    }
+
+    #[test]
+    fn relative_window_matches_the_time_value_interval_path_byte_for_byte() {
+        // A relative `explicit_datetime` and the equivalent `time_value`/`time_interval` must resolve
+        // to the same window — they are the same query in the oracle.
+        for (raw, time_value, interval) in [
+            ("-30d", 30, "day"),
+            ("-1w", 1, "week"),
+            ("-2m", 2, "month"),
+            ("-1y", 1, "year"),
+            ("-2h", 2, "hour"),
+            ("-15M", 15, "minute"),
+        ] {
+            let (_, relative) = pick_state_variant(&explicit_leaf(Some(raw), None)).unwrap();
+            let (_, interval_path) = pick_state_variant(&leaf(
+                BehavioralValue::PerformedEvent,
+                Some(time_value),
+                Some(interval),
+            ))
+            .unwrap();
+            assert_eq!(relative, interval_path, "{raw} vs {time_value}{interval}");
+        }
+    }
+
+    #[test]
+    fn relative_explicit_ranges_and_relative_upper_bounds_are_unsupported() {
+        // Two-sided relative, relative upper bound, and relative-lower + absolute-upper all need
+        // delayed-entry / double-ended eviction the sweep cannot model.
+        let cases = [
+            (Some("-30d"), Some("-7d")),                        // two-sided relative
+            (Some("2026-01-01 00:00:00.000000"), Some("-7d")),  // absolute lower, relative upper
+            (Some("-30d"), Some("2026-12-31 00:00:00.000000")), // relative lower, absolute upper
+            (None, Some("-7d")),                                // relative upper only
+        ];
+        for (from, to) in cases {
+            assert_eq!(
+                pick_state_variant(&explicit_leaf(from, to)),
+                Err(UnsupportedVariant::RelativeRangeUnsupported),
+                "{from:?}..{to:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn unrepresentable_relative_units_are_unsupported() {
+        // `q` (quarter) and `s` (second) are valid relative grammar but have no `TimeInterval`, so a
+        // relative-lower-only bound in one of those units skips as a relative range.
+        for raw in ["-1q", "-30s"] {
+            assert_eq!(
+                pick_state_variant(&explicit_leaf(Some(raw), None)),
+                Err(UnsupportedVariant::RelativeRangeUnsupported),
+                "{raw}",
+            );
+        }
+    }
+
+    #[test]
+    fn an_outright_garbage_bound_is_an_unparseable_skip() {
+        // A string that is neither an absolute date nor relative grammar is `UnparseableExplicitBound`,
+        // distinct from a recognized-relative-but-unrepresentable unit.
+        assert_eq!(
+            pick_state_variant(&explicit_leaf(Some("not-a-date"), None)),
+            Err(UnsupportedVariant::UnparseableExplicitBound),
+        );
     }
 
     #[test]
@@ -507,13 +892,23 @@ mod tests {
 
     #[test]
     fn explicit_window_never_evicts_for_permanent_membership() {
-        assert_eq!(
-            EvictionWindow::Explicit { to_ms: Some(5_000) }.earliest_eviction_at_ms(1_000, UTC),
-            i64::MAX,
-        );
-        assert_eq!(
-            EvictionWindow::Explicit { to_ms: None }.earliest_eviction_at_ms(1_000, UTC),
-            i64::MAX,
-        );
+        // An in-range absolute match is permanent: never evict at the upper bound, or the sweep would
+        // emit a spurious `Left` even though the oracle's fixed-date predicate still matches.
+        for window in [
+            EvictionWindow::Explicit {
+                from_day: Some(day_of(2026, 1, 1)),
+                to_day: Some(day_of(2026, 12, 31)),
+            },
+            EvictionWindow::Explicit {
+                from_day: None,
+                to_day: None,
+            },
+            EvictionWindow::Explicit {
+                from_day: Some(day_of(2026, 1, 1)),
+                to_day: None,
+            },
+        ] {
+            assert_eq!(window.earliest_eviction_at_ms(1_000, UTC), i64::MAX);
+        }
     }
 }

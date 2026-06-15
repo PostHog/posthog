@@ -22,6 +22,7 @@ use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
 use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
+use crate::stage1::pick_state::EvictionWindow;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{
     dedup_is_replay, dedup_record, AppliedOffsets, Stage1State, StateVariant, StatefulRecord,
@@ -428,6 +429,25 @@ fn mutate_behavioral(
         }
     };
 
+    let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
+
+    // An absolute explicit range matches at **day** granularity, inclusive on both ends, mirroring
+    // the oracle's `date >= toDate(from) AND date <= toDate(to)` against `precalculated_events.date`.
+    // Drop an out-of-range event whole (no dedup record, no state, no schedule, no transition): it is
+    // simply not a match for this leaf, just as the oracle's date filter excludes it. The event's day
+    // is its team-tz calendar day (`day_idx_in_tz`); the bound is already a tz-naive calendar day (the
+    // oracle treats `explicit_datetime` as a tz-naive date, so `toDate('2026-05-01')` is the literal
+    // date), so it is compared **directly** — never re-projected through a timezone, which would shift
+    // it one calendar day under a UTC-offset team.
+    if let Some(EvictionWindow::Explicit { from_day, to_day }) = window {
+        let event_day = day_idx_in_tz(event_ms, filters.timezone);
+        let before_from = from_day.is_some_and(|f| event_day < f);
+        let after_to = to_day.is_some_and(|t| event_day > t);
+        if before_from || after_to {
+            return None;
+        }
+    }
+
     if dedup_is_replay(
         &applied,
         &redirect_dedup,
@@ -448,7 +468,6 @@ fn mutate_behavioral(
     );
 
     let last_event_at_ms = prev_last_event.max(event_ms);
-    let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
     let earliest_eviction_at_ms = window.map_or(i64::MAX, |w| {
         w.earliest_eviction_at_ms(last_event_at_ms, filters.timezone)
     });

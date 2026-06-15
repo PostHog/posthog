@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use chrono_tz::America::New_York;
 use chrono_tz::Asia::Kolkata;
 use chrono_tz::{Tz, UTC};
 use cohort_stream_processor::consumers::{CohortStreamEvent, EventDispatcher};
@@ -69,12 +70,20 @@ fn behavioral_leaf(window_days: i64) -> Value {
     })
 }
 
-/// A `performed_event` leaf over an explicit date range (so its eviction deadline is `i64::MAX`).
+/// A `performed_event` leaf over an explicit date range (so its eviction deadline is `i64::MAX`). The
+/// lower bound is the space-separated ClickHouse shape; the upper bound is the real cohort-date-picker
+/// wire shape (`dayjs(...).format('YYYY-MM-DDTHH:mm:ss')` — T-separated, no offset), so the test
+/// exercises a format the UI actually emits rather than one only the old test fabricated.
 fn explicit_behavioral_leaf() -> Value {
+    explicit_behavioral_leaf_range("2026-01-01 00:00:00.000000", "2026-12-31T00:00:00")
+}
+
+/// A `performed_event` leaf over an arbitrary explicit `[from, to]` date range.
+fn explicit_behavioral_leaf_range(from: &str, to: &str) -> Value {
     json!({
         "type": "behavioral", "value": "performed_event", "key": "$pageview",
-        "explicit_datetime": "2026-01-01 00:00:00.000000",
-        "explicit_datetime_to": "2026-12-31 00:00:00.000000",
+        "explicit_datetime": from,
+        "explicit_datetime_to": to,
         "conditionHash": "0123456789abcdef",
         "bytecode": behavioral_bytecode(),
     })
@@ -1333,6 +1342,195 @@ fn relative_window_schedules_an_eviction_but_an_explicit_window_does_not() {
     assert!(
         out.schedules.is_empty(),
         "an explicit-window single is never scheduled for eviction",
+    );
+}
+
+#[test]
+fn explicit_range_matches_at_day_granularity_inclusive_on_both_ends() {
+    // The explicit leaf spans 2026-01-01 .. 2026-12-31 (UTC). The match is at **day** granularity,
+    // inclusive on both ends, mirroring the oracle's `date >= toDate(from) AND date <= toDate(to)`.
+    // A boundary-day event on either end is a member; a day past either end is not.
+    let cases = [
+        (
+            "2026-01-01 00:00:00.000000",
+            true,
+            "first instant of the from-day enters",
+        ),
+        (
+            "2026-01-01 23:59:59.000000",
+            true,
+            "last instant of the from-day still enters",
+        ),
+        (
+            "2026-12-31 23:59:59.000000",
+            true,
+            "last instant of the to-day enters",
+        ),
+        ("2026-06-15 12:00:00.000000", true, "mid-range enters"),
+        (
+            "2025-12-31 23:59:59.000000",
+            false,
+            "the day before from is out of range",
+        ),
+        (
+            "2027-01-01 00:00:00.000000",
+            false,
+            "the day after to is out of range",
+        ),
+    ];
+    for (ts, expect_member, why) in cases {
+        let (_dir, store) = temp_store();
+        let explicit = build_team_filters(vec![explicit_behavioral_leaf()]);
+        let lsk = behavioral_lsk(&explicit);
+        let alice = person(1);
+        let out = process_event(PARTITION_ID, &store, &explicit, &event_at(alice, ts, 0)).unwrap();
+
+        if expect_member {
+            assert_eq!(out.transitions.len(), 1, "{why}");
+            assert!(
+                state_at(&store, lsk, alice).is_some(),
+                "an in-range match writes state: {why}",
+            );
+            assert!(
+                out.schedules.is_empty(),
+                "an in-range explicit match is permanent, never scheduled: {why}",
+            );
+        } else {
+            assert!(out.transitions.is_empty(), "{why}");
+            assert!(out.schedules.is_empty(), "{why}");
+            assert!(
+                state_at(&store, lsk, alice).is_none(),
+                "an out-of-range event writes no state: {why}",
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_range_lower_bound_is_the_literal_calendar_day_under_a_negative_offset_team() {
+    // Bug 1 regression. Team America/New_York (UTC−4 in May, EDT), absolute range 2026-05-01..2026-05-31
+    // emitted as bare dates (the date picker's date-only shape). The oracle treats `toDate('2026-05-01')`
+    // as the literal calendar date 2026-05-01, tz-invariant; an event at 2026-04-30 22:00 *New York local*
+    // (= 2026-05-01 02:00 UTC) is BEFORE `from` in local time and is NOT a member. The pre-fix code parsed
+    // the bare date as UTC midnight then re-projected it into New_York (= 2026-04-30 local), shifting the
+    // whole window one calendar day earlier and wrongly admitting this event.
+    //
+    // Timestamps are passed as their UTC equivalents (the ClickHouse form is read as UTC); the comment on
+    // each line is the New-York-local wall clock.
+    let cases = [
+        (
+            "2026-05-01 02:00:00.000000", // 2026-04-30 22:00 NY — just before `from` locally
+            false,
+            "the local day before from (2026-04-30 NY) is out of range",
+        ),
+        (
+            "2026-05-01 14:00:00.000000", // 2026-05-01 10:00 NY — the from day, locally
+            true,
+            "an event on the from day (2026-05-01 NY) enters",
+        ),
+        (
+            "2026-06-01 03:00:00.000000", // 2026-05-31 23:00 NY — the to day, locally
+            true,
+            "an event on the to day (2026-05-31 NY) enters",
+        ),
+        (
+            "2026-06-01 14:00:00.000000", // 2026-06-01 10:00 NY — the day after to, locally
+            false,
+            "the local day after to (2026-06-01 NY) is out of range",
+        ),
+    ];
+    for (ts, expect_member, why) in cases {
+        let (_dir, store) = temp_store();
+        let explicit = build_team_filters_tz(
+            vec![explicit_behavioral_leaf_range("2026-05-01", "2026-05-31")],
+            New_York,
+        );
+        let lsk = behavioral_lsk(&explicit);
+        let alice = person(1);
+        let out = process_event(PARTITION_ID, &store, &explicit, &event_at(alice, ts, 0)).unwrap();
+
+        if expect_member {
+            assert_eq!(out.transitions.len(), 1, "{why}");
+            assert!(state_at(&store, lsk, alice).is_some(), "{why}");
+        } else {
+            assert!(out.transitions.is_empty(), "{why}");
+            assert!(
+                state_at(&store, lsk, alice).is_none(),
+                "an out-of-range event writes no state: {why}",
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_range_upper_bound_from_the_ui_wire_format_bounds_the_range() {
+    // Bug 2 regression. The cohort date picker emits the upper bound as
+    // `dayjs(...).format('YYYY-MM-DDTHH:mm:ss')` — T-separated, no offset. The pre-fix parser accepted
+    // neither that shape nor coerced it, so it silently dropped the upper bound and made every event
+    // after the intended end a permanent member. With the bound parsed, an event after the to-day is
+    // correctly excluded.
+    let leaf = explicit_behavioral_leaf_range("2026-01-01", "2026-12-31T00:00:00");
+
+    // On the to-day → member.
+    let (_dir, store) = temp_store();
+    let explicit = build_team_filters(vec![leaf.clone()]);
+    let lsk = behavioral_lsk(&explicit);
+    let alice = person(1);
+    let on_to_day = process_event(
+        PARTITION_ID,
+        &store,
+        &explicit,
+        &event_at(alice, "2026-12-31 12:00:00.000000", 0),
+    )
+    .unwrap();
+    assert_eq!(
+        on_to_day.transitions.len(),
+        1,
+        "an event on the to-day enters"
+    );
+
+    // The day after the to-day → NOT a member (the bound is honored, not dropped).
+    let (_dir2, store2) = temp_store();
+    let explicit2 = build_team_filters(vec![leaf]);
+    let bob = person(2);
+    let after_to = process_event(
+        PARTITION_ID,
+        &store2,
+        &explicit2,
+        &event_at(bob, "2027-01-01 00:00:00.000000", 0),
+    )
+    .unwrap();
+    assert!(
+        after_to.transitions.is_empty() && state_at(&store2, lsk, bob).is_none(),
+        "an event after the UI-emitted upper bound is excluded, not a permanent member",
+    );
+}
+
+#[test]
+fn explicit_range_with_an_unparseable_bound_skips_the_leaf_entirely() {
+    // A present-but-unparseable bound must skip the leaf (no realtime state at all), NOT degrade to an
+    // open-ended range. With the leaf skipped there is no behavioral condition, so even an in-window
+    // event produces no transition and no state.
+    let (_dir, store) = temp_store();
+    let explicit = build_team_filters(vec![explicit_behavioral_leaf_range(
+        "2026-01-01",
+        "garbage",
+    )]);
+    assert!(
+        explicit.behavioral_conditions.is_empty(),
+        "an unparseable bound leaves the leaf with no behavioral condition",
+    );
+    let alice = person(1);
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &explicit,
+        &event_at(alice, "2026-06-15 12:00:00.000000", 0),
+    )
+    .unwrap();
+    assert!(
+        out.transitions.is_empty() && out.schedules.is_empty(),
+        "a skipped leaf emits nothing — not an open-ended permanent membership",
     );
 }
 

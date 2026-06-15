@@ -52,6 +52,14 @@ pub fn window_start_day(now_ms: i64, effective_window_days: u32, tz: Tz) -> DayI
     day_idx_in_tz(now_ms, tz) - effective_window_days as DayIdx
 }
 
+/// The calendar-day index of a tz-naive [`NaiveDate`] — days since 1970-01-01, with no zone applied.
+/// Used for an absolute `explicit_datetime` bound, whose written calendar date is tz-invariant (the
+/// oracle stamps a bare date in the project tz, so `toDate('2026-05-01')` is the literal date), unlike
+/// an event instant which must first be projected into the team tz via [`day_idx_in_tz`].
+pub fn day_idx_of_naive_date(date: NaiveDate) -> DayIdx {
+    day_idx_of(date)
+}
+
 /// The local hour-of-day `[0, 23]` of `epoch_ms` in `tz` — the bucket index for the 24-hour variant.
 pub fn hour_of_day_in_tz(epoch_ms: i64, tz: Tz) -> u32 {
     utc_instant(epoch_ms).with_timezone(&tz).hour()
