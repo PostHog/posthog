@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,6 +39,7 @@ class GreenhouseSource(ResumableSource[GreenhouseSourceConfig, GreenhouseResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GREENHOUSE,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Greenhouse",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Greenhouse Harvest API key to automatically pull your Greenhouse recruiting data into the PostHog Data warehouse.

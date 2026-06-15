@@ -524,6 +524,7 @@ SPECTACULAR_SETTINGS = {
         ],
         "AssigneeTypeEnum": ["user", "role"],
         "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
+        "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],

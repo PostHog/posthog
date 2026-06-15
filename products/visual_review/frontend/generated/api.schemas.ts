@@ -274,6 +274,7 @@ export interface CreateRunInputApi {
     removed_identifiers?: string[]
     purpose?: string
     metadata?: CreateRunInputApiMetadata
+    is_partial?: boolean
 }
 
 export type UploadTargetApiFields = { [key: string]: string }

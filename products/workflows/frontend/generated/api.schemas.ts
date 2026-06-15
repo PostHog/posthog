@@ -57,16 +57,12 @@ export const ExitConditionEnumApi = {
 /**
  * * `continue` - continue
  * * `abort` - abort
- * * `complete` - complete
- * * `branch` - branch
  */
 export type OnErrorEnumApi = (typeof OnErrorEnumApi)[keyof typeof OnErrorEnumApi]
 
 export const OnErrorEnumApi = {
     Continue: 'continue',
     Abort: 'abort',
-    Complete: 'complete',
-    Branch: 'branch',
 } as const
 
 /**
@@ -112,6 +108,10 @@ export interface HogFlowTemplateActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
+     *
+     * * `continue` - continue
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
@@ -358,12 +358,10 @@ export interface HogFlowActionApi {
     name: string
     /** Optional description. */
     description?: string
-    /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
      *
      * * `continue` - continue
-     * * `abort` - abort
-     * * `complete` - complete
-     * * `branch` - branch */
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     /** Created at (epoch ms). Frontend-managed. */
     created_at?: number
@@ -372,7 +370,7 @@ export interface HogFlowActionApi {
     /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
     /**
-     * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+     * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
      * @maxLength 100
      */
     type: string

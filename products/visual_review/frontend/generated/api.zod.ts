@@ -98,6 +98,7 @@ export const VisualReviewRunsCreateBody = /* @__PURE__ */ zod.object({
     removed_identifiers: zod.array(zod.string()).optional(),
     purpose: zod.string().optional(),
     metadata: zod.record(zod.string(), zod.unknown()).optional(),
+    is_partial: zod.boolean().optional(),
 })
 
 /**

@@ -42,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -484,20 +485,7 @@ export function FeatureFlagReleaseConditions({
                                 })()}{' '}
                                 <span>of total {aggregationTargetName(group.aggregation_group_type_index)}.</span>
                                 {filters.aggregation_group_type_index == null && (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                A user may have{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                    target="_blank"
-                                                >
-                                                    multiple profiles
-                                                </Link>
-                                            </>
-                                        }
-                                        interactive
-                                    >
+                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
                                         <IconInfo className="text-muted text-xs ml-0.5" />
                                     </Tooltip>
                                 )}

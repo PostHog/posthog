@@ -799,9 +799,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         # Remove any NaN or infinite values from decimal columns
         if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
 
-            def _convert_to_decimal_or_none(x: decimal.Decimal | float | None) -> decimal.Decimal | None:
+            def _convert_to_decimal_or_none(x: decimal.Decimal | float | str | None) -> decimal.Decimal | None:
                 if x is None:
                     return None
+
+                if isinstance(x, str):
+                    # Non-numeric value in a column imported as a number; the caller adds column context.
+                    raise TypeError("must be real number, not str")
 
                 if (
                     math.isnan(x)
@@ -815,9 +819,12 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return decimal.Decimal(str(x))
 
-            def _convert_to_float_or_none(x: float | None) -> float | None:
+            def _convert_to_float_or_none(x: float | str | None) -> float | None:
                 if x is None:
                     return None
+
+                if isinstance(x, str):
+                    raise TypeError("must be real number, not str")
 
                 if math.isnan(x) or np.isinf(x):
                     return None
@@ -828,7 +835,20 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
                 # Mixed types: convert all to decimals
-                all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+                try:
+                    all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+                except TypeError as e:
+                    # A column imported as a number contains a non-numeric value (text, or a
+                    # blank cell that arrives as ""). Keep the original "must be real number,
+                    # not str" phrase so source non-retryable matching still fires, but name the
+                    # column and show examples so the offending cells can be found in the source.
+                    offenders = [x for x in all_values if isinstance(x, str)]
+                    sample = [(x if x != "" else "<blank>") for x in offenders[:5]]
+                    raise TypeError(
+                        f"must be real number, not str: column '{field_name}' is imported as a "
+                        f"number but contains {len(offenders)} non-numeric value(s) such as "
+                        f"{sample}. Ensure every cell in this column is a plain number (or empty)."
+                    ) from e
 
                 if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
                     new_field_type = arrow_schema.field(field_index).type
