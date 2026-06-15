@@ -49,6 +49,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Usage spikes',
         description: 'When billing detects a usage spike for one of your accounts',
     },
+    reminder: {
+        label: 'Reminders',
+        description: 'When a reminder you scheduled is due',
+    },
 }
 
 export function NotificationRow({
