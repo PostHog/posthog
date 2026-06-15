@@ -21,6 +21,7 @@ from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.relations import ManyRelatedField
 
 from posthog import redis
@@ -50,6 +51,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagHashKeyOverride,
     get_feature_flags_for_team_in_cache,
 )
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -8051,6 +8053,25 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
+
+    def test_user_blast_radius_rejects_feature_flag_condition(self):
+        condition = {
+            "properties": [
+                {
+                    "key": "some-flag",
+                    "type": "flag",
+                    "value": "true",
+                    "operator": "exact",
+                }
+            ],
+            "rollout_percentage": 100,
+        }
+
+        with self.assertRaises(ValidationError):
+            get_user_blast_radius(self.team, condition)
+
+        with self.assertRaises(ValidationError):
+            get_user_blast_radius_persons(self.team, condition)
 
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
