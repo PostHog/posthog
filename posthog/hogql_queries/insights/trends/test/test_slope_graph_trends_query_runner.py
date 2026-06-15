@@ -7,7 +7,16 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
+from posthog.schema import (
+    BreakdownFilter,
+    ChartDisplayType,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    PropertyOperator,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
 from posthog.models.utils import uuid7
@@ -120,3 +129,26 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         for result in response.results:
             assert len(result["data"]) == 1
+
+    @snapshot_clickhouse_queries
+    def test_keeps_the_query_property_filter_alongside_the_bucket_restriction(self):
+        self._create_events(
+            [
+                ("paid_first", [("2024-05-01T10:00:00Z", {"plan": "paid"})]),
+                ("free_first", [("2024-05-01T11:00:00Z", {"plan": "free"})]),
+                ("paid_last", [("2024-05-10T10:00:00Z", {"plan": "paid"})]),
+            ]
+        )
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-05-01", date_to="2024-05-10"),
+            interval="day",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH),
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="total")],
+            properties=[EventPropertyFilter(key="plan", value=["paid"], operator=PropertyOperator.EXACT)],
+        )
+        response = SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        result = response.results[0]
+        # The query's "plan = paid" filter is preserved, so the free event on the first day is excluded.
+        assert result["data"][0] == 1
+        assert result["data"][1] == 1

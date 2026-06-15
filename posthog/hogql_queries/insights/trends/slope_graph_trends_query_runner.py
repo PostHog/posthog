@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from posthog.schema import ChartDisplayType, HogQLPropertyFilter, TrendsFilter, TrendsQueryResponse
+from posthog.schema import (
+    ChartDisplayType,
+    FilterLogicalOperator,
+    HogQLPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    TrendsFilter,
+    TrendsQueryResponse,
+)
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
@@ -34,12 +42,24 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
             series_query.trendsFilter = TrendsFilter()
         # Compute the interval series in one query; we slice it to its ends below.
         series_query.trendsFilter.display = ChartDisplayType.ACTIONS_LINE_GRAPH
-        # Read only the two end buckets, not everything between them.
+        # Read only the two end buckets, not everything between them — ANDed alongside the query's
+        # own filters so a filtered (e.g. shared) slope keeps them rather than going unfiltered.
+        existing = series_query.properties
         end_buckets_filter = self._end_buckets_filter()
-        if isinstance(series_query.properties, list):
-            series_query.properties.append(end_buckets_filter)
-        else:
+        if isinstance(existing, list):
+            series_query.properties = [*existing, end_buckets_filter]
+        elif existing is None:
             series_query.properties = [end_buckets_filter]
+        else:
+            # A PropertyGroupFilter — wrap the existing group and the bucket filter under a new AND
+            # so the saved filters are preserved, never replaced.
+            series_query.properties = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(**existing.model_dump()),
+                    PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[end_buckets_filter]),
+                ],
+            )
 
         response = TrendsQueryRunner(
             query=series_query,
