@@ -49,6 +49,26 @@ import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
+// Template inputs are edited as strings, but API/MCP callers can save non-string values
+// (e.g. a raw boolean in a dictionary input) — Monaco throws if given a non-string value.
+export function coerceTemplateValueForDisplay(value: unknown, templating: 'hog' | 'liquid' | false): string {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (value === null || value === undefined) {
+        return ''
+    }
+    if (templating === 'hog' && (typeof value === 'boolean' || typeof value === 'number')) {
+        // A single-expression hog template evaluates to the raw value, so the runtime type is
+        // preserved if the user edits and saves this representation
+        return `{${JSON.stringify(value)}}`
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
+
 const INPUT_TYPE_LIST = [
     'string',
     'number',
@@ -265,13 +285,14 @@ function CyclotronJobTemplateInput(props: {
     placeholder?: string
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
+    const displayValue = coerceTemplateValueForDisplay(props.input.value, props.templating ? templating : false)
 
     if (!props.templating) {
         return (
             <LemonInput
                 type="text"
                 className={props.className}
-                value={props.input.value}
+                value={displayValue}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val })}
                 placeholder={props.placeholder}
             />
@@ -282,7 +303,7 @@ function CyclotronJobTemplateInput(props: {
         <span className={clsx('group relative', props.className)}>
             <CodeEditorInline
                 minHeight="37" // Match other inputs
-                value={props.input.value ?? ''}
+                value={displayValue}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val ?? '' })}
                 language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
                 globals={props.sampleGlobalsWithInputs ?? undefined}
@@ -290,10 +311,10 @@ function CyclotronJobTemplateInput(props: {
             <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
                 <CyclotronJobTemplateSuggestionsButton
                     templating={templating}
-                    value={props.input.value}
+                    value={displayValue}
                     setTemplatingEngine={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
-                        props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
+                        props.onChange?.({ ...props.input, value: `${displayValue} {${option.example}}` })
                     }}
                 />
             </span>

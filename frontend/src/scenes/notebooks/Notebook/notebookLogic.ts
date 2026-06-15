@@ -37,6 +37,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
@@ -106,6 +107,12 @@ import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
+import {
+    getNotebookRemoteParticipants,
+    type NotebookPresenceState,
+    type NotebookRemoteParticipant,
+    pruneNotebookRemotePresence,
+} from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export const SYNC_DELAY = 1000
@@ -134,13 +141,9 @@ export type MarkdownStreamEvent = {
 }
 
 /** Latest known caret of another client, from presence pings or update events. */
-export type NotebookRemotePresenceState = {
-    clientId: string
-    userId: number
-    userName: string
+export type NotebookRemotePresenceState = NotebookPresenceState & {
     version: number
     cursor: NotebookCollabCursorApi
-    lastSeenAt: number
 }
 
 /** Remote carets older than this stop rendering; senders heartbeat well within it. */
@@ -320,6 +323,8 @@ export const notebookLogic = kea<notebookLogicType>([
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
+        downloadMarkdown: true,
+        copyMarkdown: true,
         showConflictWarning: true,
         onUpdateEditor: true,
         registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
@@ -456,10 +461,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     ...state,
                     [presence.clientId]: { ...presence, lastSeenAt: receivedAt },
                 }),
-                pruneRemotePresence: (state, { now }) => {
-                    const fresh = Object.entries(state).filter(([, p]) => now - p.lastSeenAt <= PRESENCE_TTL_MS)
-                    return fresh.length === Object.keys(state).length ? state : Object.fromEntries(fresh)
-                },
+                pruneRemotePresence: (state, { now }) => pruneNotebookRemotePresence(state, now, PRESENCE_TTL_MS),
                 disconnectMarkdownUpdateStream: () => ({}),
             },
         ],
@@ -951,6 +953,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
                 return carets
             },
+        ],
+        markdownRemoteParticipants: [
+            (s) => [s.markdownRemotePresence],
+            (markdownRemotePresence): NotebookRemoteParticipant[] =>
+                getNotebookRemoteParticipants(markdownRemotePresence),
         ],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],
@@ -1773,6 +1780,18 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+        downloadMarkdown: () => {
+            const file = new File(
+                [getMarkdownNotebookMarkdown(values.content)],
+                `${slugify(values.title ?? 'untitled')}.md`,
+                { type: 'text/markdown' }
+            )
+
+            downloadFile(file)
+        },
+        copyMarkdown: async () => {
+            await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
         },
 
         discardLocalChanges: () => {

@@ -1,10 +1,12 @@
 import json
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
+from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -38,6 +40,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
@@ -143,6 +146,66 @@ def _log_share_password_attempt(
     )
 
 
+# A check raises PermissionDenied when the requesting user may not edit sharing for the given target.
+SharingResourceEditCheck = Callable[["SharingConfigurationViewSet", UserAccessControl, Model], None]
+
+
+def _require_resource_editor(resource: APIScopeObject, denied_message: str) -> SharingResourceEditCheck:
+    def check(_view: "SharingConfigurationViewSet", user_access_control: UserAccessControl, target: Model) -> None:
+        access_level = user_access_control.get_user_access_level(target)
+        if not access_level or not access_level_satisfied_for_resource(resource, access_level, "editor"):
+            raise PermissionDenied(denied_message)
+
+    return check
+
+
+def _require_dashboard_editor(
+    view: "SharingConfigurationViewSet", user_access_control: UserAccessControl, dashboard: Model
+) -> None:
+    dashboard = cast(Dashboard, dashboard)
+    # Legacy check: remove once all users are on the new access control
+    if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+        if not view.user_permissions.dashboard(dashboard).can_edit:
+            raise PermissionDenied("You don't have edit permissions for this dashboard.")
+        return
+
+    access_level = user_access_control.get_user_access_level(dashboard)
+    if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, "editor"):
+        raise PermissionDenied("You don't have edit permissions for this dashboard.")
+
+
+# Maps every shareable FK on SharingConfiguration to the editor-permission check that gates writes for it.
+# A ``None`` value means the resource is created server-side and is not writable through this viewset; if such
+# a config ever reaches the gate we fail closed rather than fall through to "allowed". The relationship is
+# enforced against the model below, so a newly added shareable resource cannot ship without a decision here.
+SHARING_RESOURCE_EDIT_CHECKS: dict[str, SharingResourceEditCheck | None] = {
+    "dashboard": _require_dashboard_editor,
+    "insight": _require_resource_editor("insight", "You don't have edit permissions for this insight."),
+    "recording": _require_resource_editor("session_recording", "You don't have edit permissions for this recording."),
+    "notebook": _require_resource_editor("notebook", "You don't have edit permissions for this notebook."),
+    # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
+    "interviewee_context": None,
+}
+
+
+def _assert_every_shareable_resource_is_gated() -> None:
+    model_fields = SharingConfiguration.shareable_resource_fields()
+    registered = set(SHARING_RESOURCE_EDIT_CHECKS)
+    missing = model_fields - registered
+    unexpected = registered - model_fields
+    if missing or unexpected:
+        raise ImproperlyConfigured(
+            "SHARING_RESOURCE_EDIT_CHECKS is out of sync with SharingConfiguration's shareable FK fields. "
+            f"Missing a sharing edit check for: {sorted(missing)}. "
+            f"Edit check registered for a non-existent field: {sorted(unexpected)}. "
+            "Every shareable resource needs an explicit editor-permission check (or None when it is not "
+            "editable through SharingConfigurationViewSet)."
+        )
+
+
+_assert_every_shareable_resource_is_gated()
+
+
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
 def check_can_edit_sharing_configuration(
     view: "SharingConfigurationViewSet", request: Request, sharing: SharingConfiguration
@@ -160,25 +223,13 @@ def check_can_edit_sharing_configuration(
 
     user_access_control = UserAccessControl(cast(User, request.user), team=view.team)
 
-    if sharing.dashboard:
-        # Legacy check: remove once all users are on the new access control
-        if sharing.dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
-            if not view.user_permissions.dashboard(sharing.dashboard).can_edit:
-                raise PermissionDenied("You don't have edit permissions for this dashboard.")
-        else:
-            access_level = user_access_control.get_user_access_level(sharing.dashboard)
-            if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, "editor"):
-                raise PermissionDenied("You don't have edit permissions for this dashboard.")
-
-    if sharing.insight:
-        access_level = user_access_control.get_user_access_level(sharing.insight)
-        if not access_level or not access_level_satisfied_for_resource("insight", access_level, "editor"):
-            raise PermissionDenied("You don't have edit permissions for this insight.")
-
-    if sharing.notebook:
-        access_level = user_access_control.get_user_access_level(sharing.notebook)
-        if not access_level or not access_level_satisfied_for_resource("notebook", access_level, "editor"):
-            raise PermissionDenied("You don't have edit permissions for this notebook.")
+    for field_name, edit_check in SHARING_RESOURCE_EDIT_CHECKS.items():
+        target = getattr(sharing, field_name)
+        if target is None:
+            continue
+        if edit_check is None:
+            raise PermissionDenied("This resource cannot be shared through this endpoint.")
+        edit_check(view, user_access_control, target)
 
     return True
 
