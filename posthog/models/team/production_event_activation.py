@@ -420,7 +420,7 @@ def _earliest_production_host_timestamps(
                     %(host_length_cap)s
                 ) AS host,
                 timestamp
-            FROM events
+            FROM {EVENTS_QUERY_TABLE()}
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )

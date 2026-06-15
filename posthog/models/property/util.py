@@ -290,7 +290,7 @@ def parse_prop_clauses(
                 prop,
                 idx,
                 prepend=f"personquery_{prepend}",
-                allow_denormalized_props=True,
+                allow_denormalized_props=allow_denormalized_props,
                 transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
                 property_operator=property_operator,
             )
