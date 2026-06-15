@@ -1745,15 +1745,17 @@ class TestProperty(BaseTest):
         )
         self.assertIsInstance(result, ast.Expr)
 
-    def test_flag_evaluates_to_produces_neutral_expr(self):
-        prop = FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")
-        result = property_to_expr([prop], self.team)
-        self.assertEqual(result, ast.Constant(value=1))
-
-    def test_flag_evaluates_to_dict_produces_neutral_expr(self):
-        result = self._property_to_expr(
-            {"type": "flag", "key": "123", "value": False, "operator": "flag_evaluates_to"}
-        )
+    @parameterized.expand(
+        [
+            (
+                "filter_object",
+                [FlagPropertyFilter(type="flag", key="my-flag", value="true", operator="flag_evaluates_to")],
+            ),
+            ("dict", {"type": "flag", "key": "123", "value": False, "operator": "flag_evaluates_to"}),
+        ]
+    )
+    def test_flag_evaluates_to_produces_neutral_expr(self, _name: str, property: Union[list, dict]):
+        result = self._property_to_expr(property)
         self.assertEqual(result, ast.Constant(value=1))
 
 

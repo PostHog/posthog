@@ -8084,6 +8084,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"affected": 10, "total": 10})
 
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
