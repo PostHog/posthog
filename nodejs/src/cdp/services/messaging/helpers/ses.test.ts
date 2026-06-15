@@ -113,7 +113,7 @@ describe('SesWebhookHandler', () => {
     it.each([
         ['Open', { open: { timestamp: 't' } }],
         ['Click', { click: { link: 'l', timestamp: 't' } }],
-        ['Delivery', { delivery: {} }],
+        ['Delivery', { delivery: { timestamp: 't' } }],
     ])('skips metrics for test sends on a %s event (isTest tracking code)', async (eventType, eventFields) => {
         const testMail = {
             ...baseMail,
