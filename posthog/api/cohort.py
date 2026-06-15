@@ -77,6 +77,7 @@ from products.cohorts.backend.models.cohort import (
     CohortOrEmpty,
     CohortType,
 )
+from products.cohorts.backend.models.dependencies import walk_filter_leaves
 from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
@@ -543,16 +544,6 @@ def _acquire_cohort_save_lock(project_id: int) -> None:
         logger.info("cohort_save_advisory_lock_contended", project_id=project_id, waited_seconds=waited)
 
 
-def _iter_filter_leaves(node: Any) -> Iterator[dict]:
-    if not isinstance(node, dict):
-        return
-    if node.get("type") in ("AND", "OR"):
-        for child in node.get("values", []):
-            yield from _iter_filter_leaves(child)
-    else:
-        yield node
-
-
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
@@ -1017,7 +1008,7 @@ class CohortSerializer(serializers.ModelSerializer):
         existing_minute_leaves = self._minute_performed_event_multiple_leaf_keys(
             getattr(self.instance, "filters", None)
         )
-        for leaf in _iter_filter_leaves(raw.get("properties")):
+        for leaf in walk_filter_leaves(raw.get("properties")):
             if not self._is_minute_performed_event_multiple(leaf):
                 continue
             if self._leaf_identity(leaf) in existing_minute_leaves:
@@ -1037,19 +1028,27 @@ class CohortSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _leaf_identity(leaf: dict) -> tuple:
-        # Identity over user-meaningful fields; ignores bytecode/conditionHash noise. `negation` is
-        # normalized because the incoming leaves are pydantic-normalized (`negation` defaults to
-        # `False`) while a leaf stored un-normalized (direct API/import) omits it — comparing raw
-        # would read `None != False` and spuriously re-reject an unrelated edit to such a cohort.
+        # Identity over user-meaningful fields; ignores bytecode/conditionHash noise. `negation`,
+        # `time_value`, and `operator_value` are normalized because the incoming leaves are
+        # pydantic-normalized (`negation` defaults to `False`; the numeric fields are coerced to
+        # `int`) while a leaf stored un-normalized (direct API/import) can omit `negation` or hold a
+        # stringly-typed `"5"` — comparing raw would read `None != False` or `"5" != 5` and
+        # spuriously re-reject an unrelated edit to such a cohort.
+        def as_int(v: Any) -> Any:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return v
+
         return (
             leaf.get("type"),
             leaf.get("value"),
             leaf.get("key"),
             leaf.get("event_type"),
             leaf.get("time_interval"),
-            leaf.get("time_value"),
+            as_int(leaf.get("time_value")),
             leaf.get("operator"),
-            leaf.get("operator_value"),
+            as_int(leaf.get("operator_value")),
             bool(leaf.get("negation", False)),
         )
 
@@ -1059,7 +1058,7 @@ class CohortSerializer(serializers.ModelSerializer):
             return set()
         return {
             cls._leaf_identity(leaf)
-            for leaf in _iter_filter_leaves(filters.get("properties"))
+            for leaf in walk_filter_leaves(filters.get("properties"))
             if cls._is_minute_performed_event_multiple(leaf)
         }
 

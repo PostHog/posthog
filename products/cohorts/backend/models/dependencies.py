@@ -1,5 +1,6 @@
 import json
 import hashlib
+from collections.abc import Iterator
 
 from django.core.cache import cache
 from django.db import transaction
@@ -256,12 +257,12 @@ def _extract_person_property_filters(cohort: Cohort) -> str:
     return hashlib.sha256(normalized_json.encode()).hexdigest()
 
 
-def _walk_filter_leaves(node: object):
+def walk_filter_leaves(node: object) -> Iterator[dict]:
     if not isinstance(node, dict):
         return
     if node.get("type") in ("AND", "OR"):
         for child in node.get("values", []):
-            yield from _walk_filter_leaves(child)
+            yield from walk_filter_leaves(child)
     else:
         yield node
 
@@ -296,7 +297,7 @@ def _extract_leaf_state_keys(cohort: Cohort) -> str:
         return ""
 
     keys: list[list] = []
-    for leaf in _walk_filter_leaves(properties):
+    for leaf in walk_filter_leaves(properties):
         leaf_type = leaf.get("type")
         if leaf_type == "person":
             condition_hash = leaf.get("conditionHash")
