@@ -8,6 +8,8 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -42,8 +44,10 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
+    AnalyticsQueryRunner,
     ExecutionMode,
     QueryRunner,
     QueryRunnerWithHogQLContext,
@@ -1244,8 +1248,10 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def _runner(self, user):
-        class _CtxRunner(QueryRunnerWithHogQLContext):
+    RUNNER_BASES = [("analytics", AnalyticsQueryRunner), ("ctx", QueryRunnerWithHogQLContext)]
+
+    def _runner(self, user, base=QueryRunnerWithHogQLContext):
+        class _Runner(base):
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
@@ -1261,7 +1267,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             def _is_stale(self, last_refresh, lazy: bool = False, *args, **kwargs) -> bool:
                 return False
 
-        return _CtxRunner(query={"some_attr": "bla"}, team=self.team, user=user)
+        return _Runner(query={"some_attr": "bla"}, team=self.team, user=user)
 
     def _ac(self, resource, resource_id=None, access_level="none", organization_member=None):
         ac, _ = AccessControl.objects.get_or_create(
@@ -1271,16 +1277,18 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac.save()
         return ac
 
-    def test_resource_grant_changes_cache_key(self):
+    @parameterized.expand(RUNNER_BASES)
+    def test_resource_grant_changes_cache_key(self, _name, base):
         self._ac(resource="notebook", access_level="none")
-        key_denied = self._runner(self.user).get_cache_key()
+        key_denied = self._runner(self.user, base).get_cache_key()
 
         self._ac(resource="notebook", access_level="editor")
-        key_granted = self._runner(self.user).get_cache_key()
+        key_granted = self._runner(self.user, base).get_cache_key()
 
         assert key_denied != key_granted
 
-    def test_object_grant_changes_cache_key(self):
+    @parameterized.expand(RUNNER_BASES)
+    def test_object_grant_changes_cache_key(self, _name, base):
         from products.notebooks.backend.models import Notebook
 
         # Resource-level access granted so we isolate the object-level effect.
@@ -1293,29 +1301,93 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             access_level="none",
             organization_member=self.organization_membership,
         )
-        runner = self._runner(self.user)
+        runner = self._runner(self.user, base)
         assert "restricted_objects" in runner.get_cache_payload()
         key_blocked = runner.get_cache_key()
 
         blocking_ac.delete()
-        key_unblocked = self._runner(self.user).get_cache_key()
+        key_unblocked = self._runner(self.user, base).get_cache_key()
 
         assert key_blocked != key_unblocked
 
-    def test_admin_and_no_user_produce_no_restriction_keys(self):
+    @parameterized.expand(RUNNER_BASES)
+    def test_admin_and_no_user_produce_no_restriction_keys(self, _name, base):
         self._ac(resource="notebook", access_level="none")
 
         # Org admin bypasses object/resource AC.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        admin_payload = self._runner(self.user).get_cache_payload()
+        admin_payload = self._runner(self.user, base).get_cache_payload()
         assert "restricted_objects" not in admin_payload
         assert "restricted_resources" not in admin_payload
 
-        # No user -> no UserAccessControl on the database.
-        no_user_payload = self._runner(None).get_cache_payload()
+        # No user -> no UserAccessControl for the fingerprint.
+        no_user_payload = self._runner(None, base).get_cache_payload()
         assert "restricted_objects" not in no_user_payload
         assert "restricted_resources" not in no_user_payload
+
+    def test_hogql_query_runner_partitions_cache_on_access_control(self):
+        # Raw HogQL is the only way to reach access-controlled system.* tables.
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+
+        self._ac(resource="notebook", access_level="none")
+        denied_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        assert "notebook" in (denied_runner.get_cache_payload().get("restricted_resources") or [])
+        key_denied = denied_runner.get_cache_key()
+
+        self._ac(resource="notebook", access_level="editor")
+        key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert key_denied != key_granted
+
+    def test_run_recomputes_fingerprint_when_user_changes(self):
+        # run(user=...) swaps the user after construction; the snapshot must rebuild for the new user.
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        self._ac(resource="notebook", access_level="none")
+        # Personal grant for other_user only - the two users must land in different cache partitions.
+        self._ac(resource="notebook", access_level="editor", organization_member=other_membership)
+
+        runner = self._runner(self.user, AnalyticsQueryRunner)
+        key_restricted = runner.get_cache_key()
+
+        runner.user = other_user
+        runner._on_user_changed()
+        key_granted = runner.get_cache_key()
+
+        assert key_restricted != key_granted
+
+    def test_fingerprint_and_schema_filter_share_one_instance(self):
+        # Fingerprint and schema filter must resolve from the same snapshot, else a denied user
+        # gets a result cached against a broader schema.
+        runner = self._runner(self.user)
+        assert runner.database.user_access_control is runner.user_access_control
+
+    def test_user_change_rebuilds_database_with_new_snapshot(self):
+        # On user change the rebuilt database must get the new user's snapshot, not the old one.
+        # A cache-key check can't catch this - the key rebuilds regardless; only the database shows it.
+        other_user = self._create_user("other@posthog.com")
+        runner = self._runner(self.user)
+        first = runner.user_access_control
+        assert runner.database.user_access_control is first
+
+        runner.user = other_user
+        runner._on_user_changed()
+
+        assert runner.user_access_control is not first  # rebuilt for the new user
+        assert runner.database.user_access_control is runner.user_access_control  # new db got the new snapshot
+
+    def test_cache_payload_preloads_access_controls_once(self):
+        # The memoized snapshot means both fingerprint helpers + repeated calls share one preload.
+        self._ac(resource="notebook", access_level="none")
+        runner = self._runner(self.user, AnalyticsQueryRunner)
+
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+            runner.get_cache_key()
+
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert len(ac_queries) == 1, ac_queries
 
     def test_run_issues_bounded_access_control_queries(self):
         """End-to-end: building the database (schema filtering) plus computing the cache key issues
@@ -1323,9 +1395,6 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         resource/object AC - regardless of how many resources/objects/system tables exist. Schema
         filtering must reuse the fingerprint's UserAccessControl, not issue its own ee_accesscontrol
         query."""
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         from products.access_control.backend.property_access_control import restriction_cache_scope
 
         self.organization.available_product_features = [

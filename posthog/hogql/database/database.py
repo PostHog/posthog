@@ -872,6 +872,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User"] = None,
+        user_access_control: Optional["UserAccessControl"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -944,11 +945,11 @@ class Database(BaseModel):
                 if direct_source is not None:
                     database._direct_connection_metadata = direct_source.connection_metadata
 
-        # Build the UserAccessControl once here so schema filtering and the query cache
-        # fingerprint resolve access against one shared, preloaded instance.
+        # Use the caller's preloaded instance when given, so schema filtering and the query cache
+        # fingerprint resolve access from the same rows.
         # Anonymous contexts (no user) have no access control.
         if user is not None:
-            database.user_access_control = UserAccessControl(user=user, team=team)
+            database.user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             if team is not None:
