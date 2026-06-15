@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- Retention entity: a real event name ('$pageview') or the all-events marker.
     kind        LowCardinality(String),
 
-    -- Actor identity. Raw `events.person_id`; overrides resolved at READ time.
+    -- Actor identity. Raw `events.person_id`; overrides resolved at materialisation time.
     actor_id    UUID,
 
     -- All-history first qualifying timestamp (cohort anchor). Read with minMerge(first_seen).

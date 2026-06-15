@@ -13,10 +13,9 @@ from posthog.clickhouse.preaggregation.retention_actor_sql import DISTRIBUTED_RE
 
 
 class RetentionActorTable(Table):
-    # `load_balancing="in_order"` so reads land on the replica a materialisation just wrote
-    # (read-your-writes), and `optimize_skip_unused_shards=1` to prune shards via the team_id filter.
+    # `load_balancing="in_order"` so reads land on the replica a materialisation just wrote (read-your-writes).
     top_level_settings: HogQLQuerySettings | None = Field(
-        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order", optimize_skip_unused_shards=True)
+        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
     )
 
     fields: dict[str, FieldOrTable] = {
