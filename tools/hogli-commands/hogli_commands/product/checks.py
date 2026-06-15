@@ -11,12 +11,13 @@ from __future__ import annotations
 import re
 import json
 import shlex
+import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .paths import TACH_TOML, get_tach_block
+from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -78,6 +79,25 @@ def _pattern_targets_public_surface(pattern: str) -> bool:
         or normalized.startswith("backend.presentation")
         or normalized.startswith("backend.routes")
     )
+
+
+def count_presentation_allowlist_entries(name: str, pyproject_text: str | None = None) -> int:
+    """Count deferred presentation-wave entries for a product in import-linter's ignore_imports.
+
+    Each pair allows the product's own presentation to bypass its facade — work owed to a
+    presentation-wave PR (see the isolating-product-facade-contracts skill).
+    """
+    if pyproject_text is None:
+        pyproject = REPO_ROOT / "pyproject.toml"
+        if not pyproject.exists():
+            return 0
+        pyproject_text = pyproject.read_text()
+    try:
+        contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
+    except (tomllib.TOMLDecodeError, KeyError):
+        return 0
+    prefix = f"products.{name}.backend.presentation"
+    return sum(1 for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefix))
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
@@ -742,6 +762,15 @@ class IsolationChainCheck(ProductCheck):
                 "facade/api.py exists but has no function definitions — "
                 "a real facade should convert models to contracts, not just re-export"
             )
+
+        if has_script and has_narrowed:
+            deferred = count_presentation_allowlist_entries(ctx.name)
+            if deferred:
+                result.warnings.append(
+                    f"{deferred} deferred presentation-wave ignore_imports entr{'y' if deferred == 1 else 'ies'} "
+                    "in pyproject.toml — views bypass their own facade; see the presentation-wave "
+                    "section of the isolating-product-facade-contracts skill"
+                )
 
         if result.issues or result.warnings:
             result.file = f"products/{ctx.name}/backend/facade/api.py"

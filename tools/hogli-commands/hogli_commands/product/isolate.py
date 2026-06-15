@@ -1,0 +1,497 @@
+"""Mechanical tooling for product isolation migrations: scan and move.
+
+scan — read-only recon for the isolating-product-facade-contracts skill:
+classified cross-boundary import map, core-coupling count, strict-lint
+preflight, and a thin/thick signal per view module. Emits a human report or a
+JSON recipe (the recipe is what makes the migration PR regenerable).
+
+move — the deterministic structural half of the migration: viewset modules
+into ``presentation/views/``, ``tasks.py`` into a ``tasks/`` package with
+pinned celery task names, level-1 relative imports absolutized, and a
+repo-wide dotted-path rewrite that covers imports *and* string references
+(``@patch`` mock paths). Word boundaries are enforced in one tested place so
+agents don't re-derive them per shell dialect.
+
+The semantic work — contract design, call-site rewrites, thin-vs-thick view
+decisions — deliberately stays with the engineer or agent.
+"""
+
+from __future__ import annotations
+
+import re
+import ast
+import shutil
+import subprocess
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from .ast_helpers import ast_parse_safe
+from .checks import CheckContext, MisplacedFilesCheck, RequiredRootFilesCheck
+from .paths import PRODUCTS_DIR, REPO_ROOT, load_structure
+
+# ---------------------------------------------------------------------------
+# Reference scanning (scan)
+# ---------------------------------------------------------------------------
+
+# What each consumer kind maps to in the facade design — mirrored from the
+# isolating-product-facade-contracts skill so scan output doubles as the plan.
+KIND_GUIDANCE = {
+    "model-access": "expose a capability function returning a contract (facade/api.py)",
+    "query-runner": "expose a builder plus a class re-export (facade/queries.py) — registry consumers dispatch on class identity",
+    "celery-task": "re-export the task object (facade/tasks.py); core beat schedules import it",
+    "temporal-wiring": "re-export workflows/activities/metrics/constants (facade/temporal.py)",
+    "test-fixture": "use apps.get_model(...) plus a TYPE_CHECKING import, or the facade accessor",
+    "string-reference": "dotted path in a string (mock @patch path, config) — must be rewritten when modules move",
+    "other-internal": "route through a facade function or re-export",
+}
+
+
+@dataclass
+class Reference:
+    file: str
+    line: int
+    module: str
+    kind: str
+    is_import: bool
+
+
+def classify_reference(module: str, importer: str) -> str:
+    parts = Path(importer).parts
+    if any(p in ("test", "tests") for p in parts) or Path(importer).name.startswith("test_"):
+        return "test-fixture"
+    if ".temporal" in module:
+        return "temporal-wiring"
+    if module.endswith(".tasks") or ".tasks." in module:
+        return "celery-task"
+    if module.endswith(".models") or ".models." in module:
+        return "model-access"
+    if "query_runner" in module or "queries" in module:
+        return "query-runner"
+    return "other-internal"
+
+
+def _git_python_files(repo_root: Path) -> list[Path]:
+    out = subprocess.run(["git", "ls-files", "*.py"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
+    return [repo_root / line for line in out.splitlines() if line]
+
+
+def scan_references(name: str, files: list[Path], repo_root: Path) -> list[Reference]:
+    """Find every cross-boundary reference to the product's internals (non-facade)."""
+    dotted = re.compile(rf"products\.{re.escape(name)}\.backend(?:\.[\w.]*\w)?")
+    import_line = re.compile(rf"^\s*(?:from|import)\s+products\.{re.escape(name)}\.backend")
+    own_prefix = f"products/{name}/"
+    facade_prefix = f"products.{name}.backend.facade"
+    refs: list[Reference] = []
+    for path in files:
+        rel = str(path.relative_to(repo_root))
+        if rel.startswith(own_prefix):
+            continue
+        try:
+            text = path.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if f"products.{name}.backend" not in text:
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for match in dotted.finditer(line):
+                module = match.group(0).rstrip(".")
+                if module.startswith(facade_prefix):
+                    continue
+                is_import = bool(import_line.match(line))
+                kind = "string-reference" if not is_import else classify_reference(module, rel)
+                refs.append(Reference(file=rel, line=lineno, module=module, kind=kind, is_import=is_import))
+    return refs
+
+
+def core_coupling_count(refs: list[Reference]) -> int:
+    """The PR-strategy gate from the skill: internals imports from posthog/ and ee/."""
+    return sum(1 for r in refs if r.is_import and (r.file.startswith("posthog/") or r.file.startswith("ee/")))
+
+
+# ---------------------------------------------------------------------------
+# Strict-lint preflight and view-module signals (scan)
+# ---------------------------------------------------------------------------
+
+
+def strict_preflight(name: str) -> list[str]:
+    """Run the structural checks as if the product were already isolated.
+
+    `product:lint` flips to strict the moment facade/contracts.py exists; this
+    surfaces those demands before the migration starts instead of mid-way.
+    """
+    product_dir = PRODUCTS_DIR / name
+    ctx = CheckContext(
+        name=name,
+        product_dir=product_dir,
+        backend_dir=product_dir / "backend",
+        is_isolated=True,
+        structure=load_structure(),
+        detailed=False,
+    )
+    issues: list[str] = []
+    for check in (RequiredRootFilesCheck(), MisplacedFilesCheck()):
+        if check.should_run(ctx):
+            issues.extend(check.run(ctx).issues)
+    return issues
+
+
+def _base_names(node: ast.ClassDef) -> list[str]:
+    names = []
+    for base in node.bases:
+        if isinstance(base, ast.Name):
+            names.append(base.id)
+        elif isinstance(base, ast.Attribute):
+            names.append(base.attr)
+    return names
+
+
+def detect_viewset_modules(backend_dir: Path, include_api: bool = False) -> list[Path]:
+    """Modules defining ViewSet subclasses — the move candidates.
+
+    Backend root by default. ``include_api`` also scans the conventional
+    ``api/`` subpackage, where many products keep their viewsets instead of at
+    root (web_analytics, conversations, endpoints, …).
+    """
+    search_dirs = [backend_dir]
+    if include_api and (backend_dir / "api").is_dir():
+        search_dirs.append(backend_dir / "api")
+    found = []
+    for directory in search_dirs:
+        for path in sorted(directory.glob("*.py")):
+            if path.name in ("__init__.py", "apps.py", "routes.py"):
+                continue
+            tree = ast_parse_safe(path)
+            if tree is None:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and any(b.endswith("ViewSet") for b in _base_names(node)):
+                    found.append(path)
+                    break
+    return found
+
+
+def internal_import_count(path: Path, name: str) -> int:
+    """How many internals a view module imports — the future allowlist size (thin/thick signal)."""
+    pattern = re.compile(rf"^\s*(?:from|import)\s+products\.{re.escape(name)}\.backend\.(?!facade|presentation)[\w.]+")
+    relative = re.compile(r"^\s*from\s+\.")
+    count = 0
+    for line in path.read_text().splitlines():
+        if pattern.match(line) or relative.match(line):
+            count += 1
+    return count
+
+
+def build_scan_report(name: str, repo_root: Path = REPO_ROOT) -> dict:
+    backend_dir = PRODUCTS_DIR / name
+    if not (backend_dir / "backend").exists():
+        raise ValueError(f"products/{name}/backend does not exist")
+    refs = scan_references(name, _git_python_files(repo_root), repo_root)
+    by_kind: dict[str, list[dict]] = {}
+    for ref in sorted(refs, key=lambda r: (r.kind, r.file, r.line)):
+        by_kind.setdefault(ref.kind, []).append(asdict(ref))
+    view_modules = detect_viewset_modules(backend_dir / "backend", include_api=True)
+    return {
+        "product": name,
+        "core_coupling_count": core_coupling_count(refs),
+        "references_by_kind": by_kind,
+        "facade_submodules_needed": sorted(
+            {"tasks" for k in by_kind if k == "celery-task"}
+            | {"temporal" for k in by_kind if k == "temporal-wiring"}
+            | {"queries" for k in by_kind if k == "query-runner"}
+        ),
+        "strict_lint_preflight": strict_preflight(name),
+        "view_modules": [
+            {
+                "module": v.name,
+                "internal_imports": internal_import_count(v, name),
+            }
+            for v in view_modules
+        ],
+        "kind_guidance": {k: KIND_GUIDANCE[k] for k in by_kind},
+    }
+
+
+def render_scan_report(report: dict) -> str:
+    lines = [f"# Isolation scan: {report['product']}", ""]
+    count = report["core_coupling_count"]
+    gate = "single PR" if count < 100 else "facade-first PR + team-sliced sweeps"
+    lines.append(f"Core-coupling count: {count} -> {gate}")
+    lines.append("")
+    lines.append("## Cross-boundary references (the sweep checklist)")
+    for kind, refs in report["references_by_kind"].items():
+        lines.append(f"\n### {kind} ({len(refs)}) — {report['kind_guidance'][kind]}")
+        for ref in refs:
+            lines.append(f"- {ref['file']}:{ref['line']}  {ref['module']}")
+    if report["facade_submodules_needed"]:
+        lines.append("\n## Facade submodules to scaffold")
+        for sub in report["facade_submodules_needed"]:
+            lines.append(f"- facade/{sub}.py")
+    lines.append("\n## Strict-lint preflight (fails the moment facade/contracts.py exists)")
+    if report["strict_lint_preflight"]:
+        lines.extend(f"- {issue}" for issue in report["strict_lint_preflight"])
+    else:
+        lines.append("- clean")
+    lines.append("\n## View modules (thin/thick signal = future ignore_imports entries)")
+    if report["view_modules"]:
+        for view in report["view_modules"]:
+            weight = "thin" if view["internal_imports"] <= 2 else "thick"
+            lines.append(f"- {view['module']}: {view['internal_imports']} internal imports ({weight})")
+    else:
+        lines.append("- none detected (backend root or api/)")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Path rewriting and structural moves (move)
+# ---------------------------------------------------------------------------
+
+
+def rewrite_paths(text: str, renames: dict[str, str]) -> str:
+    """Rewrite dotted module paths with real word boundaries.
+
+    Covers imports and string references alike: fully qualified dotted paths
+    are lexically unambiguous, so a guarded literal match is the boring, safe
+    tool. A trailing dot stays valid (``old.Symbol`` -> ``new.Symbol``); a
+    trailing identifier character does not (``...api`` must not match
+    ``...apps``).
+    """
+    for old, new in sorted(renames.items(), key=lambda kv: -len(kv[0])):
+        pattern = re.compile(rf"(?<![A-Za-z0-9_.]){re.escape(old)}(?![A-Za-z0-9_])")
+        text = pattern.sub(new, text)
+    return text
+
+
+def absolutize_relative_imports(text: str, package: str) -> tuple[str, list[str]]:
+    """Rewrite level-1 relative imports to absolute ones before a module moves.
+
+    ``from .x import y`` means ``<package>.x`` only at the original depth;
+    after the move it would silently resolve elsewhere or break. Deeper
+    relative imports are reported, not guessed.
+    """
+    warnings: list[str] = []
+    out_lines = []
+    for line in text.splitlines(keepends=True):
+        if re.match(r"^\s*from\s+\.\.", line):
+            warnings.append(f"multi-level relative import left untouched: {line.strip()}")
+            out_lines.append(line)
+            continue
+        line = re.sub(r"^(\s*from\s+)\.(?=\s+import\s)", rf"\g<1>{package}", line)
+        line = re.sub(r"^(\s*from\s+)\.(?=\w)", rf"\g<1>{package}.", line)
+        out_lines.append(line)
+    return "".join(out_lines), warnings
+
+
+def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
+    """Pin ``@shared_task`` registration names to their pre-move dotted path.
+
+    Moving ``tasks.py`` into a ``tasks/`` package silently renames every task's
+    registration path, stranding queued messages at deploy. Tasks that already
+    pass ``name=`` are left alone; decorators the regex can't safely handle are
+    reported for manual pinning.
+    """
+    warnings: list[str] = []
+
+    def _pin(match: re.Match[str]) -> str:
+        decorator, args, fn = match.group("decorator"), match.group("args"), match.group("fn")
+        pinned_name = f"{module_path}.{fn}"
+        if args is None:
+            return f'{decorator}(name="{pinned_name}")\ndef {fn}('
+        if "name=" in args:
+            return match.group(0)
+        inner = args[1:-1].strip()
+        joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
+        return f"{decorator}({joined})\ndef {fn}("
+
+    pattern = re.compile(r"(?P<decorator>@shared_task)(?P<args>\([^)]*\))?\s*\ndef (?P<fn>\w+)\(")
+    text = pattern.sub(_pin, text)
+    if "@shared_task" in text and 'name="' not in text:
+        warnings.append("a @shared_task decorator could not be pinned automatically — pin name= manually")
+    return text, warnings
+
+
+def shared_task_names(path: Path) -> list[str]:
+    tree = ast_parse_safe(path)
+    if tree is None:
+        return []
+    names = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for dec in node.decorator_list:
+            target = dec.func if isinstance(dec, ast.Call) else dec
+            if (isinstance(target, ast.Name) and target.id == "shared_task") or (
+                isinstance(target, ast.Attribute) and target.attr == "shared_task"
+            ):
+                names.append(node.name)
+    return names
+
+
+def _module_dotted(name: str, rel: Path) -> str:
+    """Dotted module path of a backend-relative file.
+
+    ``api/heatmaps_api.py`` -> ``products.<name>.backend.api.heatmaps_api`` — the
+    intermediate package matters, so derive from the full relative path, not the stem.
+    """
+    return ".".join((f"products.{name}.backend", *rel.with_suffix("").parts))
+
+
+@dataclass
+class MovePlan:
+    product: str
+    view_moves: list[tuple[Path, Path]]
+    module_renames: dict[str, str]
+    tasks_move: tuple[Path, Path] | None
+    serializers_move: tuple[Path, Path] | None = None
+
+
+def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
+    backend_dir = PRODUCTS_DIR / name / "backend"
+    target_dir = backend_dir / "presentation" / "views"
+    view_moves: list[tuple[Path, Path]] = []
+    renames: dict[str, str] = {}
+
+    if views:
+        view_paths = [backend_dir / v for v in views]
+        missing = [str(p) for p in view_paths if not p.exists()]
+        if missing:
+            raise ValueError(f"view modules not found: {missing}")
+        for p in view_paths:
+            view_moves.append((p, target_dir / p.name))
+            renames[_module_dotted(name, p.relative_to(backend_dir))] = (
+                f"products.{name}.backend.presentation.views.{p.stem}"
+            )
+    else:
+        for p in detect_viewset_modules(backend_dir):
+            view_moves.append((p, target_dir / p.name))
+            renames[f"products.{name}.backend.{p.stem}"] = f"products.{name}.backend.presentation.views.{p.stem}"
+        api_dir = backend_dir / "api"
+        if api_dir.is_dir():
+            # Relocate the whole api/ subpackage — viewsets, helpers, and its
+            # __init__ re-exports all move together, so one prefix rename
+            # (backend.api -> backend.presentation.views) covers every caller,
+            # including bare-package imports resolved through __init__.
+            for p in sorted(api_dir.glob("*.py")):
+                view_moves.append((p, target_dir / p.name))
+            renames[f"products.{name}.backend.api"] = f"products.{name}.backend.presentation.views"
+
+    serializers_py = backend_dir / "serializers.py"
+    serializers_move = None
+    if serializers_py.is_file():
+        serializers_move = (serializers_py, backend_dir / "presentation" / "serializers.py")
+        renames[f"products.{name}.backend.serializers"] = f"products.{name}.backend.presentation.serializers"
+
+    tasks_py = backend_dir / "tasks.py"
+    tasks_move = (tasks_py, backend_dir / "tasks" / "tasks.py") if tasks_py.is_file() else None
+    return MovePlan(
+        product=name,
+        view_moves=view_moves,
+        module_renames=renames,
+        tasks_move=tasks_move,
+        serializers_move=serializers_move,
+    )
+
+
+_PACKAGE_INIT_DOCSTRINGS = {
+    "presentation": '"""HTTP presentation layer of the {name} product (DRF viewsets and serializers)."""\n',
+    "views": '"""DRF viewsets for {name} — submodule paths (`backend.presentation.views.*`) are part\nof the shared tach interface for isolated products.\n"""\n',
+}
+
+
+def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool = False) -> list[str]:
+    log: list[str] = []
+    name = plan.product
+    backend_dir = PRODUCTS_DIR / name / "backend"
+
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--", f"products/{name}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if dirty and not dry_run:
+        raise ValueError(f"products/{name} has uncommitted changes — commit or stash first so the move is revertable")
+
+    for src, dst in plan.view_moves:
+        log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)}")
+    if plan.serializers_move:
+        src, dst = plan.serializers_move
+        log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)}")
+    if plan.tasks_move:
+        src, dst = plan.tasks_move
+        log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)} (celery names pinned)")
+    for old, new in plan.module_renames.items():
+        log.append(f"rewrite {old} -> {new} (imports and string references, repo-wide)")
+    if dry_run:
+        return log
+
+    # __init__ files an api/ subpackage brings with it are move targets — don't
+    # pre-create those, or the git mv collides with the scaffolded file.
+    move_targets = {dst for _, dst in plan.view_moves}
+    if plan.serializers_move:
+        move_targets.add(plan.serializers_move[1])
+
+    if plan.view_moves:
+        target_dir = backend_dir / "presentation" / "views"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for dirname, parent in (("presentation", backend_dir), ("views", backend_dir / "presentation")):
+            init = parent / dirname / "__init__.py"
+            if not init.exists() and init not in move_targets:
+                init.write_text(_PACKAGE_INIT_DOCSTRINGS[dirname].format(name=name))
+        for src, dst in plan.view_moves:
+            # Relative imports resolve against the file's *original* package, so
+            # absolutize against the source dir (backend.api for api/ files), not root.
+            src_package = ".".join((f"products.{name}.backend", *src.parent.relative_to(backend_dir).parts))
+            subprocess.run(["git", "mv", str(src), str(dst)], cwd=repo_root, check=True)
+            fixed, warnings = absolutize_relative_imports(dst.read_text(), src_package)
+            dst.write_text(fixed)
+            log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in warnings)
+            if "__file__" in fixed:
+                # Found the hard way on logs: explain.py resolved its template dir via
+                # Path(__file__).parent, which silently points elsewhere after the move.
+                log.append(
+                    f"WARNING {dst.relative_to(repo_root)}: uses __file__-relative paths — "
+                    "re-anchor resource paths for the new module depth"
+                )
+        api_dir = backend_dir / "api"
+        if api_dir.is_dir() and not any(p for p in api_dir.iterdir() if p.name != "__pycache__"):
+            shutil.rmtree(api_dir)
+            log.append(f"removed empty {api_dir.relative_to(repo_root)}")
+
+    if plan.serializers_move:
+        src, dst = plan.serializers_move
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        init = backend_dir / "presentation" / "__init__.py"
+        if not init.exists():
+            init.write_text(_PACKAGE_INIT_DOCSTRINGS["presentation"].format(name=name))
+        subprocess.run(["git", "mv", str(src), str(dst)], cwd=repo_root, check=True)
+        fixed, warnings = absolutize_relative_imports(dst.read_text(), f"products.{name}.backend")
+        dst.write_text(fixed)
+        log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in warnings)
+
+    if plan.tasks_move:
+        src, dst = plan.tasks_move
+        dst.parent.mkdir(exist_ok=True)
+        subprocess.run(["git", "mv", str(src), str(dst)], cwd=repo_root, check=True)
+        pinned, warnings = pin_task_names(dst.read_text(), f"products.{name}.backend.tasks")
+        dst.write_text(pinned)
+        log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in warnings)
+        task_names = shared_task_names(dst)
+        imports = f"from products.{name}.backend.tasks.tasks import {', '.join(sorted(task_names))}\n"
+        exports = "__all__ = [" + ", ".join(f'"{n}"' for n in sorted(task_names)) + "]\n"
+        (dst.parent / "__init__.py").write_text(imports + "\n" + exports if task_names else "")
+
+    if plan.module_renames:
+        changed = 0
+        for path in _git_python_files(repo_root):
+            try:
+                text = path.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+            rewritten = rewrite_paths(text, plan.module_renames)
+            if rewritten != text:
+                path.write_text(rewritten)
+                changed += 1
+        log.append(f"rewrote module paths in {changed} files")
+
+    return log
