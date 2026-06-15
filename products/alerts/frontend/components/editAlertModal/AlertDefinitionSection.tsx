@@ -21,14 +21,13 @@ import {
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
+import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
-import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
 export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
@@ -96,7 +95,6 @@ export function AlertDefinitionSection({
         (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
-    const hogqlHasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
     return (
         <>
             {isBreakdownValid && (
@@ -107,145 +105,23 @@ export function AlertDefinitionSection({
                 </LemonBanner>
             )}
             {isTrendsAlertConfig(alertForm.config) ? (
-                <div className="flex gap-3 items-center">
-                    <div>When</div>
-                    <Group name={['config']}>
-                        <LemonField name="series_index" className="flex-auto">
-                            <LemonSelect
-                                fullWidth
-                                data-attr="alertForm-series-index"
-                                options={
-                                    (formulaNodes?.length ?? 0) > 0
-                                        ? (formulaNodes ?? []).map(({ formula, custom_name }, index) => ({
-                                              label: `${custom_name ? custom_name : 'Formula'} (${formula})`,
-                                              value: index,
-                                          }))
-                                        : (alertSeries?.map(({ custom_name, name, event }, index) => ({
-                                              label: isBreakdownValid
-                                                  ? 'any breakdown value'
-                                                  : `${alphabet[index]} - ${custom_name ?? name ?? event}`,
-                                              value: isBreakdownValid ? 0 : index,
-                                          })) ?? [])
-                                }
-                                disabledReason={
-                                    isBreakdownValid &&
-                                    (alertMode === 'detector'
-                                        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                                        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
-                                }
-                            />
-                        </LemonField>
-                    </Group>
-                </div>
+                <TrendsDefinitionFields
+                    alertSeries={alertSeries}
+                    formulaNodes={formulaNodes}
+                    isBreakdownValid={isBreakdownValid}
+                    alertMode={alertMode}
+                />
             ) : isFunnelsAlertConfig(alertForm.config) ? (
-                <div className="flex flex-wrap gap-3 items-center">
-                    <div>Alert on</div>
-                    <Group name={['config']}>
-                        <LemonField name="metric" className="flex-auto">
-                            <LemonSelect
-                                fullWidth
-                                data-attr="alertForm-funnel-metric"
-                                options={[
-                                    { label: 'conversion from first step', value: 'conversion_from_start' },
-                                    { label: 'conversion from previous step', value: 'conversion_from_previous' },
-                                ]}
-                            />
-                        </LemonField>
-                        <LemonField name="funnel_step" className="flex-auto">
-                            <LemonSelect
-                                fullWidth
-                                data-attr="alertForm-funnel-step"
-                                options={[
-                                    { label: 'overall (last step)', value: null },
-                                    ...Array.from({ length: funnelStepCount }, (_, index) => ({
-                                        label: `step ${index + 1}`,
-                                        value: index,
-                                    })),
-                                ]}
-                            />
-                        </LemonField>
-                    </Group>
-                </div>
+                <FunnelsDefinitionFields funnelStepCount={funnelStepCount} />
             ) : (
-                <>
-                    <div className="flex gap-3 items-center">
-                        <div>When</div>
-                        <Group name={['config']}>
-                            <LemonField name="evaluation" className="flex-auto">
-                                {({ value, onChange }) => (
-                                    <LemonSelect
-                                        fullWidth
-                                        data-attr="alertForm-hogql-evaluation"
-                                        value={value ?? 'last_row'}
-                                        onChange={(newValue) => {
-                                            onChange(newValue)
-                                            // Any-row mode checks unrelated rows — a relative condition is meaningless.
-                                            if (newValue === 'any_row') {
-                                                onSetAlertFormValue('condition', {
-                                                    type: AlertConditionType.ABSOLUTE_VALUE,
-                                                })
-                                            }
-                                        }}
-                                        options={[
-                                            {
-                                                label: 'the last row',
-                                                value: 'last_row',
-                                                tooltip:
-                                                    'For queries ordered oldest→newest (the usual chart order): the last row is the current value.',
-                                            },
-                                            {
-                                                label: 'the first row',
-                                                value: 'first_row',
-                                                tooltip:
-                                                    'For queries ordered newest→oldest (e.g. ORDER BY ... DESC): the first row is the current value. Pairs with a LIMIT to bound the query.',
-                                            },
-                                            {
-                                                label: 'any row',
-                                                value: 'any_row',
-                                                tooltip:
-                                                    'Every row is checked and the alert fires if any value breaches the threshold — e.g. one row per country.',
-                                            },
-                                        ]}
-                                    />
-                                )}
-                            </LemonField>
-                            {hogqlHasMultipleColumns && (
-                                <LemonField name="column" className="flex-auto">
-                                    {/* Prefilled with the last numeric column by alertFormLogic; the
-                                        placeholder only shows when nothing numeric is detectable. */}
-                                    <LemonSelect
-                                        fullWidth
-                                        data-attr="alertForm-hogql-column"
-                                        placeholder="select column to evaluate"
-                                        options={hogqlValueColumnOptions}
-                                    />
-                                </LemonField>
-                            )}
-                        </Group>
-                    </div>
-                    {isHogQLAnyRow(alertForm) && hogqlHasMultipleColumns && (
-                        <div className="flex gap-3 items-center">
-                            <Tooltip title="Names the breaching row in notifications and the check history.">
-                                <div className="flex items-center gap-1">
-                                    Labeled by <IconInfo className="text-muted" />
-                                </div>
-                            </Tooltip>
-                            <Group name={['config']}>
-                                <LemonField name="label_column" className="flex-auto">
-                                    {/* Prefilled with the first non-evaluated column by alertFormLogic. */}
-                                    <LemonSelect
-                                        fullWidth
-                                        data-attr="alertForm-hogql-label-column"
-                                        placeholder="select label column"
-                                        options={hogqlLabelColumnOptions}
-                                    />
-                                </LemonField>
-                            </Group>
-                        </div>
-                    )}
-                    <HogQLAlertPreviewBanner preview={hogqlPreview} conditionType={alertForm.condition?.type} />
-                    {hogqlPreview?.status === 'ok' && <HogQLAlertPreviewRowsTable preview={hogqlPreview} />}
-                </>
+                <HogQLDefinitionFields
+                    alertForm={alertForm}
+                    hogqlPreview={hogqlPreview}
+                    hogqlColumns={hogqlColumns}
+                    hogqlValueColumnOptions={hogqlValueColumnOptions}
+                    hogqlLabelColumnOptions={hogqlLabelColumnOptions}
+                    onSetAlertFormValue={onSetAlertFormValue}
+                />
             )}
 
             {anomalyDetectionEnabled && (
