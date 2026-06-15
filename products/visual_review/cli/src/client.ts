@@ -119,6 +119,7 @@ export class VisualReviewClient {
         prNumber?: number
         purpose?: string
         metadata?: Record<string, string>
+        isPartial?: boolean
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -129,6 +130,7 @@ export class VisualReviewClient {
             pr_number: input.prNumber,
             purpose: input.purpose,
             metadata: input.metadata,
+            is_partial: input.isPartial,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {

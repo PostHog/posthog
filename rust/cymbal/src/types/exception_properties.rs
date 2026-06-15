@@ -10,7 +10,7 @@ use crate::{
     fingerprinting::FingerprintRecordPart,
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
-    langs::apple::AppleDebugImage,
+    langs::native::DebugImage,
     recursively_sanitize_properties,
     types::{event::AnyEvent, ExceptionList, OutputErrProps},
 };
@@ -59,7 +59,7 @@ pub struct ExceptionProperties {
         default,
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub debug_images: Vec<AppleDebugImage>,
+    pub debug_images: Vec<DebugImage>,
 
     #[serde(flatten)]
     pub props: HashMap<String, Value>,

@@ -9,7 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AddDashboardWidgetsBatchRequestApi,
+    AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
@@ -21,7 +21,6 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
-    DashboardsAnalyzeRefreshResultCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -38,7 +37,6 @@ import type {
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
-    DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
@@ -51,10 +49,10 @@ import type {
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
-    PatchedDashboardApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
+    PatchedPatchedDashboardOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
@@ -84,7 +82,7 @@ export const getDashboardTemplatesListUrl = (projectId: string, params?: Dashboa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -229,7 +227,7 @@ export const getDashboardsListUrl = (projectId: string, params?: DashboardsListP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -256,7 +254,7 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -335,7 +333,7 @@ export const getDashboardsRetrieveUrl = (projectId: string, id: number, params?:
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -363,7 +361,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -398,7 +396,7 @@ export const getDashboardsPartialUpdateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -412,7 +410,7 @@ export const getDashboardsPartialUpdateUrl = (
 export const dashboardsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboardApi?: NonReadonly<PatchedDashboardApi>,
+    patchedPatchedDashboardOpenApiApi?: PatchedPatchedDashboardOpenApiApi,
     params?: DashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -420,7 +418,7 @@ export const dashboardsPartialUpdate = async (
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardApi),
+        body: JSON.stringify(patchedPatchedDashboardOpenApiApi),
     })
 }
 
@@ -429,7 +427,7 @@ export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: 
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -455,45 +453,6 @@ export const dashboardsDestroy = async (
     })
 }
 
-export const getDashboardsAnalyzeRefreshResultCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsAnalyzeRefreshResultCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/`
-}
-
-/**
- * Generate AI analysis comparing before/after dashboard refresh.
-Expects cache_key in request body pointing to the stored 'before' state.
- */
-export const dashboardsAnalyzeRefreshResultCreate = async (
-    projectId: string,
-    id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
-    params?: DashboardsAnalyzeRefreshResultCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsAnalyzeRefreshResultCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
 export const getDashboardsCopyTileCreateUrl = (
     projectId: string,
     id: number,
@@ -503,7 +462,7 @@ export const getDashboardsCopyTileCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -541,7 +500,7 @@ export const getDashboardsCreateTextTileCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -554,9 +513,9 @@ export const getDashboardsCreateTextTileCreateUrl = (
 
 /**
  * Add a markdown text tile to a dashboard.
-
-Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
-or annotations between insight tiles to give the dashboard structure.
+ *
+ * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+ * or annotations between insight tiles to give the dashboard structure.
  */
 export const dashboardsCreateTextTileCreate = async (
     projectId: string,
@@ -578,7 +537,7 @@ export const getDashboardsDeleteTileUrl = (projectId: string, id: number, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -591,10 +550,10 @@ export const getDashboardsDeleteTileUrl = (projectId: string, id: number, params
 
 /**
  * Soft-delete a single tile from a dashboard.
-
-Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
-object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
-use the dashboard delete endpoint instead.
+ *
+ * Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+ * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+ * use the dashboard delete endpoint instead.
  */
 export const dashboardsDeleteTile = async (
     projectId: string,
@@ -620,7 +579,7 @@ export const getDashboardsMoveTileCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -655,7 +614,7 @@ export const getDashboardsMoveTilePartialUpdateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -690,7 +649,7 @@ export const getDashboardsReorderTilesCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -725,7 +684,7 @@ export const getDashboardsRunInsightsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -760,7 +719,7 @@ export const getDashboardsRunWidgetsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -783,45 +742,6 @@ export const dashboardsRunWidgetsRetrieve = async (
     })
 }
 
-export const getDashboardsSnapshotCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsSnapshotCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/snapshot/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/snapshot/`
-}
-
-/**
- * Snapshot the current dashboard state (from cache) for AI analysis.
-Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
- */
-export const dashboardsSnapshotCreate = async (
-    projectId: string,
-    id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
-    params?: DashboardsSnapshotCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsSnapshotCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
 export const getDashboardsStreamTilesRetrieveUrl = (
     projectId: string,
     id: number,
@@ -831,7 +751,7 @@ export const getDashboardsStreamTilesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -866,7 +786,7 @@ export const getDashboardsUpdateTextTileCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -904,7 +824,7 @@ export const getDashboardsWidgetsBatchCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -921,7 +841,7 @@ export const getDashboardsWidgetsBatchCreateUrl = (
 export const dashboardsWidgetsBatchCreate = async (
     projectId: string,
     id: number,
-    addDashboardWidgetsBatchRequestApi: AddDashboardWidgetsBatchRequestApi,
+    addDashboardWidgetsBatchRequestOpenApiApi: AddDashboardWidgetsBatchRequestOpenApiApi,
     params?: DashboardsWidgetsBatchCreateParams,
     options?: RequestInit
 ): Promise<AddDashboardWidgetsBatchResponseApi> => {
@@ -929,7 +849,7 @@ export const dashboardsWidgetsBatchCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addDashboardWidgetsBatchRequestApi),
+        body: JSON.stringify(addDashboardWidgetsBatchRequestOpenApiApi),
     })
 }
 
@@ -941,7 +861,7 @@ export const getDashboardsBulkUpdateTagsCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -954,22 +874,22 @@ export const getDashboardsBulkUpdateTagsCreateUrl = (
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const dashboardsBulkUpdateTagsCreate = async (
     projectId: string,
@@ -993,7 +913,7 @@ export const getDashboardsCreateFromTemplateJsonCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1026,7 +946,7 @@ export const getDashboardsCreateUnlistedDashboardCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1039,8 +959,8 @@ export const getDashboardsCreateUnlistedDashboardCreateUrl = (
 
 /**
  * Creates an unlisted dashboard from template by tag.
-Enforces uniqueness (one per tag per team).
-Returns 409 if unlisted dashboard with this tag already exists.
+ * Enforces uniqueness (one per tag per team).
+ * Returns 409 if unlisted dashboard with this tag already exists.
  */
 export const dashboardsCreateUnlistedDashboardCreate = async (
     projectId: string,
@@ -1064,7 +984,7 @@ export const getDashboardsWidgetCatalogRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1076,7 +996,7 @@ export const getDashboardsWidgetCatalogRetrieveUrl = (
 }
 
 /**
- * List registered dashboard widget types and config hints for agents.
+ * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
 export const dashboardsWidgetCatalogRetrieve = async (
     projectId: string,
@@ -1094,7 +1014,7 @@ export const getDataColorThemesListUrl = (projectId: string, params?: DataColorT
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

@@ -69,7 +69,7 @@ def snowflake_config(database, schema) -> dict[str, str | None]:
 @pytest_asyncio.fixture
 async def snowflake_batch_export(
     ateam, table_name, snowflake_config, interval, exclude_events, temporal_client
-) -> AsyncGenerator[BatchExport, None]:
+) -> AsyncGenerator[BatchExport]:
     """Manage BatchExport model (and associated Temporal Schedule) for tests"""
     destination_data = {
         "type": "Snowflake",

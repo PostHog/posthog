@@ -71,6 +71,7 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -627,6 +628,7 @@ const ConditionContent = ({
                                                 }}
                                                 suffix={<span>%</span>}
                                                 className="w-20"
+                                                data-attr="rollout-percentage"
                                             />
                                         </div>
                                         {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
@@ -684,20 +686,7 @@ const ConditionContent = ({
                                                 })()}
                                                 {(group.aggregation_group_type_index ??
                                                     releaseFilters.aggregation_group_type_index) == null && (
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                A user may have{' '}
-                                                                <Link
-                                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                                    target="_blank"
-                                                                >
-                                                                    multiple profiles
-                                                                </Link>
-                                                            </>
-                                                        }
-                                                        interactive
-                                                    >
+                                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
                                                         <IconInfo className="text-muted text-xs ml-0.5" />
                                                     </Tooltip>
                                                 )}

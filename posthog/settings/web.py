@@ -6,8 +6,8 @@ import structlog
 from corsheaders.defaults import default_headers
 
 from posthog.scopes import get_scope_descriptions
-from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
+from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -35,10 +35,12 @@ PRODUCTS_APPS = [
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
+    "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
@@ -86,6 +88,9 @@ PRODUCTS_APPS = [
     "products.annotations.backend.apps.AnnotationsConfig",
     "products.batch_exports.backend.apps.BatchExportsConfig",
     "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
+    "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
+    "products.replay.backend.apps.ReplayConfig",
+    "products.cohorts.backend.apps.CohortsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -145,6 +150,9 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # Below CorsMiddleware so redirects get CORS headers; above auth/CSRF since a
+    # redirect needs neither — clients re-send credentials to the rewritten path.
+    "posthog.middleware.EnvironmentsRedirectMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -403,6 +411,7 @@ SPECTACULAR_SETTINGS = {
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
+        "products.dashboards.backend.widget_specs.pydantic_openapi.inject_widget_spec_pydantic_components",
         "posthog.api.documentation.custom_postprocessing_hook",
         # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
         # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
@@ -448,6 +457,7 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
@@ -463,6 +473,8 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
+        "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
@@ -510,9 +522,16 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+        # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
+        # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
+        # a per-type override they all collide into one mangled name. Override key is the
+        # stable component name; value is the singleton list even though length is 1.
+        "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
+        "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
@@ -520,7 +539,7 @@ SPECTACULAR_SETTINGS = {
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
-        "NotificationDestinationTypeEnum": ["slack", "webhook"],
+        "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
         "TaskRunArtifactTypeEnum": [
             "plan",
             "context",
@@ -685,6 +704,16 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+####
+# /api/environments deprecation
+
+# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
+# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
+# posthog.middleware.EnvironmentsRedirectMiddleware.
+# ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
+# /api/environments/* responses. Empty string omits the header.
+API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
+
 # Query service SLO sampling rate. Each QueryRunner.run() call emits two events
 # (slo_operation_started + slo_operation_completed); unsampled, that's many millions of
 # events per day. The chosen rate is stamped on each event as `properties.sample_rate`
@@ -740,12 +769,25 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
 
+# Saving an RS256 OAuthApplication validates that this key is set, so a test run without one
+# (fork PRs, bare local environments) fails in every test that creates an OAuth app. Generate
+# an ephemeral key so tests never depend on an env-provided key.
+if TEST and not OIDC_RSA_PRIVATE_KEY:
+    OIDC_RSA_PRIVATE_KEY = generate_rsa_private_key_pem()
+
+OIDC_RSA_PRIVATE_KEY_INACTIVE_1 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_1", "").replace("\\n", "\n")
+OIDC_RSA_PRIVATE_KEY_INACTIVE_2 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_2", "").replace("\\n", "\n")
+OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
+    key for key in (OIDC_RSA_PRIVATE_KEY_INACTIVE_1, OIDC_RSA_PRIVATE_KEY_INACTIVE_2) if key
+]
+
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": OIDC_RSA_PRIVATE_KEYS_INACTIVE,
     "SCOPES": {
         "openid": "OpenID Connect scope",
         "profile": "Access to user's profile",
@@ -814,9 +856,27 @@ TOOLBAR_OAUTH_SCOPES = [
     "uploaded_media:write",
     "survey:read",
     "survey:write",
+    "field_note:read",
+    "field_note:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
+
+# Teams force-enrolled in web analytics lazy precompute: the eligibility gate
+# bypasses the org rollout flag for these, and the eager warmer uses the same
+# list as its audience — one source of truth so warmer and reader cannot drift.
+# The default enrolls the Cloud dogfooding team (project 2) ONLY on Cloud —
+# never self-hosted, where lazy precompute is Cloud-only and project id 2 is an
+# arbitrary customer project. A comma-separated env var overrides it on any
+# deployment; changing enrollment is a deploy-time env-var change (Django +
+# Dagster), not runtime-overridable.
+_LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS = (
+    "2" if (CLOUD_DEPLOYMENT or "").upper() in ("EU", "US", "DEV", "E2E") and not TEST else ""
+)
+WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]

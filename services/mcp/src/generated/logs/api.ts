@@ -2255,16 +2255,21 @@ export const LogsAlertsDestinationsCreateParams = /* @__PURE__ */ zod.object({
 
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook'])
-        .describe('* `slack` - slack\n* `webhook` - webhook')
-        .describe('Destination type — slack or webhook.\n\n* `slack` - slack\n* `webhook` - webhook'),
+        .enum(['slack', 'webhook', 'teams'])
+        .describe('* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams')
+        .describe(
+            'Destination type — slack, webhook, or teams.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod.url().optional().describe('HTTPS endpoint to POST to. Required when type=webhook.'),
+    webhook_url: zod
+        .url()
+        .optional()
+        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
 })
 
 /**
@@ -3712,6 +3717,7 @@ export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
+export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -3801,6 +3807,12 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters for the query.'),
             limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
+            excludeAttributes: zod
+                .boolean()
+                .default(logsQueryCreateBodyQueryOneExcludeAttributesDefault)
+                .describe(
+                    'Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.'
+                ),
         })
         .describe('The logs query to execute.'),
 })

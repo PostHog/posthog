@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { sliceAt } from '../../charts/PieChart/computePieLayout'
-import type { PieLayout, PieSlice } from '../../charts/PieChart/computePieLayout'
+import { sliceAt } from '../radial-layout'
+import type { PieLayout, PieSlice } from '../radial-layout'
 import type { ResolvedSeries, TooltipContext } from '../types'
 import { useLatest } from './useLatest'
 import { useTooltipLifecycle } from './useTooltipLifecycle'

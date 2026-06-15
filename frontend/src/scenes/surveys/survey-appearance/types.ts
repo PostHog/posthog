@@ -19,4 +19,6 @@ export interface CommonProps {
 export interface CustomizationProps extends CommonProps {
     hasBranchingLogic: boolean
     deleteBranchingLogic?: () => void
+    /** When provided (i.e. inside the survey editor), enables inline per-language back button labels. */
+    onTranslationsChange?: (translations: NonNullable<Survey['translations']>) => void
 }

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
@@ -133,6 +133,32 @@ function SnapshotThumbnail({
     )
 }
 
+function QuarantinedThumbnailsToggle({
+    hiddenCount,
+    isExpanded,
+    onClick,
+}: {
+    hiddenCount: number
+    isExpanded: boolean
+    onClick: () => void
+}): JSX.Element {
+    const label = isExpanded
+        ? 'Hide quarantined'
+        : `${hiddenCount} quarantined item${hiddenCount === 1 ? '' : 's'} hidden`
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-expanded={isExpanded}
+            data-attr="visual-review-toggle-quarantined-thumbnails"
+            className="shrink-0 text-xs text-muted hover:text-default hover:underline underline-offset-2 transition-colors"
+        >
+            {label}
+        </button>
+    )
+}
+
 const PENDING_STALE_THRESHOLD_MS = 15 * 60 * 1000
 
 function RunInProgressEmptyState({
@@ -194,6 +220,7 @@ export function VisualReviewRunScene(): JSX.Element {
         toleratedHashesLoading,
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
+        showQuarantinedThumbnails,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -202,6 +229,7 @@ export function VisualReviewRunScene(): JSX.Element {
         isRunProcessing,
         failedThumbnails,
         thumbnailBasePath,
+        addImagesToComment,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -212,10 +240,24 @@ export function VisualReviewRunScene(): JSX.Element {
         unquarantineSnapshot,
         recomputeRun,
         markThumbnailFailed,
+        toggleQuarantinedThumbnails,
+        setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
+
+    const quarantinedNavCount = navSnapshots.filter((s: SnapshotApi) =>
+        quarantinedIdentifierSet.has(s.identifier)
+    ).length
+    const isHiddenQuarantined = (s: SnapshotApi): boolean =>
+        quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
+    const visibleNavSnapshots = showQuarantinedThumbnails
+        ? navSnapshots
+        : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
+    const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
+
     const currentIndex = selectedSnapshot
         ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
@@ -346,14 +388,24 @@ export function VisualReviewRunScene(): JSX.Element {
                 resourceType={{ type: 'visual_review' }}
                 actions={
                     !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={finalizeRun}
-                            loading={isFinalizing}
-                            data-attr="visual-review-finalize-run"
-                        >
-                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
-                        </LemonButton>
+                        <div className="flex items-center gap-2">
+                            <LemonCheckbox
+                                checked={addImagesToComment}
+                                onChange={setAddImagesToComment}
+                                disabledReason={isFinalizing ? 'Finalizing…' : undefined}
+                                label="Add snapshots to the PR comment"
+                                info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
+                                data-attr="visual-review-add-images-to-comment"
+                            />
+                            <LemonButton
+                                type="primary"
+                                onClick={finalizeRun}
+                                loading={isFinalizing}
+                                data-attr="visual-review-finalize-run"
+                            >
+                                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                            </LemonButton>
+                        </div>
                     ) : undefined
                 }
             />
@@ -454,7 +506,7 @@ export function VisualReviewRunScene(): JSX.Element {
 
                     {navSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
-                            {navSnapshots.map((snapshot: SnapshotApi) => {
+                            {visibleNavSnapshots.map((snapshot: SnapshotApi) => {
                                 const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
                                 return (
                                     <SnapshotThumbnail
@@ -477,33 +529,48 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {navSnapshots.length > 1 && (
-                        <div className="flex items-center justify-end gap-2 px-3 pb-2">
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconChevronLeft />}
-                                sideIcon={<KeyboardShortcut p />}
-                                onClick={goToPrevious}
-                                disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
-                                data-attr="visual-review-snapshot-previous"
-                            >
-                                Previous
-                            </LemonButton>
-                            {currentIndex >= 0 && (
-                                <span className="text-xs text-muted">
-                                    {currentIndex + 1} of {navSnapshots.length}
-                                </span>
+                    {(showQuarantinedToggle || navSnapshots.length > 1) && (
+                        <div
+                            className={`flex items-center gap-2 px-3 pb-2 ${
+                                showQuarantinedToggle ? 'justify-between' : 'justify-end'
+                            }`}
+                        >
+                            {showQuarantinedToggle && (
+                                <QuarantinedThumbnailsToggle
+                                    hiddenCount={hiddenQuarantinedCount}
+                                    isExpanded={showQuarantinedThumbnails}
+                                    onClick={toggleQuarantinedThumbnails}
+                                />
                             )}
-                            <LemonButton
-                                size="xsmall"
-                                icon={<KeyboardShortcut n />}
-                                sideIcon={<IconChevronRight />}
-                                onClick={goToNext}
-                                disabledReason={!hasNext ? 'No next snapshot' : undefined}
-                                data-attr="visual-review-snapshot-next"
-                            >
-                                Next
-                            </LemonButton>
+                            {navSnapshots.length > 1 && (
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconChevronLeft />}
+                                        sideIcon={<KeyboardShortcut p />}
+                                        onClick={goToPrevious}
+                                        disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                                        data-attr="visual-review-snapshot-previous"
+                                    >
+                                        Previous
+                                    </LemonButton>
+                                    {currentIndex >= 0 && (
+                                        <span className="text-xs text-muted">
+                                            {currentIndex + 1} of {navSnapshots.length}
+                                        </span>
+                                    )}
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<KeyboardShortcut n />}
+                                        sideIcon={<IconChevronRight />}
+                                        onClick={goToNext}
+                                        disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                                        data-attr="visual-review-snapshot-next"
+                                    >
+                                        Next
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

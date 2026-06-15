@@ -32,7 +32,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
+import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import {
+    getUnhealthyProviderKey,
+    providerKeyStateIssueDescription,
+    providerKeyStateLabel,
+    providerLabel,
+} from '../settings/providerKeyStateUtils'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import {
     EvaluationMetrics,
@@ -71,15 +77,24 @@ function getActiveTab(
     return tab === 'offline-evals' || tab === 'offline' ? 'offline-evals' : 'online-evals'
 }
 
-function AIObservabilityEvaluationsContent({ tabId }: { tabId?: string }): JSX.Element {
-    const evaluationsLogic = llmEvaluationsLogic({ tabId })
-    const metricsLogic = evaluationMetricsLogic({ tabId })
+function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
+    if (evaluation.evaluation_type === 'hog') {
+        return null
+    }
+
+    return getUnhealthyProviderKey(providerKeys, evaluation.model_configuration?.provider_key_id)
+}
+
+function AIObservabilityEvaluationsContent(): JSX.Element {
+    const evaluationsLogic = llmEvaluationsLogic()
+    const metricsLogic = evaluationMetricsLogic()
     const {
         evaluations,
         filteredEvaluations,
         evaluationsLoading,
         evaluationsFilter,
         dateFilter,
+        providerKeys,
         unhealthyProviderKeysUsedByEvaluations,
         canEnableEvaluation,
     } = useValues(evaluationsLogic)
@@ -126,6 +141,20 @@ function AIObservabilityEvaluationsContent({ tabId }: { tabId?: string }): JSX.E
                         <Tooltip title={`${statusReasonLabel(evaluation.status_reason)}. Open to fix.`}>
                             <LemonTag type="danger" icon={<IconWarning />} data-attr="evaluation-status-error">
                                 Error
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
+                const providerKeyIssue = evaluation.enabled ? getProviderKeyIssue(evaluation, providerKeys) : null
+                if (providerKeyIssue) {
+                    return (
+                        <Tooltip
+                            title={`Paused because API key ${providerKeyIssue.name} ${providerKeyStateIssueDescription(
+                                providerKeyIssue.state
+                            )}.`}
+                        >
+                            <LemonTag type="warning" icon={<IconWarning />} data-attr="evaluation-status-key-issue">
+                                Key issue
                             </LemonTag>
                         </Tooltip>
                     )
@@ -370,11 +399,11 @@ function AIObservabilityEvaluationsContent({ tabId }: { tabId?: string }): JSX.E
     )
 }
 
-export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function AIObservabilityEvaluationsScene(): JSX.Element {
     const { searchParams, location } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic({ tabId }))
-    const metricsLogic = evaluationMetricsLogic({ tabId })
+    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic())
+    const metricsLogic = evaluationMetricsLogic()
     const showOfflineEvals = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
     const activeTab = getActiveTab(location.pathname, searchParams, showOfflineEvals)
 
@@ -384,7 +413,7 @@ export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): 
         {
             key: 'online-evals',
             label: 'Online evals',
-            content: <AIObservabilityEvaluationsContent tabId={tabId} />,
+            content: <AIObservabilityEvaluationsContent />,
             link: combineUrl(urls.aiObservabilityEvaluations(), {
                 ...searchParams,
                 tab: undefined,
@@ -404,7 +433,7 @@ export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): 
                               </LemonTag>
                           </span>
                       ),
-                      content: <OfflineEvaluationsTab tabId={tabId} />,
+                      content: <OfflineEvaluationsTab />,
                       link: combineUrl(urls.aiObservabilityOfflineEvaluations(), {
                           ...searchParams,
                           tab: undefined,
@@ -424,8 +453,8 @@ export function AIObservabilityEvaluationsScene({ tabId }: { tabId?: string }): 
     ]
 
     return (
-        <BindLogic logic={llmEvaluationsLogic} props={{ tabId }}>
-            <BindLogic logic={evaluationMetricsLogic} props={{ tabId }}>
+        <BindLogic logic={llmEvaluationsLogic} props={{}}>
+            <BindLogic logic={evaluationMetricsLogic} props={{}}>
                 <SceneContent>
                     <SceneTitleSection
                         name="Evaluations"

@@ -10,7 +10,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
@@ -569,7 +569,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
 
         event_timestamp = datetime.now(UTC)
 
-        resp = capture_internal(
+        routed_result = capture_internal_routed(
             token=team.api_token,
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
@@ -578,7 +578,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             properties=properties,
             process_person_profile=True,
         )
-        resp.raise_for_status()
+        routed_result.raise_for_status()
 
     await database_sync_to_async(_emit, thread_sensitive=False)()
 

@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,7 +21,7 @@ import { conversationsDestroy } from 'products/conversations/frontend/generated/
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
@@ -89,6 +90,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['featureFlags'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
+            preflightLogic,
+            ['preflight', 'isCloudOrDev'],
         ],
         actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
     })),
@@ -190,9 +193,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 actions.openSidePanel(SidePanelTab.Max)
             }
             if (conversationId) {
-                let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+                let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
                 if (!logic) {
-                    logic = maxLogic({ tabId: 'sidepanel' })
+                    logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
                     logic.mount() // we're never unmounting this
                 }
                 logic.actions.openConversation(conversationId)
@@ -230,6 +233,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,
+        ],
+        // On Cloud/dev a provider key is always present. On a self-hosted (hobby) instance Max only
+        // works once ANTHROPIC_API_KEY is configured, so we surface a "set the key" state instead.
+        // Treat a not-yet-loaded preflight (null) as available so the empty-state doesn't flash
+        // before preflight resolves — once loaded we gate on cloud/dev or the key being present.
+        isMaxAvailable: [
+            (s) => [s.isCloudOrDev, s.preflight],
+            (isCloudOrDev, preflight): boolean => !preflight || !!isCloudOrDev || !!preflight.anthropic_available,
         ],
         dataProcessingApprovalDisabledReason: [
             (s) => [s.currentOrganization],

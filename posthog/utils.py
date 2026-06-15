@@ -40,7 +40,7 @@ import orjson
 import lzstring
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
@@ -50,7 +50,6 @@ from prometheus_client import Histogram
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
-from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -80,6 +79,7 @@ if TYPE_CHECKING:
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
+    from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
     from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 DATERANGE_MAP = {
@@ -489,6 +489,7 @@ def _build_template_context(
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.user_home_settings import UserHomeSettings
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -593,6 +594,10 @@ def _build_template_context(
                         capture_exception()
                         posthog_app_context["promoted_product_intent"] = None
 
+                with tracer.start_as_current_span("template.user_home_settings"):
+                    home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
+                    posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
@@ -676,35 +681,114 @@ def render_template(
     return response
 
 
-async def initialize_self_capture_api_token():
-    """
-    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
-    """
+def resolve_self_capture_team() -> Optional["Team"]:
+    """Resolve the team a local/self-hosted instance should treat as its own.
 
+    Mirrors the self-capture chain: the most-recently-active user's current team,
+    then the first team on the instance, then None. Safe before migrations have run
+    and when no users/teams exist. Loads a full Team row (no `.only(...)`) so callers
+    can read any field without a deferred-field lazy query on a background thread.
+    """
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
     try:
         user = (
-            await User.objects.filter(last_login__isnull=False)
-            .order_by("-last_login")
-            .select_related("current_team")
-            .afirst()
+            User.objects.filter(last_login__isnull=False).order_by("-last_login").select_related("current_team").first()
         )
-        # Get the current user's team (or first team in the instance) to set self capture configs
-        team = None
         if user and getattr(user, "current_team", None):
-            team = user.current_team
-        else:
-            team = await Team.objects.only("api_token").afirst()
-        local_api_key = team.api_token if team else None
-    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
-        local_api_key = None
+            return user.current_team
+        return Team.objects.first()
+    except ProgrammingError:
+        # Tables absent before migrations have run; `.first()` returns None otherwise.
+        return None
+
+
+def get_self_capture_team_id() -> Optional[int]:
+    """team_id form of `resolve_self_capture_team()` — the team self-capture events route to.
+
+    For the team whose flag definitions represent this instance, use `get_dogfood_flags_team_id`.
+    """
+    team = resolve_self_capture_team()
+    return team.id if team is not None else None
+
+
+def resolve_dogfood_flags_team() -> Optional["Team"]:
+    """Resolve the team whose flag DEFINITIONS represent this instance's own flags.
+
+    For internal feature_enabled() dogfooding on local/self-hosted. This is the same
+    team `sync_feature_flags_from_api` writes imported flags to: `project.teams.first()`
+    — the first/oldest team by PK. Deliberately NOT current_team-based (that is
+    `resolve_self_capture_team`, which routes analytics events and can point at a team
+    holding no flag definitions). Safe before migrations have run / when no teams exist.
+    """
+    Team = apps.get_model("posthog", "Team")
+    try:
+        # Order by PK to match the sync write target (`project.teams.first()`).
+        return Team.objects.order_by("pk").first()
+    except ProgrammingError:
+        # Table absent before migrations have run.
+        return None
+
+
+def get_dogfood_flags_team_id() -> Optional[int]:
+    """team_id form of `resolve_dogfood_flags_team()`, for the flag-cache provider."""
+    team = resolve_dogfood_flags_team()
+    return team.id if team is not None else None
+
+
+def _build_flag_provider() -> "HyperCacheFlagProvider":
+    """Construct the HyperCache flag-definition provider for this deploy.
+
+    Single source of truth shared by PostHogConfig.ready() (WSGI) and
+    initialize_self_capture_api_token() (ASGI). Callers assign the result to
+    posthoganalytics.flag_definition_cache_provider and handle loading themselves.
+    """
+    from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+        HyperCacheFlagProvider,
+    )
+
+    explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+    if explicit_team_id:
+        # Operator override: pin the flag-definitions team explicitly.
+        # Truthiness, not `is not None`: an empty env var means "unset" and must
+        # fall through to the defaults below, not crash on int("").
+        return HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+    if settings.SELF_CAPTURE and not settings.E2E_TESTING:
+        # Local/self-hosted: read flag definitions from the dogfood team
+        # (project.teams.first()), resolved lazily once teams/migrations exist.
+        # Intentionally the FIRST team, not self-capture's current_team — see
+        # resolve_dogfood_flags_team().
+        return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
+    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    return HyperCacheFlagProvider.for_static_team(2)
+
+
+async def initialize_self_capture_api_token():
+    """Configure `posthoganalytics` for self-capture, ASGI-compatible (async).
+
+    Overwrites process-global SDK config (api_key, host, disabled, and the
+    flag-definition cache provider) from the DB-resolved self-capture team — the
+    async counterpart to PostHogConfig.ready()'s WSGI path. Mainly the local dev
+    self-capture bootstrap; also invoked by the Dagster PostHogAnalyticsResource.
+    """
+    team = await sync_to_async(resolve_self_capture_team)()
+    local_api_key = team.api_token if team else None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
+
+        # ready() wires the flag-definition provider only when posthoganalytics is enabled at
+        # that point — true for WSGI but NOT for ASGI, where self-capture is deferred to here.
+        # Without this the ASGI process has no local flag definitions and falls back to a remote
+        # flags call against SITE_URL (unreachable server-side in dev), so feature_enabled()
+        # always returns False. Mirror ready() so ASGI evaluates flags from HyperCache too.
+        posthoganalytics.flag_definition_cache_provider = _build_flag_provider()  # ty: ignore[invalid-assignment]
+
+        if posthoganalytics.feature_flag_definitions() is None:
+            await sync_to_async(posthoganalytics.load_feature_flags)()
 
 
 BOTH_DEFAULTS_PRESENT_TTL_SECONDS = 24 * 60 * 60
@@ -873,6 +957,10 @@ def get_short_user_agent(request: HttpRequest) -> str:
     user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
+
+    # Deferred: posthog.utils is imported all over at django.setup(); user_agents is only needed on
+    # this request-time UA-parsing path, so keep it off the startup path.
+    from user_agents import parse  # noqa: PLC0415
 
     user_agent = parse(user_agent_str)
 
@@ -1411,7 +1499,7 @@ class GenericEmails:
     """
 
     def __init__(self):
-        with open(get_absolute_path("helpers/generic_emails.txt")) as f:
+        with open(get_absolute_path("helpers/generic_emails.txt"), encoding="utf-8") as f:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
@@ -1783,7 +1871,7 @@ def get_week_start_for_country_code(country_code: str) -> int:
     return 1  # Monday
 
 
-def sleep_time_generator() -> Generator[float, None, None]:
+def sleep_time_generator() -> Generator[float]:
     # a generator that yield an exponential back off between 0.1 and 3 seconds
     for _ in range(10):
         yield 0.1  # 1 second in total

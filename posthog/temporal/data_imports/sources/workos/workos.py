@@ -98,7 +98,10 @@ def get_resource(name: str) -> EndpointResource:
         "params": {
             "limit": config.page_size,
             # Stable creation-ordered pagination so the cursor walks deterministically.
-            "order": "asc",
+            # Must be "desc" (the WorkOS SDK default): the high-volume directory_users
+            # and directory_groups list endpoints reject "order=asc" with a 422, while
+            # "desc" is accepted on every WorkOS list endpoint.
+            "order": "desc",
         },
     }
 

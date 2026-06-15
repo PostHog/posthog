@@ -184,6 +184,11 @@ export type HogExecutorExecuteOptions = {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
+    // When true, emails are sent inline via EmailService instead of being routed to
+    // the dedicated email queue. Used by the test panel — the test endpoint executes
+    // in-process and never enqueues to cyclotron, so routing would leave the job
+    // unworked.
+    sendEmailsInline?: boolean
 }
 
 export class HogExecutorService {
@@ -370,9 +375,14 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue only if we're not already there
-                    // and the team is configured for it. Otherwise send inline.
-                    if (invocation.queue !== 'email' && this.emailQueueMatcher(nextInvocation.teamId)) {
+                    // Route to the email queue only if we're not already there,
+                    // the team is configured for it, and the caller hasn't asked
+                    // for inline-only execution (e.g. the test panel).
+                    const routeToEmailQueue =
+                        invocation.queue !== 'email' &&
+                        this.emailQueueMatcher(nextInvocation.teamId) &&
+                        !options?.sendEmailsInline
+                    if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
                         result = await this.emailService.executeSendEmail(nextInvocation)

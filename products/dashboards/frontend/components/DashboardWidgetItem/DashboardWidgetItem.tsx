@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -20,7 +21,16 @@ import {
     tryGetDashboardWidgetCatalogEntry,
     type ResolvedDashboardWidgetCatalogEntry,
 } from '../../widget_types/catalog'
-import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
+import {
+    userCanMutateErrorTrackingIssuesOnDashboard,
+    userHasDashboardWidgetProductAccess,
+} from '../../widgetProductAccess'
+import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../../widgets/constants'
+import type {
+    WidgetIssueMetadataContext,
+    WidgetIssueMetadataDelta,
+} from '../../widgets/error_tracking/applyWidgetIssueMetadataChange'
 import {
     getDashboardWidgetDefinition,
     type DashboardWidgetComponentProps,
@@ -35,11 +45,20 @@ type DashboardWidgetItemProps = {
     tile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
     dashboardId?: number | null
+    canEditDashboard?: boolean
+    isDashboardEditMode?: boolean
     result: unknown
     loading: boolean
     error?: string | null
     lastFetchedAt?: number
     onRefresh: () => void
+    onRefreshWidgetData?: (tileId: number) => void
+    onApplyWidgetIssueMetadataChange?: (
+        tileId: number,
+        issueId: string,
+        delta: WidgetIssueMetadataDelta,
+        context: WidgetIssueMetadataContext
+    ) => void
     onUpdateWidgetTile?: (patch: {
         config?: Record<string, unknown>
         name?: string
@@ -48,7 +67,7 @@ type DashboardWidgetItemProps = {
     toggleShowDescription?: () => void
     showResizeHandles?: boolean
     canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     showEditingControls?: boolean
     onDuplicate?: () => void
@@ -76,12 +95,14 @@ type DashboardWidgetItemBodyProps = {
     widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
     componentProps: DashboardWidgetComponentProps
+    dashboardId?: number | null
 }
 
 function DashboardWidgetItemBody({
     widget,
     definition,
     componentProps,
+    dashboardId,
 }: DashboardWidgetItemBodyProps): JSX.Element | null {
     const catalogEntry = getDashboardWidgetCatalogEntry(widget.widget_type)
     const WidgetComponent = definition?.Component
@@ -95,6 +116,9 @@ function DashboardWidgetItemBody({
         <WidgetRuntimeAvailabilityGuard
             availability={catalogEntry.availability}
             unavailableContentFallback={definition?.unavailableContentFallback}
+            widgetType={widget.widget_type}
+            widgetId={widget.id}
+            dashboardId={dashboardId}
         >
             <WidgetComponent {...componentProps} />
         </WidgetRuntimeAvailabilityGuard>
@@ -108,15 +132,20 @@ function DashboardWidgetItemContent({
     definition,
     headerCatalogEntry,
     isUnknownWidgetType,
+    dashboardId,
     result,
     loading,
     error,
     lastFetchedAt,
     onRefresh,
+    onRefreshWidgetData,
+    onApplyWidgetIssueMetadataChange,
     onUpdateWidgetTile,
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
+    isDashboardEditMode,
+    canEditDashboard,
     onDuplicate,
     onRemove,
     onMoveToDashboard,
@@ -140,6 +169,8 @@ function DashboardWidgetItemContent({
             ? headerCatalogEntry.titleHref
             : undefined
 
+    const canUpdateWidgetTileConfig = !!onUpdateWidgetTile && !!canEditDashboard
+
     const componentProps: DashboardWidgetComponentProps = {
         tileId: tile.id,
         config: widget.config,
@@ -147,13 +178,22 @@ function DashboardWidgetItemContent({
         loading,
         error,
         onRefresh,
-        onUpdateConfig: onUpdateWidgetTile
+        onRefreshData: onRefreshWidgetData ? () => onRefreshWidgetData(tile.id) : undefined,
+        onApplyIssueMetadataChange: onApplyWidgetIssueMetadataChange
+            ? (issueId, delta, context) => {
+                  onApplyWidgetIssueMetadataChange(tile.id, issueId, delta, context)
+              }
+            : undefined,
+        canMutateErrorTrackingIssues: userCanMutateErrorTrackingIssuesOnDashboard(!!canEditDashboard),
+        onUpdateConfig: canUpdateWidgetTileConfig
             ? async (config) => {
                   await onUpdateWidgetTile({ config })
               }
             : undefined,
     }
 
+    const TileFilters = definition?.TileFilters
+    const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
 
     const hasDashboardSectionActions =
@@ -177,6 +217,7 @@ function DashboardWidgetItemContent({
                 showDescription={showDescription}
                 loading={loading}
                 showEditingControls={showEditingControls}
+                isDashboardEditMode={isDashboardEditMode}
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(placement, showEditingControls)}
                 moreButtonOverlay={
                     <>
@@ -243,6 +284,17 @@ function DashboardWidgetItemContent({
                 }
                 onDragHandleMouseDown={onDragHandleMouseDown}
             />
+            {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
+                <TileFilters
+                    tileId={tile.id}
+                    config={widget.config}
+                    onUpdateConfig={componentProps.onUpdateConfig}
+                    canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
+                    disabledReason={
+                        canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
+                    }
+                />
+            ) : null}
             {showSharedPlaceholder ? (
                 <WidgetCardSharedPlaceholderBody
                     copy={headerCatalogEntry.sharedPlaceholder ?? DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER}
@@ -266,6 +318,7 @@ function DashboardWidgetItemContent({
                             widget={widget}
                             definition={definition}
                             componentProps={componentProps}
+                            dashboardId={dashboardId}
                         />
                     </ErrorBoundary>
                 </WidgetCardBody>
@@ -296,11 +349,15 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             tile,
             placement,
             dashboardId,
+            canEditDashboard,
+            isDashboardEditMode,
             result,
             loading,
             error,
             lastFetchedAt,
             onRefresh,
+            onRefreshWidgetData,
+            onApplyWidgetIssueMetadataChange,
             onUpdateWidgetTile,
             toggleShowDescription,
             showResizeHandles,
@@ -364,13 +421,18 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     definition={definition}
                     headerCatalogEntry={headerCatalogEntry}
                     isUnknownWidgetType={isUnknownWidgetType}
+                    dashboardId={dashboardId}
                     result={result}
                     loading={loading}
                     error={error}
                     lastFetchedAt={lastFetchedAt}
                     onRefresh={onRefresh}
+                    onRefreshWidgetData={onRefreshWidgetData}
+                    onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
                     onUpdateWidgetTile={onUpdateWidgetTile}
+                    canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
+                    isDashboardEditMode={isDashboardEditMode}
                     onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}
                     onDuplicate={onDuplicate}

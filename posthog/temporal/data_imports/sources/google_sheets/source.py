@@ -6,6 +6,7 @@ import gspread
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -106,7 +107,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",
             fields=cast(

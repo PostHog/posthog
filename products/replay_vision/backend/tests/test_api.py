@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -39,8 +40,12 @@ class _VisionAPITestCase(APIBaseTest):
             return_value=True,
         )
         self.flag_patcher.start()
+        # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
+        self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
+        self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
 
     def tearDown(self) -> None:
+        self.refresh_estimate_patcher.stop()
         self.flag_patcher.stop()
         super().tearDown()
 
@@ -233,26 +238,104 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_config")
 
-    def test_patch_scanner_type_validates_against_existing_config(self) -> None:
-        # Existing monitor scanner has {"prompt": "..."}; switching to classifier without tags must 400.
-        scanner = self._create_scanner()
-        resp = self.client.patch(
-            f"{self.scanners_url}{scanner.id}/",
-            data={"scanner_type": ScannerType.CLASSIFIER},
+    @parameterized.expand(
+        [
+            (
+                "classifier_empty_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": []},
+                "Tag vocabulary must have at least one tag.",
+            ),
+            (
+                "classifier_missing_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p"},
+                "Tag vocabulary must have at least one tag.",
+            ),
+            (
+                "classifier_blank_tag",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["bug", "   "]},
+                "Tags can't be blank.",
+            ),
+            (
+                "classifier_duplicate_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["Bug", "bug"]},
+                "Tags must be unique.",
+            ),
+            (
+                "monitor_missing_prompt",
+                ScannerType.MONITOR,
+                {},
+                "Prompt is required.",
+            ),
+            (
+                "monitor_explicit_null_prompt",
+                ScannerType.MONITOR,
+                {"prompt": None},
+                "Prompt is required.",
+            ),
+            (
+                "scorer_inverted_scale",
+                ScannerType.SCORER,
+                {"prompt": "p", "scale": {"min": 10, "max": 0}},
+                "Scale max must be greater than min.",
+            ),
+            (
+                "scorer_missing_scale",
+                ScannerType.SCORER,
+                {"prompt": "p"},
+                "Scale is required.",
+            ),
+            (
+                "not_a_dict",
+                ScannerType.MONITOR,
+                "just a string",
+                "Scanner configuration must be a JSON object.",
+            ),
+        ]
+    )
+    def test_validation_returns_specific_message_per_invalid_config(
+        self, label: str, scanner_type: ScannerType, scanner_config: Any, expected_detail: str
+    ) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": f"invalid-{label}",
+                "scanner_type": scanner_type,
+                "scanner_config": scanner_config,
+                "model": ScannerModel.GEMINI_3_FLASH,
+            },
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_config")
+        body = resp.json()
+        detail = body.get("detail", "")
+        self.assertNotIn("validation error for", detail)
+        self.assertNotIn("errors.pydantic.dev", detail)
+        self.assertNotIn("input_value=", detail)
+        self.assertEqual(detail, expected_detail)
 
-    def test_patch_can_change_scanner_type_with_matching_config(self) -> None:
+    def test_patch_rejects_scanner_type_change(self) -> None:
         scanner = self._create_scanner()
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
             data={"scanner_type": ScannerType.CLASSIFIER, "scanner_config": {"prompt": "p", "tags": ["x"]}},
             format="json",
         )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_type")
+        self.assertIn("fixed after creation", resp.json()["detail"])
+
+    def test_patch_accepts_same_scanner_type(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_type": scanner.scanner_type, "scanner_config": {"prompt": "still a monitor"}},
+            format="json",
+        )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["scanner_type"], ScannerType.CLASSIFIER)
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
@@ -392,6 +475,32 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.scanners_url}?order_by=sampling_rate")
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["low", "mid", "high"])
 
+    def test_stats_endpoint_returns_team_wide_counts(self) -> None:
+        self._create_scanner(name="m1", scanner_type=ScannerType.MONITOR, enabled=True)
+        self._create_scanner(name="m2", scanner_type=ScannerType.MONITOR, enabled=False)
+        self._create_scanner(name="c1", scanner_type=ScannerType.CLASSIFIER, enabled=True)
+        self._create_scanner(name="s1", scanner_type=ScannerType.SCORER, enabled=False)
+        resp = self.client.get(f"{self.scanners_url}stats/?enabled=enabled&scanner_type=monitor")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["total"], 4)
+        self.assertEqual(body["enabled"], 2)
+        self.assertEqual(body["by_type"]["monitor"], {"enabled": 1, "total": 2})
+        self.assertEqual(body["by_type"]["classifier"], {"enabled": 1, "total": 1})
+        self.assertEqual(body["by_type"]["scorer"], {"enabled": 0, "total": 1})
+        self.assertEqual(body["by_type"]["summarizer"], {"enabled": 0, "total": 0})
+
+    def test_stats_endpoint_respects_per_scanner_access_control(self) -> None:
+        self._create_scanner(name="visible")
+        hidden = self._create_scanner(name="hidden")
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.get(f"{self.scanners_url}stats/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["total"], 1)
+
     def test_creators_endpoint_respects_per_scanner_access_control(self) -> None:
         other = User.objects.create_and_join(self.team.organization, "hidden@example.com", "pw")
         visible = self._create_scanner(name="visible")
@@ -474,6 +583,90 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 403, resp.json())
 
 
+class TestScannerEstimatePersistence(_VisionAPITestCase):
+    def _create_payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "estimate-persistence",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_create_refreshes_estimate(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._create_payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.mock_refresh_estimate.assert_called_once()
+        self.assertEqual(str(self.mock_refresh_estimate.call_args.args[0].id), resp.json()["id"])
+
+    def test_create_succeeds_when_estimate_refresh_fails(self) -> None:
+        self.mock_refresh_estimate.side_effect = RuntimeError("clickhouse down")
+        resp = self.client.post(self.scanners_url, data=self._create_payload(), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertIsNone(resp.json()["estimated_monthly_observations"])
+
+    def test_response_exposes_estimated_monthly_observations(self) -> None:
+        scanner = self._create_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=42, estimated_at=timezone.now()
+        )
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+        self.assertEqual(resp.json()["estimated_monthly_observations"], 42)
+
+    @parameterized.expand(
+        [
+            ("sampling_rate_change", {"sampling_rate": 0.5}, True),
+            ("query_change", {"query": {"kind": "RecordingsQuery", "operand": "AND"}}, True),
+            ("rename_only", {"name": "renamed"}, False),
+            ("sampling_rate_unchanged", {"sampling_rate": 1.0}, False),
+            ("disable", {"enabled": False}, False),
+        ]
+    )
+    def test_update_refreshes_only_on_volume_affecting_changes(
+        self, _name: str, body: dict[str, Any], expect_refresh: bool
+    ) -> None:
+        scanner = self._create_scanner(sampling_rate=1.0)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=10, estimated_at=timezone.now()
+        )
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=body, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
+
+    @parameterized.expand(
+        [
+            ("fresh_estimate_skips_inline_refresh", timedelta(hours=1), False),
+            ("stale_estimate_refreshes_inline", timedelta(days=2), True),
+        ]
+    )
+    def test_reenabling_refreshes_inline_only_when_stale(
+        self, _name: str, estimate_age: timedelta, expect_refresh: bool
+    ) -> None:
+        scanner = self._create_scanner(enabled=False)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            estimated_monthly_observations=10, estimated_at=timezone.now() - estimate_age
+        )
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": True}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
+
+    def test_update_backfills_a_never_computed_estimate(self) -> None:
+        scanner = self._create_scanner()
+        self.mock_refresh_estimate.reset_mock()
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.mock_refresh_estimate.assert_called_once()
+
+
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property
     def scanners_url(self) -> str:
@@ -516,6 +709,21 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(self.observations_url(str(self.scanner.id)))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), 2)
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
+    @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
+    def test_progress_endpoint_accepts_event_stream_accept_header(self, mock_stream: MagicMock) -> None:
+        # The SSE client sends `Accept: text/event-stream`; without ServerSentEventRenderer on the action,
+        # DRF content negotiation rejects it with 406 before the view runs, so no progress ever reaches the
+        # page and it falls back to polling. Guard that the negotiated stream stays reachable.
+        mock_stream.return_value = iter(["event: observation-complete\ndata: {}\n\n"])
+        obs = self._create_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        # A 406 here would mean content negotiation rejected the SSE Accept header before the view ran.
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["content-type"], "text/event-stream")
+        mock_stream.assert_called_once()
 
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
@@ -667,6 +875,46 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["monitor"], {"yes_total": 1, "no_total": 0, "inconclusive_total": 0})
         self.assertIsNone(body["classifier"])
         self.assertIsNone(body["scorer"])
+
+    def test_stats_status_counts_with_multiple_rows_per_status(self) -> None:
+        for i in range(5):
+            self._create_observation(session_id=f"p-{i}", status=ObservationStatus.PENDING)
+        for i in range(3):
+            self._create_observation(
+                session_id=f"yes-{i}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "monitor",
+                        "verdict": "yes",
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        for i in range(2):
+            self._create_observation(
+                session_id=f"no-{i}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "monitor",
+                        "verdict": "no",
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
+        body = resp.json()
+        self.assertEqual(body["status_counts"]["total"], 10)
+        self.assertEqual(body["status_counts"]["succeeded"], 5)
+        self.assertEqual(body["status_counts"]["in_flight"], 5)
+        self.assertEqual(body["monitor"], {"yes_total": 3, "no_total": 2, "inconclusive_total": 0})
 
     def test_stats_classifier_tag_rankings(self) -> None:
         classifier = self._create_scanner(
@@ -954,6 +1202,11 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(inputs.team_id, self.team.id)
         self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
+        # On-demand applies carry the scanner id so they count toward the sweep's in-flight cap.
+        scanner_attrs = kwargs["search_attributes"]
+        self.assertTrue(
+            any(p.key.name == "PostHogScannerId" and p.value == str(self.scanner.id) for p in scanner_attrs)
+        )
 
     def test_observe_dedup_uses_deterministic_workflow_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

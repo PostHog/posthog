@@ -1,11 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +39,6 @@ import {
 export interface ClusterDetailLogicProps {
     runId: string
     clusterId: number
-    tabId?: string
 }
 
 export interface TraceWithSummary {
@@ -70,13 +69,13 @@ export interface ScatterDataset {
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'ai_observability', 'frontend', 'clusters', 'clusterDetailLogic']),
     props({} as ClusterDetailLogicProps),
-    key((props) => `${props.runId}:${props.clusterId}::${props.tabId ?? 'default'}`),
-    connect((props: ClusterDetailLogicProps) => ({
-        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['propertyFilters', 'shouldFilterTestAccounts']],
+    key((props) => `${props.runId}:${props.clusterId}`),
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['propertyFilters', 'shouldFilterTestAccounts']],
         actions: [
             teamLogic,
             ['addProductIntent'],
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),
@@ -238,17 +237,17 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractString(properties, '$ai_window_start') as window_start,
-                                JSONExtractString(properties, '$ai_window_end') as window_end,
-                                JSONExtractRaw(properties, '$ai_clusters') as clusters,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_window_start as window_start,
+                                properties.$ai_window_end as window_end,
+                                properties.$ai_clusters as clusters,
                                 timestamp,
-                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
+                                properties.$ai_clustering_level as clustering_level
                             FROM events
                             WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
-                                AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
+                                AND properties.$ai_clustering_run_id = ${props.runId}
                             LIMIT 1
                         `,
                         { productKey: 'llm_analytics', scene: 'AIObservabilityCluster' },
@@ -555,7 +554,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         actions.loadClusterData()
     }),
 
-    tabAwareUrlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props }) => ({
         [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ({ runId, clusterId }: { runId?: string; clusterId?: string }) => {
             const decodedRunId = runId ? decodeURIComponent(runId) : ''
             const parsedClusterId = clusterId ? parseInt(clusterId, 10) : 0

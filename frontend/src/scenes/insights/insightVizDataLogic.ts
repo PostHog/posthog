@@ -9,8 +9,9 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -70,9 +71,11 @@ import {
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
+    getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
     getShowMultipleYAxes,
+    getShowPercentagesOnSeries,
     getShowPercentStackView,
     getShowValuesOnSeries,
     getYAxisScaleType,
@@ -97,7 +100,14 @@ import {
     supportsBarValueStacking,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    FunnelVizType,
+    InsightLogicProps,
+    LabelGroupType,
+    SlowQueryPossibilities,
+} from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -120,6 +130,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['dataWarehouseTablesMap'],
             dataThemeLogic,
             ['getTheme'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             insightDataLogic,
@@ -210,12 +222,24 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
-            (s) => [s.querySource, s.display, s.dateRange],
-            (q, display, dateRange) =>
-                (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) &&
-                display !== ChartDisplayType.WorldMap &&
-                display !== ChartDisplayType.CalendarHeatmap &&
-                dateRange?.date_from !== 'all',
+            (s) => [s.querySource, s.display, s.dateRange, s.featureFlags],
+            (q, display, dateRange, featureFlags) => {
+                if (dateRange?.date_from === 'all') {
+                    return false
+                }
+                if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
+                    return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
+                }
+                // Funnel compare ships behind a flag, and only for the TRENDS viz mode in slice 1.
+                if (
+                    isFunnelsQuery(q) &&
+                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] &&
+                    q.funnelsFilter?.funnelVizType === FunnelVizType.Trends
+                ) {
+                    return true
+                }
+                return false
+            },
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsBarValueStacking: [(s) => [s.querySource], (q) => supportsBarValueStacking(q)],
@@ -265,8 +289,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q && 'samplingFactor' in q ? q.samplingFactor : null)],
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
+        showAnnotations: [(s) => [s.querySource], (q) => (q ? getShowAnnotations(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
+        showPercentagesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowPercentagesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],

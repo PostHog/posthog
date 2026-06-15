@@ -8,7 +8,7 @@ use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
     config::Config,
     fan_out::{extract_tuple, fan_out, fan_out_group},
-    producer::AggregatedProducer,
+    producer::{AggregatedProducer, WireFormat},
     types::{Event, GroupIdentify, PropertyValueMessage},
     worker::{worker_loop, ReductionConfig},
 };
@@ -88,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_consumer_group = %config.groups_kafka_consumer_group,
         intermediate_topic = %config.intermediate_topic,
         intermediate_topic_encoding = ?config.intermediate_topic_encoding,
+        intermediate_topic_format = ?config.intermediate_topic_format,
         merger_consumer_group = %config.merger_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
@@ -102,8 +103,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
-        true,
         config.intermediate_topic_encoding,
+        config.intermediate_topic_format,
     )
     .await?;
 
@@ -116,8 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
-        true,
         config.intermediate_topic_encoding,
+        config.intermediate_topic_format,
     )
     .await?;
 
@@ -131,8 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         merger_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
-        config.emit_event_name,
         EnvelopeEncoding::None,
+        WireFormat::Json,
     )
     .await?;
 
@@ -153,14 +154,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let excluded_events = shared_config.excluded_property_keys.clone();
     let excluded_groups = shared_config.excluded_property_keys.clone();
     let length_caps = shared_config.length_caps;
-    let aggregate_by_event_name = shared_config.aggregate_by_event_name;
 
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
-        move |e: &Event| fan_out(e, &excluded_events, length_caps, aggregate_by_event_name),
+        move |e: &Event| fan_out(e, &excluded_events, length_caps),
         "events",
         ReductionConfig::default(),
     ));

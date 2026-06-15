@@ -17,7 +17,6 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.cohort import Cohort
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.constants import (
@@ -28,6 +27,8 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
 from posthog.temporal.ai_observability.trace_summarization.models import BatchSummarizationInputs, SampledItem
 from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.cohorts.backend.models.cohort import Cohort
 
 logger = structlog.get_logger(__name__)
 

@@ -29,8 +29,29 @@ echo "Detecting changed Playwright test files since $BASE_SHA..."
 RESULTS_FILE="playwright/flake-verification-results.json"
 rm -f "$RESULTS_FILE"
 
-# All spec files touched by the PR (added or modified).
-changed_test_files=$(git diff --name-only "$BASE_SHA..HEAD" -- 'playwright/**/*.spec.ts')
+# All spec files touched by the PR (added or modified). Playwright tests live in two
+# places: cross-cutting tests under playwright/e2e/, and product-owned tests under
+# products/*/frontend/e2e/. Both are picked up by playwright.config.ts.
+#
+# --diff-filter=AM excludes renames: a `git mv` (with at most a trivial import-path
+# update) doesn't change test logic, so re-running it 10x for flake verification is
+# noise. If a file is moved AND substantively edited in the same PR, the verifier
+# won't catch it — but that's a rare pattern, and the alternative (re-verifying every
+# moved test) blocks routine reorganizations.
+#
+# Diff from the merge-base, not the raw base tip. A two-dot "$BASE_SHA..HEAD" diff
+# compares the two trees directly, so a PR branched off an older master inherits every
+# spec file changed on master since the branch point — re-running dozens of unrelated
+# tests serially blows past the job timeout. The merge-base is the branch point, so the
+# diff yields only the PR's own changes. (Equivalent to three-dot "$BASE_SHA...HEAD",
+# but computed explicitly so a too-shallow fetch degrades to a warning instead of a
+# hard `git diff` failure under `set -e`.)
+merge_base=$(git merge-base "$BASE_SHA" HEAD 2>/dev/null || true)
+if [ -z "$merge_base" ]; then
+    echo "Warning: no merge-base for $BASE_SHA and HEAD (shallow fetch too shallow?) — comparing against $BASE_SHA directly"
+    merge_base="$BASE_SHA"
+fi
+changed_test_files=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
 
 if [ -z "$changed_test_files" ]; then
     echo "No changed Playwright test files found — skipping flake verification"
@@ -43,13 +64,37 @@ while IFS= read -r test_file; do
         continue
     fi
 
-    # Strip the playwright/ prefix — Playwright runs relative to its project root.
-    tests_to_run+=("${test_file#playwright/}")
+    # Convert repo-relative paths to playwright-cwd-relative paths. The CI step runs
+    # `pnpm --filter=@posthog/playwright exec playwright test`, which sets cwd to
+    # playwright/, so files outside that directory need a `../` prefix.
+    if [[ "$test_file" == playwright/* ]]; then
+        tests_to_run+=("${test_file#playwright/}")
+    else
+        tests_to_run+=("../${test_file}")
+    fi
 done <<< "$changed_test_files"
 
 if [ ${#tests_to_run[@]} -eq 0 ]; then
     echo "No runnable Playwright test files to verify"
     exit 0
+fi
+
+# Verification runs serially (--workers=1), so total work is files × repeat. Wide
+# mechanical refactors can touch dozens of spec files; repeating each 10x would blow
+# past the job's 45-minute timeout. Scale the repeat count down to fit a file-run
+# budget, and below MIN_REPEAT repetitions there's no flake signal left — skip.
+MAX_TOTAL_FILE_RUNS=60
+MIN_REPEAT=2
+
+num_files=${#tests_to_run[@]}
+if ((num_files * REPEAT_COUNT > MAX_TOTAL_FILE_RUNS)); then
+    scaled_repeat=$((MAX_TOTAL_FILE_RUNS / num_files))
+    if ((scaled_repeat < MIN_REPEAT)); then
+        echo "Skipping flake verification: $num_files changed spec files exceed the time budget even at --repeat-each=$MIN_REPEAT (likely a broad mechanical refactor)"
+        exit 0
+    fi
+    echo "Scaling --repeat-each from $REPEAT_COUNT to $scaled_repeat: $num_files changed spec files exceed the $MAX_TOTAL_FILE_RUNS file-run budget"
+    REPEAT_COUNT=$scaled_repeat
 fi
 
 echo "Verifying ${#tests_to_run[@]} file(s) with --repeat-each=$REPEAT_COUNT:"
@@ -77,7 +122,7 @@ set +e
 # Fail fast once instability is detected so the job doesn't burn the full timeout
 # on the remaining repeated runs.
 pnpm --filter=@posthog/playwright exec playwright test "${tests_to_run[@]}" \
-    --workers=4 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1
+    --workers=1 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1
 test_exit=$?
 set -e
 

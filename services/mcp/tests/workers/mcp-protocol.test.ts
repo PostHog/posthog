@@ -3,15 +3,11 @@ import { describe, expect, it } from 'vitest'
 
 // HTTP-layer integration tests for the Cloudflare Workers entry point.
 //
-// Why this suite is narrower than the Hono one (`tests/hono/mcp-protocol.test.ts`):
-// the McpAgent framework wraps session init in `blockConcurrencyWhile()` on a
-// Durable Object. The workerd test runtime imposes a ~30s ceiling on that
-// primitive, and the full init flow (tool registration, region detect,
-// dual-region API fan-out) trips it under workerd's higher per-call overhead.
-// The Hono harness exercises the full SDK-client → MCP-server protocol loop
-// over the same shared suite, and the existing `tests/workers/*.test.ts` files
-// cover the DO internals via `runInDurableObject`. That leaves the entry-point
-// HTTP behavior as the gap this file fills.
+// The Worker is a stateless edge router: it terminates OAuth, validates tokens,
+// and proxies `/mcp` to the Hono runtime. This suite covers that entry-point
+// HTTP behavior (OAuth metadata, auth challenges, redirects) — the full MCP
+// protocol loop is exercised against the Hono runtime in
+// `tests/hono/mcp-protocol.test.ts`.
 describe('MCP HTTP entry point (Cloudflare Workers)', () => {
     describe('OAuth Protected Resource Metadata (RFC 9728)', () => {
         it('returns metadata advertising scopes_supported for /mcp', async () => {

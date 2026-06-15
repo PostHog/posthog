@@ -26,10 +26,7 @@ from rest_framework.relations import ManyRelatedField
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.constants import AvailableFeature
-from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from posthog.models import GroupTypeMapping, TaggedItem, User
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
 from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
@@ -40,10 +37,12 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
@@ -56,32 +55,6 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
-
-
-class TestExtractEtagFromHeader:
-    """Unit tests for extract_etag_from_header function."""
-
-    @parameterized.expand(
-        [
-            # (test_name, input_header, expected_output)
-            ("strong_etag_quoted", '"abc123"', "abc123"),
-            ("strong_etag_unquoted", "abc123", "abc123"),
-            ("weak_etag", 'W/"abc123"', "abc123"),
-            # W/abc123 is malformed per RFC 7232 (weak ETags require quotes)
-            # We treat it as a literal string, which won't match any stored ETag
-            ("weak_etag_malformed", "W/abc123", "W/abc123"),
-            ("etag_starting_with_w", '"WXYZ1234"', "WXYZ1234"),
-            ("etag_starting_with_slash", '"/path/to/resource"', "/path/to/resource"),
-            ("etag_with_special_chars", '"abc-123_456"', "abc-123_456"),
-            ("etag_with_whitespace", '  "abc123"  ', "abc123"),
-            ("empty_string", "", None),
-            ("whitespace_only", "   ", None),
-            ("none_value", None, None),
-            ("empty_quotes", '""', None),
-        ]
-    )
-    def test_extract_etag_from_header(self, _name: str, header_value: str | None, expected: str | None):
-        assert extract_etag_from_header(header_value) == expected
 
 
 class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -1121,6 +1094,54 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("remote configuration", response.json()["detail"])
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_flag_to_remote_config_persists(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "toggle-to-remote-config",
+                "name": "Toggle To Remote Config",
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        self.assertFalse(response.json()["is_remote_configuration"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_remote_configuration"])
+        self.assertTrue(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_remote_config_flag_to_non_remote_without_encryption_succeeds(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "rc-unencrypted",
+                "name": "RC Unencrypted",
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"data"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_remote_configuration"])
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
@@ -2248,6 +2269,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify the stored ciphertext actually round-trips back to the plaintext.
         decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
         self.assertEqual(decrypted, plaintext)
+
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("boolean", True),
+            ("null", None),
+            ("array", [1, 2, 3]),
+            ("object", {"key": "value"}),
+        ]
+    )
+    def test_update_encrypted_flag_encrypts_non_string_payload(self, _name, raw_value):
+        # A non-str JSON payload is normalized to a JSON string before encryption,
+        # so it encrypts cleanly instead of raising on `.encode()`.
+        flag = self._create_encrypted_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "has_encrypted_payloads": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": raw_value},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        stored = flag.filters["payloads"]["true"]
+        self.assertNotEqual(stored, json.dumps(raw_value))
+        decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
+        self.assertEqual(json.loads(decrypted), raw_value)
 
     def test_update_encrypted_flag_downgrade_clears_payload(self):
         flag = self._create_encrypted_flag()
@@ -3493,15 +3547,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team, key="56397-delete-flag", deleted=True
         ).exists()
 
-    def test_soft_delete_flag_blocked_with_active_experiment(self):
+    def test_soft_delete_flag_blocked_with_running_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=now(),
+        )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
+            == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
         )
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_soft_delete_flag_allowed_with_non_running_experiment(self, _name, start_date, end_date):
+        # Draft and stopped experiments may keep the flag so their history is preserved;
+        # deletion is allowed and the original key is freed up via the tombstone suffix.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"{_name}-exp-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
@@ -4153,785 +4235,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_invalid_cohorts(self, mock_report_user_action):
-        FeatureFlag.objects.all().delete()
-
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-
-        other_team = Team.objects.create(
-            organization=self.organization,
-            api_token="bazinga_new",
-            name="New Team",
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        deleted_cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "$some_prop_1",
-                            "value": "something_1",
-                            "type": "person",
-                        }
-                    ]
-                },
-            ],
-            name="cohort1",
-            deleted=True,
-        )
-
-        cohort_from_other_team = Cohort.objects.create(
-            team=other_team,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "$some_prop_1",
-                            "value": "something_1",
-                            "type": "person",
-                        }
-                    ]
-                },
-            ],
-            name="cohort1",
-        )
-
-        cohort_with_nested_invalid = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "$some_prop_1",
-                            "value": "something_1",
-                            "type": "person",
-                        },
-                        {
-                            "key": "id",
-                            "value": 99999,
-                            "type": "cohort",
-                        },
-                        {
-                            "key": "id",
-                            "value": deleted_cohort.pk,
-                            "type": "cohort",
-                        },
-                        {
-                            "key": "id",
-                            "value": cohort_from_other_team.pk,
-                            "type": "cohort",
-                        },
-                    ]
-                },
-            ],
-            name="cohort1",
-        )
-
-        cohort_valid = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "$some_prop_1",
-                            "value": "something_1",
-                            "type": "person",
-                        },
-                    ]
-                },
-            ],
-            name="cohort1",
-        )
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
-            name="This is a cohort-based flag",
-            key="cohort-flag",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort_with_nested_invalid.pk,
-                                "type": "cohort",
-                            }
-                        ]
-                    }
-                ]
-            },
-            name="This is a cohort-based flag",
-            key="cohort-flag-2",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort_from_other_team.pk,
-                                "type": "cohort",
-                            }
-                        ]
-                    }
-                ]
-            },
-            name="This is a cohort-based flag",
-            key="cohort-flag-3",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {"properties": [{"key": "id", "value": cohort_valid.pk, "type": "cohort"}]},
-                    {
-                        "properties": [
-                            {
-                                "key": "id",
-                                "value": cohort_with_nested_invalid.pk,
-                                "type": "cohort",
-                            }
-                        ]
-                    },
-                    {"properties": [{"key": "id", "value": 99999, "type": "cohort"}]},
-                    {"properties": [{"key": "id", "value": deleted_cohort.pk, "type": "cohort"}]},
-                ]
-            },
-            name="This is a cohort-based flag",
-            key="cohort-flag-4",
-            created_by=self.user,
-        )
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 100,
-                            "properties": [],
-                        }
-                    ],
-                },
-            },
-            format="json",
-        )
-
-        self.client.logout()
-
-        with self.assertNumQueries(FuzzyInt(12, 18)):
-            # 1-10: Auth, team, project, membership, and access control queries
-            # 11. SELECT surveys (for survey exclusion)
-            # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
-            # 13. SELECT cohorts (only loaded because a flag references a cohort)
-            # 14. SELECT group type mapping
-
-            response = self.client.get(
-                f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 5)
-        self.assertEqual(len(response_data["cohorts"]), 2)
-        assert str(cohort_valid.pk) in response_data["cohorts"]
-        assert str(cohort_with_nested_invalid.pk) in response_data["cohorts"]
-
-    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_cohorts_with_variant_overrides(self, mock_report_user_action):
-        FeatureFlag.objects.all().delete()
-
-        cohort_valid_for_ff = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "nomatchihope",
-                                    "type": "person",
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-            name="cohort1",
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "variant": "test",
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                        },
-                        {
-                            "variant": "test",
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                        },
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "name": "", "rollout_percentage": 100},
-                            {"key": "test", "name": "", "rollout_percentage": 0},
-                        ]
-                    },
-                },
-            },
-            format="json",
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        self.client.logout()
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 1)
-
-        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
-
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "variant": "test",
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                            "aggregation_group_type_index": None,
-                        },
-                        {
-                            "variant": "test",
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "@posthog.com",
-                                    "operator": "icontains",
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                            "aggregation_group_type_index": None,
-                        },
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "name": "", "rollout_percentage": 100},
-                            {"key": "test", "name": "", "rollout_percentage": 0},
-                        ]
-                    },
-                    "aggregation_group_type_index": None,
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
-        )
-
-    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_static_cohorts(self, mock_report_user_action):
-        FeatureFlag.objects.all().delete()
-
-        cohort_valid_for_ff = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="cohort1",
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 20,
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                        }
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
-                },
-            },
-            format="json",
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 1)
-
-        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
-
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 20,
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                            "aggregation_group_type_index": None,
-                        }
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
-                    "aggregation_group_type_index": None,
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
-        )
-
-        self.assertEqual(
-            response_data["cohorts"],
-            {},
-        )
-
-    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_local_evaluation_for_arbitrary_cohorts(self, mock_report_user_action):
-        FeatureFlag.objects.all().delete()
-
-        cohort_valid_for_ff = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "nomatchihope",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "value": "nomatchihope2",
-                                    "type": "person",
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-            name="cohort1",
-        )
-
-        cohort2 = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "nomatchihope",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "value": "nomatchihope2",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "id",
-                                    "value": cohort_valid_for_ff.pk,
-                                    "type": "cohort",
-                                    "negation": True,
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-            name="cohort2",
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
-                        }
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
-                },
-            },
-            format="json",
-        )
-
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature-2",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 20,
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                        }
-                    ],
-                },
-            },
-            format="json",
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertTrue(
-            "flags" in response_data and "group_type_mapping" in response_data and "cohorts" in response_data
-        )
-        self.assertEqual(len(response_data["flags"]), 2)
-
-        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
-
-        self.assertEqual(
-            response_data["cohorts"],
-            {
-                str(cohort_valid_for_ff.pk): {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "type": "person",
-                                    "value": "nomatchihope",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "type": "person",
-                                    "value": "nomatchihope2",
-                                },
-                            ],
-                        }
-                    ],
-                },
-                str(cohort2.pk): {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "type": "person",
-                                    "value": "nomatchihope",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "type": "person",
-                                    "value": "nomatchihope2",
-                                },
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                    "negation": True,
-                                },
-                            ],
-                        }
-                    ],
-                },
-            },
-        )
-
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort2.pk}],
-                            "aggregation_group_type_index": None,
-                        }
-                    ],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 25,
-                            },
-                        ]
-                    },
-                    "aggregation_group_type_index": None,
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[0].items(),
-        )
-
-        self.assertLessEqual(
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature-2",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "id",
-                                    "type": "cohort",
-                                    "value": cohort_valid_for_ff.pk,
-                                }
-                            ],
-                            "rollout_percentage": 20,
-                            "aggregation_group_type_index": None,
-                        },
-                    ],
-                    "aggregation_group_type_index": None,
-                },
-                "deleted": False,
-                "active": True,
-                "ensure_experience_continuity": False,
-            }.items(),
-            sorted_flags[1].items(),
-        )
-
-    @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_local_evaluation_billing_analytics(self):
-        FeatureFlag.objects.all().delete()
-
-        # old style feature flags
-        FeatureFlag.objects.create(
-            name="Beta feature",
-            key="beta-feature",
-            team=self.team,
-            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
-            created_by=self.user,
-        )
-        # and inactive flag
-        FeatureFlag.objects.create(
-            name="Inactive feature",
-            key="inactive-flag",
-            team=self.team,
-            active=False,
-            filters={"properties": []},
-            created_by=self.user,
-        )
-
-        client = redis.get_client()
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        self.client.logout()
-        # `local_evaluation` is called by logged out clients!
-
-        with freeze_time("2022-05-07 12:23:07"):
-            # missing API key
-            response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
-
-            response = self.client.get(f"/api/feature_flag/local_evaluation")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
-
-            response = self.client.get(
-                f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
-                {b"165192618": b"1"},
-            )
-
-            for _ in range(5):
-                response = self.client.get(
-                    f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                    headers={"authorization": f"Bearer {personal_api_key}"},
-                )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertEqual(
-                client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
-                {b"165192618": b"6"},
-            )
-
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
         FeatureFlag.objects.all().delete()
@@ -4999,16 +4302,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            # local evaluation still works
-            response = self.client.get(
-                f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
             self.assertEqual(
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
-                {b"165192618": b"6"},
+                {b"165192618": b"5"},
             )
 
     @parameterized.expand(
@@ -5367,22 +4663,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsInstance(stored_payload, str)
         self.assertEqual(json.loads(stored_payload), {"key": "value"})
 
-        # Other valid JSON types (number, boolean, null, array) should be accepted
-        number_payload = self._create_flag_with_properties(
-            "number-payload-flag",
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("boolean", True),
+            ("null", None),
+            ("array", [1, 2, 3]),
+        ]
+    )
+    def test_non_string_payloads_are_normalized_to_json_strings(self, name, raw_value):
+        # Other valid JSON types (number, boolean, null, array) are accepted and
+        # normalized to JSON strings, matching how object payloads are stored.
+        response = self._create_flag_with_properties(
+            f"{name}-payload-flag",
             [{"key": "key", "value": "value", "type": "person"}],
-            payloads={"true": 42},
+            payloads={"true": raw_value},
             expected_status=status.HTTP_201_CREATED,
         )
-        self.assertEqual(number_payload.status_code, status.HTTP_201_CREATED)
+        stored = response.json()["filters"]["payloads"]["true"]
+        self.assertIsInstance(stored, str)
+        self.assertEqual(json.loads(stored), raw_value)
 
-        boolean_payload = self._create_flag_with_properties(
-            "boolean-payload-flag",
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("whitespace", "   "),
+        ]
+    )
+    def test_blank_string_payloads_are_rejected(self, name, blank_value):
+        # An empty or whitespace-only string isn't valid JSON (the common "user cleared
+        # the field" case), so it's rejected rather than coerced.
+        response = self._create_flag_with_properties(
+            f"{name}-payload-flag",
             [{"key": "key", "value": "value", "type": "person"}],
-            payloads={"true": True},
-            expected_status=status.HTTP_201_CREATED,
+            payloads={"true": blank_value},
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(boolean_payload.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Payload value is not valid JSON")
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
@@ -6957,58 +6275,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("products.feature_flags.backend.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
-    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
-    @patch("posthog.rate_limit.statsd.incr")
-    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        for _ in range(5):
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Call to flags gets rate limited
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            1,
-        )
-        incr_mock.assert_any_call(
-            "rate_limit_exceeded",
-            tags={
-                "team_id": self.team.pk,
-                "scope": "burst",
-                "rate": "5/minute",
-                "route": "/api/projects/TEAM_ID/feature_flags/",
-                "hashed_personal_api_key": hash_key_value(personal_api_key),
-            },
-        )
-
-        incr_mock.reset_mock()
-
-        # but not call to local evaluation
-        for _ in range(7):
-            response = self.client.get(
-                f"/api/feature_flag/local_evaluation",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
-            0,
-        )
-
     def test_feature_flag_dashboard(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -7350,6 +6616,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         assert response.json()["experiment_set"] == []
 
+    def test_feature_flag_experiment_set_metadata_includes_running_status(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="metadata-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        running = Experiment.objects.create(
+            team=self.team, created_by=self.user, name="Running", feature_flag=flag, start_date=now()
+        )
+        stopped = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stopped",
+            feature_flag=flag,
+            start_date=now() - timedelta(days=1),
+            end_date=now(),
+        )
+        draft = Experiment.objects.create(team=self.team, created_by=self.user, name="Draft", feature_flag=flag)
+
+        response = self.client.get(f"/api/projects/@current/feature_flags/{flag.id}")
+        assert response.status_code == 200
+        # Only a running experiment is flagged as such; the frontend uses this to gate flag deletion
+        running_by_id = {exp["id"]: exp["is_running"] for exp in response.json()["experiment_set_metadata"]}
+        assert running_by_id == {running.id: True, stopped.id: False, draft.id: False}
+
     def test_bulk_keys_valid_ids(self):
         """Test that valid IDs return correct key mapping"""
         # Create test flags
@@ -7508,631 +6800,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
-    def test_local_evaluation_caching_basic(self):
-        """Test basic caching functionality for local_evaluation endpoint."""
-        # Clear any existing flags for this team to avoid interference
-        FeatureFlag.objects.filter(team=self.team).delete()
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        # Clear both Redis and S3 caches
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        # First request should miss cache and populate it
-        self.client.logout()
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Check that cache is now populated (using HyperCache format)
-        cache_key = f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
-        cached_data = cache.get(cache_key)
-        self.assertIsNotNone(cached_data)
-        cached_json = json.loads(cached_data)
-        self.assertEqual(len(cached_json["flags"]), 1)
-        self.assertEqual(cached_json["flags"][0]["key"], "test-flag")
-
-    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
-    def test_local_evaluation_returns_503_when_dependency_unavailable(self, mock_capture):
-        """A cold cache during a persons-DB outage fails loud with a retryable 503, not a
-        generic 500, and does not re-capture (the dependency layer already did, throttled).
-
-        Drives the real cache→hypercache→endpoint chain (only the group-type fetch is
-        patched), so a regressed source token would also surface here."""
-        from posthog.models.group_type_mapping import GroupTypesUnavailable
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        # Cold cache (Redis + S3) so the read falls through to load_fn, whose group-type
-        # fetch is the unavailable dependency. GroupTypesUnavailable subclasses
-        # HyperCacheDependencyUnavailable, so this also confirms the endpoint catches the base.
-        clear_flag_definition_caches(self.team)
-        self.client.logout()
-        with patch(
-            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
-            side_effect=GroupTypesUnavailable([self.team.project_id]),
-        ):
-            response = self.client.get(
-                "/api/feature_flag/local_evaluation",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "service_unavailable",
-                "code": "flags_dependency_unavailable",
-                "detail": "Feature flag dependencies are temporarily unavailable; retry shortly",
-            },
-        )
-        self.assertEqual(response.headers.get("Retry-After"), "30")
-        mock_capture.assert_not_called()
-
-    def test_local_evaluation_serves_cached_flags_when_dependency_unavailable(self):
-        """A warm cache keeps serving the last-known-good payload during a persons-DB
-        outage and never reaches load_fn — the PR's headline behavior. A regression that
-        let a warm read fall through to the loader would 503 users who have good data
-        cached.
-
-        Drives the real cache→hypercache→endpoint chain; the loader is replaced only
-        after the cache is warmed, so a warm hit must not invoke it."""
-        from posthog.models.group_type_mapping import GroupTypesUnavailable
-
-        from products.feature_flags.backend import local_evaluation
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        # Warm the cache (Redis + S3) with one successful read.
-        clear_flag_definition_caches(self.team)
-        self.client.logout()
-        warm = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(warm.status_code, status.HTTP_200_OK)
-
-        # The dependency now fails on any rebuild. Patching the loader directly proves a
-        # warm hit never reaches it: if it did, this would raise → 503.
-        with patch.object(
-            local_evaluation,
-            "_get_flags_response_for_local_evaluation",
-            side_effect=GroupTypesUnavailable([self.team.project_id]),
-        ) as mock_load:
-            response = self.client.get(
-                "/api/feature_flag/local_evaluation",
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual([flag["key"] for flag in data["flags"]], ["test-flag"])
-        mock_load.assert_not_called()
-
-    def test_local_evaluation_caching_with_cohorts(self):
-        """Test caching with send_cohorts parameter."""
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        cache.clear()
-
-        # Test cache for send_cohorts=true
-        self.client.logout()
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Check separate cache key for cohorts version (using HyperCache format)
-        cache_key_cohorts = f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
-        cache_key_regular = f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
-
-        cached_cohorts = cache.get(cache_key_cohorts)
-        cached_regular = cache.get(cache_key_regular)
-
-        self.assertIsNotNone(cached_cohorts)
-        self.assertIsNone(cached_regular)  # Regular cache should not be populated yet
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_cache_invalidation_on_flag_change(self, mock_on_commit):
-        """Test cache invalidation when feature flags change."""
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        cache.clear()
-
-        # Populate cache
-        self.client.logout()
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Verify cache is populated and get original content
-        cache_key = f"cache/teams/{self.team.id}/feature_flags/flags_without_cohorts.json"
-        cache_key_cohorts = f"cache/teams/{self.team.id}/feature_flags/flags_with_cohorts.json"
-        original_cache = cache.get(cache_key)
-        self.assertIsNotNone(original_cache)
-
-        # Update the flag (this should trigger cache update via signal handler)
-        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
-        flag.save()
-
-        # Cache should now be updated with fresh data
-        updated_cache = cache.get(cache_key)
-        updated_cache_cohorts = cache.get(cache_key_cohorts)
-        self.assertIsNotNone(updated_cache)
-        self.assertIsNotNone(updated_cache_cohorts)
-
-        # Cache content should have changed (flag filters should be updated)
-        self.assertNotEqual(original_cache, updated_cache)
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_cache_invalidation_on_cohort_change(self, mock_on_commit):
-        """Test cache invalidation when cohorts change."""
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        cache.clear()
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        # Populate both cache variants
-        self.client.logout()
-        response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
-
-        # Update the cohort (this should trigger cache update via signal handler)
-        cohort.name = "Updated Test Cohort"
-        cohort.save()
-
-        # Make new requests to get potentially updated cache
-        self.client.logout()
-        updated_response1 = self.client.get(
-            f"/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        updated_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-
-        self.assertEqual(updated_response1.status_code, status.HTTP_200_OK)
-        self.assertEqual(updated_response2.status_code, status.HTTP_200_OK)
-
-        # Cache content should have changed (cohort name should be updated in the cohorts response)
-        updated_response_without_cohorts = updated_response1.json()
-        updated_response_with_cohorts = updated_response2.json()
-
-        # For cohorts response, verify that cache was invalidated by checking the response content changed
-        # The exact structure may not include cohort name, so let's just verify cache invalidation occurred
-        # by checking that the responses are still valid but potentially different
-        self.assertIn("flags", updated_response_without_cohorts)
-        self.assertIn("flags", updated_response_with_cohorts)
-
-        # Verify cohorts are included in the cohorts response
-        if updated_response_with_cohorts.get("cohorts"):
-            self.assertIsInstance(updated_response_with_cohorts["cohorts"], dict)
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_basic(self, mock_on_commit):
-        """Test that local evaluation returns proper flag data."""
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Test the local evaluation endpoint
-        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertIn("flags", data)
-        self.assertIn("group_type_mapping", data)
-        self.assertIn("cohorts", data)
-        self.assertEqual(len(data["flags"]), 1)
-        self.assertEqual(data["flags"][0]["key"], "test-flag")
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_with_cohorts(self, mock_on_commit):
-        """Test local evaluation with cohorts - verifies cohorts are properly included."""
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        # Test with send_cohorts parameter
-        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertIn("flags", data)
-        self.assertIn("cohorts", data)
-        self.assertEqual(len(data["flags"]), 1)
-        self.assertEqual(data["flags"][0]["key"], "test-flag-cohort")
-        self.assertEqual(len(data["cohorts"]), 1)  # Should contain the cohort
-        self.assertIn(str(cohort.id), data["cohorts"])
-        self.assertEqual(
-            data["cohorts"][str(cohort.id)],
-            {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "email",
-                                "value": "test@example.com",
-                                "type": "person",
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_functionality(self, mock_on_commit):
-        """Test that local evaluation works without breaking existing functionality."""
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        # Basic test that local evaluation endpoint works
-        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertIn("flags", data)
-        self.assertIn("group_type_mapping", data)
-        self.assertIn("cohorts", data)
-        self.assertEqual(len(data["flags"]), 1)
-        self.assertEqual(data["flags"][0]["key"], "test-flag")
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_transformation_with_send_cohorts_true(self, mock_on_commit):
-        """
-        Test that responses with send_cohorts=true do NOT transform filters.
-        """
-        # Create cohort for testing
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-
-        # Create flag with single cohort reference (triggers transformation logic)
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        # Get response with send_cohorts (should NOT transform filters)
-        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-
-        # Should have cohorts
-        self.assertEqual(len(data["cohorts"]), 1)
-        self.assertIn(str(cohort.id), data["cohorts"])
-
-        # Verify that filters are NOT transformed (cohort reference preserved)
-        flag = data["flags"][0]
-        self.assertEqual(flag["key"], "test-flag-cohort")
-
-        # The filter should still contain the original cohort reference
-        original_property = flag["filters"]["groups"][0]["properties"][0]
-        self.assertEqual(original_property["type"], "cohort")
-        self.assertEqual(original_property["value"], cohort.id)
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_transformation_with_send_cohorts_false(self, mock_on_commit):
-        """
-        Test that responses without send_cohorts DO transform filters.
-        """
-        # Create cohort for testing
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-
-        # Create flag with single cohort reference (triggers transformation logic)
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        # Get response without send_cohorts (should transform filters)
-        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-
-        # Should not have cohorts in response
-        self.assertEqual(len(data["cohorts"]), 0)
-
-        # Should have transformed filters (cohort properties expanded)
-        flag = data["flags"][0]
-        self.assertEqual(flag["key"], "test-flag-cohort")
-
-        # Check that response has transformed filters (should contain person properties)
-        properties = flag["filters"]["groups"][0]["properties"]
-        self.assertTrue(
-            any(prop.get("type") == "person" for prop in properties),
-            "Response should have transformed cohort to person properties",
-        )
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_cache_invalidation_on_feature_flag_delete(self, mock_on_commit):
-        """Test that cache invalidates when FeatureFlag is deleted."""
-        from products.feature_flags.backend.local_evaluation import (
-            flag_definitions_hypercache,
-            flag_definitions_without_cohorts_hypercache,
-        )
-
-        # Create two feature flags
-        flag1 = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-1",
-            name="Test Flag 1",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-2",
-            name="Test Flag 2",
-            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
-        )
-
-        # Clear caches to start fresh
-        flag_definitions_hypercache.clear_cache(self.team)
-        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
-
-        # Populate both cache variants using use_cache parameter
-        response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-        response2 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
-
-        # Verify both flags are in the responses
-        data1 = response1.json()
-        data2 = response2.json()
-        self.assertEqual(len(data1["flags"]), 2)
-        self.assertEqual(len(data2["flags"]), 2)
-
-        flag_keys_1 = {flag["key"] for flag in data1["flags"]}
-        flag_keys_2 = {flag["key"] for flag in data2["flags"]}
-        self.assertEqual(flag_keys_1, {"test-flag-1", "test-flag-2"})
-        self.assertEqual(flag_keys_2, {"test-flag-1", "test-flag-2"})
-
-        # Verify caches are populated by checking we get the same data on subsequent calls
-        cached_response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-        cached_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts"
-        )
-        self.assertEqual(cached_response1.json(), data1)
-        self.assertEqual(cached_response2.json(), data2)
-
-        # Delete one of the feature flags - this should trigger cache invalidation via post_delete signal
-        flag1.delete()
-
-        # Get responses again - they should reflect the deletion (meaning cache was invalidated)
-        updated_response1 = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-        updated_response2 = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts"
-        )
-
-        # Verify only one flag remains in both responses
-        updated_data1 = updated_response1.json()
-        updated_data2 = updated_response2.json()
-        self.assertEqual(len(updated_data1["flags"]), 1)
-        self.assertEqual(len(updated_data2["flags"]), 1)
-        self.assertEqual(updated_data1["flags"][0]["key"], "test-flag-2")
-        self.assertEqual(updated_data2["flags"][0]["key"], "test-flag-2")
-
-        # Verify responses changed from the original cached versions (flag count decreased)
-        self.assertNotEqual(len(data1["flags"]), len(updated_data1["flags"]))
-        self.assertNotEqual(len(data2["flags"]), len(updated_data2["flags"]))
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_local_evaluation_cache_invalidation_on_cohort_delete(self, mock_on_commit):
-        """Test that cache invalidates when Cohort is deleted."""
-        from products.feature_flags.backend.local_evaluation import (
-            flag_definitions_hypercache,
-            flag_definitions_without_cohorts_hypercache,
-        )
-
-        # Create a cohort
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-
-        # Create a feature flag that references the cohort
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort",
-            name="Test Flag with Cohort",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        # Clear caches to start fresh
-        flag_definitions_hypercache.clear_cache(self.team)
-        flag_definitions_without_cohorts_hypercache.clear_cache(self.team)
-
-        # Populate cache with cohorts using use_cache parameter
-        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-
-        # Verify cohort is present in the response
-        self.assertIn("cohorts", data)
-        self.assertIn(str(cohort.id), data["cohorts"])
-
-        # Verify cache is populated by checking we get the same data on subsequent calls
-        cached_response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts"
-        )
-        self.assertEqual(cached_response.json(), data)
-
-        # Delete the cohort - this should trigger cache invalidation via post_delete signal
-        cohort.delete()
-
-        # Get response again - cohort should be gone from the response
-        updated_response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts"
-        )
-        updated_data = updated_response.json()
-
-        # Cohort should no longer exist in the response
-        self.assertNotIn(str(cohort.id), updated_data.get("cohorts", {}))
-
-        # Verify response changed from the original cached version
-        self.assertNotEqual(data["cohorts"], updated_data.get("cohorts", {}))
-
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_without_usage_dashboard(self, mock_report_user_action):
         response = self.client.post(
@@ -8147,503 +6814,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "no-usage-dashboard")
         self.assertEqual(instance.name, "")
         assert instance.usage_dashboard is None, "Usage dashboard should not be created"
-
-    def test_local_evaluation_returns_etag_header(self):
-        """Test that local_evaluation returns an ETag header in the response."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-etag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-        response = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("ETag", response.headers)
-        self.assertTrue(response.headers["ETag"].startswith('W/"'))
-        self.assertTrue(response.headers["ETag"].endswith('"'))
-        self.assertIn("Cache-Control", response.headers)
-        self.assertEqual(response.headers["Cache-Control"], "private, must-revalidate")
-
-    def test_local_evaluation_returns_304_when_etag_matches(self):
-        """Test that local_evaluation returns 304 when If-None-Match header matches."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-304",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # First request to get the ETag
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        etag = response1.headers["ETag"]
-
-        # Second request with If-None-Match header
-        response2 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={
-                "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": etag,
-            },
-        )
-        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
-        self.assertEqual(response2.headers["ETag"], etag)
-
-    def test_local_evaluation_returns_200_when_etag_does_not_match(self):
-        """Test that local_evaluation returns 200 with new data when ETag doesn't match."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-new-etag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # Request with non-matching ETag
-        response = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={
-                "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": '"wrong-etag"',
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("ETag", response.headers)
-        self.assertIn("flags", response.json())
-
-    @patch("django.db.transaction.on_commit", side_effect=lambda f: f())
-    def test_local_evaluation_etag_changes_when_flag_updated(self, mock_on_commit):
-        """Test that ETag changes when a feature flag is modified."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-update",
-            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # First request to get the initial ETag
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        etag1 = response1.headers["ETag"]
-
-        # Update the flag
-        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
-        flag.save()
-
-        # Second request should have a different ETag
-        response2 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
-        etag2 = response2.headers["ETag"]
-
-        self.assertNotEqual(etag1, etag2)
-
-    def test_local_evaluation_etag_works_with_send_cohorts(self):
-        """Test that ETag works correctly with send_cohorts parameter."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Test Cohort",
-            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-cohort-etag",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.id, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # Request with send_cohorts
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation?send_cohorts",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        etag_with_cohorts = response1.headers["ETag"]
-
-        # Second request with same ETag should return 304
-        response2 = self.client.get(
-            "/api/feature_flag/local_evaluation?send_cohorts",
-            headers={
-                "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": etag_with_cohorts,
-            },
-        )
-        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
-
-        # Request without send_cohorts should have different ETag
-        response3 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response3.status_code, status.HTTP_200_OK)
-        etag_without_cohorts = response3.headers["ETag"]
-
-        # Different caches should have different ETags
-        self.assertNotEqual(etag_with_cohorts, etag_without_cohorts)
-
-    def test_local_evaluation_304_response_has_empty_body(self):
-        """Test that 304 responses have empty body per HTTP spec."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-empty-body",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # First request to get the ETag
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
-        etag = response1.headers["ETag"]
-
-        # Second request with matching ETag should return 304 with empty body
-        response2 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={
-                "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": etag,
-            },
-        )
-        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
-        self.assertEqual(response2.content, b"")
-
-    @parameterized.expand(
-        [
-            ("quoted", lambda etag: etag),  # Send as-is with quotes
-            ("unquoted", lambda etag: etag.removeprefix('W/"').removesuffix('"')),  # Strip quotes
-        ]
-    )
-    def test_local_evaluation_etag_header_parsing(self, _name, transform_etag):
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key=f"test-flag-{_name}",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # Get initial ETag
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        etag = response1.headers["ETag"]
-        # ETag is returned as weak ETag, e.g., 'W/"abc123"'
-        self.assertTrue(etag.startswith('W/"') and etag.endswith('"'))
-
-        # Client sends ETag (transformed based on test case) - should match
-        response2 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={
-                "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": transform_etag(etag),
-            },
-        )
-        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
-
-    def test_local_evaluation_etag_idempotent_304_responses(self):
-        """Test that same ETag consistently returns 304 across multiple requests."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-idempotent",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
-
-        clear_flag_definition_caches(self.team)
-
-        self.client.logout()
-
-        # Get initial ETag
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        etag = response1.headers["ETag"]
-
-        # Make 5 sequential requests with same ETag - all should return 304
-        for i in range(5):
-            response = self.client.get(
-                "/api/feature_flag/local_evaluation",
-                headers={
-                    "authorization": f"Bearer {personal_api_key}",
-                    "If-None-Match": etag,
-                },
-            )
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_304_NOT_MODIFIED,
-                f"Request {i + 1} should return 304",
-            )
-            self.assertEqual(response.headers["ETag"], etag)
-
-    def test_local_evaluation_secret_key_in_body_counter_not_incremented_for_header_auth(self):
-        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforheaderauth"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
-
-    def test_local_evaluation_secret_key_in_body_counter_incremented_for_body_auth(self):
-        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforbodyauth"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
-
-        response = self.client.generic(
-            "GET",
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before + 1)
-
-    def test_local_evaluation_secret_key_in_body_counter_not_incremented_when_header_wins(self):
-        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforheaderwins"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get()
-
-        # Both header AND body have the secret token — header wins, body is ignored
-        response = self.client.generic(
-            "GET",
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            data=json.dumps({"secret_api_key": self.team.secret_api_token}),
-            content_type="application/json",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
-
-    @parameterized.expand(
-        [
-            ("header", "header"),
-            ("body", "body"),
-            ("query_string", "query_string"),
-        ]
-    )
-    def test_local_evaluation_personal_api_key_source_counter(self, name, source):
-        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
-        )
-
-        self.client.logout()
-        before = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source)._value.get()
-
-        url = f"/api/feature_flag/local_evaluation?token={self.team.api_token}"
-        if source == "header":
-            response = self.client.get(
-                url,
-                headers={"authorization": f"Bearer {personal_api_key}"},
-            )
-        elif source == "body":
-            response = self.client.generic(  # type: ignore[assignment]
-                "GET",
-                url,
-                data=json.dumps({"personal_api_key": personal_api_key}),
-                content_type="application/json",
-            )
-        else:
-            response = self.client.get(
-                f"{url}&personal_api_key={personal_api_key}",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source)._value.get(),
-            before + 1,
-        )
-
-    def test_local_evaluation_personal_api_key_source_counter_not_incremented_for_secret_key(self):
-        from products.feature_flags.backend.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
-
-        self.team.secret_api_token = "phs_testtokenforpaksource"
-        self.team.save()
-
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        self.client.logout()
-        before_header = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="header")._value.get()
-        before_body = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="body")._value.get()
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="header")._value.get(), before_header
-        )
-        self.assertEqual(
-            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="body")._value.get(), before_body
-        )
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
@@ -12832,8 +11002,8 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
 
-    def test_bulk_delete_validates_experiments(self):
-        """Test that flags linked to active experiments are rejected."""
+    def test_bulk_delete_validates_running_experiments(self):
+        """Test that flags linked to running experiments are rejected."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -12845,6 +11015,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             name="Test Experiment",
             feature_flag=flag,
             created_by=self.user,
+            start_date=now(),
         )
 
         response = self.client.post(
@@ -12861,6 +11032,38 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Verify flag is NOT deleted
         flag.refresh_from_db()
         assert flag.deleted is False
+
+    def test_bulk_delete_allows_flag_linked_to_stopped_experiment(self):
+        """Flags linked to stopped/draft experiments can be deleted while preserving experiment history."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="stopped_experiment_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="Stopped Experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=now(),
+            end_date=now(),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+        assert len(data["errors"]) == 0
+
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        # Key is freed up for reuse
+        assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
