@@ -309,8 +309,10 @@ describe('cohortEditLogic', () => {
                         name: 'Test Cohort',
                         is_static: false,
                         filters: { properties: { type: 'AND', values: [] } },
+                        // A failed calculation leaves pending_version ahead of version, since version
+                        // only advances on success. The error banner must still win over "pending".
                         version: 1,
-                        pending_version: 1,
+                        pending_version: 2,
                         is_calculating: false,
                         errors_calculating: 1,
                         last_calculation: '2024-01-01T00:00:00Z',
@@ -354,6 +356,40 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic, async () => {
                 await userEvent.click(retryButton)
             }).toDispatchActions(['submitCohort'])
+        })
+
+        it('shows the error banner, not a pending state, when a stuck calculation has failed', async () => {
+            const cohortId = 3
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        // pending_version stuck ahead of version because every calculation failed
+                        version: 1,
+                        pending_version: 5,
+                        is_calculating: false,
+                        errors_calculating: 3,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                        last_error_message: 'Invalid regular expression',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findByText(/Calculation failed:/)
+            expect(screen.getByText(/Invalid regular expression/)).toBeInTheDocument()
+            // The pending/calculating messaging must not be shown for a failed cohort
+            expect(screen.queryAllByText('In progress...')).toHaveLength(0)
+            expect(
+                screen.queryByText(
+                    "We're queuing a recalculation. The table below shows results from the previous calculation."
+                )
+            ).not.toBeInTheDocument()
         })
     })
 })
