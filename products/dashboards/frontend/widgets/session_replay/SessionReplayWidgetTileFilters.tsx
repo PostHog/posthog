@@ -49,21 +49,19 @@ export function SessionReplayWidgetTileFilters({
         [projectFilterDefinitions, isAllowed]
     )
 
-    const savedFilterSelectOptions = useMemo(() => {
-        const options: { value: string | null; label: string; sideIcon?: JSX.Element }[] = [
+    const savedFilterSelectOptions = useMemo(
+        () => [
             NO_SAVED_FILTER_OPTION,
             ...savedFilterOptions,
-        ]
-        // When the project has no saved filters yet, offer a shortcut to create one in session replay.
-        if (!savedFiltersLoading && savedFilterOptions.length === 0) {
-            options.push({
+            // Always offer a shortcut to create a new saved filter in session replay.
+            {
                 value: CREATE_SAVED_FILTER_VALUE,
                 label: 'Create a saved filter',
                 sideIcon: <IconOpenInNew />,
-            })
-        }
-        return options
-    }, [savedFilterOptions, savedFiltersLoading])
+            },
+        ],
+        [savedFilterOptions]
+    )
     const savedFilterLabel = useMemo(
         () => savedFilterOptions.find((option) => option.value === savedFilterId)?.label ?? savedFilterId,
         [savedFilterOptions, savedFilterId]
