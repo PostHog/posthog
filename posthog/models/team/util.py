@@ -20,6 +20,8 @@ actions_that_require_current_team = [
     "generate_conversations_public_token",
     "default_release_conditions",
     "experiments_config",
+    "default_evaluation_contexts",
+    "evaluation_context_suggestions",
 ]
 
 

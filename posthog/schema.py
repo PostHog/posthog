@@ -20503,6 +20503,15 @@ class AccountsQuery(BaseModel):
         description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
     )
     allRolesUnassigned: bool | None = None
+    assignedToUserIds: list[int] | None = Field(
+        default=None,
+        description=(
+            "Match accounts where any of these user ids is the CSM or the account"
+            ' executive (OR over both roles). Drives the "My accounts" shortcut (the'
+            ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
+            " explicit so a shared URL resolves identically for every viewer."
+        ),
+    )
     csm: list[int] | None = Field(
         default=None,
         description="Match accounts whose CSM is any of these user ids (OR semantics).",
@@ -23604,6 +23613,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(

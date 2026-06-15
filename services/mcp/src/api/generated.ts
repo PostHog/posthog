@@ -514,6 +514,8 @@ export namespace Schemas {
       /** Match accounts whose account owner is any of these user ids (OR semantics). */
       accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
+      /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+      assignedToUserIds?: number[] | null;
       /** Match accounts whose CSM is any of these user ids (OR semantics). */
       csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
@@ -2452,6 +2454,8 @@ export namespace Schemas {
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
+      /** Compare to date range */
+      compareFilter?: CompareFilter | null;
       /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
@@ -16898,6 +16902,23 @@ export namespace Schemas {
     export interface EvaluationConfigSetActiveKeyRequest {
       /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
       key_id: string;
+    }
+
+    export interface EvaluationContextSuggestionRequest {
+      /**
+         * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+         * @maxLength 255
+         */
+      context_name: string;
+    }
+
+    export interface EvaluationContextSuggestionResponse {
+      /** Whether the suggestion visibility change was applied. */
+      success: boolean;
+      /** Normalized name of the affected evaluation context. */
+      name: string;
+      /** Whether the context is now hidden from the flag editor's suggestion list. */
+      hidden_from_suggestions: boolean;
     }
 
     export interface EvaluationPattern {
@@ -33703,6 +33724,14 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Per-(team, skill) scout config: schedule, enablement, and emit posture.
      *
@@ -33715,6 +33744,8 @@ export namespace Schemas {
       readonly skill_name?: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description?: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin?: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -40329,6 +40360,8 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -48884,6 +48917,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
+    };
+
     export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -50637,6 +50677,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
