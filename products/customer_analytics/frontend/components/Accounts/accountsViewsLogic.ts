@@ -111,7 +111,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         currentViewId: [
             null as string | null,
             {
@@ -136,7 +136,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 setViewToDelete: (_, { id }) => id,
             },
         ],
-    }),
+    })),
     selectors({
         liveViewState: [
             (s) => [
