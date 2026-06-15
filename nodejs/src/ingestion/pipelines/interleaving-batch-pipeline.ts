@@ -2,8 +2,8 @@ import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } fr
 import { resettableSignal } from './resettable-signal'
 
 /**
- * What {@link InterleavingBatchPipeline}'s onNewInput callback reports after
- * pulling one batch from the upstream pipeline:
+ * What {@link InterleavingCallbacks.onSourcePull} reports after pulling one
+ * batch from the upstream pipeline:
  * - `emit`: return this batch to the caller now (e.g. passthrough / non-OK results)
  * - `drain`: input was routed into the subpipeline; drain it for results
  * - `drained`: the upstream pipeline is currently empty

@@ -145,6 +145,23 @@ async function tick(rounds: number = 10): Promise<void> {
     }
 }
 
+// xoshiro128** PRNG (Vigna & Blackman, 2018). Seeded so stress runs use a fixed
+// input corpus — a CI failure is reproducible instead of a one-off random draw.
+function xoshiro128ss(a: number, b: number, c: number, d: number): () => number {
+    return function () {
+        const t = b << 9
+        let r = b * 5
+        r = ((r << 7) | (r >>> 25)) * 9
+        c ^= a
+        d ^= b
+        b ^= c
+        a ^= d
+        c ^= t
+        d = (d << 11) | (d >>> 21)
+        return (r >>> 0) / 4294967296
+    }
+}
+
 /** Batch-scoped view of the fake store, mirroring BatchBoundPersonsStore. */
 class FakeStoreForBatch {
     constructor(
@@ -993,9 +1010,10 @@ describe('BatchingPipeline + groupBy integration (joined ingestion pipeline shap
 
     describe('concurrent drivers (ingestion-api-server model)', () => {
         it('maintains per-key ordering with concurrent feed+drain drivers', async () => {
+            const random = xoshiro128ss(0x9e3779b9, 0x243f6a88, 0xb7e15162, 0x6c078965)
             const harness = new Harness({
                 concurrentBatches: 2,
-                processDelay: () => new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 3))),
+                processDelay: () => new Promise((resolve) => setTimeout(resolve, Math.floor(random() * 3))),
             })
             const semaphore = new Semaphore(2)
 
@@ -1042,9 +1060,10 @@ describe('BatchingPipeline + groupBy integration (joined ingestion pipeline shap
             const BATCH_SIZE = 8
             const KEYS = ['a', 'b', 'c', 'd', 'e', 'f']
 
+            const random = xoshiro128ss(0x9e3779b9, 0x243f6a88, 0xb7e15162, 0x6c078965)
             const harness = new Harness({
                 concurrentBatches: CONCURRENT_BATCHES,
-                processDelay: () => new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 3))),
+                processDelay: () => new Promise((resolve) => setTimeout(resolve, Math.floor(random() * 3))),
             })
             const semaphore = new Semaphore(CONCURRENT_BATCHES)
 
@@ -1054,9 +1073,9 @@ describe('BatchingPipeline + groupBy integration (joined ingestion pipeline shap
                 const specs: EventSpec[] = []
                 for (let j = 0; j < BATCH_SIZE; j++) {
                     specs.push({
-                        key: KEYS[Math.floor(Math.random() * KEYS.length)],
+                        key: KEYS[Math.floor(random() * KEYS.length)],
                         seq: seq++,
-                        action: Math.random() < 0.1 ? 'drop' : undefined,
+                        action: random() < 0.1 ? 'drop' : undefined,
                     })
                 }
                 batches.push(specs)

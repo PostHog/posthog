@@ -139,33 +139,42 @@ export class ConcurrentlyGroupingBatchPipeline<
     }
 
     private startAvailableProcessing(): void {
-        for (const [key, queue] of this.groupQueues) {
-            if (queue.length > 0 && !this.activeProcessing.has(key)) {
-                this.groupQueues.delete(key)
-
-                const processingPromise = this.processGroupSequentially(queue).then(
-                    (results) => {
-                        this.completedResults.push(results)
-                        this.activeProcessing.delete(key)
-                        // The key is free again: start any items queued for it
-                        // while it was processing (preserves per-key ordering).
-                        this.startAvailableProcessing()
-                        this.groupCompleted.resolve()
-                        return results
-                    },
-                    (error: unknown) => {
-                        // Poison the pipeline. Keep the key in activeProcessing so
-                        // later items for it never start, and wake a parked
-                        // pullProcessed so it can rethrow.
-                        this.failure ??= error
-                        this.groupCompleted.resolve()
-                        return []
-                    }
-                )
-
-                this.activeProcessing.set(key, processingPromise)
-            }
+        for (const key of this.groupQueues.keys()) {
+            this.startGroupIfQueued(key)
         }
+    }
+
+    private startGroupIfQueued(key: TKey): void {
+        const queue = this.groupQueues.get(key)
+        if (!queue || queue.length === 0 || this.activeProcessing.has(key)) {
+            return
+        }
+        this.groupQueues.delete(key)
+
+        const processingPromise = this.processGroupSequentially(queue).then(
+            (results) => {
+                this.completedResults.push(results)
+                this.activeProcessing.delete(key)
+                // The key is free again: start any items queued for it while it
+                // was processing (preserves per-key ordering). Only this key can
+                // have newly-startable items — items for other keys are started
+                // when they arrive (routeFromPrevious) or by their own
+                // completion — so a targeted O(1) restart suffices.
+                this.startGroupIfQueued(key)
+                this.groupCompleted.resolve()
+                return results
+            },
+            (error: unknown) => {
+                // Poison the pipeline. Keep the key in activeProcessing so
+                // later items for it never start, and wake a parked
+                // pullProcessed so it can rethrow.
+                this.failure ??= error
+                this.groupCompleted.resolve()
+                return []
+            }
+        )
+
+        this.activeProcessing.set(key, processingPromise)
     }
 
     private async processGroupSequentially(

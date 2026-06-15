@@ -20,7 +20,7 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
  * Synchronization (pulling upstream, feeding the subpipeline, draining it, and
  * staying responsive to concurrent feeds so a parked subpipeline can't strand
  * newly fed input) is handled by {@link InterleavingBatchPipeline}. This class
- * only supplies the filter/map/route policy via the onNewInput callback.
+ * only supplies the filter/map/route policy via the onSourcePull callback.
  */
 export class FilterMapBatchPipeline<
     TInput,
