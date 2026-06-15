@@ -2352,7 +2352,7 @@ export function inStorybook(): boolean {
 
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
-    return isAbortedRequest(error) || isTimedOutRequest(error)
+    return isAbortedRequest(error) || isTimedOutRequest(error) || isCancelledQueryError(error)
 }
 
 export function isAbortedRequest(error: any): boolean {
@@ -2361,6 +2361,21 @@ export function isAbortedRequest(error: any): boolean {
 
 export function isTimedOutRequest(error: any): boolean {
     return error.status === 504
+}
+
+/**
+ * When an in-flight query is superseded or the user navigates away, the frontend aborts it and
+ * the backend cancels the running ClickHouse query, echoing back a `QUERY_WAS_CANCELLED` error.
+ * That round-trip cancellation is intentional, not a failure, so we recognize it here to keep it
+ * out of error tracking.
+ */
+export function isCancelledQueryError(error: any): boolean {
+    const code = error?.code ?? error?.data?.code
+    if (typeof code === 'string' && code.toLowerCase() === 'query_was_cancelled') {
+        return true
+    }
+    const message = error?.detail ?? error?.data?.query_status?.error_message ?? error?.message
+    return typeof message === 'string' && /query[ _]was[ _]cancelled/i.test(message)
 }
 
 export function flattenObject<T extends Record<string, any>>(obj: T): Record<string, any> {

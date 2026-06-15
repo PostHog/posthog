@@ -718,7 +718,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        if (!shouldCancelQuery(error)) {
+                            posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
+                        }
                         return null
                     }
                 },
@@ -739,7 +741,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        if (!shouldCancelQuery(error)) {
+                            posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
+                        }
                         return null
                     }
                 },

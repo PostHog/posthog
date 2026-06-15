@@ -36,6 +36,7 @@ import {
     humanFriendlyLargeNumber,
     identifierToHuman,
     is12HoursOrLess,
+    isCancelledQueryError,
     isExternalLink,
     isLessThan2Days,
     isOperatorMulti,
@@ -54,6 +55,7 @@ import {
     roundToDecimal,
     selectorOperatorMap,
     shortTimeZone,
+    shouldCancelQuery,
     stringOperatorMap,
     toParams,
     wordPluralize,
@@ -1641,6 +1643,42 @@ describe('lib/utils', () => {
             expect(isOperatorMulti(PropertyOperator.IsSet)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.IsNotSet)).toBe(false)
             expect(isOperatorMulti(PropertyOperator.Regex)).toBe(false)
+        })
+    })
+
+    describe('isCancelledQueryError', () => {
+        it('matches a server-side cancellation by code', () => {
+            expect(isCancelledQueryError({ code: 'query_was_cancelled' })).toBe(true)
+            expect(isCancelledQueryError({ code: 'QUERY_WAS_CANCELLED' })).toBe(true)
+            expect(isCancelledQueryError({ data: { code: 'query_was_cancelled' } })).toBe(true)
+        })
+
+        it('matches a server-side cancellation by message', () => {
+            expect(isCancelledQueryError({ detail: 'DB::Exception: Query was cancelled. (QUERY_WAS_CANCELLED)' })).toBe(
+                true
+            )
+            expect(isCancelledQueryError({ message: 'Query was cancelled' })).toBe(true)
+            expect(isCancelledQueryError({ data: { query_status: { error_message: 'Query was cancelled' } } })).toBe(
+                true
+            )
+        })
+
+        it('does not match unrelated errors', () => {
+            expect(isCancelledQueryError({ code: 'unknown_function', detail: 'Unknown function foo' })).toBe(false)
+            expect(isCancelledQueryError({ message: 'Network error' })).toBe(false)
+            expect(isCancelledQueryError({})).toBe(false)
+        })
+    })
+
+    describe('shouldCancelQuery', () => {
+        it('treats client aborts, timeouts, and server cancellations as cancellations', () => {
+            expect(shouldCancelQuery({ name: 'AbortError' })).toBe(true)
+            expect(shouldCancelQuery({ status: 504 })).toBe(true)
+            expect(shouldCancelQuery({ code: 'query_was_cancelled' })).toBe(true)
+        })
+
+        it('does not treat genuine query failures as cancellations', () => {
+            expect(shouldCancelQuery({ status: 500, detail: 'ClickHouse error while executing query.' })).toBe(false)
         })
     })
 })

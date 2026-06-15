@@ -9,7 +9,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman, shouldCancelQuery } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
@@ -140,7 +140,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Intentional query cancellations (superseded/aborted queries echoed back as
+                // `QUERY_WAS_CANCELLED`) aren't real failures — don't flood error tracking with them.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !shouldCancelQuery(error)) {
                     posthog.captureException(error)
                 }
             },
