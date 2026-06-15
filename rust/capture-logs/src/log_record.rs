@@ -48,6 +48,17 @@ pub struct KafkaLogRow {
 pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
     let mut total: usize = 0;
     total = total.saturating_add(row.body.len());
+
+    // by default exclude instrumentation_scope and event_name as they are
+    // low cardinality and highly compressible, but add them if they are large
+    // to prevent abuse
+    if row.instrumentation_scope.len() > 50 {
+        total = total.saturating_add(row.instrumentation_scope.len());
+    }
+    if row.event_name.len() > 50 {
+        total = total.saturating_add(row.event_name.len());
+    }
+
     for (k, v) in &row.resource_attributes {
         total = total.saturating_add(k.len()).saturating_add(v.len());
     }
