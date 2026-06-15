@@ -1296,6 +1296,18 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert key_denied != key_granted
 
     @parameterized.expand(RUNNER_BASES)
+    def test_fingerprint_covers_scopes_outside_the_legacy_resource_list(self, _name, base):
+        # System tables declare access_scopes (e.g. batch_export, alert, annotation) that the old
+        # hand-maintained blocked_resources tuple missed - a deny removed the table from the schema
+        # but left the cache key unchanged. blocked_resources is now derived from the actual rows,
+        # so any denied scope must show up in the fingerprint.
+        scopes = {"batch_export", "alert", "annotation"}
+        for scope in scopes:
+            self._ac(resource=scope, access_level="none")
+        restricted = set(self._runner(self.user, base).get_cache_payload().get("restricted_resources") or [])
+        assert scopes <= restricted
+
+    @parameterized.expand(RUNNER_BASES)
     def test_object_grant_changes_cache_key(self, _name, base):
         from products.notebooks.backend.models import Notebook
 

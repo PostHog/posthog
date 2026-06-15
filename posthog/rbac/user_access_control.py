@@ -1022,11 +1022,11 @@ class UserAccessControl:
 
     @cached_property
     def blocked_resources(self) -> list[str]:
-        """Sorted list of resources the user has no access to at the resource level"""
+        """Sorted list of resources the user has no access to at the resource level."""
         if self.is_organization_admin:
             return []
-        resources = (*ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP.keys())
-        return sorted(resource for resource in resources if not self.has_resource_access(resource))
+        candidate_resources = {ac.resource for ac in self._cached_access_controls if ac.resource_id is None}
+        return sorted(resource for resource in candidate_resources if not self.has_resource_access(resource))
 
     def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
         """
