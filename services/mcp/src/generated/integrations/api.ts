@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -115,4 +115,39 @@ export const IntegrationsChannelsRetrieveQueryParams = /* @__PURE__ */ zod.objec
         .string()
         .default(integrationsChannelsRetrieveQuerySearchDefault)
         .describe('Optional case-insensitive channel name or ID search query.'),
+})
+
+export const IntegrationsGithubReposRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const integrationsGithubReposRetrieveQueryLimitDefault = 100
+export const integrationsGithubReposRetrieveQueryLimitMax = 500
+
+export const integrationsGithubReposRetrieveQueryOffsetDefault = 0
+export const integrationsGithubReposRetrieveQueryOffsetMin = 0
+
+export const integrationsGithubReposRetrieveQuerySearchDefault = ``
+
+export const IntegrationsGithubReposRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsGithubReposRetrieveQueryLimitMax)
+        .default(integrationsGithubReposRetrieveQueryLimitDefault)
+        .describe('Maximum number of repositories to return per request (max 500).'),
+    offset: zod
+        .number()
+        .min(integrationsGithubReposRetrieveQueryOffsetMin)
+        .default(integrationsGithubReposRetrieveQueryOffsetDefault)
+        .describe('Number of repositories to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsGithubReposRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive repository name search query.'),
 })

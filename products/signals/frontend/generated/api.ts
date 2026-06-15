@@ -239,6 +239,24 @@ export const signalsScoutConfigUpdate = async (
     })
 }
 
+export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/sync/`
+}
+
+/**
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's product-autonomy program) can hand the user a tunable fleet immediately.
+ * @summary Sync scout configs
+ */
+export const signalsScoutConfigSync = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi[]> => {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSignalsScoutProjectProfileGetUrl = (
     projectId: string,
     params?: SignalsScoutProjectProfileGetParams
