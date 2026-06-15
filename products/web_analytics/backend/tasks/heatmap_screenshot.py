@@ -26,8 +26,8 @@ from posthog.security.url_validation import is_url_allowed, should_block_url
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region
 
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.presentation.views.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 
 logger = structlog.get_logger(__name__)
 

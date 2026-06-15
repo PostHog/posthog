@@ -10,8 +10,8 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.presentation.views.heatmaps_utils import MAX_TARGET_WIDTHS
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     HEATMAP_BROWSERLESS_FLAG,
     BrowserlessError,

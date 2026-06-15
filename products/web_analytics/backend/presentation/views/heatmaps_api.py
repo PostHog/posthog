@@ -40,8 +40,8 @@ from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
+from products.web_analytics.backend.presentation.views.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)

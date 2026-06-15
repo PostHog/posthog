@@ -28,7 +28,7 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
-from products.web_analytics.backend.api.heatmaps_api import (
+from products.web_analytics.backend.presentation.views.heatmaps_api import (
     DEFAULT_QUERY,
     FOLD_SUMMARY_QUERY,
     SCROLL_DEPTH_QUERY,

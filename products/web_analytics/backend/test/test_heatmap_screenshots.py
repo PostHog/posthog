@@ -130,7 +130,7 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r["Content-Type"], "image/jpeg")
         self.assertEqual(r.content, b"jpegdata1024")
 
-    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    @patch("products.web_analytics.backend.presentation.views.heatmaps_api.generate_heatmap_screenshot")
     def test_retrieve_auto_recovers_stale_processing_heatmap(self, mock_task):
         saved = SavedHeatmap.objects.create(
             team=self.team,
@@ -154,7 +154,7 @@ class TestHeatmapsAPI(APIBaseTest):
         # Old snapshots were cleaned up
         self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
 
-    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    @patch("products.web_analytics.backend.presentation.views.heatmaps_api.generate_heatmap_screenshot")
     def test_retrieve_does_not_recover_recent_processing_heatmap(self, mock_task):
         saved = SavedHeatmap.objects.create(
             team=self.team,
@@ -170,7 +170,7 @@ class TestHeatmapsAPI(APIBaseTest):
         # Task was NOT re-enqueued (still within threshold)
         mock_task.delay.assert_not_called()
 
-    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
+    @patch("products.web_analytics.backend.presentation.views.heatmaps_api.generate_heatmap_screenshot")
     def test_regenerate_endpoint_re_enqueues_task(self, mock_task):
         saved = SavedHeatmap.objects.create(
             team=self.team,

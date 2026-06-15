@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.web_analytics.backend.serializers import WeeklyDigestResponseSerializer
+from products.web_analytics.backend.presentation.serializers import WeeklyDigestResponseSerializer
 from products.web_analytics.backend.weekly_digest import build_team_digest
 
 MIN_DAYS = 1

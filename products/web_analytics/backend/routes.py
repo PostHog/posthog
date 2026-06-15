@@ -1,13 +1,15 @@
 from posthog.api.routing import RouterRegistry
 
-from products.web_analytics.backend.api import WebAnalyticsViewSet
-from products.web_analytics.backend.api.heatmaps_api import (
+from products.web_analytics.backend.presentation.views import WebAnalyticsViewSet
+from products.web_analytics.backend.presentation.views.heatmaps_api import (
     HeatmapScreenshotViewSet,
     HeatmapViewSet,
     LegacyHeatmapViewSet,
     SavedHeatmapViewSet,
 )
-from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.web_analytics.backend.presentation.views.web_analytics_filter_preset import (
+    WebAnalyticsFilterPresetViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
