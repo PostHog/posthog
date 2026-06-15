@@ -729,9 +729,9 @@ snapshots:
     components-hogcharts-slopechart--default--light:
         hash: v1.k794b7964.767c8b748b168ed3b5cc2f29304d021008daf84127b75cbd7c125f27a9a4ae1a.Uo_Ajb9L7xem1Kyi41a7splR7w_Jhtjdo2tRbNf5iHE
     components-hogcharts-slopechart--empty--dark:
-        hash: v1.k794b7964.c5de55c471941eed34d689ba85f43a07017bf231e8bdc4ffca98521cdab3bcd0.l5q1XuFp9vcETkmULkBOR7oZw7Y-MbeQkyuOTkrMiyw
+        hash: v1.k794b7964.8d705f1946799a1a5f51a9bfbf7a3b1180e07a50a1ed63c33eac9cbcc73d83ec.JOYzqA_2imgBQQPSnvfIuOGeNeGf-phBMLT5KEnbLw4
     components-hogcharts-slopechart--empty--light:
-        hash: v1.k794b7964.8c60ac901acd4c646cd3d874b8de6bd6dffe3c0ba4e6a920e202198b2f467f4e.seAawuDJwtjwqqjlVkBrYMcqoTTUh3LzjO5-kf9JiJ8
+        hash: v1.k794b7964.b60a9b53862703b0650c509f6efc52030ce9b892f98277b04db561e8eafbba37.yBlrhw2i9aAlxDq65nSAZ1g9-13awj42D6riEmYT__o
     components-hogcharts-slopechart--legend-right--dark:
         hash: v1.k794b7964.5a3bd59b3c452187180052e9642e8f5b28fbee80eb37c147b326d9d886070cc4.ClqpcWz4o-XlMOOF9U5V6VHlURr6NnpmYhEhaAJ_HO8
     components-hogcharts-slopechart--legend-right--light:
@@ -5282,6 +5282,18 @@ snapshots:
         hash: v1.k794b7964.ee5568ad7c36562de11087860c424d458d38f9ab78086e13190a2d344c94886e.Phxh-Ba38MPL53L_jYU4xpEEnTv_7jfXmJZa8vWL3ME
     scenes-app-insights-trendspie--trends-world-map-edit--light:
         hash: v1.k794b7964.cd2f689b29e28b06f897a4bca768113926233988efb3fb4e600291b8af8324c0.5_HLaGKeRiEv5DpRKhp_wZ8UDLEGlx6s4LNsZMnY34Y
+    scenes-app-insights-trendsslopegraph--trends-slope-graph--dark:
+        hash: v1.k794b7964.90656a3ab0e0e884066438fe2010a954ca4f2324429a4fb223020be5d007bc8d.7NM5eEo9QQRZpP0UtTsJokSUnhjM-2iNUQ1aZxMtK3s
+    scenes-app-insights-trendsslopegraph--trends-slope-graph--light:
+        hash: v1.k794b7964.5ca06a070c6d7243e27caa9237342d54e06caf8cdbd207058c92a879280c192a.6YEtfvAGfLl4rHMwTvGr7d9g5_1FBijsuOJ0uDsqFvo
+    scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--dark:
+        hash: v1.k794b7964.aa3925af9ff963c9a4ff078d763eefc4f431bfcb76743620d3aed87f5b34c6a2.pCD2J9ELy9nn_T3zZUkmdHqAhRQ2MwZR68H89gl5-1k
+    scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--light:
+        hash: v1.k794b7964.f9f2e752c608d8934b6b7e4b67f350f27a36bb74f9fc40ecb5421b3bb7b1efe2.wnKSU54WQ7spstUfSvqqSE54kdOaY5dZ2-tAJgyCVqQ
+    scenes-app-insights-trendsslopegraph--trends-slope-graph-incomplete-period--dark:
+        hash: v1.k794b7964.6f48e3b26fa1dbcf874be5762183c59636a377033cabe4576701713a19fdb59d.yZOisLKz7E1FMLYJPW3JbH95A6ROCnbK-fdqHGd53MA
+    scenes-app-insights-trendsslopegraph--trends-slope-graph-incomplete-period--light:
+        hash: v1.k794b7964.9f0d760ee25679e5b817dc81b7df7ef326983eeef514c093d10cf8a08fc7679f.XmDKnPfkcpkFOYvnFDfh6gvJiKM0JL5HZS0Lj5SOkpI
     scenes-app-insights-trendsvalue--trends-area--dark:
         hash: v1.k794b7964.3fce948481d1b3be054893a8e99508e85bdff69723c91f864e311ca498389e87.VY094hyWWNRusfn5-e_sxtQ3JZMauWFWoD9Nu0X8x4E
     scenes-app-insights-trendsvalue--trends-area--light:
