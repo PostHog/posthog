@@ -36,5 +36,5 @@ def get_enabled_hog_functions_using_integration(team_id: int, integration_id: in
         enabled=True,
         deleted=False,
         inputs_schema__contains=[{"type": "integration"}],
-    )
+    ).only("id", "name", "inputs", "inputs_schema")
     return [function for function in functions if _function_references_integration(function, integration_id)]
