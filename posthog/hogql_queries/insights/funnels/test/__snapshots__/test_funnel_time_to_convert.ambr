@@ -3,7 +3,8 @@
   '''
   SELECT bin_from_seconds,
          person_count,
-         arrayAvg(timings) AS averageConversionTime
+         arrayAvg(timings) AS averageConversionTime,
+         arrayReduce('median', timings) AS medianConversionTime
   FROM
     (SELECT groupArray(arraySum(arraySlice(timings, 1, 1))) AS timings,
             accurateCastOrNull(least(60, greatest(1, ceil(cbrt(ifNull(length(timings), 0))))), 'Int64') AS bin_count,
@@ -69,7 +70,8 @@
   '''
   SELECT bin_from_seconds,
          person_count,
-         arrayAvg(timings) AS averageConversionTime
+         arrayAvg(timings) AS averageConversionTime,
+         arrayReduce('median', timings) AS medianConversionTime
   FROM
     (SELECT groupArray(arraySum(arraySlice(timings, 1, 1))) AS timings,
             accurateCastOrNull(least(60, greatest(1, ceil(cbrt(ifNull(length(timings), 0))))), 'Int64') AS bin_count,
@@ -135,7 +137,8 @@
   '''
   SELECT bin_from_seconds,
          person_count,
-         arrayAvg(timings) AS averageConversionTime
+         arrayAvg(timings) AS averageConversionTime,
+         arrayReduce('median', timings) AS medianConversionTime
   FROM
     (SELECT groupArray(arraySum(arraySlice(timings, 1, 1))) AS timings,
             accurateCastOrNull(least(60, greatest(1, ceil(cbrt(ifNull(length(timings), 0))))), 'Int64') AS bin_count,
@@ -201,7 +204,8 @@
   '''
   SELECT bin_from_seconds,
          person_count,
-         arrayAvg(timings) AS averageConversionTime
+         arrayAvg(timings) AS averageConversionTime,
+         arrayReduce('median', timings) AS medianConversionTime
   FROM
     (SELECT groupArray(arraySum(arraySlice(timings, 1, 1))) AS timings,
             accurateCastOrNull(least(60, greatest(1, ceil(cbrt(ifNull(length(timings), 0))))), 'Int64') AS bin_count,

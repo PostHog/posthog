@@ -541,6 +541,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
                     return {
                         averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        medianTime: timeConversionResults?.median_conversion_time ?? 0,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -550,6 +551,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
                     return {
                         averageTime: 0,
+                        medianTime: 0,
                         stepRate: 0,
                         totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
@@ -560,6 +562,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (steps.length <= 1) {
                     return {
                         averageTime: 0,
+                        medianTime: 0,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -571,6 +574,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return {
                     averageTime: steps.reduce(
                         (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
+                        0
+                    ),
+                    medianTime: steps.reduce(
+                        (conversion_time, step) => conversion_time + (step.median_conversion_time || 0),
                         0
                     ),
                     stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,

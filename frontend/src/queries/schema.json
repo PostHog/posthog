@@ -21553,9 +21553,12 @@
                         "type": "array"
                     },
                     "type": "array"
+                },
+                "median_conversion_time": {
+                    "type": ["number", "null"]
                 }
             },
-            "required": ["average_conversion_time", "bins"],
+            "required": ["average_conversion_time", "bins", "median_conversion_time"],
             "type": "object"
         },
         "FunnelTrendsResults": {

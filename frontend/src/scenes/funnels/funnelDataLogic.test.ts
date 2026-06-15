@@ -1041,6 +1041,7 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 conversionMetrics: {
                     averageTime: 87098.67529697785,
+                    medianTime: 208.75,
                     stepRate: 0.46048109965635736,
                     totalRate: 0.46048109965635736,
                 },
@@ -1068,6 +1069,7 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 conversionMetrics: {
                     averageTime: 86456.76, // from backend
+                    medianTime: 9484.5, // from backend
                     stepRate: 0,
                     totalRate: 0,
                 },
@@ -1096,6 +1098,7 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 conversionMetrics: {
                     averageTime: 0,
+                    medianTime: 0,
                     stepRate: 0,
                     totalRate: 0.7120000000000001, // avg(steps[0] / 100)
                 },

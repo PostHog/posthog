@@ -119,6 +119,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29_540,
+                median_conversion_time=3600,
             ),
         )
 
@@ -214,6 +215,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29_540,
+                median_conversion_time=3600,
             ),
         )
 
@@ -313,6 +315,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     [82804, 0],
                 ],
                 average_conversion_time=29_540,
+                median_conversion_time=3600,
             ),
         )
 
@@ -398,6 +401,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Analogous to above, just an interval (in this case 60 s) up - no users
                 ],
                 average_conversion_time=10_800,
+                median_conversion_time=10_800,
             ),
         )
 
@@ -502,6 +506,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29540,
+                median_conversion_time=3600,
             ),
         )
 
@@ -630,5 +635,6 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
                     ],  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
                 ],
                 average_conversion_time=29540,
+                median_conversion_time=3600,
             ),
         )

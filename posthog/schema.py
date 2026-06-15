@@ -1360,6 +1360,7 @@ class FunnelTimeToConvertResults(BaseModel):
         extra="forbid",
     )
     average_conversion_time: float | None = None
+    median_conversion_time: float | None = None
     bins: list[list[int]]
 
 
