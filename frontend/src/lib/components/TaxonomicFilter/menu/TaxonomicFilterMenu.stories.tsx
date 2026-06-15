@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
@@ -401,15 +401,17 @@ function BareKeyRecentsContainer(): JSX.Element {
     // Pre-populate property definition cache so describeProperty resolves
     // synchronously and the preview pane renders deterministically.
     useMountedLogic(propertyDefinitionsModel)
-    propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions({
-        [`${PropertyDefinitionType.Event}/$browser`]: {
-            id: '$browser',
-            name: '$browser',
-            property_type: PropertyType.String,
-            is_numerical: false,
-            is_seen_on_filtered_events: true,
-        },
-    })
+    useEffect(() => {
+        propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions({
+            [`${PropertyDefinitionType.Event}/$browser`]: {
+                id: '$browser',
+                name: '$browser',
+                property_type: PropertyType.String,
+                is_numerical: false,
+                is_seen_on_filtered_events: true,
+            },
+        })
+    }, [])
     return (
         <TaxonomicFilterHeadless.Root
             bindRootProps={false}
