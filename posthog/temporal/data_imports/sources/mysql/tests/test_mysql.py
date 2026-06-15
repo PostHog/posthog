@@ -360,14 +360,30 @@ class TestFetchAverageRowSize:
         assert "`email`" in sql
         assert "LENGTH(COALESCE(`id`" in sql
 
-    def test_rejects_malformed_column_names(self, impl, cursor, logger):
-        # If INFORMATION_SCHEMA somehow returns a weird column name, we must
-        # reject it rather than splice it into SQL. The quoter raises; the
-        # method catches and returns None.
+    def test_returns_none_when_no_columns_are_quotable(self, impl, cursor, logger):
+        # A column name we can't safely quote is never spliced into SQL. When
+        # it's the only column there's nothing left to estimate from, so we
+        # return None rather than raising.
         cursor.fetchall.return_value = [("bad;col",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
+
+    def test_skips_unquotable_columns_and_estimates_from_rest(self, impl, cursor, logger):
+        # Real MySQL columns can contain characters the identifier allowlist
+        # rejects (e.g. `:` in `Ach:CompanyId`). Row-size estimation is
+        # best-effort: skip the columns we can't quote and estimate from the
+        # rest instead of abandoning the whole query.
+        cursor.fetchall.return_value = [("id",), ("Ach:CompanyId",), ("email",)]
+        cursor.fetchone.return_value = (100,)
+        result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT * FROM x", {}, logger)
+        assert result == 100
+        second_call = cursor.execute.call_args_list[1]
+        sql = second_call.args[0]
+        assert "`id`" in sql
+        assert "`email`" in sql
+        # The unquotable column is neither quoted nor spliced in raw.
+        assert "Ach:CompanyId" not in sql
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
