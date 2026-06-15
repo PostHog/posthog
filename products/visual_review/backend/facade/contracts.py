@@ -53,6 +53,10 @@ class CreateRunInput:
     purpose: str = "review"
     # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
+    # True when CI only rendered a subset of the suite.
+    # Tells the classifier to leave omitted baseline identifiers alone instead
+    # of marking them as removed.
+    is_partial: bool = False
 
 
 @dataclass(frozen=True)
