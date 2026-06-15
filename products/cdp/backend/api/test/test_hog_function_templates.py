@@ -388,3 +388,35 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         other_team = self.create_team_with_organization(self.organization)
         response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"], scoped_teams=[other_team.id])
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def _create_hidden_template(self) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden",
+            sha="1.0.0",
+            name="Hidden Template",
+            description="A hidden template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+    def test_hidden_templates_excluded_for_personal_api_key_caller(self):
+        # Programmatic callers (MCP server, public API) authenticate with a personal API key. They must
+        # not discover hidden templates on the project mount, otherwise an agent can list one and then
+        # create an unsupported destination (e.g. the native email sender) from it.
+        self._create_hidden_template()
+        response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"])
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "template-hidden" not in [template["id"] for template in response.json()["results"]]
+
+    def test_hidden_templates_visible_to_staff_personal_api_key_caller(self):
+        self.user.is_staff = True
+        self.user.save()
+        self._create_hidden_template()
+        response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"])
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "template-hidden" in [template["id"] for template in response.json()["results"]]

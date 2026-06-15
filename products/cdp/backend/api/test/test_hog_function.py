@@ -221,6 +221,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         else:
             return actual_data
 
+    def _create_hidden_template(self) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden-dest",
+            sha="1.0.0",
+            name="Hidden destination",
+            description="Internal building block",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+    def test_create_from_hidden_template_is_blocked_for_non_staff(self):
+        self._create_hidden_template()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"type": "destination", "name": "Sneaky", "template_id": "template-hidden-dest", "inputs": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "template_id" in response.json()
+        assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
+
+    def test_create_from_hidden_template_is_allowed_for_staff(self):
+        self._create_hidden_template()
+        self.user.is_staff = True
+        self.user.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"type": "destination", "name": "Internal", "template_id": "template-hidden-dest", "inputs": {}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["hog"] == "return event"
+
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

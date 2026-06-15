@@ -150,11 +150,26 @@ class PublicHogFunctionTemplateViewSet(
             # Hidden templates (e.g. template-posthog-capture, template-posthog-update-person-properties,
             # email, twilio, webhook) are internal building blocks. The workflow editor needs them on
             # the authenticated project mount to render action configuration; the frontend hides them
-            # from the destinations chooser separately. Only strip them from the anonymous catalog.
-            if self.request.path.startswith("/api/public_hog_function_templates"):
+            # from the destinations chooser separately. They must not leak to programmatic callers,
+            # though: the public catalog is anonymous, and the MCP server / public API authenticate with
+            # a personal API key or OAuth token — exposing hidden templates there lets an agent discover
+            # and then create an unsupported destination (e.g. the native email sender) from one. So strip
+            # hidden unless the caller is the first-party session-authenticated app or a staff user.
+            if (
+                self.request.path.startswith("/api/public_hog_function_templates")
+                or not self._may_see_hidden_templates()
+            ):
                 queryset = queryset.exclude(status="hidden")
 
         return queryset
+
+    def _may_see_hidden_templates(self) -> bool:
+        user = self.request.user
+        if isinstance(user, User) and user.is_staff:
+            return True
+        # Only the first-party, session-authenticated app (the workflow editor) needs hidden templates;
+        # personal API key / OAuth token callers (MCP, public API) do not.
+        return isinstance(self.request.successful_authenticator, SessionAuthentication)
 
     @extend_schema(
         parameters=[

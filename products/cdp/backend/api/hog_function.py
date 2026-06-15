@@ -203,6 +203,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "execution_order": {"help_text": "Execution priority for transformations. Lower values run first."},
         }
 
+    def _validate_template_is_creatable(self, template: HogFunctionTemplate) -> None:
+        # Hidden templates are internal building blocks (e.g. the native email destination) that the
+        # workflow editor renders but the destinations chooser never offers. Mirror the frontend gate
+        # (shouldShowHogFunctionTemplate) server-side so API/MCP callers can't instantiate one either:
+        # only staff may create a function from a hidden template.
+        if template.status != "hidden":
+            return
+        user = getattr(self.context.get("request"), "user", None)
+        if getattr(user, "is_staff", False):
+            return
+        raise serializers.ValidationError({"template_id": f"Template '{template.template_id}' is not available."})
+
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
         self.initial_data = data
@@ -249,6 +261,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if template_id:
                 template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
+                    self._validate_template_is_creatable(template)
                     data["hog"] = data.get("hog") or template.code
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
