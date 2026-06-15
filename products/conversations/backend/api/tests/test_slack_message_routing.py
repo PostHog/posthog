@@ -106,16 +106,68 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
 
+    @parameterized.expand(
+        [
+            # No ticket yet: seed from the thread's parent message and backfill replies.
+            (
+                "seeds_from_parent",
+                False,
+                [{"user": "U_OP", "text": "Initial message that started the thread"}],
+                True,
+                "U_OP",
+                "Initial message that started the thread",
+                False,
+            ),
+            # Ticket already tracked: just append the mention as a reply, no parent fetch.
+            (
+                "existing_ticket_adds_reply",
+                True,
+                None,
+                False,
+                "U_MENTIONER",
+                "<@U_BOT> please help here",
+                True,
+            ),
+            # Parent unavailable (deleted / API hiccup): fall back to the mention itself.
+            (
+                "parent_unavailable_falls_back",
+                False,
+                [],
+                False,
+                "U_MENTIONER",
+                "<@U_BOT> please help here",
+                False,
+            ),
+        ]
+    )
     @patch(f"{MODULE}._backfill_thread_replies")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_mention_in_thread_seeds_ticket_from_parent_message(
-        self, mock_create_or_update, mock_get_client, mock_backfill
+    def test_thread_reply_mention(
+        self,
+        _name,
+        ticket_exists,
+        history_messages,
+        expect_backfill,
+        expected_user,
+        expected_text,
+        expected_is_thread_reply,
+        mock_create_or_update,
+        mock_get_client,
+        mock_backfill,
     ):
-        mock_get_client.return_value.conversations_history.return_value = {
-            "messages": [{"user": "U_OP", "text": "Initial message that started the thread"}]
-        }
-        mock_create_or_update.return_value = object()
+        if ticket_exists:
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.SLACK,
+                widget_session_id="",
+                distinct_id="",
+                slack_channel_id="C_ANY",
+                slack_thread_ts="1700000000.000100",
+            )
+        else:
+            mock_get_client.return_value.conversations_history.return_value = {"messages": history_messages}
+            mock_create_or_update.return_value = object()
 
         handle_support_mention(
             {
@@ -130,80 +182,18 @@ class TestSlackMessageRouting(BaseTest):
             "T123",
         )
 
-        mock_get_client.return_value.conversations_history.assert_called_once()
+        if ticket_exists:
+            mock_get_client.return_value.conversations_history.assert_not_called()
+        else:
+            mock_get_client.return_value.conversations_history.assert_called_once()
+
+        assert mock_backfill.call_count == (1 if expect_backfill else 0)
         mock_create_or_update.assert_called_once()
         kwargs = mock_create_or_update.call_args.kwargs
-        assert kwargs["slack_user_id"] == "U_OP"
-        assert kwargs["text"] == "Initial message that started the thread"
+        assert kwargs["slack_user_id"] == expected_user
+        assert kwargs["text"] == expected_text
         assert kwargs["thread_ts"] == "1700000000.000100"
-        assert kwargs["is_thread_reply"] is False
-        assert kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
-        mock_backfill.assert_called_once()
-
-    @patch(f"{MODULE}._backfill_thread_replies")
-    @patch(f"{MODULE}.get_slack_client")
-    @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_mention_in_thread_with_existing_ticket_adds_reply(
-        self, mock_create_or_update, mock_get_client, mock_backfill
-    ):
-        Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.SLACK,
-            widget_session_id="",
-            distinct_id="",
-            slack_channel_id="C_ANY",
-            slack_thread_ts="1700000000.000100",
-        )
-
-        handle_support_mention(
-            {
-                "type": "app_mention",
-                "channel": "C_ANY",
-                "thread_ts": "1700000000.000100",
-                "ts": "1700000000.000200",
-                "user": "U_MENTIONER",
-                "text": "<@U_BOT> bumping this",
-            },
-            self.team,
-            "T123",
-        )
-
-        mock_get_client.return_value.conversations_history.assert_not_called()
-        mock_backfill.assert_not_called()
-        mock_create_or_update.assert_called_once()
-        kwargs = mock_create_or_update.call_args.kwargs
-        assert kwargs["is_thread_reply"] is True
-        assert kwargs["slack_user_id"] == "U_MENTIONER"
-
-    @patch(f"{MODULE}._backfill_thread_replies")
-    @patch(f"{MODULE}.get_slack_client")
-    @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_mention_in_thread_falls_back_to_mention_when_parent_unavailable(
-        self, mock_create_or_update, mock_get_client, mock_backfill
-    ):
-        # Parent fetch returns nothing (e.g. message deleted or API hiccup) -> fall
-        # back to seeding the ticket from the mention itself rather than dropping it.
-        mock_get_client.return_value.conversations_history.return_value = {"messages": []}
-
-        handle_support_mention(
-            {
-                "type": "app_mention",
-                "channel": "C_ANY",
-                "thread_ts": "1700000000.000100",
-                "ts": "1700000000.000200",
-                "user": "U_MENTIONER",
-                "text": "<@U_BOT> please help here",
-            },
-            self.team,
-            "T123",
-        )
-
-        mock_backfill.assert_not_called()
-        mock_create_or_update.assert_called_once()
-        kwargs = mock_create_or_update.call_args.kwargs
-        assert kwargs["slack_user_id"] == "U_MENTIONER"
-        assert kwargs["text"] == "<@U_BOT> please help here"
-        assert kwargs["is_thread_reply"] is False
+        assert kwargs["is_thread_reply"] is expected_is_thread_reply
         assert kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
 
     @patch("products.conversations.backend.slack.get_slack_client")
