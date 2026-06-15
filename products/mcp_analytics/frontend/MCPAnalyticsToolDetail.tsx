@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     MetricCard,
@@ -546,16 +546,11 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                 name={toolName}
                 description={null}
                 resourceType={{ type: 'llm_analytics' }}
-                actions={
-                    <LemonButton
-                        icon={<IconArrowLeft />}
-                        type="secondary"
-                        size="small"
-                        to={urls.mcpAnalyticsToolQuality()}
-                    >
-                        Back to Tool quality
-                    </LemonButton>
-                }
+                forceBackTo={{
+                    name: 'Tool quality',
+                    path: urls.mcpAnalyticsToolQuality(),
+                    key: 'mcp-analytics-tool-quality',
+                }}
             />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
