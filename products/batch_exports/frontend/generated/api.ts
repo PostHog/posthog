@@ -20,6 +20,7 @@ import type {
     BatchExportsRunsLogsRetrieveParams,
     CreateFileDownloadRequestApi,
     CreateOutputApi,
+    FileDownloadBatchExportMCPOnDemandApi,
     FileDownloadBatchExportOnDemandApi,
     FileDownloadBatchExportsListParams,
     FileDownloadBatchExportsLogsRetrieveParams,
@@ -652,5 +653,25 @@ export const fileDownloadBatchExportsLogsRetrieve = async (
     return apiMutator<void>(getFileDownloadBatchExportsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFileDownloadBatchExportsMcpCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_download_batch_exports/mcp/`
+}
+
+/**
+ * Create and start a file-download export from the MCP-facing nested-`model` request shape.
+ */
+export const fileDownloadBatchExportsMcpCreate = async (
+    projectId: string,
+    fileDownloadBatchExportMCPOnDemandApi: FileDownloadBatchExportMCPOnDemandApi,
+    options?: RequestInit
+): Promise<CreateOutputApi> => {
+    return apiMutator<CreateOutputApi>(getFileDownloadBatchExportsMcpCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileDownloadBatchExportMCPOnDemandApi),
     })
 }

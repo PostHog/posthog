@@ -439,6 +439,128 @@ async def test_file_download_create_rejects_future_data_interval_end(
     )
 
 
+@pytest.mark.parametrize(
+    "model_payload,expected_config_extra",
+    [
+        (
+            {"type": "events", "include": ["$pageview"], "exclude": ["$autocapture"]},
+            {"include_events": ["$pageview"], "exclude_events": ["$autocapture"]},
+        ),
+        ({"type": "persons"}, {}),
+        ({"type": "sessions"}, {}),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_mcp_create_starts_run(
+    async_client: AsyncClient,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+    model_payload,
+    expected_config_extra,
+):
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/mcp",
+            {
+                "file": {"format": "Parquet", "compression": "zstd"},
+                "model": model_payload,
+                "data_interval_start": data_interval_start,
+                "data_interval_end": data_interval_end,
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+    run = await BatchExportRun.objects.select_related("batch_export_on_demand__destination").aget(
+        id=response.json()["id"]
+    )
+    assert run.batch_export_on_demand.model == model_payload["type"]
+
+    config = run.batch_export_on_demand.destination.config
+    assert config["format"] == "Parquet"
+    assert config["compression"] == "zstd"
+    for key, value in expected_config_extra.items():
+        assert config[key] == value
+    if not expected_config_extra:
+        assert "include_events" not in config
+        assert "exclude_events" not in config
+
+    mock_start.assert_called_once()
+    assert mock_start.call_args.kwargs["batch_export_model"].name == model_payload["type"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_mcp_create_rejects_unknown_model_type(
+    async_client: AsyncClient,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+):
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/mcp",
+            {
+                "file": {"format": "Parquet"},
+                "model": {"type": "not_a_model"},
+                "data_interval_start": data_interval_start,
+                "data_interval_end": data_interval_end,
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    mock_start.assert_not_called()
+    assert (
+        await BatchExportRun.objects.filter(
+            batch_export_on_demand__team_id=team.pk,
+            batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+        ).acount()
+        == 0
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_mcp_create_rejects_future_data_interval_end(
+    async_client: AsyncClient,
+    team,
+    user,
+):
+    now = dt.datetime.now(dt.UTC)
+    data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
+
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/mcp",
+            {
+                "file": {"format": "Parquet"},
+                "model": {"type": "events"},
+                "data_interval_start": (now - dt.timedelta(hours=1)).isoformat(),
+                "data_interval_end": data_interval_end_iso,
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == f"The provided 'data_interval_end' ({data_interval_end_iso}) is in the future"
+    mock_start.assert_not_called()
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_list_returns_run_ids_and_statuses(
     async_client: AsyncClient,

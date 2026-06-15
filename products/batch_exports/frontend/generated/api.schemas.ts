@@ -1502,33 +1502,103 @@ export interface FileDownloadBatchExportOnDemandApi {
     data_interval_end: string
 }
 
+export type FileDownloadEventsModelApiType =
+    (typeof FileDownloadEventsModelApiType)[keyof typeof FileDownloadEventsModelApiType]
+
+export const FileDownloadEventsModelApiType = {
+    Events: 'events',
+} as const
+
+/**
+ * Events model, with optional event-name filters.
+ */
+export interface FileDownloadEventsModelApi {
+    type: FileDownloadEventsModelApiType
+    /** Event names to include in the export. */
+    include?: string[]
+    /** Event names to exclude from the export. */
+    exclude?: string[]
+}
+
+export type FileDownloadPersonsModelApiType =
+    (typeof FileDownloadPersonsModelApiType)[keyof typeof FileDownloadPersonsModelApiType]
+
+export const FileDownloadPersonsModelApiType = {
+    Persons: 'persons',
+} as const
+
+/**
+ * Persons model.
+ */
+export interface FileDownloadPersonsModelApi {
+    type: FileDownloadPersonsModelApiType
+}
+
+export type FileDownloadSessionsModelApiType =
+    (typeof FileDownloadSessionsModelApiType)[keyof typeof FileDownloadSessionsModelApiType]
+
+export const FileDownloadSessionsModelApiType = {
+    Sessions: 'sessions',
+} as const
+
+/**
+ * Sessions model.
+ */
+export interface FileDownloadSessionsModelApi {
+    type: FileDownloadSessionsModelApiType
+}
+
+export type FileDownloadModelApi =
+    | FileDownloadEventsModelApi
+    | FileDownloadPersonsModelApi
+    | FileDownloadSessionsModelApi
+
+/**
+ * MCP-facing request shape: a plain object whose `model` is a nested discriminated union.
+ *
+ * Strict MCP clients (the Anthropic API, OpenCode) reject a top-level `anyOf`/`oneOf`,
+ * so this serializer keeps the request root a plain object and nests the union under
+ * `model`. It exists alongside — not in place of — the flat
+ * `FileDownloadBatchExportOnDemandSerializer` so the public REST `create` wire format is
+ * unchanged; persistence is delegated to that serializer.
+ */
+export interface FileDownloadBatchExportMCPOnDemandApi {
+    file: FileDownloadDestinationFileConfigApi
+    /** Object selecting the export model via `type`. */
+    model: FileDownloadModelApi
+    /** ISO 8601 start of the export interval. The interval must be at most one week. */
+    data_interval_start: string
+    /** ISO 8601 end of the export interval. The interval must be at most one week. */
+    data_interval_end: string
+}
+
 /**
  * * `events` - events
  */
-export type FileDownloadEventsRequestModelEnumApi =
-    (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]
+export type FileDownloadModelEventsEnumApi =
+    (typeof FileDownloadModelEventsEnumApi)[keyof typeof FileDownloadModelEventsEnumApi]
 
-export const FileDownloadEventsRequestModelEnumApi = {
+export const FileDownloadModelEventsEnumApi = {
     Events: 'events',
 } as const
 
 /**
  * * `persons` - persons
  */
-export type FileDownloadPersonsRequestModelEnumApi =
-    (typeof FileDownloadPersonsRequestModelEnumApi)[keyof typeof FileDownloadPersonsRequestModelEnumApi]
+export type FileDownloadModelPersonsEnumApi =
+    (typeof FileDownloadModelPersonsEnumApi)[keyof typeof FileDownloadModelPersonsEnumApi]
 
-export const FileDownloadPersonsRequestModelEnumApi = {
+export const FileDownloadModelPersonsEnumApi = {
     Persons: 'persons',
 } as const
 
 /**
  * * `sessions` - sessions
  */
-export type FileDownloadSessionsRequestModelEnumApi =
-    (typeof FileDownloadSessionsRequestModelEnumApi)[keyof typeof FileDownloadSessionsRequestModelEnumApi]
+export type FileDownloadModelSessionsEnumApi =
+    (typeof FileDownloadModelSessionsEnumApi)[keyof typeof FileDownloadModelSessionsEnumApi]
 
-export const FileDownloadSessionsRequestModelEnumApi = {
+export const FileDownloadModelSessionsEnumApi = {
     Sessions: 'sessions',
 } as const
 

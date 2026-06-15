@@ -13,7 +13,7 @@ import boto3
 import structlog
 from botocore.client import Config
 from botocore.exceptions import ClientError
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
@@ -93,6 +93,90 @@ class FileDownloadSessionsRequestSerializer(serializers.Serializer):
     data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
 
 
+class FileDownloadEventsModelSerializer(serializers.Serializer):
+    """Events model, with optional event-name filters."""
+
+    # No help_text on the discriminator: a single-value ChoiceField with a field-level
+    # description forces drf-spectacular to wrap the enum ref in `allOf`, which Orval
+    # miscompiles into a double `.enum()` chain. The choice value is self-documenting.
+    type = serializers.ChoiceField(choices=["events"])
+    include = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Event names to include in the export."
+    )
+    exclude = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Event names to exclude from the export."
+    )
+
+
+class FileDownloadPersonsModelSerializer(serializers.Serializer):
+    """Persons model."""
+
+    type = serializers.ChoiceField(choices=["persons"])
+
+
+class FileDownloadSessionsModelSerializer(serializers.Serializer):
+    """Sessions model."""
+
+    type = serializers.ChoiceField(choices=["sessions"])
+
+
+_FILE_DOWNLOAD_MODEL_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
+    "events": FileDownloadEventsModelSerializer,
+    "persons": FileDownloadPersonsModelSerializer,
+    "sessions": FileDownloadSessionsModelSerializer,
+}
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="FileDownloadModel",
+        serializers=_FILE_DOWNLOAD_MODEL_SERIALIZERS,
+        resource_type_field_name="type",
+    )
+)
+class FileDownloadModelField(serializers.Field):
+    """Discriminated union over the export model, nested so the request stays a plain object.
+
+    The Anthropic API (and other strict MCP clients) reject a top-level
+    `anyOf`/`oneOf`/`allOf`, so the polymorphism lives one level down: the value is
+    an object whose `type` selects the variant. Only `events` carries `include` /
+    `exclude` event-name filters.
+    """
+
+    def to_internal_value(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            raise ValidationError("Expected an object describing the model to export.")
+
+        serializer_class = _FILE_DOWNLOAD_MODEL_SERIALIZERS.get(data.get("type"))
+        if serializer_class is None:
+            raise ValidationError(
+                {"type": f"Unknown model type. Expected one of {sorted(_FILE_DOWNLOAD_MODEL_SERIALIZERS)}."}
+            )
+
+        serializer = serializer_class(data=data)
+        serializer.is_valid(raise_exception=True)
+        return dict(serializer.validated_data)
+
+    def to_representation(self, value: dict) -> dict:
+        return value
+
+
+def _validate_file_download_interval(data: dict) -> dict:
+    """Shared interval validation for the file-download on-demand request shapes."""
+    if data["data_interval_start"] > data["data_interval_end"]:
+        raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
+
+    if data["data_interval_end"] - data["data_interval_start"] > FILE_DOWNLOAD_MAX_RANGE:
+        raise ValidationError("data interval range too big")
+
+    if data["data_interval_end"] > dt.datetime.now(dt.UTC):
+        raise ValidationError(
+            f"The provided 'data_interval_end' ({data['data_interval_end'].isoformat()}) is in the future"
+        )
+
+    return data
+
+
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
     """Request shape for a FileDownload batch export on demand."""
 
@@ -108,18 +192,7 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
     data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
 
     def validate(self, data):
-        if data["data_interval_start"] > data["data_interval_end"]:
-            raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
-
-        if data["data_interval_end"] - data["data_interval_start"] > FILE_DOWNLOAD_MAX_RANGE:
-            raise ValidationError("data interval range too big")
-
-        if data["data_interval_end"] > dt.datetime.now(dt.UTC):
-            raise ValidationError(
-                f"The provided 'data_interval_end' ({data['data_interval_end'].isoformat()}) is in the future"
-            )
-
-        return data
+        return _validate_file_download_interval(data)
 
     def create(self, validated_data: dict) -> BatchExportRun:
         """Create a `BatchExportRun` based on a `BatchExportOnDemand`.
@@ -154,6 +227,47 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
             batch_export_run.save()
 
         return batch_export_run
+
+
+class FileDownloadBatchExportMCPOnDemandSerializer(serializers.Serializer):
+    """MCP-facing request shape: a plain object whose `model` is a nested discriminated union.
+
+    Strict MCP clients (the Anthropic API, OpenCode) reject a top-level `anyOf`/`oneOf`,
+    so this serializer keeps the request root a plain object and nests the union under
+    `model`. It exists alongside — not in place of — the flat
+    `FileDownloadBatchExportOnDemandSerializer` so the public REST `create` wire format is
+    unchanged; persistence is delegated to that serializer.
+    """
+
+    file = FileDownloadDestinationFileConfigSerializer()
+    model = FileDownloadModelField(help_text="Object selecting the export model via `type`.")
+
+    data_interval_start = serializers.DateTimeField(
+        default_timezone=dt.UTC,
+        help_text="ISO 8601 start of the export interval. The interval must be at most one week.",
+    )
+    data_interval_end = serializers.DateTimeField(
+        default_timezone=dt.UTC, help_text="ISO 8601 end of the export interval. The interval must be at most one week."
+    )
+
+    def validate(self, data):
+        return _validate_file_download_interval(data)
+
+    def create(self, validated_data: dict) -> BatchExportRun:
+        """Flatten the nested `model` object and delegate to the flat serializer's create."""
+        model_spec = validated_data.pop("model")
+        flat = {
+            "file": validated_data["file"],
+            "model": model_spec["type"],
+            "data_interval_start": validated_data["data_interval_start"],
+            "data_interval_end": validated_data["data_interval_end"],
+        }
+        if model_spec.get("include") is not None:
+            flat["include"] = model_spec["include"]
+        if model_spec.get("exclude") is not None:
+            flat["exclude"] = model_spec["exclude"]
+
+        return FileDownloadBatchExportOnDemandSerializer(context=self.context).create(flat)
 
 
 class CreateOutputSerializer(serializers.Serializer):
@@ -257,7 +371,21 @@ class FileDownloadBatchExportOnDemandViewSet(
     )
     def create(self, request, *args, **kwargs):
         """Create and start a batch export on demand run to download a file."""
-        serializer = self.get_serializer(data=request.data)
+        return self._create_and_start_run(self.get_serializer(data=request.data))
+
+    @extend_schema(
+        request=FileDownloadBatchExportMCPOnDemandSerializer,
+        responses={202: CreateOutputSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="mcp", required_scopes=["batch_export:write"])
+    def mcp_create(self, request, *args, **kwargs):
+        """Create and start a file-download export from the MCP-facing nested-`model` request shape."""
+        serializer = FileDownloadBatchExportMCPOnDemandSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
+        return self._create_and_start_run(serializer)
+
+    def _create_and_start_run(self, serializer: serializers.Serializer) -> response.Response:
         serializer.is_valid(raise_exception=True)
 
         with transaction.atomic():

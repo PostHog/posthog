@@ -11,7 +11,7 @@ import {
     BatchExportsRetrieveParams,
     FileDownloadBatchExportsCancelCreateBody,
     FileDownloadBatchExportsCancelCreateParams,
-    FileDownloadBatchExportsCreateBody,
+    FileDownloadBatchExportsMcpCreateBody,
     FileDownloadBatchExportsRetrieveParams,
 } from '@/generated/batch_exports/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -210,7 +210,7 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
     },
 })
 
-const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsCreateBody
+const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsMcpCreateBody
 
 const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExportsCreateSchema, unknown> => ({
     name: 'file-download-batch-exports-create',
@@ -224,12 +224,6 @@ const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExpo
         if (params.model !== undefined) {
             body['model'] = params.model
         }
-        if ('include' in params && params.include !== undefined) {
-            body['include'] = params.include
-        }
-        if ('exclude' in params && params.exclude !== undefined) {
-            body['exclude'] = params.exclude
-        }
         if (params.data_interval_start !== undefined) {
             body['data_interval_start'] = params.data_interval_start
         }
@@ -238,7 +232,7 @@ const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExpo
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/mcp/`,
             body,
         })
         return result

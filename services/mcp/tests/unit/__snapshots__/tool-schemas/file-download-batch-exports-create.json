@@ -1,191 +1,109 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "anyOf": [
-        {
-            "description": "Typed configuration for the events model.",
+    "description": "MCP-facing request shape: a plain object whose `model` is a nested discriminated union.\n\nStrict MCP clients (the Anthropic API, OpenCode) reject a top-level `anyOf`/`oneOf`,\nso this serializer keeps the request root a plain object and nests the union under\n`model`. It exists alongside — not in place of — the flat\n`FileDownloadBatchExportOnDemandSerializer` so the public REST `create` wire format is\nunchanged; persistence is delegated to that serializer.",
+    "properties": {
+        "data_interval_end": {
+            "description": "ISO 8601 end of the export interval. The interval must be at most one week.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "data_interval_start": {
+            "description": "ISO 8601 start of the export interval. The interval must be at most one week.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "file": {
+            "description": "Typed configuration for a FileDownload batch-export destination.",
             "properties": {
-                "data_interval_end": {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                    "type": "string"
-                },
-                "data_interval_start": {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                    "type": "string"
-                },
-                "exclude": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "file": {
-                    "description": "Typed configuration for a FileDownload batch-export destination.",
-                    "properties": {
-                        "compression": {
-                            "anyOf": [
-                                {
-                                    "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
-                                    "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy"
-                        },
-                        "format": {
-                            "default": "Parquet",
-                            "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
-                            "enum": ["JSONLines", "Parquet"],
+                "compression": {
+                    "anyOf": [
+                        {
+                            "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
+                            "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
                             "type": "string"
                         },
-                        "max_size_mb": {
-                            "anyOf": [
-                                {
-                                    "minimum": 0,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Split download into multiple files of at most this size in MB"
+                        {
+                            "type": "null"
                         }
-                    },
-                    "type": "object"
+                    ],
+                    "description": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy"
                 },
-                "include": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "model": {
-                    "enum": ["events"],
+                "format": {
+                    "default": "Parquet",
+                    "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                    "enum": ["JSONLines", "Parquet"],
                     "type": "string"
+                },
+                "max_size_mb": {
+                    "anyOf": [
+                        {
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Split download into multiple files of at most this size in MB"
                 }
             },
-            "required": ["file", "model", "data_interval_start", "data_interval_end"],
             "type": "object"
         },
-        {
-            "description": "Typed configuration for the persons model.",
-            "properties": {
-                "data_interval_end": {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                    "type": "string"
-                },
-                "data_interval_start": {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                    "type": "string"
-                },
-                "file": {
-                    "description": "Typed configuration for a FileDownload batch-export destination.",
+        "model": {
+            "anyOf": [
+                {
+                    "description": "Events model, with optional event-name filters.",
                     "properties": {
-                        "compression": {
-                            "anyOf": [
-                                {
-                                    "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
-                                    "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy"
+                        "exclude": {
+                            "description": "Event names to exclude from the export.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
                         },
-                        "format": {
-                            "default": "Parquet",
-                            "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
-                            "enum": ["JSONLines", "Parquet"],
+                        "include": {
+                            "description": "Event names to include in the export.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "type": {
+                            "enum": ["events"],
                             "type": "string"
-                        },
-                        "max_size_mb": {
-                            "anyOf": [
-                                {
-                                    "minimum": 0,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Split download into multiple files of at most this size in MB"
                         }
                     },
+                    "required": ["type"],
                     "type": "object"
                 },
-                "model": {
-                    "enum": ["persons"],
-                    "type": "string"
-                }
-            },
-            "required": ["file", "model", "data_interval_start", "data_interval_end"],
-            "type": "object"
-        },
-        {
-            "description": "Typed configuration for the sessions model.",
-            "properties": {
-                "data_interval_end": {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                    "type": "string"
-                },
-                "data_interval_start": {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-                    "type": "string"
-                },
-                "file": {
-                    "description": "Typed configuration for a FileDownload batch-export destination.",
+                {
+                    "description": "Persons model.",
                     "properties": {
-                        "compression": {
-                            "anyOf": [
-                                {
-                                    "description": "* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd",
-                                    "enum": ["brotli", "gzip", "lz4", "snappy", "zstd"],
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy"
-                        },
-                        "format": {
-                            "default": "Parquet",
-                            "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
-                            "enum": ["JSONLines", "Parquet"],
+                        "type": {
+                            "enum": ["persons"],
                             "type": "string"
-                        },
-                        "max_size_mb": {
-                            "anyOf": [
-                                {
-                                    "minimum": 0,
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Split download into multiple files of at most this size in MB"
                         }
                     },
+                    "required": ["type"],
                     "type": "object"
                 },
-                "model": {
-                    "enum": ["sessions"],
-                    "type": "string"
+                {
+                    "description": "Sessions model.",
+                    "properties": {
+                        "type": {
+                            "enum": ["sessions"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
                 }
-            },
-            "required": ["file", "model", "data_interval_start", "data_interval_end"],
-            "type": "object"
+            ],
+            "description": "Object selecting the export model via `type`."
         }
-    ]
+    },
+    "required": ["file", "model", "data_interval_start", "data_interval_end"],
+    "type": "object"
 }

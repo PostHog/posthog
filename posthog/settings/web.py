@@ -531,6 +531,13 @@ SPECTACULAR_SETTINGS = {
         # stable component name; value is the singleton list even though length is 1.
         "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
+        # File-download batch export: the MCP create body nests the model as a discriminated
+        # union whose `type` is a singleton ChoiceField, while the public create endpoint's
+        # per-model serializers use a `model` ChoiceField with the same singleton values.
+        # drf-spectacular hashes enum value sets, so the two field names collide on each value.
+        "FileDownloadModelEventsEnum": ["events"],
+        "FileDownloadModelPersonsEnum": ["persons"],
+        "FileDownloadModelSessionsEnum": ["sessions"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],

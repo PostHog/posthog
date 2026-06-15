@@ -2802,7 +2802,7 @@
         }
     },
     "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. The model is an object selecting the variant via its type field, e.g. {\"type\": \"events\"}, {\"type\": \"persons\"}, or {\"type\": \"sessions\"}; for events you may also set include and exclude (event-name filters) inside that object. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Start file download export",

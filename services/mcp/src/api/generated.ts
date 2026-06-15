@@ -19150,6 +19150,73 @@ export namespace Schemas {
       readonly created_by: UserBasic;
     }
 
+    export type FileDownloadEventsModelType = typeof FileDownloadEventsModelType[keyof typeof FileDownloadEventsModelType];
+
+
+    export const FileDownloadEventsModelType = {
+      Events: 'events',
+    } as const;
+
+    /**
+     * Events model, with optional event-name filters.
+     */
+    export interface FileDownloadEventsModel {
+      type: FileDownloadEventsModelType;
+      /** Event names to include in the export. */
+      include?: string[];
+      /** Event names to exclude from the export. */
+      exclude?: string[];
+    }
+
+    export type FileDownloadPersonsModelType = typeof FileDownloadPersonsModelType[keyof typeof FileDownloadPersonsModelType];
+
+
+    export const FileDownloadPersonsModelType = {
+      Persons: 'persons',
+    } as const;
+
+    /**
+     * Persons model.
+     */
+    export interface FileDownloadPersonsModel {
+      type: FileDownloadPersonsModelType;
+    }
+
+    export type FileDownloadSessionsModelType = typeof FileDownloadSessionsModelType[keyof typeof FileDownloadSessionsModelType];
+
+
+    export const FileDownloadSessionsModelType = {
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Sessions model.
+     */
+    export interface FileDownloadSessionsModel {
+      type: FileDownloadSessionsModelType;
+    }
+
+    export type FileDownloadModel = FileDownloadEventsModel | FileDownloadPersonsModel | FileDownloadSessionsModel;
+
+    /**
+     * MCP-facing request shape: a plain object whose `model` is a nested discriminated union.
+     *
+     * Strict MCP clients (the Anthropic API, OpenCode) reject a top-level `anyOf`/`oneOf`,
+     * so this serializer keeps the request root a plain object and nests the union under
+     * `model`. It exists alongside — not in place of — the flat
+     * `FileDownloadBatchExportOnDemandSerializer` so the public REST `create` wire format is
+     * unchanged; persistence is delegated to that serializer.
+     */
+    export interface FileDownloadBatchExportMCPOnDemand {
+      file: FileDownloadDestinationFileConfig;
+      /** Object selecting the export model via `type`. */
+      model: FileDownloadModel;
+      /** ISO 8601 start of the export interval. The interval must be at most one week. */
+      data_interval_start: string;
+      /** ISO 8601 end of the export interval. The interval must be at most one week. */
+      data_interval_end: string;
+    }
+
     /**
      * * `events` - events
      * * `persons` - persons
@@ -19179,30 +19246,30 @@ export namespace Schemas {
     /**
      * * `events` - events
      */
-    export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
+    export type FileDownloadModelEventsEnum = typeof FileDownloadModelEventsEnum[keyof typeof FileDownloadModelEventsEnum];
 
 
-    export const FileDownloadEventsRequestModelEnum = {
+    export const FileDownloadModelEventsEnum = {
       Events: 'events',
     } as const;
 
     /**
      * * `persons` - persons
      */
-    export type FileDownloadPersonsRequestModelEnum = typeof FileDownloadPersonsRequestModelEnum[keyof typeof FileDownloadPersonsRequestModelEnum];
+    export type FileDownloadModelPersonsEnum = typeof FileDownloadModelPersonsEnum[keyof typeof FileDownloadModelPersonsEnum];
 
 
-    export const FileDownloadPersonsRequestModelEnum = {
+    export const FileDownloadModelPersonsEnum = {
       Persons: 'persons',
     } as const;
 
     /**
      * * `sessions` - sessions
      */
-    export type FileDownloadSessionsRequestModelEnum = typeof FileDownloadSessionsRequestModelEnum[keyof typeof FileDownloadSessionsRequestModelEnum];
+    export type FileDownloadModelSessionsEnum = typeof FileDownloadModelSessionsEnum[keyof typeof FileDownloadModelSessionsEnum];
 
 
-    export const FileDownloadSessionsRequestModelEnum = {
+    export const FileDownloadModelSessionsEnum = {
       Sessions: 'sessions',
     } as const;
 
