@@ -18,10 +18,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
 )
-from posthog.temporal.session_replay.rasterize_recording.workflow import (
-    RASTERIZATION_COMPLETED_COUNTER,
-    RasterizeRecordingWorkflow,
-)
+from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow
 
 
 async def _register_search_attributes(env: WorkflowEnvironment) -> None:
@@ -139,7 +136,12 @@ async def test_intermediate_failure_does_not_bump():
 
 
 def _counter_value(product: str, task_queue: str) -> float:
-    return RASTERIZATION_COMPLETED_COUNTER.labels(product=product, task_queue=task_queue)._value.get()
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value(
+        "posthog_rasterization_completed_total",
+        {"product": product, "task_queue": task_queue},
+    ) or 0.0
 
 
 @pytest.mark.asyncio

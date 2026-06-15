@@ -12,7 +12,7 @@ with wf.unsafe.imports_passed_through():
     from prometheus_client import Counter
 
     RASTERIZATION_COMPLETED_COUNTER = Counter(
-        "posthog_rasterization_completed_total",
+        "posthog_rasterization_completed",
         "Rasterization completions by product and task queue",
         ["product", "task_queue"],
     )
