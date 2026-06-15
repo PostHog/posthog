@@ -153,6 +153,52 @@ describe('SlopeChart', () => {
         })
     })
 
+    describe('incompleteEnd', () => {
+        it.each([
+            [
+                'one series with incompleteEnd',
+                [{ key: 'a', label: 'A', data: [10, 90], meta: { incompleteEnd: true } }] as Series<SlopeSeriesMeta>[],
+            ],
+            [
+                'multiple series, one with incompleteEnd',
+                [
+                    { key: 'a', label: 'A', data: [10, 90], meta: { incompleteEnd: true } },
+                    { key: 'b', label: 'B', data: [80, 20] },
+                ] as Series<SlopeSeriesMeta>[],
+            ],
+        ])('%s: xTicks shows only the two real labels', (_desc, series) => {
+            const { chart } = renderHogChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
+            expect(chart.xTicks()).toEqual(['Before', 'After'])
+        })
+
+        it.each([
+            [
+                'one series with incompleteEnd',
+                [{ key: 'a', label: 'A', data: [10, 90], meta: { incompleteEnd: true } }] as Series<SlopeSeriesMeta>[],
+                [{ side: 'start', text: '10' }, { side: 'end', text: '90' }],
+            ],
+            [
+                'multiple series, one with incompleteEnd',
+                [
+                    { key: 'a', label: 'A', data: [10, 90], meta: { incompleteEnd: true } },
+                    { key: 'b', label: 'B', data: [80, 20] },
+                ] as Series<SlopeSeriesMeta>[],
+                [
+                    { side: 'start', text: '10' },
+                    { side: 'end', text: '90' },
+                    { side: 'start', text: '80' },
+                    { side: 'end', text: '20' },
+                ],
+            ],
+        ])('%s: value labels read the true start and end values', (_desc, series, expected) => {
+            const { chart } = renderHogChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
+            const labels = chart.slopeValueLabels().map((l) => ({ side: l.side, text: l.text }))
+            for (const e of expected) {
+                expect(labels).toContainEqual(e)
+            }
+        })
+    })
+
     it('forwards dataAttr to the chart wrapper', () => {
         const { chart } = renderHogChart(
             <SlopeChart series={SERIES} labels={LABELS} theme={THEME} dataAttr="slope-instance" />
