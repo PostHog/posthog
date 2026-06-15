@@ -26,8 +26,7 @@ export class Storage {
         const replenish_timestamp: number = now ?? Date.now()
         const bucket = this.buckets.get(key)
         if (bucket === undefined) {
-            // Bound memory when keys are caller-controlled (e.g. session ids): evict the
-            // oldest bucket, which at worst re-allows one extra consume for that key.
+            // Cap memory for caller-controlled keys: evict the oldest bucket (at worst re-allows one consume).
             if (this.maxBuckets !== undefined && this.buckets.size >= this.maxBuckets) {
                 const oldestKey = this.buckets.keys().next().value
                 if (oldestKey !== undefined) {
@@ -82,8 +81,7 @@ export const ConfiguredLimiter: Limiter = new Limiter(
     defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
 )
 
-// Debounce keys can include client-controlled values (session ids), so cap the
-// bucket count to keep memory bounded under engineered key churn.
+// Cap bucket count: debounce keys can be client-controlled (session ids).
 export const IngestionWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600, 100_000)
 
 export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)

@@ -8,22 +8,19 @@ export interface HandleClientIngestionWarningStepInput {
     event: PluginEvent
 }
 
-// Upper bounds on persisted client-controlled strings, so engineered payloads
-// can't grow warning rows or limiter keys.
+// Cap persisted client-controlled strings so engineered payloads can't bloat warning rows or limiter keys.
 const MAX_DETAIL_STRING_LENGTH = 200
 const MAX_MESSAGE_LENGTH = 1000
 
 interface SanitizedOverride {
-    /** The exact details to persist - never the raw client payload. */
+    /** Rebuilt details to persist, never the raw client payload. */
     details: Record<string, unknown>
-    /** Debounce key for the ingestion warning limiter (scoped by team and type). */
     debounceKey: string
 }
 
-// Allowlisted $$client_ingestion_warning_type overrides. Each sanitizer rebuilds the
-// details its renderer needs from scratch (clients can send anything), or returns null
-// to fall back to the generic type. A Map, not an object literal, so a forged type like
-// `constructor` or `__proto__` can't reach Object.prototype.
+// Allowlisted warning-type overrides: each sanitizer rebuilds only the details its renderer needs,
+// or returns null to fall back to the generic type. A Map, not an object, so a forged type like
+// `__proto__` can't reach Object.prototype.
 const WARNING_TYPE_OVERRIDES = new Map<string, (details: Record<string, unknown>) => SanitizedOverride | null>([
     // emitted by capture when a replay snapshot batch is too large to ingest
     [
@@ -73,7 +70,7 @@ export function createHandleClientIngestionWarningStep<
             )
         }
 
-        // bound the client-controlled message everywhere - never persist raw client JSON
+        // never persist raw client JSON
         const message = boundedString(event.properties?.$$client_ingestion_warning_message, MAX_MESSAGE_LENGTH)
         const baseDetails = {
             eventUuid: event.uuid,
