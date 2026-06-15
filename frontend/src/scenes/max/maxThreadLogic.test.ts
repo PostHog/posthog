@@ -34,7 +34,7 @@ import { EnhancedToolCall } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic } from './maxThreadLogic'
+import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
 import { MaxContextType } from './maxTypes'
 import {
     MOCK_CONVERSATION,
@@ -537,8 +537,11 @@ describe('maxThreadLogic', () => {
                 // ...but we record that the wait timed out, so the cap's impact is observable in prod.
                 expect(captureSpy).toHaveBeenCalledWith(
                     'max dashboard context wait timed out',
-                    expect.objectContaining({ dashboard_id: 1, waited_ms: 8000 })
+                    expect.objectContaining({ dashboard_id: 1, waited_ms: expect.any(Number) })
                 )
+                // waited_ms is real elapsed time, so it must be at least the cap (never under-reported).
+                const timeoutCall = captureSpy.mock.calls.find((c) => c[0] === 'max dashboard context wait timed out')
+                expect(timeoutCall?.[1].waited_ms).toBeGreaterThanOrEqual(MAX_DASHBOARD_CONTEXT_WAIT_MS)
             } finally {
                 jest.useRealTimers()
             }

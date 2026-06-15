@@ -92,7 +92,7 @@ export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
 // On a dashboard, the first message can fire before the dashboard has loaded, when
 // dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the
 // dashboard context is included. Bounded so a stuck/failed load never blocks sending.
-const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
+export const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
 const DASHBOARD_CONTEXT_POLL_INTERVAL_MS = 100
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
@@ -1022,10 +1022,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
                 return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
             }
-            let waitedForDashboard = 0
-            while (isDashboardSceneLoading() && waitedForDashboard < MAX_DASHBOARD_CONTEXT_WAIT_MS) {
+            // Measure real elapsed time, not tick count: breakpoint() only guarantees a *minimum*
+            // delay, so a busy event loop would make a tick counter under-report the wait — letting
+            // it run past the cap and skewing the telemetry below. performance.now() is monotonic.
+            const dashboardWaitStart = performance.now()
+            while (
+                isDashboardSceneLoading() &&
+                performance.now() - dashboardWaitStart < MAX_DASHBOARD_CONTEXT_WAIT_MS
+            ) {
                 await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
-                waitedForDashboard += DASHBOARD_CONTEXT_POLL_INTERVAL_MS
             }
             if (isDashboardSceneLoading()) {
                 // We hit the wait cap while the dashboard was still loading, so the message ships
@@ -1034,7 +1039,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const activeLoadedScene = sceneLogic.values.activeLoadedScene
                 const sceneProps = activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
                 posthog.capture('max dashboard context wait timed out', {
-                    waited_ms: waitedForDashboard,
+                    waited_ms: Math.round(performance.now() - dashboardWaitStart),
                     dashboard_id: (sceneProps as { id?: number | string }).id,
                     conversation_id: values.conversation?.id || values.conversationId,
                 })
