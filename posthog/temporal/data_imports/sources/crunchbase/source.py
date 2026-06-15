@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class CrunchbaseSource(ResumableSource[CrunchbaseSourceConfig, CrunchbaseResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CRUNCHBASE,
+            category=DataWarehouseSourceCategory.CRM,
             label="Crunchbase",
             caption="""Enter your Crunchbase user key to pull Crunchbase company and funding data into the PostHog Data warehouse.
 
