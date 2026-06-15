@@ -18,6 +18,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
+import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
     const { searchInput, tagsFilter, allRolesUnassigned, assignedToCurrentUser, assignedToFilter } =
@@ -40,15 +41,18 @@ export function AccountsTabFilters(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2 items-center justify-between">
-                <LemonInput
-                    type="search"
-                    placeholder="Search by name or ID..."
-                    value={searchInput}
-                    onChange={setSearchInput}
-                    size="small"
-                    className="min-w-64"
-                    data-attr="accounts-search"
-                />
+                <div className="flex flex-wrap gap-2 items-center">
+                    <AccountsViewSelector />
+                    <LemonInput
+                        type="search"
+                        placeholder="Search by name or ID..."
+                        value={searchInput}
+                        onChange={setSearchInput}
+                        size="small"
+                        className="min-w-64"
+                        data-attr="accounts-search"
+                    />
+                </div>
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
