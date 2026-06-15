@@ -98,7 +98,7 @@ class RetentionActorMaterialisation:
     ready: bool
 
 
-def kind_for_entity_id(entity_id: str | int | None) -> str:
+def kind_for_entity_id(entity_id: str | float | None) -> str:
     """Map a retention entity id to the stored `kind`: the all-events entity (`None`) → the
     marker, otherwise the raw event name."""
     return ALL_EVENTS_KIND if entity_id is None else str(entity_id)
