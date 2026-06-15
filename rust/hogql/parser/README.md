@@ -164,17 +164,17 @@ that have already been fixed in the working tree.
       a while — usually skip);
     + PBT (`pbt_diagnostic.py --rule expr|select|program`);
     + thinking hard about edge cases the grammar surface invites —
-      write the candidates to a file and grind them with
-      `edge_corpus_diagnostic.py --input <file>`.
+      pipe each candidate through `shrink_query.py` to confirm it
+      diverges and get the minimal form.
 
     For everything other than regression tests, start with a small
     budget (lower `--n`, less thinking time) and increase until at
     least one divergence surfaces.
-2. **Reduce + pin.** Shrink each divergence to its minimal form — the
-   diagnostics do this for you via shrinkray (`--shrink-failures` on the
-   corpus runners; on by default in `edge_corpus_diagnostic.py`) — and
-   add it as a regression test in `_test_parser.py`'s factory so it runs
-   on all three backends.
+2. **Reduce + pin.** Shrink each divergence to its minimal form via
+   shrinkray — pipe one query through `shrink_query.py`, or use
+   `--shrink-failures` on the corpus runners — and add it as a
+   regression test in `_test_parser.py`'s factory so it runs on all
+   three backends.
 3. **Read before fixing.** Read the grammar AND the cpp visitor for
    the rule. 100% identical behaviour means knowing exactly what cpp
    does — guessing leads to fixes that resurface on a deeper PBT
@@ -194,8 +194,8 @@ in the background:
 + `pbt_diagnostic.py --rule program`
 + `log_corpus_diagnostic.py` (real query corpus)
 + a research subagent grepping for cpp-vs-rust visitor differences
-+ a research subagent brainstorming adversarial edge cases into a file,
-  ground through `edge_corpus_diagnostic.py`
++ a research subagent brainstorming adversarial edge cases, each
+  confirmed + minimised through `shrink_query.py`
 
 Most of these can stream divergences as they're found. Once at least
 one known divergence is in hand, start fixing it while the parallel
@@ -260,34 +260,34 @@ divergence to a `.sql` / `.hog` file the agent can chew through. Add
 `--shrink-failures` to reduce each failing query to a minimal repro via
 shrinkray before it's written.
 
-### Hand-authored edge cases via `edge_corpus_diagnostic.py`
+### Shrink one query via `shrink_query.py`
 
 ```bash
-# Brainstorm edge cases into a file (one JSON string per line), then
-# grind + shrink them against cpp vs rust:
-PYTHONPATH=. python posthog/hogql/scripts/edge_corpus_diagnostic.py \
-    --input /tmp/edge_cases.jsonl
+# Pipe in a query that diverges (or that you think might); get the
+# minimal repro back on stdout:
+echo '<query>' | PYTHONPATH=. python posthog/hogql/scripts/shrink_query.py --rule select
 ```
 
-The "think hard about edge cases" arm of the loop: same grind as the
-production corpora, but the input is a local file you (or a background
-agent) wrote instead of a Metabase pull. Accepts `.jsonl` / `.json` /
-`.sql` / `.hog` / `.txt` — and a `*.failures.sql` dump from any other
-diagnostic round-trips straight back in. Shrinking is on by default
-(`--no-shrink-failures` to skip).
+The "think hard about edge cases" arm of the loop, and the reducer for
+any single divergence. Reads one query on stdin, writes the smallest
+variant that still triggers the same divergence to stdout (chatter goes
+to stderr, so stdout is exactly the repro). Doubles as a divergence
+check: a query the backends agree on exits non-zero with the reason on
+stderr. An agent brainstorming edge cases pipes each candidate through
+it and keeps the ones that come back shrunk.
 
-### Shrinking (`--shrink-failures`) needs the optional parity group
+### Shrinking needs the optional parity group
 
-The `--shrink-failures` flag (and `edge_corpus_diagnostic.py`'s default
-shrinking) is powered by [shrinkray](https://github.com/DRMacIver/shrinkray),
-an optional dependency kept out of the default dev install:
+`shrink_query.py` and the corpus runners' `--shrink-failures` are powered
+by [shrinkray](https://github.com/DRMacIver/shrinkray), an optional
+dependency kept out of the default dev install:
 
 ```bash
 uv sync --group hogql-parser-parity
 ```
 
-Without it the diagnostics still run; they just refuse `--shrink-failures`
-with an install hint.
+Without it the corpus diagnostics still run; they just refuse
+`--shrink-failures` with an install hint.
 
 ### Perf bench via `posthog/hogql/scripts/parser_bench.py`
 
