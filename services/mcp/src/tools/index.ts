@@ -34,6 +34,8 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
+// Skills (deprecation aliases for the llma-skill-* → skill-* rename)
+import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 // Misc
 import {
     type ToolFilterOptions,
@@ -104,6 +106,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-blast-radius': workflowsBlastRadius,
     'workflows-run-batch': workflowsRunBatch,
     'workflows-schedule-create': workflowsScheduleCreate,
+
+    // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
+    ...SKILL_DEPRECATED_ALIASES,
 }
 
 export const getToolsFromContext = async (
