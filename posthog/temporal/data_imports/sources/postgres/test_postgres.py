@@ -59,6 +59,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
+    _is_recovery_conflict_error,
     _is_unsupported_function_error,
     _normalize_function_names,
     _rls_active_from_conn,
@@ -1677,6 +1678,51 @@ class TestGetPartitionSettings:
         mock_detect.assert_not_called()
         mock_partitioned.assert_called_once()
         assert result is sentinel
+
+    def test_recovery_conflict_returns_none_without_capturing(self):
+        # Regression: a read-replica recovery conflict cancels the best-effort sizing query.
+        # It's transient and the row-streaming reader retries it in-process, so degrade to None
+        # without flooding error tracking with a handled condition.
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.SerializationFailure(
+            "canceling statement due to conflict with recovery"
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+
+        assert result is None
+        capture_mock.assert_not_called()
+
+    def test_unexpected_error_is_still_captured(self):
+        # A genuinely unexpected failure on the sizing query must still surface to error tracking.
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("some unexpected failure")
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+
+        assert result is None
+        capture_mock.assert_called_once()
+
+
+class TestIsRecoveryConflictError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"), True),
+            (psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"), True),
+            # A non-recovery serialization failure (true 40001 write conflict) is not ours to swallow.
+            (psycopg.errors.SerializationFailure("could not serialize access due to concurrent update"), False),
+            # Right message, wrong type -> not a recovery conflict we recognise here.
+            (psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"), False),
+            (Exception("canceling statement due to conflict with recovery"), False),
+        ],
+    )
+    def test_recognises_recovery_conflict(self, error, expected):
+        assert _is_recovery_conflict_error(error) is expected
 
 
 class TestPostgreSQLColumnToArrowField:
