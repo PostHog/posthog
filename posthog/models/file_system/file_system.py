@@ -4,6 +4,7 @@ from typing import Optional
 from django.db import models
 from django.db.models import Q
 from django.db.models.expressions import F
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
@@ -39,6 +40,11 @@ class FileSystem(models.Model):
         indexes = [
             models.Index(fields=["team"]),
             models.Index(F("team_id"), F("surface"), F("path"), name="posthog_fs_team_s_path"),
+            # Functional index matching the default tree-listing `ORDER BY LOWER(path)`
+            # in FileSystemViewSet.safely_get_queryset. The raw-`path` index above can't
+            # satisfy a case-insensitive sort, so listing a large tree falls back to a full
+            # filesort and times out (504) once the tree grows past a few thousand rows.
+            models.Index(F("team_id"), F("surface"), Lower("path"), name="posthog_fs_team_s_lpath"),
             models.Index(F("team_id"), F("surface"), F("depth"), name="posthog_fs_team_s_depth"),
             models.Index(F("team_id"), F("surface"), F("type"), F("ref"), name="posthog_fs_team_s_typeref"),
         ]
