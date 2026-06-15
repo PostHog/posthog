@@ -4,6 +4,8 @@ import { useMemo, useRef } from 'react'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
@@ -53,6 +55,9 @@ export function SessionReplayWidgetTileFilters({
         () => savedFilterOptions.find((option) => option.value === savedFilterId)?.label ?? savedFilterId,
         [savedFilterOptions, savedFilterId]
     )
+    // When the project has no saved filters yet, prompt the user to create one in session replay
+    // rather than showing an empty picker.
+    const showSavedFilterPrompt = !savedFiltersLoading && savedFilterOptions.length === 0 && !hasSavedFilter
 
     const configRef = useRef(config)
     configRef.current = config
@@ -105,16 +110,25 @@ export function SessionReplayWidgetTileFilters({
 
     return (
         <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters">
-            <LemonSelect
-                size="small"
-                value={savedFilterId}
-                disabled={!canUpdate}
-                disabledReason={controlDisabledReason}
-                loading={savedFiltersLoading}
-                options={savedFilterSelectOptions}
-                placeholder="Saved filter"
-                onChange={(value) => void applySavedFilter(value ?? null)}
-            />
+            {showSavedFilterPrompt ? (
+                <span className="text-xs text-muted" data-attr="session-replay-widget-no-saved-filters">
+                    No saved filters yet —{' '}
+                    <Link to={urls.replay()} target="_blank">
+                        create one in session replay
+                    </Link>
+                </span>
+            ) : (
+                <LemonSelect
+                    size="small"
+                    value={savedFilterId}
+                    disabled={!canUpdate}
+                    disabledReason={controlDisabledReason}
+                    loading={savedFiltersLoading}
+                    options={savedFilterSelectOptions}
+                    placeholder="Saved filter"
+                    onChange={(value) => void applySavedFilter(value ?? null)}
+                />
+            )}
             {!hasSavedFilter ? (
                 <>
                     <LemonSelect
