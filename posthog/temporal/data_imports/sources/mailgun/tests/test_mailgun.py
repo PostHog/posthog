@@ -6,6 +6,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.mailgun.mailgun import (
     MAX_RETRY_AFTER_SECONDS,
     MailgunResumeConfig,
@@ -42,6 +44,15 @@ def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock
     response.status_code = status_code
     response.ok = status_code < 400
     response.headers = {}
+    return response
+
+
+def _error_response(status_code: int, url: str) -> mock.MagicMock:
+    response = _response({}, status_code)
+    response.text = "Bad Request"
+    response.raise_for_status.side_effect = requests.HTTPError(
+        f"{status_code} Client Error: Bad Request for url: {url}", response=response
+    )
     return response
 
 
@@ -451,6 +462,52 @@ class TestGetRows:
         assert saved_states[0].current_domain == "a.com"
         assert saved_states[-1].next_url is None
         assert saved_states[-1].pending_domains == []
+
+    @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_domain_scoped_400_skips_domain_and_continues_fan_out(self, mock_session):
+        # The account lists a domain that can't be queried for events (disabled / unverified):
+        # its 400 must skip the domain, not abort the whole fan-out, so b.com still imports.
+        domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
+        a_bad = _error_response(400, f"{US_BASE}/v3/a.com/events")
+        b_events = _paging_page([{"id": "e2", "timestamp": 1700000100.5}], None)
+        mock_session.return_value.get.side_effect = [
+            _response(domains_page),
+            a_bad,
+            _response(b_events),
+        ]
+
+        manager = _make_manager()
+        batches = list(get_rows("key", "us", "events", mock.MagicMock(), manager))
+
+        rows = [row for batch in batches for row in batch]
+        assert [(row["id"], row["domain"]) for row in rows] == [("e2", "b.com")]
+        # The skipped domain leaves no in-flight chain behind, and the fan-out completes cleanly.
+        saved_states = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved_states[0].current_domain is None
+        assert saved_states[-1].next_url is None
+        assert saved_states[-1].pending_domains == []
+
+    @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_account_level_400_still_raises(self, mock_session):
+        # A 400 on a non-domain-scoped endpoint means our request is wrong, not a bad domain —
+        # it must surface rather than be silently skipped.
+        mock_session.return_value.get.return_value = _error_response(400, f"{US_BASE}/v3/lists/pages")
+
+        manager = _make_manager()
+        with pytest.raises(requests.HTTPError, match="400 Client Error"):
+            list(get_rows("key", "us", "mailing_lists", mock.MagicMock(), manager))
+
+    @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_domain_scoped_500_still_raises(self, mock_session):
+        # Server errors are transient and retryable — they must not be swallowed as a skip.
+        domains_page = {"items": [{"name": "a.com"}]}
+        server_error = _response({}, 500)
+        mock_session.return_value.get.side_effect = [_response(domains_page), *([server_error] * 10)]
+
+        manager = _make_manager()
+        with pytest.raises(MailgunRetryableError):
+            with mock.patch("tenacity.nap.time.sleep", return_value=None):
+                list(get_rows("key", "us", "events", mock.MagicMock(), manager))
 
     @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_non_ok_response_raises(self, mock_session):
