@@ -68,6 +68,7 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DataWarehouseSourceCategory as DataWarehouseSourceCategory,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
     DetailedResultsAggregationType as DetailedResultsAggregationType,
@@ -6654,6 +6655,15 @@ class SpanTreeNode(BaseModel):
             "Average nanoseconds from the parent span's start to this span's start."
             " Zero for root spans. Used to order children left-to-right by typical"
             " start time in the flame graph."
+        ),
+    )
+    calls_per_parent_invocation: float | None = Field(
+        default=None,
+        description=(
+            "How many times this child runs per parent invocation (edge count / parent"
+            " span count). Separates fan-out volume from per-call cost: a child can"
+            " dominate total_duration_nano purely by running many times per parent."
+            " Null for root edges (no parent invocation to ratio against)."
         ),
     )
     count: int
@@ -20494,6 +20504,15 @@ class AccountsQuery(BaseModel):
         description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
     )
     allRolesUnassigned: bool | None = None
+    assignedToUserIds: list[int] | None = Field(
+        default=None,
+        description=(
+            "Match accounts where any of these user ids is the CSM or the account"
+            ' executive (OR over both roles). Drives the "My accounts" shortcut (the'
+            ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
+            " explicit so a shared URL resolves identically for every viewer."
+        ),
+    )
     csm: list[int] | None = Field(
         default=None,
         description="Match accounts whose CSM is any of these user ids (OR semantics).",
@@ -23595,6 +23614,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -26033,6 +26053,15 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     caption: str | Any | None = None
+    category: DataWarehouseSourceCategory | None = Field(
+        default=None,
+        description=(
+            "Catalog bucket this source is grouped under in the new-source wizard."
+            " Optional at the type level so partial/in-progress sources don't break,"
+            " but every registered source must set one (enforced by a test). See"
+            " `dataWarehouseSourceCategories`."
+        ),
+    )
     disabledReason: str | None = None
     docsUrl: str | None = None
     existingSource: bool | None = None
@@ -26051,6 +26080,14 @@ class SourceConfig(BaseModel):
     ]
     iconClassName: str | None = None
     iconPath: str
+    keywords: list[str] | None = Field(
+        default=None,
+        description=(
+            "Extra search terms (alternate spellings, acronyms) for the catalog search,"
+            ' e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside'
+            " name/label/category."
+        ),
+    )
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
