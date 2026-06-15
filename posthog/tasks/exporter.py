@@ -66,14 +66,18 @@ def export_asset(
         "created_by", "team", "team__organization"
     ).get(pk=exported_asset_id)
 
-    # Retries are handled by Temporal at the activity level.
-    # The Celery path is a legacy fallback that is effectively dead in prod. As of 2026-06 every
-    # export runs through the Temporal export_asset_activity on the analytics-platform task queue —
-    # both regular exports (`export-asset` workflow) and subscription images (`process-subscription`
-    # workflow). Verified in prod-us logs: the EXPORTS Celery queue (the posthog-worker-django
-    # "longrunning" worker) renders zero images and only rarely receives a stray CSV. In particular
-    # the headless-browser path (image_exporter._export_to_png, gated on BROWSERLESS_CDP_URL) is
-    # never exercised here — so the browser env/infra on that worker can go once this task is retired.
+    # Retries are handled by Temporal at the activity level. The Celery path is legacy but NOT dead:
+    # the main export flow and subscription images run via the Temporal export_asset_activity
+    # (analytics-platform task queue), yet a few callers still enqueue here, so it can't simply be
+    # deleted. As of 2026-06 the live Celery callers are:
+    #   - Logs export (products/logs/backend/api.py) — CSV
+    #   - Advanced Activity Logs export (posthog/api/advanced_activity_logs) — CSV/XLSX
+    #   - Legacy Slack link image-unfurl (ee/api/integration.py slack/events -> ee/tasks/slack.py),
+    #     which renders a PNG; looks superseded by the metadata-only products/slack_app unfurl.
+    # In prod-us the headless-browser/image path (image_exporter._export_to_png, gated on
+    # BROWSERLESS_CDP_URL) is NOT observed on this queue (0 image renders in 30d) — the only live
+    # Celery callers are tabular. Retiring this task + the browser env on the EXPORTS worker requires
+    # migrating those callers (and confirming the legacy Slack unfurl is dead) first.
     try:
         export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
     except Exception:
