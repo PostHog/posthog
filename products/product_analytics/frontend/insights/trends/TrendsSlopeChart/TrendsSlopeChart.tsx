@@ -20,7 +20,6 @@ import { buildSlopeSeries, slopeLabels } from './slopeChartTransforms'
 
 interface TrendsSlopeChartProps {
     context?: QueryContext<InsightVizNode>
-    inSharedMode?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('trends-slope-chart')

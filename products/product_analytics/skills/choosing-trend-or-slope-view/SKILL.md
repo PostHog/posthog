@@ -63,11 +63,14 @@ are the points you want compared (the slope uses the first and last interval).
 
 ## Important limits
 
-- **Slope is a view, not a saved insight type.** It lives on Max's inline trends
-  result card (the `query-trends` visualizer). A _saved_ insight has no slope
-  display — `SlopeChart` is not a `ChartDisplayType`, so `posthog:insight-create`
-  with a slope display is not available. If the user wants a saved/dashboard chart,
-  save the line and offer the slope as the inline view, or note the limitation.
+- **The inline slope and the saved-insight slope are different computations.** Max's
+  inline trends result card (the `query-trends` visualizer) draws the slope from the
+  first and last interval of the line it already computed. The saved-insight slope
+  (`ChartDisplayType.SlopeGraph`, behind the `slope-graph-insight` feature flag)
+  instead compares the first-half total against the second-half total of the range.
+  Use the inline view for a quick before→after on a result you're already looking at;
+  reach for the saved display when the user wants it persisted on a dashboard and the
+  flag is enabled for their project.
 - For period-over-period on a single series (this month vs last), a line with
   `compareFilter: { "compare": true }` overlays the two periods; a slope is the
   better fit when comparing the endpoints of **many** series at once.

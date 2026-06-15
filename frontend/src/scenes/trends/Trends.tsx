@@ -174,7 +174,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <BoxPlotChart {...commonProps} inCardView={embedded} />
         }
         if (display === ChartDisplayType.SlopeGraph) {
-            return <TrendsSlopeChart context={context} inSharedMode={inSharedMode} />
+            return <TrendsSlopeChart context={context} />
         }
     }
 
