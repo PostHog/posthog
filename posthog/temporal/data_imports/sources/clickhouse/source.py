@@ -157,6 +157,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "No route to host": None,
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
+            # The host answers over HTTP but returns 404 (Not Found) instead of a ClickHouse
+            # response — the configured host/port points at something that is not a ClickHouse
+            # HTTP interface (e.g. a proxy or tunnel that no longer routes to it). The endpoint
+            # is reachable and definitively answering, so retrying won't help. Match only 404 so
+            # transient gateway errors (502/503/504) stay retryable.
+            "returned response code 404": "PostHog reached your host, but it returned HTTP 404 (Not Found) instead of a ClickHouse response. Check that the host, port, and HTTPS setting point at your ClickHouse HTTP interface.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
