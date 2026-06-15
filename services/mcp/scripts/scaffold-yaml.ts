@@ -392,8 +392,8 @@ function syncAll(spec: OpenApiSpec): void {
             const normalized = product.replace(/-/g, '_').toLowerCase()
             process.stderr.write(
                 `⚠ ${label}: no operations found in OpenAPI for "${product}"\n` +
-                    `  → put the ViewSet in products/${normalized}/backend/ or declare ` +
-                    `@extend_schema(extensions={"x-product": "${normalized}"})\n`
+                    `  → declare @extend_schema(extensions={"x-product": "${normalized}"}) on the ViewSet, ` +
+                    `or place it in products/${normalized}/backend/ for module-path auto-attribution\n`
             )
             noOpsProducts.push(label)
             continue
@@ -473,8 +473,8 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product discovers endpoints by x-product (module-path auto-attribution')
-        console.error('or explicit @extend_schema(extensions={"x-product": "..."})).')
+        console.error('--product discovers endpoints by x-product: module-path auto-attribution,')
+        console.error('or declared explicitly via @extend_schema(extensions={"x-product": "..."}).')
         console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }
