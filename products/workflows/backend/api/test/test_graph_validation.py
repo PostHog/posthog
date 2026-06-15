@@ -204,6 +204,11 @@ class TestApplyGraphOperations(TestCase):
         assert _edge("t", "c") not in new_edges
         assert _edge("c", "b", "branch", index=1) in new_edges
 
+    def test_replace_action_edges_unknown_id_raises(self):
+        with pytest.raises(serializers.ValidationError) as exc:
+            apply_graph_operations([TRIGGER], [], [{"op": "replace_action_edges", "id": "ghost", "edges": []}])
+        assert "not found" in str(exc.value.detail)
+
     def test_operations_apply_in_order(self):
         # add an action, then update it in the same batch
         ops = [

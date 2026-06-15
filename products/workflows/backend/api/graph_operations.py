@@ -93,6 +93,8 @@ def apply_graph_operations(
 
         elif kind == "replace_action_edges":
             target_id = op["id"]
+            if target_id not in actions_by_id:
+                _fail(f"replace_action_edges: action '{target_id}' not found")
             edges = [e for e in edges if e.get("from") != target_id and e.get("to") != target_id]
             edges.extend(dict(e) for e in op["edges"])
 
