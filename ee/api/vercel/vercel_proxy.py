@@ -260,13 +260,23 @@ class VercelProxyViewSet(viewsets.ViewSet):
                 path=path,
                 status_code=response.status_code,
             )
-        else:
+        elif response.status_code >= 500:
+            # Only server-side failures indicate a genuine upstream outage worth surfacing in error tracking.
             capture_exception(
-                ValueError("Vercel API request failed"),
+                ValueError(f"Vercel API request failed with {response.status_code} for {path}"),
                 {"config_id": config_id, "path": path, "status_code": response.status_code},
             )
             logger.error(
                 "Vercel API proxy request failed",
+                config_id=config_id,
+                path=path,
+                status_code=response.status_code,
+                response_text=response.text[:500],
+            )
+        else:
+            # Expected 4xx client errors degrade gracefully (the status is returned to the caller); log only.
+            logger.warning(
+                "Vercel API proxy request returned client error",
                 config_id=config_id,
                 path=path,
                 status_code=response.status_code,

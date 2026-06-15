@@ -97,8 +97,9 @@ class TestVercelProxyAPI(APIBaseTest):
             body={"amount": 100},
         )
 
+    @patch("ee.api.vercel.vercel_proxy.capture_exception")
     @patch("ee.api.vercel.vercel_proxy.forward_to_vercel")
-    def test_proxy_returns_vercel_error_status(self, mock_forward, mock_license):
+    def test_proxy_returns_vercel_error_status(self, mock_forward, mock_capture, mock_license):
         mock_license.return_value = self.license
 
         mock_response = MagicMock()
@@ -121,6 +122,39 @@ class TestVercelProxyAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"error": "Invalid invoice data"}
+        # Expected upstream 4xx client errors must not pollute error tracking.
+        mock_capture.assert_not_called()
+
+    @patch("ee.api.vercel.vercel_proxy.capture_exception")
+    @patch("ee.api.vercel.vercel_proxy.forward_to_vercel")
+    def test_proxy_captures_exception_on_server_error(self, mock_forward, mock_capture, mock_license):
+        mock_license.return_value = self.license
+
+        mock_response = MagicMock()
+        mock_response.ok = False
+        mock_response.status_code = 503
+        mock_response.text = "Service unavailable"
+        mock_response.json.return_value = {"error": "Upstream is down"}
+        mock_forward.return_value = mock_response
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {
+                "path": "/billing/invoices",
+                "method": "POST",
+                "body": {},
+            },
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        # Genuine upstream 5xx failures should surface in error tracking, with status + path differentiated.
+        mock_capture.assert_called_once()
+        captured_exc = mock_capture.call_args.args[0]
+        assert isinstance(captured_exc, ValueError)
+        assert "503" in str(captured_exc)
+        assert "/billing/invoices" in str(captured_exc)
 
     def test_proxy_rejects_missing_token(self, mock_license):
         mock_license.return_value = self.license
