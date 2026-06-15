@@ -582,15 +582,12 @@ jobs:
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
                       # source files and runs the matching tests. No --shard: single
-                      # job runs the entire selected set. --passWithNoTests so a PR whose
-                      # only frontend changes are files no test imports (e.g. generated
-                      # types under */generated/) doesn't fail with "No tests found".
+                      # job runs the entire selected set.
                       pnpm --filter=@posthog/frontend build:products
                       # shellcheck disable=SC2086
                       pnpm --filter=@posthog/frontend exec jest \
                           --testPathPattern='(frontend/|products/|common/)' \
                           --forceExit \
-                          --passWithNoTests \
                           --findRelatedTests $CHANGED_FILES
                   else
                       bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
