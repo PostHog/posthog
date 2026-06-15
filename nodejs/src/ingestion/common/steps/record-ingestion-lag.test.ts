@@ -114,6 +114,18 @@ describe('record-ingestion-lag', () => {
         expect(await getHistogramCountAndSum('7')).toEqual({ count: 1, sum: 3000 })
     })
 
+    it('records partition 0 correctly in both gauge and histogram', async () => {
+        const step = createRecordIngestionLagStep()
+        await expectNoSamples('0')
+        const input: RecordIngestionLagInput = { ingested: [Promise.resolve(ingestedInfo(2500, 0))] }
+
+        await step(input)
+        await recorded(input.ingested)
+
+        expect(await getGaugeValue('test-topic', '0')).toBe(2500)
+        expect(await getHistogramCountAndSum('0')).toEqual({ count: 1, sum: 2500 })
+    })
+
     it.each([
         ['the emission failed', (): Promise<IngestedEventInfo | null> => Promise.reject(new Error('produce failed'))],
         ['the event was not ingested', (): Promise<IngestedEventInfo | null> => Promise.resolve(null)],
