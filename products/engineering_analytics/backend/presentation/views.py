@@ -18,15 +18,22 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSourceNotConnectedError,
+    QuarantineRequest,
+    QuarantineWriteError,
+)
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
     QuarantineFileSerializer,
+    QuarantineRequestResultSerializer,
+    QuarantineRequestSerializer,
     WorkflowHealthItemSerializer,
 )
 
@@ -69,11 +76,15 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     scope_object = "engineering_analytics"
     scope_object_read_actions = ["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"]
-    scope_object_write_actions: list[str] = []
+    scope_object_write_actions: list[str] = ["quarantine_request"]
 
     def handle_exception(self, exc: Exception) -> Response:
-        # No GitHub warehouse source connected — every action degrades the same way.
+        # No GitHub warehouse source connected — every read action degrades the same way.
         if isinstance(exc, GitHubSourceNotConnectedError):
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        # A quarantine write that can't proceed (App not installed, malformed file, GitHub
+        # failure) — the message is user-safe and explains what to fix.
+        if isinstance(exc, QuarantineWriteError):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return super().handle_exception(exc)
 
@@ -209,3 +220,28 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def quarantine(self, request: Request, **kwargs) -> Response:
         result = api.get_quarantine(team=self.team, repo=request.query_params.get("repo") or None)
         return Response(QuarantineFileSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=QuarantineRequestSerializer,
+        operation_id="engineering_analytics_quarantine_request",
+        responses={
+            201: OpenApiResponse(
+                response=QuarantineRequestResultSerializer,
+                description="The opened pull request, plus the tracking issue for a new quarantine.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid input, or the write could not be completed (no GitHub App installed on the "
+                "repo's org, a malformed quarantine file, or a GitHub failure). The detail message is safe to show."
+            ),
+        },
+        summary="Quarantine, extend, or unquarantine a flaky test",
+        description=(
+            "Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new "
+            "quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that "
+            "CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="quarantine/request", pagination_class=None)
+    def quarantine_request(self, request: TypedRequest[QuarantineRequest], **kwargs) -> Response:
+        result = api.request_quarantine(team=self.team, request=request.validated_data)
+        return Response(QuarantineRequestResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)

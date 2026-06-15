@@ -41,6 +41,17 @@ class GitHubSourceNotConnectedError(Exception):
         super().__init__(message)
 
 
+class QuarantineWriteError(Exception):
+    """A quarantine write could not be completed — no GitHub App installed on the
+    target repo, the App lives on a different org, a malformed quarantine file, or a
+    failed GitHub call. Carries a message safe to show the user verbatim. Framework-free;
+    the presentation layer maps it to a 400 so the UI explains what to fix.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class PRState(StrEnum):
     OPEN = "open"
     CLOSED = "closed"
@@ -105,6 +116,17 @@ class QuarantineSelectorKind(StrEnum):
     FILE = "file"
     DIRECTORY = "directory"
     TEST = "test"
+
+
+class QuarantineRequestAction(StrEnum):
+    """What a write to the quarantine file does. ``quarantine`` adds (or replaces) an
+    entry and files a fresh tracking issue; ``extend`` re-stamps an existing entry's
+    expiry, reusing its issue; ``remove`` deletes the entry. All three open a PR.
+    """
+
+    QUARANTINE = "quarantine"
+    EXTEND = "extend"
+    REMOVE = "remove"
 
 
 @dataclass(frozen=True)
@@ -273,6 +295,39 @@ class QuarantineFile:
     repo: RepoRef | None
     source_url: str
     generated_at: datetime
+
+
+@dataclass(frozen=True)
+class QuarantineRequest:
+    """A request to mutate a repo's ``.test_quarantine.json`` via a PR. ``selector`` is
+    required for every action. ``reason``/``owner``/``expires``/``mode`` drive
+    ``quarantine`` and ``extend`` and are ignored by ``remove``; ``issue`` carries the
+    existing tracking issue forward on ``extend`` (``quarantine`` files a new one and
+    overrides it). ``repo`` is an optional ``owner/name`` override; it defaults to the
+    team's most active repo, matching the read endpoint.
+    """
+
+    # Named 'operation', not 'action': a bare 'action' enum field collides with other
+    # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
+    operation: QuarantineRequestAction
+    selector: str
+    repo: str | None = None
+    reason: str = ""
+    owner: str = ""
+    issue: str = ""
+    expires: date | None = None
+    mode: QuarantineMode = QuarantineMode.RUN
+
+
+@dataclass(frozen=True)
+class QuarantineRequestResult:
+    """Outcome of a quarantine write: the opened PR, the tracking issue (empty for
+    ``extend``/``remove``), and the branch the PR was opened from.
+    """
+
+    pr_url: str
+    issue_url: str
+    branch: str
 
 
 @dataclass(frozen=True)

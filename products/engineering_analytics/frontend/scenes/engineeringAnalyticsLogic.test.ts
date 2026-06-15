@@ -9,6 +9,7 @@ import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
+    engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
 import type {
@@ -28,7 +29,9 @@ import {
     engineeringAnalyticsLogic,
     filterPullRequests,
     filterQuarantineEntries,
+    inferOwnerFromSelector,
     quarantineCountsOf,
+    quarantineRequestErrorMessage,
     workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
@@ -38,6 +41,7 @@ jest.mock('../generated/api', () => ({
     engineeringAnalyticsPrLifecycle: jest.fn(),
     engineeringAnalyticsPullRequests: jest.fn(),
     engineeringAnalyticsQuarantine: jest.fn(),
+    engineeringAnalyticsQuarantineRequest: jest.fn(),
     engineeringAnalyticsWorkflowHealth: jest.fn(),
 }))
 
@@ -49,6 +53,9 @@ const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunc
     typeof engineeringAnalyticsWorkflowHealth
 >
 const mockQuarantine = engineeringAnalyticsQuarantine as jest.MockedFunction<typeof engineeringAnalyticsQuarantine>
+const mockQuarantineRequest = engineeringAnalyticsQuarantineRequest as jest.MockedFunction<
+    typeof engineeringAnalyticsQuarantineRequest
+>
 
 function apiQuarantineEntry(overrides: Partial<QuarantineEntryApi> = {}): QuarantineEntryApi {
     return {
@@ -187,6 +194,11 @@ describe('engineeringAnalyticsLogic', () => {
         mockPullRequests.mockResolvedValue({ items: PRS, truncated: false, limit: PRS.length })
         mockWorkflowHealth.mockResolvedValue(WORKFLOWS)
         mockQuarantine.mockResolvedValue(QUARANTINE)
+        mockQuarantineRequest.mockResolvedValue({
+            pr_url: 'https://github.com/PostHog/posthog/pull/99',
+            issue_url: 'https://github.com/PostHog/posthog/issues/4242',
+            branch: 'quarantine/foo-20260612',
+        })
     })
 
     afterEach(() => {
@@ -544,5 +556,108 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
 
         expect(logic.values.quarantineLoadFailed).toBe(true)
+    })
+
+    it.each([
+        ['product: selector', 'product:batch-exports', '@PostHog/team-batch-exports'],
+        ['products/ path', 'products/web_analytics/backend/test_foo.py::T::t', '@PostHog/team-web-analytics'],
+        ['plain nodeid', 'posthog/api/test/test_foo.py::T::t', ''],
+        ['bare file', 'frontend/src/foo.test.ts', ''],
+    ])('inferOwnerFromSelector: %s', (_label, selector, expected) => {
+        expect(inferOwnerFromSelector(selector)).toBe(expected)
+    })
+
+    it.each([
+        ['DRF detail', { detail: 'App not installed' }, 'App not installed'],
+        ['nested data.detail', { data: { detail: 'Malformed file' } }, 'Malformed file'],
+        ['error message', new Error('Network down'), 'Network down'],
+        ['unknown shape', {}, 'Could not complete the quarantine request.'],
+    ])('quarantineRequestErrorMessage: %s', (_label, error, expected) => {
+        expect(quarantineRequestErrorMessage(error)).toBe(expected)
+    })
+
+    it('opens the quarantine modal with the given config', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        logic.actions.openQuarantineModal({
+            action: 'extend',
+            selector: 'a/b.py::T::t',
+            reason: 'flaky',
+            owner: '@team/x',
+            issue: 'https://github.com/PostHog/posthog/issues/7',
+            mode: 'run',
+        })
+        expect(logic.values.quarantineModal?.action).toBe('extend')
+        expect(logic.values.quarantineModal?.selector).toBe('a/b.py::T::t')
+
+        logic.actions.closeQuarantineModal()
+        expect(logic.values.quarantineModal).toBeNull()
+    })
+
+    it('a successful submit closes the modal and reloads the register', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadQuarantineSuccess'])
+
+        logic.actions.openQuarantineModal({
+            action: 'quarantine',
+            selector: 'a/b.py::T::t',
+            reason: 'flaky',
+            owner: '@team/x',
+            issue: '',
+            mode: 'run',
+        })
+        logic.actions.submitQuarantine({
+            input: {
+                action: 'quarantine',
+                selector: 'a/b.py::T::t',
+                reason: 'flaky',
+                owner: '@team/x',
+                issue: '',
+                expires: '2026-06-26',
+                mode: 'run',
+            },
+        })
+        // The success listener reloads the register so the merged change shows up.
+        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess', 'loadQuarantine'])
+
+        // The viewed repo is threaded into the write so the PR targets it.
+        expect(mockQuarantineRequest).toHaveBeenCalledWith(
+            '1',
+            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog' })
+        )
+        expect(logic.values.quarantineModal).toBeNull()
+        expect(logic.values.quarantineSubmitLoading).toBe(false)
+    })
+
+    it('a failed submit keeps the modal open so the user can retry', async () => {
+        mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        logic.actions.openQuarantineModal({
+            action: 'quarantine',
+            selector: 'a/b.py::T::t',
+            reason: 'flaky',
+            owner: '@team/x',
+            issue: '',
+            mode: 'run',
+        })
+        logic.actions.submitQuarantine({
+            input: {
+                action: 'quarantine',
+                selector: 'a/b.py::T::t',
+                reason: 'flaky',
+                owner: '@team/x',
+                issue: '',
+                expires: null,
+                mode: 'run',
+            },
+        })
+        await expectLogic(logic).toDispatchActions(['submitQuarantineFailure'])
+
+        expect(logic.values.quarantineModal).not.toBeNull()
+        expect(logic.values.quarantineSubmitLoading).toBe(false)
     })
 })

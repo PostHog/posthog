@@ -17,6 +17,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRLifecycle,
     PullRequestList,
     QuarantineFile,
+    QuarantineRequest,
+    QuarantineRequestResult,
     WorkflowHealthItem,
 )
 
@@ -53,3 +55,7 @@ def list_workflow_health(
 
 def get_quarantine(*, team: Team, repo: str | None = None) -> QuarantineFile:
     return logic.build_quarantine(team=team, repo=repo)
+
+
+def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineRequestResult:
+    return logic.request_quarantine(team=team, request=request)

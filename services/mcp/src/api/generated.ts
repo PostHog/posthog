@@ -24548,6 +24548,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
+
+
+    export const OperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -37402,6 +37416,47 @@ export namespace Schemas {
       source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
+    }
+
+    export interface QuarantineRequest {
+      /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
+       *
+       * * `quarantine` - QUARANTINE
+       * * `extend` - EXTEND
+       * * `remove` - REMOVE */
+      operation: OperationEnum;
+      /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
+      selector: string;
+      /**
+         * Optional 'owner/name' repository override; defaults to the team's most active repo.
+         * @nullable
+         */
+      repo?: string | null;
+      /** Why the test is quarantined. Required for quarantine and extend; ignored by remove. */
+      reason?: string;
+      /** GitHub team or user handle responsible for the fix, e.g. '@PostHog/team-x'. Required for quarantine and extend. */
+      owner?: string;
+      /** Existing tracking issue URL, carried forward on extend and remove. Ignored by quarantine, which files a fresh issue. */
+      issue?: string;
+      /**
+         * ISO date the quarantine expires (at most 30 days out). Defaults to 14 days from today. Ignored by remove.
+         * @nullable
+         */
+      expires?: string | null;
+      /** 'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). Defaults to 'run'.
+       *
+       * * `run` - RUN
+       * * `skip` - SKIP */
+      mode?: QuarantineModeEnum;
+    }
+
+    export interface QuarantineRequestResult {
+      /** URL of the opened pull request that edits the quarantine file. */
+      pr_url: string;
+      /** URL of the tracking issue filed for a new quarantine; empty for extend and remove. */
+      issue_url: string;
+      /** Branch the pull request was opened from. */
+      branch: string;
     }
 
     export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;

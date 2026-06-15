@@ -20,6 +20,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestListItem,
     QuarantineEntry,
     QuarantineFile,
+    QuarantineRequest,
+    QuarantineRequestResult,
     RepoRef,
     WorkflowHealthDay,
     WorkflowHealthItem,
@@ -212,6 +214,69 @@ class QuarantineFileSerializer(DataclassSerializer):
                 "help_text": "GitHub blob URL of the quarantine file, or empty when read locally or unavailable.",
             },
             "generated_at": {"help_text": "When this snapshot was computed (UTC); expiry math uses this clock."},
+        }
+
+
+class QuarantineRequestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineRequest
+        extra_kwargs = {
+            "operation": {
+                "help_text": "What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' "
+                "(re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three "
+                "open a pull request.",
+            },
+            "selector": {
+                "help_text": "Test selector to act on: an exact test id, a file, a directory, a class prefix, or "
+                "'product:<dashed-name>'.",
+            },
+            "repo": {
+                "help_text": "Optional 'owner/name' repository override; defaults to the team's most active repo.",
+                "allow_null": True,
+                "required": False,
+            },
+            # Blank is meaningful: remove sends no reason/owner, and quarantine sends no issue
+            # (the server files one). Per-action required checks live in the logic layer.
+            "reason": {
+                "help_text": "Why the test is quarantined. Required for quarantine and extend; ignored by remove.",
+                "required": False,
+                "allow_blank": True,
+            },
+            "owner": {
+                "help_text": "GitHub team or user handle responsible for the fix, e.g. '@PostHog/team-x'. Required "
+                "for quarantine and extend.",
+                "required": False,
+                "allow_blank": True,
+            },
+            "issue": {
+                "help_text": "Existing tracking issue URL, carried forward on extend and remove. Ignored by "
+                "quarantine, which files a fresh issue.",
+                "required": False,
+                "allow_blank": True,
+            },
+            "expires": {
+                "help_text": "ISO date the quarantine expires (at most 30 days out). Defaults to 14 days from today. "
+                "Ignored by remove.",
+                "allow_null": True,
+                "required": False,
+            },
+            "mode": {
+                "help_text": "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). "
+                "Defaults to 'run'.",
+                "required": False,
+            },
+        }
+
+
+class QuarantineRequestResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineRequestResult
+        extra_kwargs = {
+            "pr_url": {"help_text": "URL of the opened pull request that edits the quarantine file."},
+            "issue_url": {
+                "help_text": "URL of the tracking issue filed for a new quarantine; empty for extend and remove.",
+            },
+            "branch": {"help_text": "Branch the pull request was opened from."},
         }
 
 

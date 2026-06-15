@@ -17,6 +17,8 @@ import type {
     PRLifecycleApi,
     PullRequestListApi,
     QuarantineFileApi,
+    QuarantineRequestApi,
+    QuarantineRequestResultApi,
     WorkflowHealthItemApi,
 } from './api.schemas'
 
@@ -134,6 +136,27 @@ export const engineeringAnalyticsQuarantine = async (
     return apiMutator<QuarantineFileApi>(getEngineeringAnalyticsQuarantineUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsQuarantineRequestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/quarantine/request/`
+}
+
+/**
+ * Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
+ * @summary Quarantine, extend, or unquarantine a flaky test
+ */
+export const engineeringAnalyticsQuarantineRequest = async (
+    projectId: string,
+    quarantineRequestApi: QuarantineRequestApi,
+    options?: RequestInit
+): Promise<QuarantineRequestResultApi> => {
+    return apiMutator<QuarantineRequestResultApi>(getEngineeringAnalyticsQuarantineRequestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quarantineRequestApi),
     })
 }
 
