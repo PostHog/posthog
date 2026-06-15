@@ -104,7 +104,6 @@ post_save:posthog.models.remote_config.team_saved
 post_save:posthog.models.team.extensions.register_team_extension_signal.<locals>.receiver_func
 post_save:posthog.models.team.team.put_team_in_cache_on_save
 post_save:posthog.models.team.team.reevaluate_authorized_urls_health
-post_save:posthog.storage.gateway_provisioning._provision_on_team_create
 post_save:posthog.storage.team_access_cache_signal_handlers.organization_membership_saved
 post_save:posthog.storage.team_access_cache_signal_handlers.personal_api_key_saved
 post_save:posthog.storage.team_access_cache_signal_handlers.project_secret_api_key_saved
