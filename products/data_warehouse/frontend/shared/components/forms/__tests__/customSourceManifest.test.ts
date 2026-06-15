@@ -33,6 +33,7 @@ const baseState = (): ManifestState => ({
             cursor_path: '',
             cursor_type: 'datetime',
             start_param: '',
+            datetime_format: '',
             parent_stream: '',
             parent_resolve_field: '',
             parent_path_param: '',
@@ -273,6 +274,7 @@ describe('parseManifestIntoState', () => {
                 cursor_path: 'updated_at',
                 cursor_type: 'datetime',
                 start_param: 'since',
+                datetime_format: '',
                 parent_stream: '',
                 parent_resolve_field: '',
                 parent_path_param: '',
@@ -418,6 +420,7 @@ describe('parseManifestIntoState', () => {
                 cursor_path: 'updated_at',
                 cursor_type: 'timestamp',
                 start_param: 'since',
+                datetime_format: '',
                 parent_stream: '',
                 parent_resolve_field: '',
                 parent_path_param: '',
@@ -591,6 +594,32 @@ describe('fan-out (parent/child)', () => {
         const firstJson = JSON.stringify(buildManifest(childState()))
         const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
         expect(secondJson).toBe(firstJson)
+    })
+})
+
+describe('datetime_format (incremental cursor)', () => {
+    const incrementalState = (datetimeFormat: string): ManifestState => {
+        const state = baseState()
+        state.streams[0].incremental_enabled = true
+        state.streams[0].cursor_path = 'updated_at'
+        state.streams[0].datetime_format = datetimeFormat
+        return state
+    }
+
+    it('emits datetime_format inside endpoint.incremental when set', () => {
+        const manifest = buildManifest(incrementalState('%Y-%m-%dT%H:%M:%SZ')) as any
+        expect(manifest.resources[0].endpoint.incremental.datetime_format).toBe('%Y-%m-%dT%H:%M:%SZ')
+    })
+
+    it('omits datetime_format when blank', () => {
+        const manifest = buildManifest(incrementalState('   ')) as any
+        expect('datetime_format' in manifest.resources[0].endpoint.incremental).toBe(false)
+    })
+
+    it('hydrates datetime_format on parse and round-trips without drift', () => {
+        const firstJson = JSON.stringify(buildManifest(incrementalState('%Y-%m-%dT%H:%M:%SZ')))
+        expect(parseManifestIntoState(firstJson).streams[0].datetime_format).toBe('%Y-%m-%dT%H:%M:%SZ')
+        expect(JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))).toBe(firstJson)
     })
 })
 

@@ -425,6 +425,8 @@ class TestGetLeadingIndexColumns:
         assert out is not None
         assert out["analytics.users"] == {"CREATED_AT"}
         assert out["sales.users"] == {"SIGNED_UP"}
+        # The query matches exact (schema, table) pairs, not a schemas × table-names cross-product.
+        assert cursor.execute.call_args.args[1] == ("DB", "analytics", "users", "sales", "users")
 
 
 class TestGetSourceMetadata:
@@ -477,22 +479,6 @@ class TestGetRowsToSync:
 # ---------------------------------------------------------------------------
 # build_pipeline end-to-end (mocked driver)
 # ---------------------------------------------------------------------------
-
-
-class TestSnowflakeSourceNonRetryableErrors:
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Duo Security authentication is denied",
-            # The real shape from production: codes + host vary, but the Duo substring is stable.
-            "250001 (08001): None: Failed to connect to DB: wv65496-re80354.snowflakecomputing.com:443. "
-            "Duo Security authentication is denied.",
-        ],
-    )
-    def test_duo_security_denied_is_non_retryable(self, error_msg):
-        non_retryable = SnowflakeSource().get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable
 
 
 class TestBuildPipeline:
@@ -576,6 +562,20 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Disabled-user error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Duo Security authentication is denied",
+            # The real shape from production: codes + host vary, but the Duo substring is stable.
+            "250001 (08001): None: Failed to connect to DB: wv65496-re80354.snowflakecomputing.com:443. "
+            "Duo Security authentication is denied.",
+        ],
+    )
+    def test_duo_security_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Duo-denied error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

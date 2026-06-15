@@ -59,6 +59,12 @@ export interface PropertyFiltersProps {
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
+    /**
+     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
+     * (the default) renders a button. Only has an effect on the rebuild menu
+     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
+     */
+    triggerVariant?: 'button' | 'input'
 }
 
 export function PropertyFilters({
@@ -97,6 +103,7 @@ export function PropertyFilters({
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
+    triggerVariant = 'button',
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -167,6 +174,7 @@ export function PropertyFilters({
                                             editable={editable}
                                             operatorAllowlist={operatorAllowlist}
                                             hogQLGlobals={hogQLGlobals}
+                                            triggerVariant={triggerVariant}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

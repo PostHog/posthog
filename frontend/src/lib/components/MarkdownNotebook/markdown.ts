@@ -38,11 +38,21 @@ const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
 const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
 const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
+const TASK_LIST_ITEM_REGEX = /^\[([ xX])\](?:\s+(.*))?$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const DIVIDER_BLOCK_REGEX = /^(?:-{3,}|\*{3,}|_{3,})$/
 export const DIVIDER_COMPONENT_TAG = 'Divider'
 export const COMMENT_COMPONENT_TAG = 'Comment'
+
+/**
+ * The `Comment` tag has two flavors: an authorial note (`text` prop, stored as a markdown
+ * `<!-- … -->` comment) and a Google Docs-style discussion thread anchored to a `<ref>`
+ * highlight (`ref` + `replies` props, stored as a real `<Comment … />` tag).
+ */
+export function isDiscussionCommentProps(props: NotebookComponentProps): boolean {
+    return typeof props.ref === 'string' || Array.isArray(props.replies)
+}
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
@@ -80,6 +90,11 @@ const INLINE_EMPHASIS_TOKENS: InlineEmphasisToken[] = [
     { token: '*', markType: 'italic', requiresWordBoundary: false },
     { token: '_', markType: 'italic', requiresWordBoundary: true },
 ]
+// Inline tags are lowercase (HTML-style) so they can never collide with block components,
+// whose tag names are required to start with an uppercase letter.
+const INLINE_TAG_NAMES = ['ref', 'mention'] as const
+type InlineTagName = (typeof INLINE_TAG_NAMES)[number]
+const INLINE_TAG_OPEN_REGEX = /^<(ref|mention)\s+id=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\s*>/
 let generatedNodeIdCounter = 0
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
@@ -173,7 +188,8 @@ export function serializeNode(node: NotebookBlockNode): string {
                 } else {
                     orderedCounters[depth] = undefined
                 }
-                return `${linePrefix}${'  '.repeat(depth)}${marker} ${serializeInlineNodes(
+                const checkbox = !ordered && item.checked !== undefined ? (item.checked ? '[x] ' : '[ ] ') : ''
+                return `${linePrefix}${'  '.repeat(depth)}${marker} ${checkbox}${serializeInlineNodes(
                     trimTrailingHardBreaks(item.children)
                 )}`
             })
@@ -199,7 +215,7 @@ export function serializeNode(node: NotebookBlockNode): string {
         // silently drop the malformed source on the next save
         return node.raw
     }
-    if (node.type === 'component' && node.tagName === COMMENT_COMPONENT_TAG) {
+    if (node.type === 'component' && node.tagName === COMMENT_COMPONENT_TAG && !isDiscussionCommentProps(node.props)) {
         return serializeCommentNode(node)
     }
     if (node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG) {
@@ -278,6 +294,17 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
             if (end !== -1) {
                 nodes.push(...parseInlineMarkdown(markdown.slice(index + 3, end), [...marks, { type: 'underline' }]))
                 index = end + 4
+                continue
+            }
+        }
+
+        if (character === '<') {
+            const inlineTag = parseInlineTag(markdown, index)
+            if (inlineTag) {
+                nodes.push(
+                    ...parseInlineMarkdown(inlineTag.content, [...marks, { type: inlineTag.tagName, id: inlineTag.id }])
+                )
+                index = inlineTag.nextIndex
                 continue
             }
         }
@@ -441,6 +468,37 @@ function parseInlineLink(
         cursor += 1
     }
     return null
+}
+
+/**
+ * Parses an inline tag (`<ref id="x">…</ref>`, `<mention id="5">…</mention>`) at `index`.
+ * A tag without a well-formed opener or matching closer is not a tag — the text stays
+ * literal, so nothing a user types can ever be swallowed.
+ */
+function parseInlineTag(
+    markdown: string,
+    index: number
+): { tagName: InlineTagName; id: string; content: string; nextIndex: number } | null {
+    const openMatch = markdown.slice(index).match(INLINE_TAG_OPEN_REGEX)
+    if (!openMatch) {
+        return null
+    }
+
+    const tagName = openMatch[1] as InlineTagName
+    const id = (openMatch[2] ?? openMatch[3] ?? '').replace(/\\(.)/g, '$1')
+    const contentStart = index + openMatch[0].length
+    const closeToken = `</${tagName}>`
+    const end = findTokenOutsideCodeSpans(markdown, closeToken, contentStart)
+    if (end === -1 || !id) {
+        return null
+    }
+
+    return {
+        tagName,
+        id,
+        content: markdown.slice(contentStart, end),
+        nextIndex: end + closeToken.length,
+    }
 }
 
 function isAsciiAlphaNumeric(character: string | undefined): boolean {
@@ -657,13 +715,16 @@ function parseListItemLine(line: string, listItemIndex: number): NotebookListBlo
     }
 
     const orderedMatch = match[2].match(/^(\d+)[.)]$/)
+    // GFM task markers only apply to bullet items — `1. [x]` stays literal text
+    const taskMatch = orderedMatch ? null : (match[3] ?? '').match(TASK_LIST_ITEM_REGEX)
 
     return {
         id: createStableNodeId(`list-item:${String(listItemIndex)}:${line}`, 0),
-        children: parseInlineMarkdown(match[3] ?? ''),
+        children: parseInlineMarkdown(taskMatch ? (taskMatch[2] ?? '') : (match[3] ?? '')),
         depth: getListItemDepth(match[1]),
         ordered: orderedMatch !== null,
         start: orderedMatch ? Number(orderedMatch[1]) : undefined,
+        checked: taskMatch ? taskMatch[1].toLowerCase() === 'x' : undefined,
     }
 }
 
@@ -1251,6 +1312,9 @@ function wrapInlineText(text: string, mark: NotebookInlineMark, marks: NotebookI
     if (mark.type === 'code') {
         return `\`${text}\``
     }
+    if (mark.type === 'ref' || mark.type === 'mention') {
+        return mark.id ? `<${mark.type} id=${JSON.stringify(mark.id)}>${text}</${mark.type}>` : text
+    }
     const href = sanitizeNotebookLinkHref(mark.href)
     return href ? `[${text}](${escapeMarkdownLinkHref(href)})` : text
 }
@@ -1274,7 +1338,7 @@ function pushTextWithMarks(nodes: NotebookInlineNode[], text: string, marks: Not
 }
 
 function findNextInlineToken(markdown: string, startIndex: number): number {
-    const indexes = ['\\', '**', '*', '__', '_', '<u>', '~~', '`', '[', '\n']
+    const indexes = ['\\', '**', '*', '__', '_', '<u>', '<ref', '<mention', '~~', '`', '[', '\n']
         .map((token) => markdown.indexOf(token, startIndex))
         .filter((index) => index !== -1)
     return indexes.length ? Math.min(...indexes) : markdown.length
@@ -1332,6 +1396,16 @@ function htmlNodeToInlineNodes(node: ChildNode, marks: NotebookInlineMark[]): No
             nextMarks.push({ type: 'link', href })
         }
     }
+    if (tagName === 'span') {
+        const refId = node.getAttribute('data-notebook-ref')
+        if (refId) {
+            nextMarks.push({ type: 'ref', id: refId })
+        }
+        const mentionId = node.getAttribute('data-notebook-mention')
+        if (mentionId) {
+            nextMarks.push({ type: 'mention', id: mentionId })
+        }
+    }
 
     const children = htmlChildNodesToInlineNodes(node, nextMarks)
 
@@ -1378,6 +1452,12 @@ function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
     if (mark.type === 'code') {
         return `<code>${html}</code>`
     }
+    if (mark.type === 'ref') {
+        return `<span class="MarkdownNotebook__ref" data-notebook-ref="${escapeAttribute(mark.id)}">${html}</span>`
+    }
+    if (mark.type === 'mention') {
+        return `<span class="MarkdownNotebook__mention" data-notebook-mention="${escapeAttribute(mark.id)}">${html}</span>`
+    }
     const href = sanitizeNotebookLinkHref(mark.href)
     return href ? `<a href="${escapeAttribute(href)}">${html}</a>` : html
 }
@@ -1393,7 +1473,7 @@ export function escapeInlineMarkdownText(text: string): string {
             // Intraword underscores (snake_case) are never emphasis, keep them readable
             isAsciiAlphaNumeric(source[offset - 1]) && isAsciiAlphaNumeric(source[offset + 1]) ? '_' : '\\_'
         )
-        .replace(/<(?=\/?u>)/g, '\\<')
+        .replace(/<(?=\/?(?:u>|ref[\s>]|mention[\s>]))/g, '\\<')
 }
 
 export function escapeCodeSpanText(text: string): string {

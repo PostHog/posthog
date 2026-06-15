@@ -25,7 +25,7 @@ import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { LLMSkillListApi } from 'products/ai_observability/frontend/generated/api.schemas'
+import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
