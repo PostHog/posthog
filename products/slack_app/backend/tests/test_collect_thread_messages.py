@@ -10,6 +10,7 @@ from posthog.models.team.team import Team
 
 from products.slack_app.backend.api import _collect_thread_messages, _extract_message_text, _flatten_block_text
 from products.slack_app.backend.services.slack_messages import (
+    decode_slack_event_text,
     labeled_mentions_to_display_names,
     resolve_user_mentions_text,
 )
@@ -242,6 +243,47 @@ class TestResolveUserMentionsText:
         result = resolve_user_mentions_text(self.slack, self.integration, "ping <@UCLEO>")
 
         assert result == "ping <@UCLEO|Unknown>"
+
+
+class TestDecodeSlackEventText:
+    """The wrapper at the 3 trigger sites — look up the bot, label the rest, strip."""
+
+    def setup_method(self) -> None:
+        self.slack = MagicMock(spec=SlackIntegration)
+        self.integration = MagicMock(spec=Integration)
+
+    @patch("products.slack_app.backend.services.slack_messages.get_cached_bot_user_id")
+    @patch("products.slack_app.backend.services.slack_messages.get_slack_user_info")
+    def test_strips_bot_self_mention_when_lookup_succeeds(self, mock_get_user_info, mock_get_bot_user_id):
+        mock_get_bot_user_id.return_value = "UBOT"
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": "cleo"}}}
+
+        result = decode_slack_event_text(self.slack, self.integration, "<@UBOT> ping <@UCLEO> ")
+
+        assert result == "ping <@UCLEO|cleo>"
+
+    @patch("products.slack_app.backend.services.slack_messages.get_cached_bot_user_id")
+    @patch("products.slack_app.backend.services.slack_messages.get_slack_user_info")
+    def test_leaves_bot_mention_labeled_when_lookup_returns_none(self, mock_get_user_info, mock_get_bot_user_id):
+        # auth_test() failure → no bot user id → the bot's own mention falls
+        # through the strip_bot_user_id fast path, but is_bot stripping still
+        # catches it once the lookup returns is_bot=True.
+        mock_get_bot_user_id.return_value = None
+        mock_get_user_info.return_value = {"user": {"is_bot": True, "profile": {"display_name": "bot"}}}
+
+        result = decode_slack_event_text(self.slack, self.integration, "<@UBOT> ping")
+
+        assert result == "ping"
+
+    @patch("products.slack_app.backend.services.slack_messages.get_cached_bot_user_id")
+    @patch("products.slack_app.backend.services.slack_messages.get_slack_user_info")
+    def test_strips_surrounding_whitespace_from_result(self, mock_get_user_info, mock_get_bot_user_id):
+        mock_get_bot_user_id.return_value = "UBOT"
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": ""}}}
+
+        result = decode_slack_event_text(self.slack, self.integration, "  <@UBOT>  hello world  ")
+
+        assert result == "hello world"
 
 
 class TestLabeledMentionsToDisplayNames:
