@@ -2703,3 +2703,32 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             inputs={"svc": {"value": "service = {record.service_name}"}},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rearrange_log_transformations(self):
+        first = self._create_log_transformation(name="A", enabled=True).json()
+        second = self._create_log_transformation(name="B", enabled=True).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {first["id"]: 2, second["id"]: 1}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = response.json()
+        assert [f["id"] for f in results] == [second["id"], first["id"]]
+        assert [f["execution_order"] for f in results] == [1, 2]
+
+    def test_rearrange_rejects_mixed_types(self):
+        log_function = self._create_log_transformation(name="A", enabled=True).json()
+        event_function = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={"name": "Event transformation", "type": "transformation", "hog": "return event"},
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/rearrange/",
+            data={"orders": {log_function["id"]: 1, event_function["id"]: 2}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "different types" in response.json()["detail"]

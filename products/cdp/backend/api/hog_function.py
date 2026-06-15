@@ -689,7 +689,7 @@ class HogFunctionViewSet(
             functions = {
                 str(f.id): f
                 for f in HogFunction.objects.filter(
-                    id__in=function_ids, team=team, type="transformation", deleted=False
+                    id__in=function_ids, team=team, type__in=TYPES_WITH_EXECUTION_ORDER, deleted=False
                 )
             }
 
@@ -697,6 +697,12 @@ class HogFunctionViewSet(
             missing_ids = set(function_ids) - set(functions.keys())
             if missing_ids:
                 raise exceptions.ValidationError(f"HogFunction with id {missing_ids.pop()} does not exist")
+
+            # execution_order is scoped per type, so one rearrange request must stay within one type
+            types = {f.type for f in functions.values()}
+            if len(types) > 1:
+                raise exceptions.ValidationError("Cannot rearrange functions of different types in one request")
+            hog_type = types.pop()
 
             # Update orders and create activity logs
             from django.contrib.auth.models import AnonymousUser
@@ -739,7 +745,7 @@ class HogFunctionViewSet(
                     function.save(update_fields=["execution_order", "updated_at"])
 
         # Get final ordered list in a single query
-        transformations = HogFunction.objects.filter(team=team, type="transformation", deleted=False).order_by(
+        transformations = HogFunction.objects.filter(team=team, type=hog_type, deleted=False).order_by(
             "execution_order"
         )
 

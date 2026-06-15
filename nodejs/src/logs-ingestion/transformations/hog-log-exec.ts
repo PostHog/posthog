@@ -1,5 +1,6 @@
 import { convertHogToJS } from '@posthog/hogvm'
 
+import type { HogFunctionType } from '../../cdp/types'
 import { sanitizeLogMessage } from '../../cdp/utils'
 import { execHogImmediate } from '../../cdp/utils/hog-exec'
 import type { LogRecord } from '../log-record-avro'
@@ -150,6 +151,43 @@ export function applyTransformResult(record: LogRecord, execResult: unknown): 'm
     }
 
     return 'mutated'
+}
+
+/**
+ * Resolves a function's input values against log globals. Inputs may reference earlier
+ * inputs, so resolution happens in declared order; hog-templated inputs execute their
+ * compiled bytecode with the accumulated `inputs` visible.
+ *
+ * Throws on the first unresolvable input — callers decide the failure policy
+ * (the pipeline fails open per record; the test-invocation API surfaces the error).
+ */
+export function resolveLogTransformationInputs(
+    fn: Pick<HogFunctionType, 'inputs' | 'encrypted_inputs'>,
+    globals: Omit<LogTransformationGlobals, 'inputs'>,
+    timeoutMs: number
+): Record<string, unknown> {
+    const inputs: Record<string, unknown> = {}
+    const allInputs = { ...fn.inputs, ...fn.encrypted_inputs }
+
+    const entries = Object.entries(allInputs).sort(([, a], [, b]) => (a?.order ?? -1) - (b?.order ?? -1))
+
+    for (const [key, input] of entries) {
+        if (input?.bytecode && (input.templating ?? 'hog') === 'hog') {
+            const { execResult, error } = execHogImmediate(input.bytecode, {
+                globals: { ...globals, inputs },
+                timeout: timeoutMs,
+                maxAsyncSteps: 0,
+            })
+            if (error || execResult?.error || !execResult?.finished) {
+                throw new Error(`Could not resolve input '${key}': ${error ?? execResult?.error}`)
+            }
+            inputs[key] = execResult.result
+        } else {
+            inputs[key] = input?.value
+        }
+    }
+
+    return inputs
 }
 
 export interface ExecuteLogTransformationOptions {

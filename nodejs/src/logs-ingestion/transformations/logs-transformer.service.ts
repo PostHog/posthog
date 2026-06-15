@@ -4,12 +4,16 @@ import { Counter, Histogram } from 'prom-client'
 import { HogFunctionManagerService } from '../../cdp/services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../../cdp/services/monitoring/hog-function-monitoring.service'
 import { HogFunctionType, LogEntry } from '../../cdp/types'
-import { execHogImmediate } from '../../cdp/utils/hog-exec'
 import { yieldEventLoopIfNeeded } from '../../utils/event-loop-yield'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import type { LogRecord } from '../log-record-avro'
-import { LogTransformationGlobals, buildLogRecordGlobals, executeLogTransformation } from './hog-log-exec'
+import {
+    LogTransformationGlobals,
+    buildLogRecordGlobals,
+    executeLogTransformation,
+    resolveLogTransformationInputs,
+} from './hog-log-exec'
 
 export const transformationRecordsCounter = new Counter({
     name: 'logs_ingestion_transformations_records_total',
@@ -294,29 +298,7 @@ export class LogsTransformerService {
     }
 
     private resolveInputsUncached(fn: HogFunctionType, globals: LogTransformationGlobals): Record<string, unknown> {
-        const inputs: Record<string, unknown> = {}
-        const allInputs = { ...fn.inputs, ...fn.encrypted_inputs }
-
-        // Inputs can reference earlier inputs, so resolve in declared order
-        const entries = Object.entries(allInputs).sort(([, a], [, b]) => (a?.order ?? -1) - (b?.order ?? -1))
-
-        for (const [key, input] of entries) {
-            if (input?.bytecode && (input.templating ?? 'hog') === 'hog') {
-                const { execResult, error } = execHogImmediate(input.bytecode, {
-                    globals: { ...globals, inputs },
-                    timeout: this.config.hogTimeoutMs,
-                    maxAsyncSteps: 0,
-                })
-                if (error || execResult?.error || !execResult?.finished) {
-                    throw new Error(`Could not resolve input '${key}': ${error ?? execResult?.error}`)
-                }
-                inputs[key] = execResult.result
-            } else {
-                inputs[key] = input?.value
-            }
-        }
-
-        return inputs
+        return resolveLogTransformationInputs(fn, globals, this.config.hogTimeoutMs)
     }
 
     private getSensitiveValues(fn: HogFunctionType, cache: Map<string, string[]>): string[] {
