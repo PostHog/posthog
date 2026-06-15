@@ -7,6 +7,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
 
 from posthog.hogql_queries.insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
@@ -29,12 +31,15 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties=rest[0] if rest else {},
                 )
 
-    def _run(self, date_from, date_to, series=None, breakdown=None):
+    def _run(self, date_from, date_to, series=None, breakdown=None, include_incomplete_period=False):
         query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             interval="day",
             breakdownFilter=breakdown,
-            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH),
+            trendsFilter=TrendsFilter(
+                display=ChartDisplayType.SLOPE_GRAPH,
+                slopeIncludeIncompletePeriod=include_incomplete_period,
+            ),
             series=series or [EventsNode(kind="EventsNode", event="$pageview", math="total")],
         )
         return SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
@@ -57,6 +62,21 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # The slope is the first-half total vs the second-half total — which together cover the range.
         assert result["data"][0] == 2
         assert result["data"][1] == 3
+
+    @snapshot_clickhouse_queries
+    def test_event_on_the_split_day_is_counted_once_in_the_end_window(self):
+        self._create_events(
+            [
+                ("early", [("2024-01-02T10:00:00Z",)]),
+                ("on_split_day", [("2024-01-10T10:00:00Z",)]),
+            ]
+        )
+        response = self._run("2024-01-01", "2024-01-19")
+
+        result = response.results[0]
+        assert result["data"][0] == 1
+        assert result["data"][1] == 1
+        assert result["count"] == 2
 
     @snapshot_clickhouse_queries
     def test_no_events_yields_zero_endpoints(self):
@@ -85,3 +105,22 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for result in response.results:
             assert len(result["data"]) == 2
             assert len(result["labels"]) == 2
+
+    @parameterized.expand(
+        [
+            ("excluded_by_default", False, 2),
+            ("included_when_opted_in", True, 3),
+        ]
+    )
+    @freeze_time("2024-01-20T12:00:00Z")
+    def test_current_incomplete_period(self, _name, include_incomplete_period, expected_count):
+        self._create_events(
+            [
+                ("early", [("2024-01-11T10:00:00Z",)]),
+                ("yesterday", [("2024-01-19T10:00:00Z",)]),
+                ("today_so_far", [("2024-01-20T09:00:00Z",)]),
+            ]
+        )
+        response = self._run("2024-01-11", "2024-01-20", include_incomplete_period=include_incomplete_period)
+
+        assert response.results[0]["count"] == expected_count

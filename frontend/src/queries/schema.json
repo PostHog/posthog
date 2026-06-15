@@ -42237,6 +42237,11 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "slopeIncludeIncompletePeriod": {
+                    "default": false,
+                    "description": "Include the current, still-incomplete period in the slope graph's start-vs-end comparison. Off by default so a partial latest period (e.g. today, so far) doesn't read as a drop.",
+                    "type": "boolean"
+                },
                 "smoothingIntervals": {
                     "$ref": "#/definitions/integer",
                     "default": 1

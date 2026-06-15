@@ -113,12 +113,12 @@ describe('InsightDisplayConfig', () => {
             expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
         })
 
-        it('shows only the legend toggle in the Display section', async () => {
+        it('shows the current-period toggle and the legend in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toEqual(['Show legend'])
+            expect(items).toEqual(['Include current period', 'Show legend'])
             // None of the time-series-only options should leak in.
             expect(items).not.toContain('Show values on series')
             expect(items).not.toContain('Show trend lines')

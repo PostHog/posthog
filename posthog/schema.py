@@ -7290,6 +7290,14 @@ class TrendsFilter(BaseModel):
     showPercentStackView: bool | None = False
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
+    slopeIncludeIncompletePeriod: bool | None = Field(
+        default=False,
+        description=(
+            "Include the current, still-incomplete period in the slope graph's"
+            " start-vs-end comparison. Off by default so a partial latest period (e.g."
+            " today, so far) doesn't read as a drop."
+        ),
+    )
     smoothingIntervals: int | None = 1
     stackBreakdownValues: bool | None = Field(
         default=False,

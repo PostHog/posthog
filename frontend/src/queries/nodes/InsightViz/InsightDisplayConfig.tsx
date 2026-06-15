@@ -23,6 +23,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { IncludeIncompletePeriodFilter } from 'scenes/insights/EditorFilters/IncludeIncompletePeriodFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -223,10 +224,12 @@ export function InsightDisplayConfig(): JSX.Element {
                                 },
                             ]
                           : isSlopeGraph
-                            ? // A slope only shows the start vs end of each series — keep just the legend toggle.
-                              hasLegend
-                                ? [{ label: () => <ShowLegendFilter /> }]
-                                : []
+                            ? // A slope only shows the start vs end of each series — the current-period
+                              // toggle and (when there are multiple series) the legend are all that apply.
+                              [
+                                  { label: () => <IncludeIncompletePeriodFilter /> },
+                                  ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                              ]
                             : [
                                   ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                   ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
