@@ -106,8 +106,8 @@ class FunnelTimeToConvertUDF(FunnelBase):
                 ceil((max_timing - min_timing) / bin_count) as bin_width_seconds_raw,
                 if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds,"""
 
+        # nosemgrep: hogql-fstring-audit (interpolated values are internal ints; {{timings}} is a HogQL placeholder)
         bins = parse_select(
-            # nosemgrep: hogql-fstring-audit (interpolated values are internal ints; {{timings}} is a HogQL placeholder)
             f"""
             SELECT
                 timings,

@@ -235,19 +235,22 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         because funnel queries are CTE/UDF-heavy; doubling cost is the explicit trade-off.
         """
         previous_funnel = self._build_previous_funnel()
-        funnels = [self.funnel_class, previous_funnel]
-        # Aligns each sub-response's resolved_date_range with the period it actually computed,
-        # rather than leaking the current-period range into the previous-period response.
-        date_ranges = [self.query_date_range, self.query_previous_date_range]
 
+        # Each lambda passes its own period's date range through `date_range_override` so the
+        # sub-response's resolved_date_range matches the period it computed, instead of leaking
+        # the current-period range into the previous-period response.
         current_response, previous_response = self._run_in_parallel(
             [
-                lambda timings, i=i: self._calculate_single_period(
-                    funnels[i],
+                lambda timings: self._calculate_single_period(
+                    self.funnel_class,
                     timings_override=timings,
-                    date_range_override=date_ranges[i],
-                )
-                for i in range(len(funnels))
+                    date_range_override=self.query_date_range,
+                ),
+                lambda timings: self._calculate_single_period(
+                    previous_funnel,
+                    timings_override=timings,
+                    date_range_override=self.query_previous_date_range,
+                ),
             ]
         )
 

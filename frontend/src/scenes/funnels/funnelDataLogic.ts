@@ -510,7 +510,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // Compare returns a two-element list tagged with compare_label; take the current period.
                 if (Array.isArray(results)) {
                     return (
-                        (results as TimeToConvertCompareBins[]).find((row) => row.compare_label === 'current') ?? null
+                        (results as unknown as TimeToConvertCompareBins[]).find(
+                            (row) => row.compare_label === 'current'
+                        ) ?? null
                     )
                 }
                 return results as FunnelsTimeConversionBins
@@ -522,7 +524,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (funnelsFilter?.funnelVizType !== FunnelVizType.TimeToConvert || !Array.isArray(results)) {
                     return null
                 }
-                return (results as TimeToConvertCompareBins[]).find((row) => row.compare_label === 'previous') ?? null
+                return (
+                    (results as unknown as TimeToConvertCompareBins[]).find(
+                        (row) => row.compare_label === 'previous'
+                    ) ?? null
+                )
             },
         ],
         histogramGraphData: [
