@@ -223,6 +223,24 @@ const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
     },
 })
 
+const WorkflowsPatchGraphSchema = WorkflowGraphPatchSchema
+
+const workflowsPatchGraph = (): ToolBase<typeof WorkflowsPatchGraphSchema, Schemas.HogFlow> => ({
+    name: 'workflows-patch-graph',
+    schema: WorkflowsPatchGraphSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchGraphSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = WorkflowsPatchGraphSchema.parse(params)
+        const { id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/graph/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsStatsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
     HogFlowsMetricsRetrieveQueryParams.shape
 )
@@ -321,24 +339,6 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
         },
     })
 
-const WorkflowsPatchGraphSchema = WorkflowGraphPatchSchema
-
-const workflowsPatchGraph = (): ToolBase<typeof WorkflowsPatchGraphSchema, Schemas.HogFlow> => ({
-    name: 'workflows-patch-graph',
-    schema: WorkflowsPatchGraphSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchGraphSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = WorkflowsPatchGraphSchema.parse(params)
-        const { id, ...body } = parsedParams
-        const result = await context.api.request<Schemas.HogFlow>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/graph/`,
-            body,
-        })
-        return result
-    },
-})
-
 const WorkflowsUpdateScheduleSchema = HogFlowsSchedulesPartialUpdateParams.omit({ project_id: true }).extend(
     HogFlowsSchedulesPartialUpdateBody.shape
 )
@@ -379,9 +379,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-logs': workflowsLogs,
+    'workflows-patch-graph': workflowsPatchGraph,
     'workflows-stats': workflowsStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
-    'workflows-patch-graph': workflowsPatchGraph,
     'workflows-update-schedule': workflowsUpdateSchedule,
 }
