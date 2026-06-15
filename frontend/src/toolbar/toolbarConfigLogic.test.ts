@@ -8,6 +8,8 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -329,6 +331,54 @@ describe('toolbar toolbarConfigLogic', () => {
                 (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
             )
             expect(headCalls).toHaveLength(1)
+        })
+
+        it('does not capture an exception for a benign CORS/network failure, only logs a warning', async () => {
+            // A blocked CORS preflight rejects with TypeError "Failed to fetch" — expected on
+            // self-hosted/proxied deployments and must not pollute error tracking.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            const warnSpy = jest.spyOn(toolbarLogger, 'warn').mockImplementation()
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture')
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(warnSpy).toHaveBeenCalledWith(
+                'ui_host_check',
+                expect.any(String),
+                expect.objectContaining({ error_type: 'network_or_cors' })
+            )
+            // The analytics event is still emitted for observability.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'network_or_cors' })
+            )
+
+            captureExceptionSpy.mockRestore()
+            warnSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('captures an exception for a genuine HTTP error from the reachability check', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 500 }))
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            const warnSpy = jest.spyOn(toolbarLogger, 'warn').mockImplementation()
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' })
+            )
+            expect(warnSpy).not.toHaveBeenCalled()
+
+            captureExceptionSpy.mockRestore()
+            warnSpy.mockRestore()
         })
 
         it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {

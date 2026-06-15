@@ -659,13 +659,26 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // A failed reachability probe is expected on self-hosted, reverse-proxied, or
+            // corporate-proxy deployments that block CORS preflights — capturing it as an
+            // exception floods error tracking with benign noise (this is a UX helper, not a
+            // security boundary). Only genuine HTTP errors / unknown failures indicate real
+            // misconfiguration worth capturing; downgrade CORS/network and timeout to a warning.
+            if (errorType === 'network_or_cors' || errorType === 'timeout') {
+                toolbarLogger.warn('ui_host_check', 'UI host reachability check failed', {
+                    error_type: errorType,
+                    ui_host: values.uiHost,
+                })
+            } else {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
