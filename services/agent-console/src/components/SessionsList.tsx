@@ -10,15 +10,40 @@
  * component handles both views.
  */
 
-import { ChevronRightIcon } from 'lucide-react'
+import {
+    CalendarClockIcon,
+    ChevronRightIcon,
+    GlobeIcon,
+    HashIcon,
+    MessageSquareIcon,
+    ServerIcon,
+    WebhookIcon,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import type { ChatSession } from '@posthog/agent-chat'
+import type { ChatSession, SessionTriggerKind } from '@posthog/agent-chat'
 
 import { FilterChips } from './FilterChips'
 
 const FILTERS = ['all', 'live', 'completed', 'failed'] as const
 type Filter = (typeof FILTERS)[number]
+
+const SOURCE_FILTERS = ['all', 'chat', 'cron', 'slack', 'webhook', 'mcp'] as const
+type SourceFilter = (typeof SOURCE_FILTERS)[number]
+
+/** The trigger source of a session — prefers the coarse `triggerKind`, falling
+ *  back to the rich `trigger.kind` for rows mapped before `triggerKind` existed. */
+function triggerKindOf(session: ChatSession): SessionTriggerKind | undefined {
+    return session.triggerKind ?? session.trigger?.kind
+}
+
+const TRIGGER_META: Record<SessionTriggerKind, { label: string; Icon: typeof CalendarClockIcon }> = {
+    chat: { label: 'Chat', Icon: HashIcon },
+    cron: { label: 'Cron', Icon: CalendarClockIcon },
+    slack: { label: 'Slack', Icon: MessageSquareIcon },
+    webhook: { label: 'Webhook', Icon: WebhookIcon },
+    mcp: { label: 'MCP', Icon: ServerIcon },
+}
 
 export interface SessionsListProps {
     sessions: ChatSession[]
@@ -48,20 +73,19 @@ export function SessionsList({
     loadingMore,
 }: SessionsListProps): React.ReactElement {
     const [filter, setFilter] = useState<Filter>('all')
+    const [source, setSource] = useState<SourceFilter>('all')
 
     const filtered = useMemo(() => {
-        switch (filter) {
-            case 'live':
-                return sessions.filter((s) => LIVE_STATES.has(s.state))
-            case 'completed':
-                return sessions.filter((s) => s.state === 'completed')
-            case 'failed':
-                return sessions.filter((s) => FAILED_STATES.has(s.state))
-            case 'all':
-            default:
-                return sessions
-        }
-    }, [sessions, filter])
+        const byState =
+            filter === 'live'
+                ? sessions.filter((s) => LIVE_STATES.has(s.state))
+                : filter === 'completed'
+                  ? sessions.filter((s) => s.state === 'completed')
+                  : filter === 'failed'
+                    ? sessions.filter((s) => FAILED_STATES.has(s.state))
+                    : sessions
+        return source === 'all' ? byState : byState.filter((s) => triggerKindOf(s) === source)
+    }, [sessions, filter, source])
 
     if (sessions.length === 0 && !hasMore) {
         return (
@@ -80,14 +104,30 @@ export function SessionsList({
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex shrink-0 items-center justify-between pb-3">
+            <div className="flex shrink-0 flex-col gap-2 pb-3">
+                <div className="flex items-center justify-between">
+                    <FilterChips
+                        options={FILTERS}
+                        value={filter}
+                        onChange={setFilter}
+                        labels={{ all: 'All', live: 'Live', completed: 'Completed', failed: 'Failed' }}
+                    />
+                    <span className="text-[0.6875rem] text-muted-foreground">{loadedLabel}</span>
+                </div>
                 <FilterChips
-                    options={FILTERS}
-                    value={filter}
-                    onChange={setFilter}
-                    labels={{ all: 'All', live: 'Live', completed: 'Completed', failed: 'Failed' }}
+                    className="self-start"
+                    options={SOURCE_FILTERS}
+                    value={source}
+                    onChange={setSource}
+                    labels={{
+                        all: 'Any trigger',
+                        chat: 'Chat',
+                        cron: 'Cron',
+                        slack: 'Slack',
+                        webhook: 'Webhook',
+                        mcp: 'MCP',
+                    }}
                 />
-                <span className="text-[0.6875rem] text-muted-foreground">{loadedLabel}</span>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -161,6 +201,7 @@ function SessionRow({
             <div className="min-w-0 flex-1">
                 <p className={'line-clamp-1 text-sm ' + (selected ? 'font-medium' : '')}>{taskLine}</p>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] text-muted-foreground">
+                    <TriggerBadge kind={triggerKindOf(session)} />
                     <span>{tone.label}</span>
                     <span aria-hidden>·</span>
                     <span className="truncate">{session.principal.displayName}</span>
@@ -180,6 +221,25 @@ function SessionRow({
             </div>
             <ChevronRightIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
         </button>
+    )
+}
+
+/** Small "how this session started" badge — icon + label. Renders nothing for
+ *  rows with no recorded trigger source (pre-`triggerKind` history). */
+function TriggerBadge({ kind }: { kind?: SessionTriggerKind }): React.ReactElement | null {
+    if (!kind) {
+        return null
+    }
+    const meta = TRIGGER_META[kind] ?? { label: kind, Icon: GlobeIcon }
+    const { label, Icon } = meta
+    return (
+        <span
+            className="inline-flex items-center gap-1 rounded border border-border/60 bg-muted/40 px-1 py-px text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground"
+            title={`Triggered via ${label}`}
+        >
+            <Icon className="h-2.5 w-2.5" />
+            {label}
+        </span>
     )
 }
 

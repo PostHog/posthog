@@ -30,6 +30,8 @@ import type {
 
 import type {
     AgentApplicationPreviewTokenResponseApi,
+    AgentRevisionCronFireRequestApi,
+    AgentRevisionCronFireResponseApi,
     AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
     AgentApplicationSessionsRetrieveResponseApi,
@@ -350,16 +352,30 @@ function summaryToChatSession(
         started_at: s.created_at,
         ended_at: isTerminalState(s.state) ? s.updated_at : undefined,
         trigger: triggerMetadataToSessionTrigger(s.trigger_metadata),
+        triggerKind: triggerKindFromMetadata(s.trigger_metadata),
     }
 }
 
+const TRIGGER_KINDS: ReadonlySet<string> = new Set(['chat', 'slack', 'cron', 'webhook', 'mcp'])
+
 /**
- * Map the raw `trigger_metadata` JSONB the janitor stamps at enqueue time
- * onto the typed `SessionTrigger` the playback / detail panes consume.
+ * Coarse trigger source for list display + filtering — reads `kind` off the
+ * `trigger_metadata` the ingress/janitor stamps on every session. Distinct
+ * from `triggerMetadataToSessionTrigger`, which builds the rich typed shape
+ * only where it can be fully reconstructed (cron). Returns undefined for rows
+ * predating the `kind` stamp.
+ */
+function triggerKindFromMetadata(metadata: Record<string, unknown> | null | undefined): ChatSession['triggerKind'] {
+    const kind = metadata && typeof metadata === 'object' ? (metadata as { kind?: unknown }).kind : undefined
+    return typeof kind === 'string' && TRIGGER_KINDS.has(kind) ? (kind as ChatSession['triggerKind']) : undefined
+}
+
+/**
+ * Map the raw `trigger_metadata` JSONB the ingress/janitor stamps at enqueue
+ * time onto the typed `SessionTrigger` the playback / detail panes consume.
  * Unknown shapes return undefined; the consumer renders a neutral fallback.
- * Cron is the only kind we surface a typed shape for today — chat / webhook
- * triggers don't yet stamp metadata, so this only fires when the row was
- * fired by the scheduler or the manual-fire endpoint.
+ * Cron is the only kind we surface a *rich* typed shape for today; the coarse
+ * source label for every kind comes from `triggerKindFromMetadata`.
  */
 function triggerMetadataToSessionTrigger(metadata: Record<string, unknown> | null | undefined): ChatSession['trigger'] {
     if (!metadata || typeof metadata !== 'object') {
@@ -427,6 +443,7 @@ function detailToChatSession(
         started_at: raw.created_at,
         ended_at: isTerminalState(raw.state) ? raw.updated_at : undefined,
         trigger: triggerMetadataToSessionTrigger(raw.trigger_metadata),
+        triggerKind: triggerKindFromMetadata(raw.trigger_metadata),
     }
 }
 
@@ -822,6 +839,31 @@ export async function archiveRevision(teamId: number, slug: string, revisionId: 
             `/agent_applications/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}/archive/`
         ),
         {}
+    )
+}
+
+/**
+ * Fire one cron trigger out-of-band — the same execution path the scheduler
+ * walks, but on demand. Used by the "Run now" control on a cron trigger so an
+ * author can test a cron prompt without waiting for its schedule.
+ *
+ * `cronName` is the cron trigger's `name` in `spec.triggers[]`. `requestId`
+ * makes repeat clicks idempotent (the janitor dedupes on
+ * `cron-manual:<rev>:<name>:<request_id>`); omit to fire unconditionally.
+ */
+export async function fireCron(
+    teamId: number,
+    slug: string,
+    revisionId: string,
+    cronName: string,
+    requestId?: string
+): Promise<AgentRevisionCronFireResponseApi> {
+    return postJson<AgentRevisionCronFireRequestApi, AgentRevisionCronFireResponseApi>(
+        posthogUrl(
+            teamId,
+            `/agent_applications/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}/cron/fire/`
+        ),
+        { cron_name: cronName, ...(requestId ? { request_id: requestId } : {}) }
     )
 }
 

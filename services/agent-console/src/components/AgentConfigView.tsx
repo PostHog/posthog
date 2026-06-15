@@ -22,14 +22,22 @@ import { useMemo, useState } from 'react'
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
 
 import { useAgentIngressFallbackBaseUrl, useSessionTeamId } from '@/components/session-context'
-import { ApiError, archiveRevision, freezeRevision, getBundle, listEnvKeys, promoteRevision } from '@/lib/apiClient'
+import {
+    ApiError,
+    archiveRevision,
+    fireCron,
+    freezeRevision,
+    getBundle,
+    listEnvKeys,
+    promoteRevision,
+} from '@/lib/apiClient'
 import { getTriggerRequiredSecrets } from '@/lib/triggerSecrets'
 import { useResource } from '@/lib/useResource'
 
 import { AgentConfigExplorer } from './AgentConfigExplorer'
 import { ConfirmDialog } from './ConfirmDialog'
+import { dialogCopy, type LifecycleAction } from './revision-helpers'
 import { RevisionBar } from './RevisionBar'
-import { dialogCopy, type LifecycleAction } from './RevisionsBrowser'
 import { SecretAddDialog } from './SecretAddDialog'
 import { SecretEditDialog } from './SecretEditDialog'
 import { SlackSetupCard } from './SlackSetupCard'
@@ -50,6 +58,8 @@ export interface AgentConfigViewProps {
     /** Refetch agent + revisions after a lifecycle action or secret change. */
     onMutated: () => void
     onTryDraft?: (revisionId: string) => void
+    /** Navigate to a session — used to jump to the session a manual cron fire creates. */
+    onOpenSession?: (sessionId: string) => void
 }
 
 interface PendingAction {
@@ -105,6 +115,7 @@ export function AgentConfigView({
     onChangeEditingSecret,
     onMutated,
     onTryDraft,
+    onOpenSession,
 }: AgentConfigViewProps): React.ReactElement {
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
@@ -220,6 +231,13 @@ export function AgentConfigView({
                             <SlackSetupCard teamId={teamId} agentSlug={agent.slug} revisionId={selected.id} />
                         ) : undefined
                     }
+                    onFireCron={async (cronName) => {
+                        const res = await fireCron(teamId, agent.slug, selected.id, cronName)
+                        // Jump straight to the session the firing created so the
+                        // author can watch the run they just kicked off.
+                        onOpenSession?.(res.session_id)
+                        return res
+                    }}
                     selectedPath={selectedNode}
                     onSelectPath={onSelectNode}
                     agentSlug={agent.slug}

@@ -46,6 +46,7 @@ export type {
     SessionPrincipal,
     SessionState,
     SessionTrigger,
+    SessionTriggerKind,
     SessionUsage,
     ToastArgs,
     ToastResult,

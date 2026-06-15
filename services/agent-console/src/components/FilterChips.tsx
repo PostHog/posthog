@@ -43,7 +43,7 @@ export function FilterChips<T extends string>({
                         aria-pressed={isActive}
                         className={
                             (isActive
-                                ? 'bg-accent text-foreground'
+                                ? 'bg-primary text-primary-foreground shadow-sm'
                                 : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground') +
                             ' cursor-pointer px-2.5 py-1 text-xs font-medium transition-colors' +
                             (i > 0 ? ' border-l border-border' : '')

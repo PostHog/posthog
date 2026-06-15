@@ -145,7 +145,12 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         team_id: input.application.team_id,
         external_key: input.externalKey,
         idempotency_key: input.idempotencyKey ?? null,
-        trigger_metadata: input.triggerMetadata ?? null,
+        // Always stamp the trigger source as `kind` so every session is
+        // attributable to how it started (chat / webhook / slack / mcp) — the
+        // console reads + filters on this. Trigger-specific extras (slack
+        // channel, etc.) merge on top. Cron sessions are created by the
+        // janitor, which stamps `kind: 'cron'` itself.
+        trigger_metadata: { kind: input.trigger ?? 'chat', ...input.triggerMetadata },
         state: 'queued' as const,
         conversation: [input.seed],
         pending_inputs: [],

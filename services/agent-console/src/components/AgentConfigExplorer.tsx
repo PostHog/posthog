@@ -1,6 +1,6 @@
 /**
- * `<AgentConfigExplorer />` — EXPERIMENTAL alternative to the
- * `RevisionsBrowser` config view.
+ * `<AgentConfigExplorer />` — the configuration surface (it replaced the old
+ * `RevisionsBrowser` split view).
  *
  * The whole revision is one filesystem. There is no separate "bundle" —
  * the files the runner reads are folded into the config they belong to:
@@ -56,6 +56,7 @@ import type { BundleFile } from '@posthog/agent-chat/fixtures'
 import { getTriggerRequiredSecrets } from '@/lib/triggerSecrets'
 
 import { BundleFileBody } from './BundleTree'
+import { CronFireButton } from './CronFireButton'
 import { EditWithAIButton } from './EditWithAIButton'
 import { FileExplorer, type FileTreeNode } from './FileExplorer'
 
@@ -138,6 +139,9 @@ export interface AgentConfigExplorerProps {
      * Storybook / when there's no slack trigger.
      */
     slackSetup?: ReactNode
+    /** Fire a cron trigger by name out-of-band — wires the "Run now" control on
+     *  a cron trigger's detail. The host supplies the revision context. */
+    onFireCron?: (cronName: string) => Promise<{ session_id: string }>
     /** Controlled selection (a node path). Falls back to `cfg:model`. */
     selectedPath?: string | null
     onSelectPath?: (path: string) => void
@@ -164,6 +168,7 @@ export function AgentConfigExplorer({
     onEditSecret,
     onAddCustomSecret,
     slackSetup,
+    onFireCron,
     selectedPath,
     onSelectPath,
     agentSlug,
@@ -203,6 +208,7 @@ export function AgentConfigExplorer({
                 onEditSecret={onEditSecret}
                 onAddCustomSecret={onAddCustomSecret}
                 slackSetup={slackSetup}
+                onFireCron={onFireCron}
                 onSelectPath={select}
             />
         </FileExplorer>
@@ -474,6 +480,7 @@ function DetailPane({
     onEditSecret,
     onAddCustomSecret,
     slackSetup,
+    onFireCron,
     onSelectPath,
 }: {
     spec: Record<string, unknown>
@@ -486,6 +493,7 @@ function DetailPane({
     onEditSecret?: (key: string) => void
     onAddCustomSecret?: () => void
     slackSetup?: ReactNode
+    onFireCron?: (cronName: string) => Promise<{ session_id: string }>
     onSelectPath: (path: string) => void
 }): React.ReactElement {
     const rest = selected.startsWith(CFG) ? selected.slice(CFG.length) : selected
@@ -560,6 +568,7 @@ function DetailPane({
                     isMissing={isMissing}
                     onEditSecret={onEditSecret}
                     slackSetup={t?.type === 'slack' ? slackSetup : undefined}
+                    onFireCron={onFireCron}
                     agentSlug={agentSlug}
                     ingressBaseUrl={ingressBaseUrl}
                 />,
@@ -1391,6 +1400,7 @@ function TriggerBody({
     isMissing,
     onEditSecret,
     slackSetup,
+    onFireCron,
     agentSlug,
     ingressBaseUrl,
 }: {
@@ -1400,6 +1410,8 @@ function TriggerBody({
     onEditSecret?: (key: string) => void
     /** Slack app-manifest setup, rendered for a slack trigger. */
     slackSetup?: ReactNode
+    /** Fire-a-cron handler, rendered as "Run now" for a cron trigger. */
+    onFireCron?: (cronName: string) => Promise<{ session_id: string }>
     agentSlug?: string
     ingressBaseUrl?: string
 }): React.ReactElement {
@@ -1430,6 +1442,11 @@ function TriggerBody({
                         <code className="text-[0.75rem] text-foreground">{JSON.stringify(cfg[k])}</code>
                     </Row>
                 ))}
+                {trigger.type === 'cron' && onFireCron && typeof cfg.name === 'string' ? (
+                    <Row label="run">
+                        <CronFireButton cronName={cfg.name} onFire={onFireCron} />
+                    </Row>
+                ) : null}
                 {isDeclarative ? (
                     <Row label="auth">
                         {modes.length ? (

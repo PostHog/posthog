@@ -129,7 +129,17 @@ export interface ChatSession {
      * like a Slack thread; a cron trigger renders as an autonomous run.
      */
     trigger?: SessionTrigger
+    /**
+     * Coarse trigger source — always present where the session row recorded a
+     * trigger (`trigger_metadata.kind`). The rich `trigger` above carries
+     * render detail where it can be reconstructed; this is the universal
+     * discriminator the session list shows as a badge and filters on.
+     */
+    triggerKind?: SessionTriggerKind
 }
+
+/** The trigger types a session can originate from — the `kind` of `SessionTrigger`. */
+export type SessionTriggerKind = 'chat' | 'slack' | 'cron' | 'webhook' | 'mcp'
 
 export type SessionTrigger =
     | { kind: 'chat' }
