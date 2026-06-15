@@ -541,7 +541,7 @@ describe('maxThreadLogic', () => {
                 )
                 // waited_ms is real elapsed time, so it must be at least the cap (never under-reported).
                 const timeoutCall = captureSpy.mock.calls.find((c) => c[0] === 'max dashboard context wait timed out')
-                expect(timeoutCall?.[1].waited_ms).toBeGreaterThanOrEqual(MAX_DASHBOARD_CONTEXT_WAIT_MS)
+                expect(timeoutCall?.[1]?.waited_ms).toBeGreaterThanOrEqual(MAX_DASHBOARD_CONTEXT_WAIT_MS)
             } finally {
                 jest.useRealTimers()
             }
