@@ -135,7 +135,7 @@ export function ErrorTrackingIngestionPrompt({
                                 icon={
                                     isValidElement(image) ? (
                                         <span className="flex w-5 h-5 [&_svg]:w-full [&_svg]:h-full">{image}</span>
-                                    ) : image ? (
+                                    ) : typeof image === 'string' ? (
                                         <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
                                     ) : undefined
                                 }
