@@ -365,7 +365,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
         }
-        const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
+        const { tools, nameToId, provenanceByName } = await buildAgentTools(rev, toolDeps)
 
         await emit('session_started', {
             team_id: session.team_id,
@@ -509,7 +509,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 case 'message_end': {
                     // Every finalized message (steering/user, assistant, tool result)
                     // lands in the persisted transcript in emission order.
-                    session.conversation.push(event.message as ConversationMessage)
+                    const msg = event.message as ConversationMessage
+                    if (msg.role === 'toolResult') {
+                        // Label whether the result carries agent/author-controlled
+                        // content or potentially attacker-influenceable content.
+                        // Unknown names fail safe to `external`.
+                        msg.provenance = provenanceByName.get(msg.toolName) ?? 'external'
+                    }
+                    session.conversation.push(msg)
                     return
                 }
                 case 'tool_execution_start': {

@@ -7,6 +7,8 @@
 
 import { z } from 'zod'
 
+import { ToolResultProvenance } from './provenance'
+
 export const ModelIdSchema = z.string().min(1)
 
 /**
@@ -1009,6 +1011,13 @@ export interface ToolResultMessage {
     content: (TextContent | ImageContent)[]
     isError: boolean
     timestamp: number
+    /**
+     * Whether this result's content is agent/author-controlled (`internal`) or
+     * potentially attacker-influenceable (`external`). Stamped by the runner
+     * from the tool surface; absent on rows predating provenance stamping.
+     * See `ToolResultProvenance`.
+     */
+    provenance?: ToolResultProvenance
 }
 
 export interface TextContent {

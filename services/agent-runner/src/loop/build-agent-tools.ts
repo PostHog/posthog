@@ -36,9 +36,11 @@ import {
     HttpFetcher,
     IntegrationCredentials,
     MemoryStore,
+    nativeToolResultProvenance,
     TabularStore,
     Sandbox,
     ToolContext,
+    ToolResultProvenance,
 } from '@posthog/agent-shared'
 import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
 
@@ -160,11 +162,17 @@ export interface BuiltAgentTools {
      * sanitizes names on the wire and uses this map to translate the names a
      * strict provider echoes back to the original before the loop matches. */
     nameToId: Map<string, string>
+    /** Exposed tool name → provenance of its results. The driver stamps this
+     * onto each persisted `toolResult` message so a later detection/policy layer
+     * can tell agent/author-controlled output from attacker-influenceable
+     * output. Unknown names default to `external` (fail-safe) at the call site. */
+    provenanceByName: Map<string, ToolResultProvenance>
 }
 
 export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): Promise<BuiltAgentTools> {
     const tools: AgentTool<TSchema, ToolResultDetails>[] = []
     const seen = new Set<string>()
+    const provenanceByName = new Map<string, ToolResultProvenance>()
 
     // `@posthog/load-skill` is auto-included only when the agent has skills —
     // exposing it otherwise just adds a tool that errors on use.
@@ -182,6 +190,8 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
 
         if (CONTROL_FLOW_IDS.has(t.id)) {
             tools.push(makeControlFlowTool(t.id))
+            // Control-flow meta tools return only their own synthetic envelope.
+            provenanceByName.set(t.id, 'internal')
             continue
         }
         if (t.kind === 'native') {
@@ -191,6 +201,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                 continue
             }
             tools.push(makeNativeTool(t.id, deps))
+            provenanceByName.set(t.id, nativeToolResultProvenance(t.id))
             continue
         }
         if (t.kind === 'client') {
@@ -203,11 +214,16 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                 continue
             }
             tools.push(makeClientTool(t, deps))
+            // Result is whatever the connected client returns — outside the
+            // platform's control.
+            provenanceByName.set(t.id, 'external')
             continue
         }
         // custom — schema + description from the bundle, dispatched via sandbox.
         const { description, parameters } = await loadCustomSchema(rev, t.id, t.path, deps.bundle)
         tools.push(makeCustomTool(t.id, description, parameters, deps))
+        // Sandboxed author code can fetch arbitrary content.
+        provenanceByName.set(t.id, 'external')
     }
 
     // MCP-sourced tools — one per remote tool per opened client. `listTools()`
@@ -262,6 +278,8 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                 }
                 seen.add(exposedName)
                 tools.push(makeMcpTool(exposedName, client, remote))
+                // Third-party server output — always external.
+                provenanceByName.set(exposedName, 'external')
             }
         }
     }
@@ -269,7 +287,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
     // Tools are named with their original ids (the loop matches calls by name).
     // The map keys the provider-safe form back to the original so the driver's
     // streamFn can translate names a strict provider echoed back.
-    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)) }
+    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)), provenanceByName }
 }
 
 function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> {

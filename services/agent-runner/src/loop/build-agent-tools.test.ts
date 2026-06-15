@@ -183,6 +183,30 @@ describe('buildAgentTools', () => {
         expect(byId(built, '@posthog/query').name).toBe('@posthog/query')
     })
 
+    it('records result provenance per tool (native readers/mcp/custom external, first-party internal)', async () => {
+        const ref: McpRef = { id: 'linear', url: 'https://example.com/mcp', secrets: [] }
+        const rev = makeRev(
+            [
+                { kind: 'native', id: '@posthog/web-search' },
+                { kind: 'native', id: '@posthog/slack-post-message' },
+                { kind: 'custom', id: 'my-tool', path: 'tools/my-tool' },
+            ],
+            [],
+            [ref]
+        )
+        const mcp = makeFakeMcp('linear', ref, {
+            'create-issue': { description: 'd', handler: async () => ({ ok: true }) },
+        })
+        const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+        // External-content native reader, MCP, and sandboxed custom code.
+        expect(built.provenanceByName.get('@posthog/web-search')).toBe('external')
+        expect(built.provenanceByName.get('linear__create-issue')).toBe('external')
+        expect(built.provenanceByName.get('my-tool')).toBe('external')
+        // First-party output and control-flow meta tools.
+        expect(built.provenanceByName.get('@posthog/slack-post-message')).toBe('internal')
+        expect(built.provenanceByName.get('@posthog/meta-end-turn')).toBe('internal')
+    })
+
     it('meta-end-turn terminates with an end_turn control detail', async () => {
         const built = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
         const endTurn = await byId(built, '@posthog/meta-end-turn').execute('c1', {})

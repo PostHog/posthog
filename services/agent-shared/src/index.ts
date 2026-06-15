@@ -12,6 +12,7 @@
  */
 
 export * from './spec/spec'
+export * from './spec/provenance'
 export * from './spec/slack-manifest'
 export * from './spec/summarize-conversation'
 export * from './spec/tool'
