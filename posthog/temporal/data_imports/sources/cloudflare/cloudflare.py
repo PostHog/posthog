@@ -20,6 +20,8 @@ MAX_RETRY_ATTEMPTS = 5
 # Cap how long a single Retry-After can stall us, so a misbehaving header can't
 # pin the activity open for the full 5-minute window times every attempt.
 MAX_RETRY_AFTER_SECONDS = 120
+# Stateless backoff used when a retryable error carries no Retry-After hint.
+_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=60)
 
 
 class CloudflareRetryableError(Exception):
@@ -46,7 +48,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, CloudflareRetryableError) and exc.retry_after is not None:
         return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
-    return wait_exponential_jitter(initial=1, max=60)(retry_state)
+    return _FALLBACK_WAIT(retry_state)
 
 
 def _get_session(api_token: str) -> requests.Session:
