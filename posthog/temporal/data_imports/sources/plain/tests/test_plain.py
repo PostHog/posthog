@@ -231,10 +231,21 @@ class TestPlainRetryableError:
 
 class TestDatetimeHelpers:
     def test_datetime_to_plain_iso8601_uses_z_suffix(self):
-        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)) == "2024-01-15T10:30:00Z"
+        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)) == "2024-01-15T10:30:00.000Z"
 
     def test_datetime_to_plain_iso8601_assumes_utc_for_naive(self):
-        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0)) == "2024-01-15T10:30:00Z"
+        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0)) == "2024-01-15T10:30:00.000Z"
+
+    def test_datetime_to_plain_iso8601_truncates_microseconds_to_milliseconds(self):
+        # Plain's DatetimeFilter rejects 6-digit microseconds; only millisecond precision is accepted.
+        assert (
+            _datetime_to_plain_iso8601(datetime(2026, 6, 7, 18, 3, 36, 624000, tzinfo=UTC))
+            == "2026-06-07T18:03:36.624Z"
+        )
+        assert (
+            _datetime_to_plain_iso8601(datetime(2026, 6, 7, 18, 3, 36, 624789, tzinfo=UTC))
+            == "2026-06-07T18:03:36.624Z"
+        )
 
     def test_parse_plain_datetime_from_string(self):
         assert _parse_plain_datetime("2024-01-15T10:30:00Z") == datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
@@ -362,7 +373,8 @@ class TestFetchPaginatedEndpointIncrementalFilter:
         assert recorded, "expected customers query to be issued"
         _, variables = recorded[0]
         # Plain's DatetimeFilter uses `after` (>=), not `gte` — sending `gte` is rejected with a 400.
-        assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00Z"}}
+        # The timestamp is serialized with millisecond precision; microseconds are rejected by Plain.
+        assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00.000Z"}}
 
     def test_omits_filter_for_full_sync(self):
         recorded = []
@@ -407,7 +419,8 @@ class TestFetchTimelineEntriesStreaming:
         assert recorded, "expected threads query to be issued"
         _, variables = recorded[0]
         # Plain's DatetimeFilter uses `after` (>=), not `gte` — sending `gte` is rejected with a 400.
-        assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00Z"}}
+        # The timestamp is serialized with millisecond precision; microseconds are rejected by Plain.
+        assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00.000Z"}}
 
     def test_streams_thread_pages_without_buffering_all_ids(self):
         executed_queries: list[str] = []
