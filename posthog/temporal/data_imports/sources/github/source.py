@@ -106,6 +106,14 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
             "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
+            # Deterministic credential/config errors from _get_access_token and OAuthMixin. These
+            # can never succeed on retry — the integration is gone or the config is incomplete — so
+            # retrying just burns through tens of thousands of attempts.
+            "Missing personal access token": "Personal access token is not configured. Please update the source configuration.",
+            "Missing GitHub integration ID": "GitHub integration ID is not configured. Please reconnect your GitHub account.",
+            "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
+            "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
+            "GitHub access token not found": "GitHub OAuth access token is missing. Please reconnect your GitHub account.",
         }
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
