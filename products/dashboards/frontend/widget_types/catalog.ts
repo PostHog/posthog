@@ -242,7 +242,6 @@ export type DashboardWidgetCatalogGroup = {
 
 function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
-    const groupOrder: string[] = []
 
     for (const [widgetType, entry] of Object.entries(DASHBOARD_WIDGET_CATALOG)) {
         let group = groupsById.get(entry.groupId)
@@ -254,13 +253,12 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
                 widgets: [],
             }
             groupsById.set(entry.groupId, group)
-            groupOrder.push(entry.groupId)
         }
 
         group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
-    return groupOrder.map((groupId) => groupsById.get(groupId)!)
+    return [...groupsById.values()].sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
 }
 
 export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()

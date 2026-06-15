@@ -17,16 +17,16 @@ describe('activityEventsWidgetConfigValidation', () => {
     })
 
     describe('validateActivityEventsWidgetConfigInput', () => {
-        it('rejects limit above 25 with inline-friendly message', () => {
+        it('rejects limit above 50 with inline-friendly message', () => {
             const result = validateActivityEventsWidgetConfigInput({
-                limit: 30,
+                limit: 60,
                 filterTestAccounts: true,
                 baseConfig: activityEventsWidgetConfigSchema.parse({}),
             })
 
             expect(result.success).toBe(false)
             if (!result.success) {
-                expect(result.fieldErrors.limit).toBe('Too big: expected number to be <=25')
+                expect(result.fieldErrors.limit).toBe('Too big: expected number to be <=50')
             }
         })
 
@@ -64,17 +64,17 @@ describe('activityEventsWidgetConfigValidation', () => {
 
     describe('parseActivityEventsWidgetConfigApiError', () => {
         it('maps invalid config to zod field errors', () => {
-            const error = new ApiError('limit must be an integer between 1 and 25.', 400, undefined, {
-                config: 'limit must be an integer between 1 and 25.',
+            const error = new ApiError('limit must be an integer between 1 and 50.', 400, undefined, {
+                config: 'limit must be an integer between 1 and 50.',
             })
 
             expect(
                 parseActivityEventsWidgetConfigApiError(error, {
-                    limit: 30,
+                    limit: 60,
                     dateRange: { date_from: '-24h' },
                 })
             ).toEqual({
-                limit: 'Too big: expected number to be <=25',
+                limit: 'Too big: expected number to be <=50',
             })
         })
     })

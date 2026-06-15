@@ -9,8 +9,8 @@ import { z as zod } from 'zod'
 import { WidgetDateRange } from './widgetDateRange.zod'
 import { WidgetFilterEntry } from './widgetFilterEntry.zod'
 
-export const activityEventsListWidgetConfigLimitDefault = 10
-export const activityEventsListWidgetConfigLimitMax = 25
+export const activityEventsListWidgetConfigLimitDefault = 25
+export const activityEventsListWidgetConfigLimitMax = 50
 
 export const ActivityEventsListWidgetConfig = /* @__PURE__ */ zod.object({
     dateRange: zod.union([WidgetDateRange, zod.null()]).optional(),

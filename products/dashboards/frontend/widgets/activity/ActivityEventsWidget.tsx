@@ -29,9 +29,11 @@ export function ActivityEventsWidget({ result, loading }: DashboardWidgetCompone
     if (loading) {
         return (
             <WidgetCardContent>
-                {Array.from({ length: 5 }, (_, index) => (
-                    <ActivityEventsWidgetRowSkeleton key={index} />
-                ))}
+                <div className="flex flex-col divide-y divide-border">
+                    {Array.from({ length: 5 }, (_, index) => (
+                        <ActivityEventsWidgetRowSkeleton key={index} />
+                    ))}
+                </div>
             </WidgetCardContent>
         )
     }
@@ -56,7 +58,7 @@ export function ActivityEventsWidget({ result, loading }: DashboardWidgetCompone
     return (
         <>
             <WidgetCardContent>
-                <div className="flex flex-col">
+                <div className="flex flex-col divide-y divide-border">
                     {events.map((event) => (
                         <ActivityEventsWidgetRow key={event.uuid} event={event} />
                     ))}

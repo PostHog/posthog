@@ -61,7 +61,7 @@ describe('EditActivityEventsWidgetModal', () => {
         )
     })
 
-    it('shows inline error for limit above 25 instead of saving', async () => {
+    it('shows inline error for limit above 50 instead of saving', async () => {
         const onSave = jest.fn()
 
         render(
@@ -75,9 +75,9 @@ describe('EditActivityEventsWidgetModal', () => {
 
         const limitInput = screen.getByRole('spinbutton')
         await userEvent.clear(limitInput)
-        await userEvent.type(limitInput, '30')
+        await userEvent.type(limitInput, '60')
 
-        expect(screen.getByText('Too big: expected number to be <=25')).toBeInTheDocument()
+        expect(screen.getByText('Too big: expected number to be <=50')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
         expect(onSave).not.toHaveBeenCalled()
     })

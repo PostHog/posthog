@@ -210,8 +210,8 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 10
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
@@ -758,8 +758,8 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
  */
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax = 50
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax = 400
 

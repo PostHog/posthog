@@ -10,7 +10,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
+from products.dashboards.backend.constants import ACTIVITY_EVENTS_MAX_LIMIT
 from products.dashboards.backend.widget_specs.configs import ACTIVITY_EVENTS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
@@ -29,9 +29,10 @@ ACTIVITY_EVENTS_WIDGET_SELECT = [
     "event",
     "person_display_name -- Person",
     "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+    "properties.$lib -- Library",
     "timestamp",
 ]
-ACTIVITY_EVENTS_WIDGET_RESULT_KEYS = ["uuid", "event", "person", "url", "timestamp"]
+ACTIVITY_EVENTS_WIDGET_RESULT_KEYS = ["uuid", "event", "person", "url", "lib", "timestamp"]
 
 
 def _build_activity_events_query(
@@ -81,7 +82,7 @@ def _count_matching_activity_events(
     config: ValidatedActivityEventsListWidgetConfig,
     user: User | None,
     *,
-    cap: int = MAX_WIDGET_RESULT_LIMIT,
+    cap: int = ACTIVITY_EVENTS_MAX_LIMIT,
 ) -> tuple[int, bool]:
     data = _run_activity_events_query(team, config, user, limit=cap)
     raw_results_value = data.get("results")

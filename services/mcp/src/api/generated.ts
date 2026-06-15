@@ -1700,7 +1700,7 @@ export namespace Schemas {
       /**
          * Maximum number of events to return.
          * @minimum 1
-         * @maximum 25
+         * @maximum 50
          */
       limit?: number;
     }

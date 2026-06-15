@@ -22,6 +22,8 @@ from posthog.slo.types import SloOperation, SloOutcome
 
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import (
+    ACTIVITY_EVENTS_DEFAULT_LIMIT,
+    ACTIVITY_EVENTS_MAX_LIMIT,
     DEFAULT_WIDGET_LIST_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
@@ -86,9 +88,17 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_activity_events_list_config_defaults(self) -> None:
         validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {})
-        assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
+        assert validated["limit"] == ACTIVITY_EVENTS_DEFAULT_LIMIT
         assert "orderBy" not in validated
         assert "filterTestAccounts" not in validated
+
+    def test_validate_activity_events_list_config_accepts_limit_up_to_max(self) -> None:
+        validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {"limit": ACTIVITY_EVENTS_MAX_LIMIT})
+        assert validated["limit"] == ACTIVITY_EVENTS_MAX_LIMIT
+
+    def test_validate_activity_events_list_config_rejects_limit_above_max(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {"limit": ACTIVITY_EVENTS_MAX_LIMIT + 1})
 
     @parameterized.expand(
         [
@@ -292,6 +302,7 @@ class TestDashboardRunWidgets(APIBaseTest):
             "$pageview",
             {"display_name": "Alex Chen", "id": "1", "distinct_id": "user-1"},
             "https://app.example.test/dashboard",
+            "web",
             "2026-05-26T08:00:00Z",
         ]
         mock_runner_cls.return_value.calculate.return_value = MagicMock(
@@ -318,6 +329,7 @@ class TestDashboardRunWidgets(APIBaseTest):
                 "event": "$pageview",
                 "person": {"display_name": "Alex Chen", "id": "1", "distinct_id": "user-1"},
                 "url": "https://app.example.test/dashboard",
+                "lib": "web",
                 "timestamp": "2026-05-26T08:00:00Z",
             },
         )
@@ -365,7 +377,7 @@ class TestDashboardRunWidgets(APIBaseTest):
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
     def test_activity_events_widget_returns_total_count_when_page_has_more(self, mock_runner_cls: MagicMock) -> None:
         def make_row(index: int) -> list[Any]:
-            return [f"uuid-{index}", "$pageview", None, None, "2026-05-26T08:00:00Z"]
+            return [f"uuid-{index}", "$pageview", None, None, None, "2026-05-26T08:00:00Z"]
 
         def calculate_side_effect() -> MagicMock:
             query = mock_runner_cls.call_args.kwargs["query"]
@@ -385,7 +397,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(len(result["results"]), 1)
         self.assertEqual(mock_runner_cls.call_count, 2)
         count_query = mock_runner_cls.call_args_list[1].kwargs["query"]
-        self.assertEqual(count_query.limit, MAX_WIDGET_RESULT_LIMIT)
+        self.assertEqual(count_query.limit, ACTIVITY_EVENTS_MAX_LIMIT)
 
     @patch(
         "posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.allow_request", return_value=True

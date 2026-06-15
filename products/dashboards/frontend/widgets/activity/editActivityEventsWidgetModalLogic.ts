@@ -52,7 +52,7 @@ export const editActivityEventsWidgetModalLogic = kea<editActivityEventsWidgetMo
 
     reducers({
         limit: [
-            10,
+            25,
             {
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
             },

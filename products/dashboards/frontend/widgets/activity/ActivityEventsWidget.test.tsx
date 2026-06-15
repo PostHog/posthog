@@ -25,6 +25,7 @@ describe('ActivityEventsWidget', () => {
         event: 'file uploaded',
         person: { display_name: 'Alex Chen', id: '1', distinct_id: 'user-1' },
         url: 'https://app.example.test/files',
+        lib: 'web',
         timestamp: '2026-05-26T08:00:00.000Z',
     }
 
@@ -47,6 +48,7 @@ describe('ActivityEventsWidget', () => {
         expect(screen.getByText('file uploaded')).toBeInTheDocument()
         expect(screen.getByText('Alex Chen')).toBeInTheDocument()
         expect(screen.getByText('https://app.example.test/files')).toBeInTheDocument()
+        expect(screen.getByText('web')).toBeInTheDocument()
         expect(screen.getByText('1 of 1 event')).toBeInTheDocument()
     })
 

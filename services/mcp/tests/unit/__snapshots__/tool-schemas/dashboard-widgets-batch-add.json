@@ -56,9 +56,9 @@
                                         ]
                                     },
                                     "limit": {
-                                        "default": 10,
+                                        "default": 25,
                                         "description": "Maximum number of events to return.",
-                                        "maximum": 25,
+                                        "maximum": 50,
                                         "minimum": 1,
                                         "type": "number"
                                     },

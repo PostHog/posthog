@@ -77,13 +77,13 @@ function EditActivityEventsWidgetModalContents(): JSX.Element {
                             </p>
                             <LemonField.Pure
                                 label="Number of events"
-                                help="Show up to 25 events on the tile."
+                                help="Show up to 50 events on the tile."
                                 error={activeFieldErrors.limit}
                             >
                                 <LemonInput
                                     type="number"
                                     min={1}
-                                    max={25}
+                                    max={50}
                                     fullWidth
                                     value={limit}
                                     onChange={(value) => {
