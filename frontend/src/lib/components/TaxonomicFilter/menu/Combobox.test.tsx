@@ -295,6 +295,9 @@ describe('MenuFilterCombobox', () => {
             // The selection resolves onto the real row so the checkmark + preview
             // track it: the real row's DOM id must exist to be targeted.
             expect(document.getElementById('menu-filter-row-events-$pageview')).toBeInTheDocument()
+            // …and the synthetic placeholder row — the one that carried the
+            // stray second checkmark in the bug — must not be rendered at all.
+            expect(document.getElementById('menu-filter-row-events-Pageview')).not.toBeInTheDocument()
             // The preview pane picks up the real definition ("Sent as $pageview"),
             // not the synthetic placeholder (which has no core definition and so
             // renders neither a raw value nor a description).

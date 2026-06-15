@@ -95,21 +95,25 @@ const NO_ENTRIES: MenuFilterEntry[] = []
  *  legacy picker so the search telemetry is comparable across variants. */
 export const SEARCH_QUERY_DEBOUNCE_MS = 500
 
+/** An entry's canonical value — what the dedup key, the DOM id, and the
+ *  selection match all key off. They MUST agree (a row keyed one way but
+ *  matched another is the bug class this file guards against), so they share
+ *  this single derivation rather than repeating it. */
+function entryValue(entry: MenuFilterEntry): string {
+    return String(entry.group.getValue?.(entry.item) ?? entry.name)
+}
+
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
-    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
-        entry.recentPropertyFilter ? '::full' : ''
-    }`
+    return `${entry.group.type}::${entryValue(entry)}${entry.recentPropertyFilter ? '::full' : ''}`
 }
 
 /** Stable DOM id for a menu row — used for scroll-into-view, checkmark
  *  lookups, and `aria-activedescendant`. The format must be identical
  *  everywhere it is constructed. */
 function rowDomId(entry: MenuFilterEntry): string {
-    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
-        entry.recentPropertyFilter ? '-full' : ''
-    }`
+    return `menu-filter-row-${entry.group.type}-${entryValue(entry)}${entry.recentPropertyFilter ? '-full' : ''}`
 }
 
 /** True when a real list entry refers to the same definition as the committed
@@ -123,8 +127,8 @@ function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry
     if (entry.group.type !== selected.group.type) {
         return false
     }
-    const target = String(selected.group.getValue?.(selected.item) ?? selected.name)
-    if (String(entry.group.getValue?.(entry.item) ?? entry.name) === target) {
+    const target = entryValue(selected)
+    if (entryValue(entry) === target) {
         return true
     }
     if (entry.name === target) {
