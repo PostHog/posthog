@@ -5,6 +5,7 @@ recognisable.
 """
 
 import datetime as dt
+from dataclasses import asdict
 
 from django.utils import timezone
 
@@ -21,7 +22,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 
-from products.metrics.backend.facade.api import list_metric_names, query_metric, team_has_metrics
+from products.metrics.backend.facade.api import list_metric_names, run_metric_query, team_has_metrics
+from products.metrics.backend.facade.contracts import MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.enums import MetricAggregation
 
 __all__ = ["MetricsViewSet"]
 
@@ -54,8 +57,29 @@ class _MetricQueryPointSerializer(serializers.Serializer):
     value = serializers.FloatField(help_text="Aggregated value for the bucket.")
 
 
+class _MetricSeriesSerializer(serializers.Serializer):
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Label values identifying this series. Empty for an ungrouped query.",
+    )
+    points = _MetricQueryPointSerializer(many=True, help_text="Time-bucketed points, ordered by time ascending.")
+    metric_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Metric the series was computed from. Null for formula results.",
+    )
+    clause = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Name of the query clause that produced this series.",
+    )
+
+
 class _MetricQueryResponseSerializer(serializers.Serializer):
-    results = _MetricQueryPointSerializer(many=True, help_text="Time-bucketed points, ordered by time ascending.")
+    results = _MetricSeriesSerializer(
+        many=True,
+        help_text="One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels.",
+    )
 
 
 class _MetricNameSerializer(serializers.Serializer):
@@ -135,15 +159,29 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body.is_valid(raise_exception=True)
         query_data = body.validated_data["query"]
 
+        # The wire aggregation "p95" is contract QUANTILE(0.95); the richer
+        # request fields (filters, group_by, formula) arrive in later PRs.
+        aggregation_raw: str = query_data["aggregation"]
+        if aggregation_raw == "p95":
+            aggregation, quantile = MetricAggregation.QUANTILE, 0.95
+        else:
+            aggregation, quantile = MetricAggregation(aggregation_raw), None
+
         date_to: dt.datetime = query_data.get("dateTo") or timezone.now()
         try:
-            results = query_metric(
-                team=self.team,
-                metric_name=query_data["metricName"],
-                aggregation=query_data["aggregation"],
+            metric_request = MetricQueryRequest(
+                clauses=(
+                    MetricQueryClause(
+                        name="a",
+                        metric_name=query_data["metricName"],
+                        aggregation=aggregation,
+                        quantile=quantile,
+                    ),
+                ),
                 date_from=query_data["dateFrom"],
                 date_to=date_to,
             )
+            series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
             raise ParseError(str(exc))
 
@@ -152,10 +190,11 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "metrics query ran",
             {
                 "aggregation": query_data["aggregation"],
-                "result_count": len(results),
+                "series_count": len(series),
+                "result_count": sum(len(s.points) for s in series),
             },
             team=self.team,
             request=request,
         )
 
-        return Response({"results": results}, status=status.HTTP_200_OK)
+        return Response({"results": [asdict(s) for s in series]}, status=status.HTTP_200_OK)
