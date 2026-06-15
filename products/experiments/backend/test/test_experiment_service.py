@@ -5072,3 +5072,86 @@ class TestValidateExperimentParametersExcludedVariants:
     def test_excluded_variants_without_feature_flag_variants_raises(self):
         with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
             ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
+
+
+class TestExperimentListOrdering(APIBaseTest):
+    """Covers the order allowlist in `filter_experiments_queryset`.
+
+    Regression coverage for the experiments list breaking when sorted by the
+    `Result` (conclusion) or `Created by` columns.
+    """
+
+    def _service(self) -> ExperimentService:
+        return ExperimentService(team=self.team, user=self.user)
+
+    def _create_experiment(
+        self,
+        name: str,
+        *,
+        conclusion: str | None = None,
+        created_by: Any | None = None,
+    ) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=f"flag-{name}",
+            name=f"Flag for {name}",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name=name,
+            feature_flag=flag,
+            conclusion=conclusion,
+            created_by=created_by or self.user,
+        )
+
+    def _ordered_names(self, order: str) -> list[str]:
+        queryset = self._service().filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+        return [experiment.name for experiment in queryset]
+
+    def test_order_by_conclusion_does_not_raise_and_ranks_by_result(self):
+        self._create_experiment("won-exp", conclusion="won")
+        self._create_experiment("lost-exp", conclusion="lost")
+        self._create_experiment("inconclusive-exp", conclusion="inconclusive")
+        self._create_experiment("stopped-exp", conclusion="stopped_early")
+        self._create_experiment("invalid-exp", conclusion="invalid")
+        self._create_experiment("none-exp", conclusion=None)
+
+        # Ascending matches the frontend column ranking, with no-conclusion last.
+        assert self._ordered_names("conclusion") == [
+            "won-exp",
+            "lost-exp",
+            "inconclusive-exp",
+            "stopped-exp",
+            "invalid-exp",
+            "none-exp",
+        ]
+
+        # Descending reverses it.
+        assert self._ordered_names("-conclusion") == [
+            "none-exp",
+            "invalid-exp",
+            "stopped-exp",
+            "inconclusive-exp",
+            "lost-exp",
+            "won-exp",
+        ]
+
+    def test_order_by_created_by_does_not_raise(self):
+        alice = self._create_user("alice@posthog.com", first_name="Alice")
+        bob = self._create_user("bob@posthog.com", first_name="Bob")
+        self._create_experiment("bob-exp", created_by=bob)
+        self._create_experiment("alice-exp", created_by=alice)
+
+        # Evaluates the queryset (forces SQL) so a bad annotation would surface here.
+        assert self._ordered_names("created_by") == ["alice-exp", "bob-exp"]
+        assert self._ordered_names("-created_by") == ["bob-exp", "alice-exp"]
+
+    def test_invalid_order_field_raises_validation_error(self):
+        with pytest.raises(ValidationError, match="Invalid order field: 'bogus'"):
+            self._ordered_names("bogus")

@@ -433,6 +433,8 @@ class ExperimentService:
         "-duration",
         "status",
         "-status",
+        "conclusion",
+        "-conclusion",
     }
 
     ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
@@ -2479,6 +2481,22 @@ class ExperimentService:
                         F("created_by__email"),
                     )
                 ).order_by(f"{prefix}created_by_display")
+            elif order_value in ["conclusion", "-conclusion"]:
+                # `conclusion` is a free-form-ish enum, so alphabetical ordering is
+                # meaningless. Match the frontend column's ranking (won, lost,
+                # inconclusive, stopped_early, invalid) and bucket experiments without
+                # a conclusion last.
+                prefix = "-" if order_value.startswith("-") else ""
+                queryset = queryset.annotate(
+                    conclusion_sort_key=Case(
+                        When(conclusion="won", then=Value(1)),
+                        When(conclusion="lost", then=Value(2)),
+                        When(conclusion="inconclusive", then=Value(3)),
+                        When(conclusion="stopped_early", then=Value(4)),
+                        When(conclusion="invalid", then=Value(5)),
+                        default=Value(6),
+                    )
+                ).order_by(f"{prefix}conclusion_sort_key")
             else:
                 queryset = queryset.order_by(order_value)
         else:

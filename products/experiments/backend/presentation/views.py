@@ -200,7 +200,7 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 type=str,
                 description=(
                     "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, "
-                    "created_at, updated_at, start_date, end_date, duration, and status."
+                    "created_at, created_by, updated_at, start_date, end_date, duration, status, and conclusion."
                 ),
                 required=False,
             ),
