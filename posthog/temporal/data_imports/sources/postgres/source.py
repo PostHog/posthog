@@ -185,6 +185,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "QueryTimeoutException": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
+            # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
+            # surfaces as "[Errno -5] No address associated with hostname". Both mean the customer's
+            # database host doesn't resolve to an address — a config/DNS issue on their side that
+            # retrying won't fix.
+            "No address associated with hostname": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
             "Connection refused": None,
