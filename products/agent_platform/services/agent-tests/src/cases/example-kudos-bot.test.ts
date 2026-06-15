@@ -349,7 +349,11 @@ describe('example: kudos-bot bundle', () => {
         // bot from a dumb form — it picks up the missing recipient.
         const afterAsk = await c.queue.get(sessionId)
         expect(afterAsk!.state).toBe('completed')
-        const question = slackCalls.find((s) => s.method === 'chat.postMessage')
+        // Skip the runner's transient "Working on it…" status post — we want
+        // the agent's actual clarifying reply.
+        const question = slackCalls.find(
+            (s) => s.method === 'chat.postMessage' && !String(s.body.text ?? '').includes('Working on it')
+        )
         expect(question).not.toBeUndefined()
         expect(question!.body).toMatchObject({ channel: 'C-kudos', thread_ts: '2000.000100' })
         expect(String(question!.body.text)).toContain('who is this kudos for')
