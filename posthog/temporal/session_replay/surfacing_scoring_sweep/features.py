@@ -1,58 +1,32 @@
 """Runtime range contract + parity validation for the session surfacing model.
 
-The XGBoost booster is the single source of truth for *which* features the
-model takes — the booster file (`.ubj`) embeds `feature_names` set during
-training. The serving worker reads it via `scorer.get_feature_names()`.
-A retrained booster with a different feature set updates serving without
-a code change here.
+The XGBoost booster is the single source of truth for *which* features the model
+takes (its `.ubj` embeds `feature_names`); the worker reads them via
+`scorer.get_feature_names()`, so a retrained booster updates serving with no code
+change here. What stays in this module:
 
-What still lives in this module:
-
-    * `FEATURE_RANGES`: per-feature dtype-kind + value-range bounds.
-      xgboost does **not** carry runtime value bounds (its `feature_types`
-      is a categorical/numeric hint, not a min/max), so this is the runtime
-      guard against "model trained on [0, 1] but the SQL started returning
-      9999". Drift between FEATURE_RANGES and the booster is caught at
-      warmup — every feature_name in the booster must have a FEATURE_RANGES
-      entry, otherwise `MissingFeatureRangeError` is raised at boot.
-    * `validate_features(df, feature_names=...)`: hard runtime gate just
-      before predict — column set/order + dtype checks. These can only be
-      wiring bugs (the SQL drifted from the booster), never bad data, so a
-      violation fails the whole chunk. Pure pandas, no xgboost dependency.
-      Callers pass the booster's `feature_names` so the validator stays
-      decoupled from the booster lifecycle and is trivial to unit-test.
+    * `FEATURE_RANGES`: per-feature dtype-kind + value bounds. xgboost carries no
+      runtime value bounds, so this guards against "trained on [0, 1] but the SQL
+      started returning 9999". Every booster feature must have an entry, else
+      warmup raises `MissingFeatureRangeError`.
+    * `validate_features(df, feature_names=...)`: hard gate before predict (column
+      set/order + dtype). A violation can only be a wiring bug (SQL drifted from
+      the booster), never bad data, so it fails the whole chunk. Pure pandas.
     * `out_of_contract_row_mask(df, feature_names=...)`: per-row flag for
-      non-finite or out-of-range values. Replay payloads are
-      client-controlled, so a single crafted session must not be able to
-      fail validation for its whole hash bucket on every tick — callers
-      drop the flagged rows and score the rest.
+      non-finite/out-of-range values. Replay payloads are client-controlled, so one
+      crafted session must not fail its whole hash bucket; callers drop flagged rows
+      and score the rest.
 
-Updating features:
+Updating features: retrain the booster, sync `FEATURE_RANGES` and
+`sql.fetch_features_sql`'s alias list, bump `MODEL_FEATURE_SCHEMA_VERSION`. Drift
+fails loudly: a booster feature with no range entry raises at warmup; a SQL column
+mismatch raises `FeatureValidationError` on the first chunk.
 
-    1. Retrain the booster with the new feature set (training = source of truth).
-    2. Add or remove entries in `FEATURE_RANGES` to match the new schema.
-    3. Update `sql.fetch_features_sql`'s SELECT alias list to match.
-    4. Bump `MODEL_FEATURE_SCHEMA_VERSION`.
-
-Drift modes that *will* fail loudly:
-
-    * Booster declares a feature with no `FEATURE_RANGES` entry → warmup
-      raises `MissingFeatureRangeError`.
-    * SQL returns a column the booster doesn't expect, or omits a column the
-      booster expects → first chunk's `validate_features` raises
-      `FeatureValidationError`.
-
-Notes on dtypes:
-
-    * Rates / ratios / shares / stats are CH `Float64` divided by counts,
-      returned as Python `float`. ClickHouse's `nullIf` produces NULL on zero
-      denominators; pandas surfaces this as `NaN`, which XGBoost handles
-      natively. Validation accepts NaN (but not +/-inf — that's a feature
-      engineering bug).
-    * Pass-through counts (`viewport_resize_count`, `selection_copy_count`,
-      `unique_form_fields`) come back as Python `int`. Pandas will infer
-      either int64 or float64 depending on whether the chunk has any NULLs.
-      Validation accepts both kinds for these columns.
+Dtype notes: rates/ratios/shares are CH `Float64`; zero denominators become NaN
+(XGBoost handles it; validation accepts NaN but not +/-inf). Pass-through counts
+(`viewport_resize_count`, `selection_copy_count`, `unique_form_fields`) come back
+as int, which pandas infers as int64 or float64 depending on NULLs; validation
+accepts both.
 """
 
 from __future__ import annotations

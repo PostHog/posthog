@@ -1,70 +1,36 @@
 """ClickHouse statements for the session surfacing scoring pipeline.
 
-The serving SELECT mirrors the training query:
+The serving SELECT mirrors the training query in four CTEs:
 
-    1. `eligible_sessions` — hash-partitioned slice of unscored sessions from
-       `session_replay_events` (the table the score is written back to). It
-       carries `team_id`, `session_id`, `distinct_id`, and `min_first_timestamp`
-       through to the producer:
+    1. `eligible_sessions`: hash-partitioned slice of unscored sessions
+       (`HAVING max(surfacing_score) IS NULL`) from `session_replay_events`.
+       It carries `distinct_id` and `min_first_timestamp` to the producer
+       because the partial-row Kafka writeback must reuse the real distinct_id
+       (the `sipHash64(distinct_id)` shard key) and session-start timestamp
+       (+1µs), or the AggregatingMergeTree can't merge the score onto the
+       existing session row.
+    2. `aggregated_sufficient_statistics`: raw aggregates from
+       `session_replay_features`, filtered via `(team_id, session_id) GLOBAL IN`
+       (each shard scans only its local rows) with the same lookback as training.
+    3. `replay_features`: derives the trained rates/ratios; carries `team_id`
+       so the final join shares a primary-key prefix and can't cross tenants.
+    4. Final SELECT: inner-joins on `(team_id, session_id)`; sessions without
+       features stay NULL and re-appear next tick until they age out of lookback.
 
-         * `team_id` + `session_id` join to `session_replay_features` and
-           identify the row to score.
-         * `distinct_id` is the Distributed sharding key
-           (`sipHash64(distinct_id)`) on `writable_session_replay_events`. The
-           partial-row Kafka writeback MUST carry the real distinct_id so the
-           merged row lands on the same shard as the rest of the session;
-           otherwise the AggregatingMergeTree can never combine them.
-         * `min_first_timestamp` is the session-start timestamp the producer
-           uses (+1µs) for the partial row, so min/max/argMin aggregations on
-           the MV side still prefer the real session rows.
+CTE evaluation note: ClickHouse inlines `WITH ... AS` as a subquery, so
+`eligible_sessions` is evaluated twice (GLOBAL IN, then final FROM). The
+`ORDER BY session_id` before the LIMIT keeps the two evaluations consistent;
+without it the inner join silently drops the mismatch.
 
-       `HAVING max(surfacing_score) IS NULL` is the unscored filter.
-       `ORDER BY session_id LIMIT chunk_size` makes the chunk deterministic
-       across the two CTE evaluations (see note below).
-
-    2. `aggregated_sufficient_statistics` — pulls raw aggregates from
-       `session_replay_features` for those sessions, mirroring the
-       training query (`feature_query.sql`). We filter via
-       `(team_id, session_id) GLOBAL IN ...` plus the same
-       `min_first_timestamp` lookback on `f` that training applies, so
-       stale feature rows outside the window never enter the aggregates.
-       `GLOBAL IN` ships the eligible-session set as a temp table to every
-       shard so each shard only scans its locally-resident replay rows.
-
-    3. `replay_features` — derives the rates/ratios/stats the model was
-       trained on. Same expressions as the training query. Carries
-       `team_id` through so the final join is on the same primary-key
-       prefix and can't accidentally cross tenants.
-
-    4. Final SELECT — joins `replay_features` back to `eligible_sessions`
-       on `(team_id, session_id)` (inner join: sessions without replay
-       features are dropped and stay NULL in session_replay_events — they
-       re-appear on the next tick within the lookback window, then
-       naturally fall out once they age past it).
-
-CTE evaluation note: ClickHouse inlines `WITH ... AS` as a subquery — it
-does not materialize the CTE once and reuse the result. `eligible_sessions`
-is therefore evaluated twice (once for the GLOBAL IN subquery, once for
-the final FROM). The `ORDER BY session_id` before the LIMIT is what
-keeps the two evaluations consistent; without it, two un-ordered LIMITs
-of the same query are not guaranteed to return the same rows, and any
-mismatch would be silently dropped by the inner join.
-
-Score writeback flows through the existing replay-ingestion Kafka topic
-(`KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS`) — same pattern as the AI-summary
-writeback in `posthog.temporal.session_replay.session_summary.activities.
-video_based.a7d_tag_and_highlight_session`. The activity emits one
-JSONEachRow message per scored session with identity values for every
-non-score column; `session_replay_events_mv` consumes via `Kafka` engine
-and performs a partial-column insert into `writable_session_replay_events`.
-The AggregatingMergeTree then merges `max(surfacing_score)` onto
-the existing session row without disturbing any other aggregate.
+Score writeback reuses the replay-ingestion Kafka topic (one JSONEachRow
+message per session), the same pattern as the AI-summary writeback: the MV
+does a partial-column insert and the AggregatingMergeTree merges
+`max(surfacing_score)` onto the existing row.
 
 Feature alignment contract: the final SELECT alias list must match the
 booster's `feature_names` exactly (set + order). `feature_columns_in_select`
-extracts the alias list so `test_sql_alignment.py` asserts parity against
-`FEATURE_RANGES` at CI time; worker boot re-asserts against the S3 booster.
-Drift = silently mis-scored sessions, so we catch it before runtime.
+extracts it so `test_sql_alignment.py` asserts parity at CI and worker boot
+re-asserts against the S3 booster. Drift silently mis-scores sessions.
 """
 
 import re
@@ -360,11 +326,10 @@ INNER JOIN replay_features rf ON rf.team_id = e.team_id AND rf.session_id = e.se
 def count_unscored_sql(replay_events_table: str = SESSION_REPLAY_EVENTS_TABLE) -> str:
     """Return a cheap COUNT estimate of unscored sessions in one hash bucket.
 
-    Bound parameter: %(lookback_days)s, %(of_chunks)s.
+    Bound parameters: %(lookback_days)s, %(of_chunks)s.
 
-    Sampling one bucket and extrapolating (multiply by `of_chunks` in the
-    caller) is far cheaper than scanning all unscored sessions to decide
-    whether to dispatch the tick.
+    Sampling one bucket and extrapolating (× of_chunks in the caller) is a
+    cheap backlog estimate, far cheaper than scanning every unscored session.
     """
     return f"""
 SELECT count()
@@ -385,32 +350,22 @@ FROM (
 # Feature-alignment helper                                                     #
 # --------------------------------------------------------------------------- #
 
-# Matches a `<table_alias>.<column_name>` expression on its own line in the
-# final SELECT (one column per line, optional trailing comma). The alias
-# group `(\w+)` comes back as `e` for ID columns or `rf` for features —
-# the caller filters by alias.
+# Matches an `<alias>.<column>` line in the final SELECT (optional trailing
+# comma). The alias is `e` for ID columns or `rf` for features; the caller
+# filters by alias.
 _SELECT_ALIAS_RE = re.compile(r"^\s*(\w+)\.(\w+)\s*,?\s*$", re.MULTILINE)
 
 
 def feature_columns_in_select(sql: str, *, feature_table_alias: str = "rf") -> tuple[str, ...]:
     """Return the ordered tuple of feature column aliases from the final SELECT.
 
-    Pure-string parser used by the SQL/booster parity test in
-    `test_sql_alignment.py` — drift between this list and the booster's
-    `feature_names` would silently mis-score sessions (validate_features
-    would catch it at runtime, but the test catches it at CI before any
-    deploy).
-
-    Walks `fetch_features_sql()`'s output, extracts every line of the form
-    `<feature_table_alias>.<name>` from after the last CTE close-paren, and
-    returns them in source order. ID columns (alias `e.`) are ignored by
-    matching only `feature_table_alias`. Returns the empty tuple if the
-    final SELECT is malformed — the caller should treat that as a hard fail.
+    Backs the SQL/booster parity test in `test_sql_alignment.py`: drift from
+    the booster's `feature_names` silently mis-scores sessions, so the test
+    catches it at CI. Returns the empty tuple on a malformed final SELECT
+    (the caller treats that as a hard fail).
     """
-    # Locate the body after the CTE block: everything from the final
-    # `)\nSELECT` to the next `FROM`. Anchoring on the FROM keeps the parser
-    # from accidentally picking up `<alias>.<col>` references that live in
-    # ON clauses or aggregate args inside earlier CTEs.
+    # Anchor on the final `)SELECT ... FROM` so we don't pick up `<alias>.<col>`
+    # references inside earlier CTEs' ON clauses or aggregate args.
     final_select = re.search(
         r"\)\s*SELECT\b(?P<body>.*?)\bFROM\s+eligible_sessions\b",
         sql,

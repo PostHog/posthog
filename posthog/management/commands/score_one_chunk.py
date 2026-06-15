@@ -1,28 +1,19 @@
 """Manual smoke-test for the session surfacing scoring pipeline.
 
-Pulls one bucket of unscored sessions from ClickHouse, runs the XGBoost
-booster against them, and prints the resulting scores. Does NOT write
-anything back — read-only.
+Pulls one bucket of unscored sessions from ClickHouse, runs the XGBoost booster,
+and prints the scores. Read-only (writes nothing back). Handy to verify the model
+loads and predicts in a fresh env, eyeball the score distribution, or reproduce a
+prod scoring failure locally with the same SQL the activity runs.
 
-Requires `SESSION_INTERESTINGNESS_MODEL_S3_URI` to be set
-(see surfacing_scoring_sweep README).
-
-Use cases:
-    * Verify the model loads and predicts in a fresh dev / staging environment
-      without having to schedule the Temporal workflow.
-    * Eyeball the score distribution against real data shapes when iterating
-      on a retrained model.
-    * Reproduce a prod scoring failure locally with the same SQL the activity
-      runs.
+Requires `SESSION_INTERESTINGNESS_MODEL_S3_URI` (see surfacing_scoring_sweep README).
 
 Examples:
     ./bin/python manage.py score_one_chunk
     ./bin/python manage.py score_one_chunk --chunk-size 50 --lookback-days 30
     ./bin/python manage.py score_one_chunk --chunk-id 7 --of-chunks 20
 
-The defaults match the pipeline's tick budget (`chunk_size=10`,
-`of_chunks=1`) but small enough that you can read the output. Production
-runs use `chunk_size=10_000` and `of_chunks=20`.
+Defaults are small so the output is readable; production uses chunk_size=10_000,
+of_chunks=20.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Upload a trained XGBoost booster (.ubj) to object storage.
 
-Uses `posthog.storage.object_storage` so it works against prod S3, staging,
-and local MinIO with no config changes. After upload, set on the worker:
+Uses `posthog.storage.object_storage` so it works against prod S3, staging, and
+local object storage with no config changes. After upload, set on the worker:
     SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/<key>
 
 Examples:

@@ -209,20 +209,16 @@ def _build_partial_row(
 def _publish_scores(df: pd.DataFrame, scores: np.ndarray) -> int:
     """Produce one Kafka message per scored session and flush before returning.
 
-    Targets `KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS` so the score rides the
-    same `session_replay_events_mv` that ingestion uses; the MV's
-    `max(surfacing_score)` aggregation merges the score onto the real
-    session row in the AggregatingMergeTree.
+    Rides the same `session_replay_events_mv` as ingestion, whose
+    `max(surfacing_score)` merges the score onto the real session row.
 
-    Per-row produce keeps the activity's failure mode dead simple: a crash
-    mid-loop just means the chunk is retried, sessions already produced are
-    filtered out by the next tick's `HAVING max(surfacing_score) IS NULL`
-    (after CH has consumed) or harmlessly re-merged via the `max`-typed score
-    column (before CH has consumed).
+    Per-row produce keeps retries simple: a mid-loop crash just re-runs the
+    chunk, and already-produced sessions are either skipped next tick (once CH
+    has consumed, via `HAVING max(surfacing_score) IS NULL`) or harmlessly
+    re-merged by the `max`-typed column.
 
-    Returns the number of rows successfully handed off to the producer (after
-    flush completes). The value is what `score_chunk_activity` returns to the
-    workflow as `ChunkResult.scored`.
+    Returns the row count handed off to the producer (after flush), which
+    `score_chunk_activity` reports as `ChunkResult.scored`.
     """
     if df.empty:
         return 0
