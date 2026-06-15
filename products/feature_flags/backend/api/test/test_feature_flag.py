@@ -7603,11 +7603,32 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, None)
 
+    @parameterized.expand(
+        [
+            ("inactive_flag", {"active": False}),
+            (
+                "group_aggregated_flag",
+                {
+                    "filters": {
+                        "groups": [
+                            {"properties": [{"key": "key", "value": "value", "type": "group", "group_type_index": 1}]}
+                        ],
+                        "multivariate": None,
+                        "aggregation_group_type_index": 1,
+                    }
+                },
+            ),
+            ("missing_flag", None),
+        ]
+    )
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
-    def test_guard_paths_clear_is_calculating(self, mock_batch_evaluate):
-        # The enqueue site sets is_calculating=True before dispatching, so a guard exit
-        # (here, an inactive flag) must clear it rather than leave the cohort stuck.
-        self._create_flag(active=False)
+    def test_guard_paths_clear_is_calculating(self, _name, flag_kwargs, mock_batch_evaluate):
+        # The enqueue site sets is_calculating=True before dispatching, so every guard
+        # exit must clear it rather than leave the cohort stuck. Each branch has its own
+        # _safe_save_cohort_state call: the missing-flag exit (except FeatureFlag.DoesNotExist)
+        # is separate from the combined inactive / group-aggregated branch.
+        if flag_kwargs is not None:
+            self._create_flag(**flag_kwargs)
         cohort = self._create_static_cohort()
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])

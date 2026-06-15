@@ -74,6 +74,7 @@ from products.cohorts.backend.models.cohort import (
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
     REALTIME_COHORT_MAX_PERSON_COUNT,
     Cohort,
+    CohortOrEmpty,
     CohortType,
 )
 from products.cohorts.backend.models.util import (
@@ -1823,7 +1824,7 @@ COHORT_FLAG_GENERATION_DURATION_SECONDS = Histogram(
     "cohort_flag_generation_duration_seconds",
     "Duration of cohort generation from a feature flag in seconds",
     ["outcome"],
-    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200],
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200, 14400],
 )
 
 COHORT_FLAG_GENERATION_PAGE_RETRIES_COUNTER = Counter(
