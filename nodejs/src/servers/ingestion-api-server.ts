@@ -472,10 +472,14 @@ export class IngestionApiServer implements NodeServer {
             // mirror the Kafka consumer's crash-and-rebuild contract. Respond 500
             // (the Rust transport treats it as retriable and redelivers), mark the
             // server unhealthy, and shut down so the supervisor rebuilds a fresh
-            // pipeline instead of serving a wedged one.
-            this.fatalError ??= error
+            // pipeline instead of serving a wedged one. Trigger the shutdown once:
+            // concurrent in-flight requests can all fail on the same poisoned
+            // pipeline, but only the first should start teardown.
+            if (!this.fatalError) {
+                this.fatalError = error
+                void this.stop(error)
+            }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
-            void this.stop(this.fatalError)
         }
     }
 

@@ -42,6 +42,11 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
  * The stage-specific behavior is injected via {@link InterleavingCallbacks}.
  * See `FilterMapBatchPipeline` for the canonical wiring; the same shape fits any
  * pull-from-prev / feed-sub / drain-sub stage.
+ *
+ * @remarks `next()` must not be called concurrently — `subPending` is shared
+ * mutable state, so two overlapping calls would issue duplicate `onProcessPull`
+ * pulls and tear it. Callers serialize externally (e.g. `BatchingPipeline`'s
+ * pump mutex); `feed()` is safe to call concurrently with `next()`.
  */
 export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R extends string = never>
     implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
