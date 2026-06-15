@@ -19,8 +19,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -40,6 +38,7 @@ import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import type { newSourceSceneLogicType } from './NewSourceSceneType'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
+import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -437,37 +436,12 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
 
 function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { connectors } = useValues(sourceWizardLogic)
 
-    // Filter out sources for onboarding flow
-    const sources = connectors.reduce(
-        (acc, cur) => {
-            if (allowedSources) {
-                if (allowedSources.indexOf(cur.name) !== -1) {
-                    acc[cur.name] = cur
-                }
-            } else {
-                acc[cur.name] = cur
-            }
+    if (availableSourcesLoading) {
+        return <LemonSkeleton className="h-64" />
+    }
 
-            return acc
-        },
-        {} as Record<string, SourceConfig>
-    )
-
-    const { hogFunctionTemplatesDataWarehouseSources } = useValues(
-        nonHogFunctionTemplatesLogic({
-            availableSources: sources ?? {},
-        })
-    )
-
-    return (
-        <HogFunctionTemplateList
-            type="source_webhook"
-            manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-            manualTemplatesLoading={availableSourcesLoading}
-        />
-    )
+    return <SourceCatalog allowedSources={allowedSources} />
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {

@@ -37,6 +37,7 @@ from products.tracing.backend.count_query_runner import run_count_query as _run_
 from products.tracing.backend.duration_histogram_query_runner import (
     run_duration_histogram_query as _run_duration_histogram_query,
 )
+from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -107,3 +108,8 @@ def run_duration_histogram_query(
         status_codes=status_codes,
         filter_group=filter_group,
     )
+
+
+def annotate_self_time(spans: list[dict]) -> None:
+    """Set `self_time_nano` on every span dict of a full trace, in place."""
+    _annotate_self_time(spans)

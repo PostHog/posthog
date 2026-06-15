@@ -282,21 +282,21 @@
                     "on_error": {
                         "anyOf": [
                             {
-                                "description": "* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch",
-                                "enum": ["continue", "abort", "complete", "branch"],
+                                "description": "* `continue` - continue\n* `abort` - abort",
+                                "enum": ["continue", "abort"],
                                 "type": "string"
                             },
                             {
                                 "type": "null"
                             }
                         ],
-                        "description": "On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch"
+                        "description": "On failure: continue (skip the action and proceed) or abort (stop the run).\n\n* `continue` - continue\n* `abort` - abort"
                     },
                     "output_variable": {
                         "description": "Output variable definition for downstream actions."
                     },
                     "type": {
-                        "description": "trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",
+                        "description": "trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",
                         "maxLength": 100,
                         "type": "string"
                     },
