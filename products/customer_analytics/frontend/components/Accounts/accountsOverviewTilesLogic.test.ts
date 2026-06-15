@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -205,5 +207,21 @@ describe('addTile limit', () => {
             logic.actions.addTile({ label: `Tile ${i}`, metric: { type: 'count' } })
         }
         expect(logic.values.tiles).toHaveLength(MAX_ACCOUNTS_OVERVIEW_TILES)
+    })
+})
+
+describe('accountsOverviewTilesLogic setTiles', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    it('replaces the entire tile set', async () => {
+        const logic = accountsOverviewTilesLogic()
+        logic.mount()
+        const tiles = [
+            { id: 'a', label: 'A', metric: { type: 'count' as const } },
+            { id: 'b', label: 'B', metric: { type: 'count' as const } },
+        ]
+        await expectLogic(logic, () => logic.actions.setTiles(tiles)).toMatchValues({ tiles })
     })
 })

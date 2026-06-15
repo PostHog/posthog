@@ -170,6 +170,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         updateTile: (id: string, tile: Omit<AccountsOverviewTile, 'id'>) => ({ id, tile }),
         removeTile: (id: string) => ({ id }),
         moveTile: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        setTiles: (tiles: AccountsOverviewTile[]) => ({ tiles }),
         toggleTileSelection: (tile: AccountsOverviewTile) => ({ tile }),
         setTileFilter: (filter: TileFilter | null) => ({ filter }),
         resetTiles: true,
@@ -205,6 +206,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                     next.splice(newIndex, 0, removed)
                     return next
                 },
+                setTiles: (_state: AccountsOverviewTile[], { tiles }: { tiles: AccountsOverviewTile[] }) => tiles,
                 resetTiles: () => [...DEFAULT_TILES],
             },
         ],
