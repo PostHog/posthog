@@ -80,9 +80,21 @@ export function getStarterPrompts(context: ChatContext): StarterPrompt[] {
     switch (context.page.kind) {
         case 'agent-list':
             return [
-                { id: 'l-1', label: 'What changed this week?', prompt: 'Summarize what changed across all my agents this week.' },
-                { id: 'l-2', label: 'Anything erroring?', prompt: 'Which of my agents have errored in the last 24 hours?' },
-                { id: 'l-3', label: 'Create a new agent', prompt: "I want to create a new agent. Walk me through what it should do." },
+                {
+                    id: 'l-1',
+                    label: 'What changed this week?',
+                    prompt: 'Summarize what changed across all my agents this week.',
+                },
+                {
+                    id: 'l-2',
+                    label: 'Anything erroring?',
+                    prompt: 'Which of my agents have errored in the last 24 hours?',
+                },
+                {
+                    id: 'l-3',
+                    label: 'Create a new agent',
+                    prompt: 'I want to create a new agent. Walk me through what it should do.',
+                },
             ]
         case 'agent':
             return [
@@ -92,34 +104,70 @@ export function getStarterPrompts(context: ChatContext): StarterPrompt[] {
                     prompt: `Give me a quick rundown of what ${context.page.agent.name} does and how it's wired up.`,
                 },
                 { id: 'a-2', label: 'Show me the config', prompt: 'Show me the configuration.' },
-                { id: 'a-3', label: 'Recent sessions', prompt: `Show me ${context.page.agent.name}'s recent sessions and call out anything unusual.` },
+                {
+                    id: 'a-3',
+                    label: 'Recent sessions',
+                    prompt: `Show me ${context.page.agent.name}'s recent sessions and call out anything unusual.`,
+                },
             ]
         case 'agent-bundle':
             return [
-                { id: 'b-1', label: 'Explain this skill', prompt: 'Walk me through the skill that\'s open and what it does.' },
-                { id: 'b-2', label: 'Add a new skill', prompt: 'I want to add a new skill to this bundle. Help me draft it.' },
-                { id: 'b-3', label: 'Simplify', prompt: 'Where could this bundle be simpler without losing capability?' },
+                {
+                    id: 'b-1',
+                    label: 'Explain this skill',
+                    prompt: "Walk me through the skill that's open and what it does.",
+                },
+                {
+                    id: 'b-2',
+                    label: 'Add a new skill',
+                    prompt: 'I want to add a new skill to this bundle. Help me draft it.',
+                },
+                {
+                    id: 'b-3',
+                    label: 'Simplify',
+                    prompt: 'Where could this bundle be simpler without losing capability?',
+                },
             ]
         case 'agent-config':
             return [
-                { id: 'c-1', label: 'Explain what I\'m viewing', prompt: 'Explain the configuration section I\'m currently looking at and what it controls.' },
+                {
+                    id: 'c-1',
+                    label: "Explain what I'm viewing",
+                    prompt: "Explain the configuration section I'm currently looking at and what it controls.",
+                },
                 { id: 'c-2', label: 'Edit this', prompt: 'Help me change the configuration I currently have open.' },
-                { id: 'c-3', label: 'What\'s missing?', prompt: 'Review this agent\'s configuration and call out anything missing or misconfigured.' },
+                {
+                    id: 'c-3',
+                    label: "What's missing?",
+                    prompt: "Review this agent's configuration and call out anything missing or misconfigured.",
+                },
             ]
         case 'agent-revisions':
             return [
-                { id: 'r-1', label: 'Compare last two', prompt: 'What changed between the live revision and the most recent draft?' },
+                {
+                    id: 'r-1',
+                    label: 'Compare last two',
+                    prompt: 'What changed between the live revision and the most recent draft?',
+                },
                 { id: 'r-2', label: 'Promote a draft', prompt: 'Walk me through promoting the latest draft.' },
             ]
         case 'agent-sessions':
             return [
-                { id: 's-1', label: 'Anything off?', prompt: 'Surface any sessions from the last day that look anomalous.' },
+                {
+                    id: 's-1',
+                    label: 'Anything off?',
+                    prompt: 'Surface any sessions from the last day that look anomalous.',
+                },
                 { id: 's-2', label: 'Cost summary', prompt: 'How much has this agent cost to run this week?' },
             ]
         case 'agent-session':
             return [
                 { id: 'ses-1', label: 'Why this outcome?', prompt: 'Why did this session end the way it did?' },
-                { id: 'ses-2', label: 'Replay with a tweak', prompt: 'I want to replay this with a different system prompt — help me set that up.' },
+                {
+                    id: 'ses-2',
+                    label: 'Replay with a tweak',
+                    prompt: 'I want to replay this with a different system prompt — help me set that up.',
+                },
             ]
         case 'unknown':
         default:

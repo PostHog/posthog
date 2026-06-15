@@ -19,13 +19,13 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(HERE, '../../..')
+const ROOT = resolve(HERE, '../../../../..')
 const OUT_DIR = resolve(HERE, '..', 'dist')
 
 const ENTRY_POINTS = {
-    ingress: resolve(ROOT, 'services/agent-ingress/src/index.ts'),
-    runner: resolve(ROOT, 'services/agent-runner/src/index.ts'),
-    janitor: resolve(ROOT, 'services/agent-janitor/src/index.ts'),
+    ingress: resolve(ROOT, 'products/agent_platform/services/agent-ingress/src/index.ts'),
+    runner: resolve(ROOT, 'products/agent_platform/services/agent-runner/src/index.ts'),
+    janitor: resolve(ROOT, 'products/agent_platform/services/agent-janitor/src/index.ts'),
 }
 
 await build({

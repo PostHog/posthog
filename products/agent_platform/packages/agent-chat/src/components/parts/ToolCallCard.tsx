@@ -84,11 +84,7 @@ export function ToolCallCard({
                     <span className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">client</span>
                 ) : null}
                 <span className="ml-auto text-muted-foreground">
-                    {detailsOpen ? (
-                        <ChevronDownIcon className="h-3 w-3" />
-                    ) : (
-                        <ChevronRightIcon className="h-3 w-3" />
-                    )}
+                    {detailsOpen ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
                 </span>
             </button>
             {summarySlot ? <div className="border-t border-border/60 px-2.5 py-1.5">{summarySlot}</div> : null}

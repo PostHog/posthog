@@ -60,7 +60,10 @@ function greetingFor(context: ChatContext): { line1: string; line2: string } {
         case 'agent':
             return { line1: `Ask about ${context.page.agent.name}`, line2: 'Explain it, change it, or test it.' }
         case 'agent-bundle':
-            return { line1: 'Ask about this bundle', line2: 'Skills, tools, instructions — I can read or edit any of it.' }
+            return {
+                line1: 'Ask about this bundle',
+                line2: 'Skills, tools, instructions — I can read or edit any of it.',
+            }
         case 'agent-revisions':
             return { line1: 'Compare or promote', line2: 'I can diff revisions, promote a draft, or branch a new one.' }
         case 'agent-sessions':

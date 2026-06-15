@@ -7,11 +7,11 @@ import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { useSessionTeamId } from '@/components/session-context'
+import { listNativeTools, type NativeToolCatalogEntry } from '@/lib/apiClient'
 import type {
     CustomToolTemplateSummaryApi as CustomToolTemplateSummary,
     SkillTemplateSummaryApi as SkillTemplateSummary,
 } from '@/lib/registryApiTypes'
-import { listNativeTools, type NativeToolCatalogEntry } from '@/lib/apiClient'
 import { listCustomToolTemplates, listSkillTemplates } from '@/lib/registryClient'
 import { useResource } from '@/lib/useResource'
 

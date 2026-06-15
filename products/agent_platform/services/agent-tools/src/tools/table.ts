@@ -98,7 +98,9 @@ export const tableAppendV1 = defineNativeTool({
     args: Type.Object({
         table: TABLE,
         rows: Type.Array(Type.Record(Type.String(), Type.Unknown()), { description: 'Rows to append.' }),
-        dedupe_on: Type.Optional(Type.String({ description: 'Column to dedupe on; skip rows whose key already exists.' })),
+        dedupe_on: Type.Optional(
+            Type.String({ description: 'Column to dedupe on; skip rows whose key already exists.' })
+        ),
     }),
     returns: RESULT,
     cost_hint: 'cheap',

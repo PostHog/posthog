@@ -211,7 +211,10 @@
             }
         },
         {
-            "files": ["packages/agent-chat/**/*.{ts,tsx}", "services/agent-console/**/*.{ts,tsx}"],
+            "files": [
+                "products/agent_platform/packages/agent-chat/**/*.{ts,tsx}",
+                "products/agent_platform/services/agent-console/**/*.{ts,tsx}"
+            ],
             "rules": {
                 "react/forbid-elements": "off",
                 "react/forbid-dom-props": "off",
@@ -220,14 +223,14 @@
         },
         {
             "files": [
-                "services/agent-shared/**/*.test.{ts,tsx}",
-                "services/agent-ingress/**/*.test.{ts,tsx}",
-                "services/agent-runner/**/*.test.{ts,tsx}",
-                "services/agent-janitor/**/*.test.{ts,tsx}",
-                "services/agent-tools/**/*.test.{ts,tsx}",
-                "services/agent-migrations/**/*.test.{ts,tsx}",
-                "services/agent-tests/**/*.test.{ts,tsx}",
-                "services/agent-sandbox-host/**/*.test.{ts,js}"
+                "products/agent_platform/services/agent-shared/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-ingress/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-runner/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-janitor/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tools/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-migrations/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tests/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-sandbox-host/**/*.test.{ts,js}"
             ],
             "rules": {
                 "jest/no-export": "off",
@@ -239,11 +242,11 @@
         },
         {
             "files": [
-                "services/agent-shared/src/**/*.ts",
-                "services/agent-runner/src/**/*.ts",
-                "services/agent-tools/src/**/*.ts",
-                "services/agent-ingress/src/**/*.ts",
-                "services/agent-janitor/src/**/*.ts"
+                "products/agent_platform/services/agent-shared/src/**/*.ts",
+                "products/agent_platform/services/agent-runner/src/**/*.ts",
+                "products/agent_platform/services/agent-tools/src/**/*.ts",
+                "products/agent_platform/services/agent-ingress/src/**/*.ts",
+                "products/agent_platform/services/agent-janitor/src/**/*.ts"
             ],
             "rules": {
                 "no-restricted-globals": [
@@ -257,12 +260,12 @@
         },
         {
             "files": [
-                "services/agent-shared/src/runtime/http-client.ts",
-                "services/agent-shared/**/*.test.ts",
-                "services/agent-runner/**/*.test.ts",
-                "services/agent-tools/**/*.test.ts",
-                "services/agent-ingress/**/*.test.ts",
-                "services/agent-janitor/**/*.test.ts"
+                "products/agent_platform/services/agent-shared/src/runtime/http-client.ts",
+                "products/agent_platform/services/agent-shared/**/*.test.ts",
+                "products/agent_platform/services/agent-runner/**/*.test.ts",
+                "products/agent_platform/services/agent-tools/**/*.test.ts",
+                "products/agent_platform/services/agent-ingress/**/*.test.ts",
+                "products/agent_platform/services/agent-janitor/**/*.test.ts"
             ],
             "rules": {
                 "no-restricted-globals": "off"

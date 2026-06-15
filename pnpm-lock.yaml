@@ -1784,43 +1784,6 @@ importers:
         specifier: ^4.7.0
         version: 4.20.5
 
-  packages/agent-chat:
-    dependencies:
-      '@posthog/quill':
-        specifier: workspace:*
-        version: link:../quill/packages/quill
-      lucide-react:
-        specifier: ^0.577.0
-        version: 0.577.0(react@18.3.1)
-      react-markdown:
-        specifier: ^9.0.0
-        version: 9.1.0(@types/react@18.3.27)(react@18.3.1)
-      remark-gfm:
-        specifier: ^4.0.0
-        version: 4.0.1
-      yaml:
-        specifier: ^2.5.1
-        version: 2.9.0
-    devDependencies:
-      '@storybook/react':
-        specifier: ^10.2.17
-        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      '@types/react-dom':
-        specifier: 18.3.7
-        version: 18.3.7(@types/react@18.3.27)
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: 18.3.1
-        version: 18.3.1(react@18.3.1)
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   packages/quill:
     devDependencies:
       tailwindcss-scroll-mask:
@@ -2248,6 +2211,441 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/agent_platform: {}
+
+  products/agent_platform/packages/agent-chat:
+    dependencies:
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../../../packages/quill/packages/quill
+      lucide-react:
+        specifier: ^0.577.0
+        version: 0.577.0(react@18.3.1)
+      react-markdown:
+        specifier: ^9.0.0
+        version: 9.1.0(@types/react@18.3.27)(react@18.3.1)
+      remark-gfm:
+        specifier: ^4.0.0
+        version: 4.0.1
+      yaml:
+        specifier: ^2.5.1
+        version: 2.9.0
+    devDependencies:
+      '@storybook/react':
+        specifier: ^10.2.17
+        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  products/agent_platform/services/agent-console:
+    dependencies:
+      '@posthog/agent-chat':
+        specifier: workspace:*
+        version: link:../../packages/agent-chat
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../../../packages/quill/packages/quill
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../../../packages/quill/packages/charts
+      '@posthog/quill-tokens':
+        specifier: workspace:*
+        version: link:../../../../packages/quill/packages/tokens
+      iron-session:
+        specifier: ^8.0.4
+        version: 8.0.4
+      lucide-react:
+        specifier: ^0.577.0
+        version: 0.577.0(react@18.3.1)
+      next:
+        specifier: ^15.5.4
+        version: 15.5.19(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@storybook/addon-docs':
+        specifier: ^10.2.17
+        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(esbuild@0.28.0)(rollup@4.60.4)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))(webpack@5.105.4(esbuild@0.28.0)(lightningcss@1.32.0)(postcss@8.5.15))
+      '@storybook/react':
+        specifier: ^10.2.17
+        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@storybook/react-vite':
+        specifier: ^10.2.17
+        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(esbuild@0.28.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(rollup@4.60.4)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))(webpack@5.105.4(esbuild@0.28.0)(lightningcss@1.32.0)(postcss@8.5.15))
+      '@tailwindcss/postcss':
+        specifier: ^4.1.17
+        version: 4.2.4
+      '@tailwindcss/vite':
+        specifier: ^4.1.17
+        version: 4.2.4(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
+      msw:
+        specifier: ^2.12.14
+        version: 2.12.14(@types/node@22.18.8)(typescript@6.0.3)
+      storybook:
+        specifier: ^10.2.17
+        version: 10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      tailwindcss:
+        specifier: ^4.1.17
+        version: 4.2.4
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^5.4.21
+        version: 5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+
+  products/agent_platform/services/agent-ingress:
+    dependencies:
+      '@posthog/agent-shared':
+        specifier: workspace:*
+        version: link:../agent-shared
+      express:
+        specifier: ^4.21.1
+        version: 4.22.2
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.5
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.6.6
+      '@types/supertest':
+        specifier: ^6.0.2
+        version: 6.0.2
+      supertest:
+        specifier: ^7.0.0
+        version: 7.2.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+
+  products/agent_platform/services/agent-janitor:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
+      '@posthog/agent-shared':
+        specifier: workspace:*
+        version: link:../agent-shared
+      '@posthog/agent-tools':
+        specifier: workspace:*
+        version: link:../agent-tools
+      cron-parser:
+        specifier: ^4.9.0
+        version: 4.9.0
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.0
+      express:
+        specifier: ^4.21.1
+        version: 4.22.2
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.5
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.6.6
+      '@types/supertest':
+        specifier: ^6.0.2
+        version: 6.0.2
+      supertest:
+        specifier: ^7.0.0
+        version: 7.2.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+
+  products/agent_platform/services/agent-runner:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@earendil-works/pi-agent-core':
+        specifier: ^0.75.5
+        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
+      '@earendil-works/pi-ai':
+        specifier: ^0.75.5
+        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@posthog/agent-shared':
+        specifier: workspace:*
+        version: link:../agent-shared
+      '@posthog/agent-tools':
+        specifier: workspace:*
+        version: link:../agent-tools
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.5
+      typebox:
+        specifier: ^1.1.38
+        version: 1.2.8
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.6.6
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+
+  products/agent_platform/services/agent-sandbox-host: {}
+
+  products/agent_platform/services/agent-shared:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@earendil-works/pi-ai':
+        specifier: ^0.75.5
+        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
+      fernet-nodejs:
+        specifier: ^1.0.6
+        version: 1.0.6
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
+      minisearch:
+        specifier: ^7.1.2
+        version: 7.2.0
+      modal:
+        specifier: ^0.7.6
+        version: 0.7.6
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+      pino:
+        specifier: ^8.11.0
+        version: 8.11.0
+      pino-pretty:
+        specifier: ^9.4.0
+        version: 9.4.0
+      posthog-node:
+        specifier: ^5.25.0
+        version: 5.25.0
+      typebox:
+        specifier: ^1.1.38
+        version: 1.2.8
+      undici:
+        specifier: 7.8.0
+        version: 7.8.0
+      uuid:
+        specifier: ^10.0.0
+        version: 10.0.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.6.6
+      '@types/uuid':
+        specifier: ^10.0.0
+        version: 10.0.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+    optionalDependencies:
+      ioredis:
+        specifier: ^5.4.1
+        version: 5.11.1
+      node-rdkafka:
+        specifier: ^3.4.0
+        version: 3.6.1
+
+  products/agent_platform/services/agent-tests:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: ^0.75.5
+        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
+      '@posthog/agent-janitor':
+        specifier: workspace:*
+        version: link:../agent-janitor
+      '@posthog/agent-runner':
+        specifier: workspace:*
+        version: link:../agent-runner
+      '@posthog/agent-shared':
+        specifier: workspace:*
+        version: link:../agent-shared
+      '@posthog/agent-tools':
+        specifier: workspace:*
+        version: link:../agent-tools
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+    devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ^8.6.0
+        version: 8.6.6
+      '@types/supertest':
+        specifier: ^6.0.2
+        version: 6.0.2
+      express:
+        specifier: ^4.21.1
+        version: 4.22.2
+      supertest:
+        specifier: ^7.0.0
+        version: 7.2.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+
+  products/agent_platform/services/agent-tools:
+    dependencies:
+      '@posthog/agent-shared':
+        specifier: workspace:*
+        version: link:../agent-shared
+      typebox:
+        specifier: ^1.1.38
+        version: 1.2.8
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+
+  products/agent_platform/services/agents:
+    dependencies:
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
+      '@posthog/agent-janitor':
+        specifier: workspace:*
+        version: link:../agent-janitor
+      '@posthog/agent-runner':
+        specifier: workspace:*
+        version: link:../agent-runner
+      node-rdkafka:
+        specifier: ^3.4.0
+        version: 3.6.1
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.12
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.5
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
 
   products/ai_observability:
     dependencies:
@@ -3782,7 +4180,7 @@ importers:
         version: 1.9.0(@types/react@18.3.27)(posthog-js@1.386.6)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
-        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
+        version: 8.6.18(@storybook/test@8.6.18(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3924,404 +4322,6 @@ importers:
       undici-types:
         specifier: ^7.3.0
         version: 7.3.0
-
-  services/agent-console:
-    dependencies:
-      '@posthog/agent-chat':
-        specifier: workspace:*
-        version: link:../../packages/agent-chat
-      '@posthog/quill':
-        specifier: workspace:*
-        version: link:../../packages/quill/packages/quill
-      '@posthog/quill-charts':
-        specifier: workspace:*
-        version: link:../../packages/quill/packages/charts
-      '@posthog/quill-tokens':
-        specifier: workspace:*
-        version: link:../../packages/quill/packages/tokens
-      iron-session:
-        specifier: ^8.0.4
-        version: 8.0.4
-      lucide-react:
-        specifier: ^0.577.0
-        version: 0.577.0(react@18.3.1)
-      next:
-        specifier: ^15.5.4
-        version: 15.5.19(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: 18.3.1
-        version: 18.3.1(react@18.3.1)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@storybook/addon-docs':
-        specifier: ^10.2.17
-        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(esbuild@0.28.0)(rollup@4.60.4)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))(webpack@5.105.4(esbuild@0.28.0)(lightningcss@1.32.0)(postcss@8.5.15))
-      '@storybook/react':
-        specifier: ^10.2.17
-        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
-      '@storybook/react-vite':
-        specifier: ^10.2.17
-        version: 10.4.2(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(esbuild@0.28.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(rollup@4.60.4)(storybook@10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))(webpack@5.105.4(esbuild@0.28.0)(lightningcss@1.32.0)(postcss@8.5.15))
-      '@tailwindcss/postcss':
-        specifier: ^4.1.17
-        version: 4.2.4
-      '@tailwindcss/vite':
-        specifier: ^4.1.17
-        version: 4.2.4(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      '@types/react-dom':
-        specifier: 18.3.7
-        version: 18.3.7(@types/react@18.3.27)
-      '@vitejs/plugin-react':
-        specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
-      msw:
-        specifier: ^2.12.14
-        version: 2.12.14(@types/node@22.18.8)(typescript@6.0.3)
-      storybook:
-        specifier: ^10.2.17
-        version: 10.4.2(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      tailwindcss:
-        specifier: ^4.1.17
-        version: 4.2.4
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vite:
-        specifier: ^5.4.21
-        version: 5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-
-  services/agent-ingress:
-    dependencies:
-      '@posthog/agent-shared':
-        specifier: workspace:*
-        version: link:../agent-shared
-      express:
-        specifier: ^4.21.1
-        version: 4.22.2
-      jose:
-        specifier: ^6.2.3
-        version: 6.2.3
-      pg:
-        specifier: ^8.6.0
-        version: 8.10.0
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.6.0
-        version: 8.6.6
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.2.2
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-
-  services/agent-janitor:
-    dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.723.0
-        version: 3.975.0
-      '@posthog/agent-ingress':
-        specifier: workspace:*
-        version: link:../agent-ingress
-      '@posthog/agent-shared':
-        specifier: workspace:*
-        version: link:../agent-shared
-      '@posthog/agent-tools':
-        specifier: workspace:*
-        version: link:../agent-tools
-      cron-parser:
-        specifier: ^4.9.0
-        version: 4.9.0
-      esbuild:
-        specifier: ^0.28.0
-        version: 0.28.0
-      express:
-        specifier: ^4.21.1
-        version: 4.22.2
-      pg:
-        specifier: ^8.6.0
-        version: 8.10.0
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.6.0
-        version: 8.6.6
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.2.2
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-
-  services/agent-runner:
-    dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.723.0
-        version: 3.975.0
-      '@earendil-works/pi-agent-core':
-        specifier: ^0.75.5
-        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
-      '@earendil-works/pi-ai':
-        specifier: ^0.75.5
-        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      '@posthog/agent-shared':
-        specifier: workspace:*
-        version: link:../agent-shared
-      '@posthog/agent-tools':
-        specifier: workspace:*
-        version: link:../agent-tools
-      pg:
-        specifier: ^8.6.0
-        version: 8.10.0
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      typebox:
-        specifier: ^1.1.38
-        version: 1.2.8
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.6.0
-        version: 8.6.6
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-
-  services/agent-sandbox-host: {}
-
-  services/agent-shared:
-    dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.723.0
-        version: 3.975.0
-      '@earendil-works/pi-ai':
-        specifier: ^0.75.5
-        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
-      fernet-nodejs:
-        specifier: ^1.0.6
-        version: 1.0.6
-      jose:
-        specifier: ^6.2.3
-        version: 6.2.3
-      minisearch:
-        specifier: ^7.1.2
-        version: 7.2.0
-      modal:
-        specifier: ^0.7.6
-        version: 0.7.6
-      pg:
-        specifier: ^8.6.0
-        version: 8.10.0
-      pino:
-        specifier: ^8.11.0
-        version: 8.11.0
-      pino-pretty:
-        specifier: ^9.4.0
-        version: 9.4.0
-      posthog-node:
-        specifier: ^5.25.0
-        version: 5.25.0
-      typebox:
-        specifier: ^1.1.38
-        version: 1.2.8
-      undici:
-        specifier: 7.8.0
-        version: 7.8.0
-      uuid:
-        specifier: ^10.0.0
-        version: 10.0.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.6.0
-        version: 8.6.6
-      '@types/uuid':
-        specifier: ^10.0.0
-        version: 10.0.0
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-    optionalDependencies:
-      ioredis:
-        specifier: ^5.4.1
-        version: 5.11.1
-      node-rdkafka:
-        specifier: ^3.4.0
-        version: 3.6.1
-
-  services/agent-tests:
-    dependencies:
-      '@earendil-works/pi-ai':
-        specifier: ^0.75.5
-        version: 0.75.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(ws@8.20.1)(zod@4.3.6)
-      '@posthog/agent-ingress':
-        specifier: workspace:*
-        version: link:../agent-ingress
-      '@posthog/agent-janitor':
-        specifier: workspace:*
-        version: link:../agent-janitor
-      '@posthog/agent-runner':
-        specifier: workspace:*
-        version: link:../agent-runner
-      '@posthog/agent-shared':
-        specifier: workspace:*
-        version: link:../agent-shared
-      '@posthog/agent-tools':
-        specifier: workspace:*
-        version: link:../agent-tools
-      pg:
-        specifier: ^8.6.0
-        version: 8.10.0
-    devDependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      '@types/pg':
-        specifier: ^8.6.0
-        version: 8.6.6
-      '@types/supertest':
-        specifier: ^6.0.2
-        version: 6.0.2
-      express:
-        specifier: ^4.21.1
-        version: 4.22.2
-      supertest:
-        specifier: ^7.0.0
-        version: 7.2.2
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-
-  services/agent-tools:
-    dependencies:
-      '@posthog/agent-shared':
-        specifier: workspace:*
-        version: link:../agent-shared
-      typebox:
-        specifier: ^1.1.38
-        version: 1.2.8
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.723.0
-        version: 3.975.0
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
-
-  services/agents:
-    dependencies:
-      '@posthog/agent-ingress':
-        specifier: workspace:*
-        version: link:../agent-ingress
-      '@posthog/agent-janitor':
-        specifier: workspace:*
-        version: link:../agent-janitor
-      '@posthog/agent-runner':
-        specifier: workspace:*
-        version: link:../agent-runner
-      node-rdkafka:
-        specifier: ^3.4.0
-        version: 3.6.1
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.18.8
-      esbuild:
-        specifier: ^0.25.10
-        version: 0.25.12
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.5
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
 
   services/mcp:
     dependencies:
@@ -5042,10 +5042,6 @@ packages:
 
   '@aws-sdk/xml-builder@3.972.28':
     resolution: {integrity: sha512-lI/l3c/vPvsxmspzV63NfS3x9q4CkMmdhJy4QiM+NThAufVkDvi/PZZQ6xETnICL0UD7jI808pY83gllf86RFg==}
-    engines: {node: '>=20.0.0'}
-
-  '@aws-sdk/xml-builder@3.972.4':
-    resolution: {integrity: sha512-0zJ05ANfYqI6+rGqj8samZBFod0dPPousBjLEqg8WdxSgbMAkRgLyn81lP215Do0rFJ/17LIXwr7q0yK24mP6Q==}
     engines: {node: '>=20.0.0'}
 
   '@aws/lambda-invoke-store@0.2.3':
@@ -11233,10 +11229,6 @@ packages:
 
   '@smithy/shared-ini-file-loader@4.4.3':
     resolution: {integrity: sha512-DfQjxXQnzC5UbCUPeC3Ie8u+rIWZTvuDPAGU/BxzrOGhRvgUanaP68kDZA+jaT3ZI+djOf+4dERGlm9mWfFDrg==}
-    engines: {node: '>=18.0.0'}
-
-  '@smithy/signature-v4@5.3.8':
-    resolution: {integrity: sha512-6A4vdGj7qKNRF16UIcO8HhHjKW27thsxYci+5r/uVRkdcBEkOEiY8OMPuydLX4QHSrJqGHPJzPRwwVTqbLZJhg==}
     engines: {node: '>=18.0.0'}
 
   '@smithy/signature-v4@5.4.6':
@@ -24210,20 +24202,20 @@ snapshots:
   '@aws-crypto/crc32@5.2.0':
     dependencies:
       '@aws-crypto/util': 5.2.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       tslib: 2.8.1
 
   '@aws-crypto/crc32c@5.2.0':
     dependencies:
       '@aws-crypto/util': 5.2.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       tslib: 2.8.1
 
   '@aws-crypto/sha1-browser@5.2.0':
     dependencies:
       '@aws-crypto/supports-web-crypto': 5.2.0
       '@aws-crypto/util': 5.2.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-locate-window': 3.310.0
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
@@ -24233,7 +24225,7 @@ snapshots:
       '@aws-crypto/sha256-js': 5.2.0
       '@aws-crypto/supports-web-crypto': 5.2.0
       '@aws-crypto/util': 5.2.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-locate-window': 3.310.0
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
@@ -24241,7 +24233,7 @@ snapshots:
   '@aws-crypto/sha256-js@5.2.0':
     dependencies:
       '@aws-crypto/util': 5.2.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       tslib: 2.8.1
 
   '@aws-crypto/supports-web-crypto@5.2.0':
@@ -24250,7 +24242,7 @@ snapshots:
 
   '@aws-crypto/util@5.2.0':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/util-utf8': 2.3.0
       tslib: 2.8.1
 
@@ -24267,7 +24259,7 @@ snapshots:
       '@aws-sdk/types': 3.973.11
       '@smithy/core': 3.24.6
       '@smithy/fetch-http-handler': 5.4.6
-      '@smithy/node-http-handler': 4.7.3
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/types': 4.14.3
       tslib: 2.8.1
 
@@ -24335,8 +24327,8 @@ snapshots:
       '@aws-sdk/util-user-agent-browser': 3.804.0
       '@aws-sdk/util-user-agent-node': 3.806.0
       '@smithy/config-resolver': 4.4.6
-      '@smithy/core': 3.22.1
-      '@smithy/fetch-http-handler': 5.3.9
+      '@smithy/core': 3.24.6
+      '@smithy/fetch-http-handler': 5.4.6
       '@smithy/hash-node': 4.2.8
       '@smithy/invalid-dependency': 4.2.8
       '@smithy/middleware-content-length': 4.2.8
@@ -24345,10 +24337,10 @@ snapshots:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/middleware-stack': 4.2.8
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
@@ -24412,8 +24404,8 @@ snapshots:
       '@aws-crypto/sha1-browser': 5.2.0
       '@aws-crypto/sha256-browser': 5.2.0
       '@aws-crypto/sha256-js': 5.2.0
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/credential-provider-node': 3.972.6
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/credential-provider-node': 3.972.52
       '@aws-sdk/middleware-bucket-endpoint': 3.972.1
       '@aws-sdk/middleware-expect-continue': 3.972.1
       '@aws-sdk/middleware-flexible-checksums': 3.972.1
@@ -24426,16 +24418,16 @@ snapshots:
       '@aws-sdk/middleware-user-agent': 3.972.7
       '@aws-sdk/region-config-resolver': 3.972.3
       '@aws-sdk/signature-v4-multi-region': 3.972.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-endpoints': 3.972.0
       '@aws-sdk/util-user-agent-browser': 3.972.3
       '@aws-sdk/util-user-agent-node': 3.972.5
       '@smithy/config-resolver': 4.4.6
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/eventstream-serde-browser': 4.2.8
       '@smithy/eventstream-serde-config-resolver': 4.3.8
       '@smithy/eventstream-serde-node': 4.2.8
-      '@smithy/fetch-http-handler': 5.3.9
+      '@smithy/fetch-http-handler': 5.4.6
       '@smithy/hash-blob-browser': 4.2.9
       '@smithy/hash-node': 4.2.8
       '@smithy/hash-stream-node': 4.2.8
@@ -24447,10 +24439,10 @@ snapshots:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/middleware-stack': 4.2.8
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
@@ -24527,8 +24519,8 @@ snapshots:
       '@aws-sdk/util-user-agent-browser': 3.804.0
       '@aws-sdk/util-user-agent-node': 3.806.0
       '@smithy/config-resolver': 4.4.6
-      '@smithy/core': 3.22.1
-      '@smithy/fetch-http-handler': 5.3.9
+      '@smithy/core': 3.24.6
+      '@smithy/fetch-http-handler': 5.4.6
       '@smithy/hash-node': 4.2.8
       '@smithy/invalid-dependency': 4.2.8
       '@smithy/middleware-content-length': 4.2.8
@@ -24537,10 +24529,10 @@ snapshots:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/middleware-stack': 4.2.8
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
@@ -24559,19 +24551,19 @@ snapshots:
     dependencies:
       '@aws-crypto/sha256-browser': 5.2.0
       '@aws-crypto/sha256-js': 5.2.0
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/middleware-host-header': 3.972.3
       '@aws-sdk/middleware-logger': 3.972.3
       '@aws-sdk/middleware-recursion-detection': 3.972.3
       '@aws-sdk/middleware-user-agent': 3.972.7
       '@aws-sdk/region-config-resolver': 3.972.3
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-endpoints': 3.985.0
       '@aws-sdk/util-user-agent-browser': 3.972.3
       '@aws-sdk/util-user-agent-node': 3.972.5
       '@smithy/config-resolver': 4.4.6
-      '@smithy/core': 3.22.1
-      '@smithy/fetch-http-handler': 5.3.9
+      '@smithy/core': 3.24.6
+      '@smithy/fetch-http-handler': 5.4.6
       '@smithy/hash-node': 4.2.8
       '@smithy/invalid-dependency': 4.2.8
       '@smithy/middleware-content-length': 4.2.8
@@ -24580,10 +24572,10 @@ snapshots:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/middleware-stack': 4.2.8
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
@@ -24645,13 +24637,13 @@ snapshots:
   '@aws-sdk/core@3.806.0':
     dependencies:
       '@aws-sdk/types': 3.804.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-middleware': 4.2.8
       fast-xml-parser: 5.5.6
       tslib: 2.8.1
@@ -24660,13 +24652,13 @@ snapshots:
     dependencies:
       '@aws-sdk/types': 3.972.0
       '@aws-sdk/xml-builder': 3.972.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-utf8': 4.2.0
@@ -24674,15 +24666,15 @@ snapshots:
 
   '@aws-sdk/core@3.973.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@aws-sdk/xml-builder': 3.972.4
-      '@smithy/core': 3.22.1
+      '@aws-sdk/types': 3.973.11
+      '@aws-sdk/xml-builder': 3.972.28
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-utf8': 4.2.0
@@ -24690,15 +24682,15 @@ snapshots:
 
   '@aws-sdk/core@3.973.7':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@aws-sdk/xml-builder': 3.972.4
-      '@smithy/core': 3.22.1
+      '@aws-sdk/types': 3.973.11
+      '@aws-sdk/xml-builder': 3.972.28
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-utf8': 4.2.0
@@ -24717,7 +24709,7 @@ snapshots:
 
   '@aws-sdk/crc64-nvme@3.972.0':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/credential-provider-env@3.806.0':
@@ -24725,7 +24717,7 @@ snapshots:
       '@aws-sdk/core': 3.806.0
       '@aws-sdk/types': 3.804.0
       '@smithy/property-provider': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/credential-provider-env@3.972.44':
@@ -24738,22 +24730,22 @@ snapshots:
 
   '@aws-sdk/credential-provider-env@3.972.5':
     dependencies:
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/types': 3.973.11
       '@smithy/property-provider': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/credential-provider-http@3.806.0':
     dependencies:
       '@aws-sdk/core': 3.806.0
       '@aws-sdk/types': 3.804.0
-      '@smithy/fetch-http-handler': 5.3.9
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/fetch-http-handler': 5.4.6
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-stream': 4.5.11
       tslib: 2.8.1
 
@@ -24769,14 +24761,14 @@ snapshots:
 
   '@aws-sdk/credential-provider-http@3.972.7':
     dependencies:
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/types': 3.973.1
-      '@smithy/fetch-http-handler': 5.3.9
-      '@smithy/node-http-handler': 4.4.9
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/types': 3.973.11
+      '@smithy/fetch-http-handler': 5.4.6
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-stream': 4.5.11
       tslib: 2.8.1
 
@@ -24790,17 +24782,17 @@ snapshots:
       '@aws-sdk/credential-provider-web-identity': 3.806.0
       '@aws-sdk/nested-clients': 3.806.0
       '@aws-sdk/types': 3.804.0
-      '@smithy/credential-provider-imds': 4.2.8
+      '@smithy/credential-provider-imds': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
 
   '@aws-sdk/credential-provider-ini@3.972.5':
     dependencies:
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/credential-provider-env': 3.972.5
       '@aws-sdk/credential-provider-http': 3.972.7
       '@aws-sdk/credential-provider-login': 3.972.5
@@ -24808,11 +24800,11 @@ snapshots:
       '@aws-sdk/credential-provider-sso': 3.972.5
       '@aws-sdk/credential-provider-web-identity': 3.972.5
       '@aws-sdk/nested-clients': 3.985.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/credential-provider-imds': 4.2.8
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -24844,13 +24836,13 @@ snapshots:
 
   '@aws-sdk/credential-provider-login@3.972.5':
     dependencies:
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/nested-clients': 3.985.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/property-provider': 4.2.8
       '@smithy/protocol-http': 5.3.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -24864,10 +24856,10 @@ snapshots:
       '@aws-sdk/credential-provider-sso': 3.806.0
       '@aws-sdk/credential-provider-web-identity': 3.806.0
       '@aws-sdk/types': 3.804.0
-      '@smithy/credential-provider-imds': 4.2.8
+      '@smithy/credential-provider-imds': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -24909,7 +24901,7 @@ snapshots:
       '@aws-sdk/types': 3.804.0
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/credential-provider-process@3.972.44':
@@ -24922,11 +24914,11 @@ snapshots:
 
   '@aws-sdk/credential-provider-process@3.972.5':
     dependencies:
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/types': 3.973.11
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/credential-provider-sso@3.806.0':
@@ -24937,7 +24929,7 @@ snapshots:
       '@aws-sdk/types': 3.804.0
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -24955,12 +24947,12 @@ snapshots:
   '@aws-sdk/credential-provider-sso@3.972.5':
     dependencies:
       '@aws-sdk/client-sso': 3.985.0
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/token-providers': 3.985.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -24971,7 +24963,7 @@ snapshots:
       '@aws-sdk/nested-clients': 3.806.0
       '@aws-sdk/types': 3.804.0
       '@smithy/property-provider': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -24987,12 +24979,12 @@ snapshots:
 
   '@aws-sdk/credential-provider-web-identity@3.972.5':
     dependencies:
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/nested-clients': 3.985.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
@@ -25000,10 +24992,10 @@ snapshots:
   '@aws-sdk/dynamodb-codec@3.972.3(@aws-sdk/client-dynamodb@3.975.0)':
     dependencies:
       '@aws-sdk/client-dynamodb': 3.975.0
-      '@aws-sdk/core': 3.973.7
-      '@smithy/core': 3.22.1
+      '@aws-sdk/core': 3.974.18
+      '@smithy/core': 3.24.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       tslib: 2.8.1
 
@@ -25032,21 +25024,21 @@ snapshots:
 
   '@aws-sdk/middleware-bucket-endpoint@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-arn-parser': 3.972.2
       '@smithy/node-config-provider': 4.3.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-config-provider': 4.2.0
       tslib: 2.8.1
 
   '@aws-sdk/middleware-endpoint-discovery@3.972.2':
     dependencies:
       '@aws-sdk/endpoint-cache': 3.972.2
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/node-config-provider': 4.3.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-eventstream@3.972.16':
@@ -25058,9 +25050,9 @@ snapshots:
 
   '@aws-sdk/middleware-expect-continue@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-flexible-checksums@3.972.1':
@@ -25068,13 +25060,13 @@ snapshots:
       '@aws-crypto/crc32': 5.2.0
       '@aws-crypto/crc32c': 5.2.0
       '@aws-crypto/util': 5.2.0
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/crc64-nvme': 3.972.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/is-array-buffer': 4.2.0
       '@smithy/node-config-provider': 4.3.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-stream': 4.5.11
       '@smithy/util-utf8': 4.2.0
@@ -25084,68 +25076,68 @@ snapshots:
     dependencies:
       '@aws-sdk/types': 3.804.0
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-host-header@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-host-header@3.972.3':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-location-constraint@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-logger@3.804.0':
     dependencies:
       '@aws-sdk/types': 3.804.0
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-logger@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-logger@3.972.3':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-recursion-detection@3.804.0':
     dependencies:
       '@aws-sdk/types': 3.804.0
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-recursion-detection@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws/lambda-invoke-store': 0.2.3
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-recursion-detection@3.972.3':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws/lambda-invoke-store': 0.2.3
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-sdk-s3@3.806.0':
@@ -25153,12 +25145,12 @@ snapshots:
       '@aws-sdk/core': 3.806.0
       '@aws-sdk/types': 3.804.0
       '@aws-sdk/util-arn-parser': 3.804.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-config-provider': 4.2.0
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-stream': 4.5.11
@@ -25170,12 +25162,12 @@ snapshots:
       '@aws-sdk/core': 3.972.0
       '@aws-sdk/types': 3.972.0
       '@aws-sdk/util-arn-parser': 3.972.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-config-provider': 4.2.0
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-stream': 4.5.11
@@ -25184,15 +25176,15 @@ snapshots:
 
   '@aws-sdk/middleware-sdk-s3@3.972.7':
     dependencies:
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-arn-parser': 3.972.2
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/node-config-provider': 4.3.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
+      '@smithy/signature-v4': 5.4.6
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-config-provider': 4.2.0
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-stream': 4.5.11
@@ -25201,8 +25193,8 @@ snapshots:
 
   '@aws-sdk/middleware-ssec@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-user-agent@3.806.0':
@@ -25210,29 +25202,29 @@ snapshots:
       '@aws-sdk/core': 3.806.0
       '@aws-sdk/types': 3.804.0
       '@aws-sdk/util-endpoints': 3.806.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-user-agent@3.972.2':
     dependencies:
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-endpoints': 3.972.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-user-agent@3.972.7':
     dependencies:
-      '@aws-sdk/core': 3.973.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/core': 3.974.18
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-endpoints': 3.985.0
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/middleware-websocket@3.972.26':
@@ -25260,8 +25252,8 @@ snapshots:
       '@aws-sdk/util-user-agent-browser': 3.804.0
       '@aws-sdk/util-user-agent-node': 3.806.0
       '@smithy/config-resolver': 4.4.6
-      '@smithy/core': 3.22.1
-      '@smithy/fetch-http-handler': 5.3.9
+      '@smithy/core': 3.24.6
+      '@smithy/fetch-http-handler': 5.4.6
       '@smithy/hash-node': 4.2.8
       '@smithy/invalid-dependency': 4.2.8
       '@smithy/middleware-content-length': 4.2.8
@@ -25270,10 +25262,10 @@ snapshots:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/middleware-stack': 4.2.8
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
@@ -25292,19 +25284,19 @@ snapshots:
     dependencies:
       '@aws-crypto/sha256-browser': 5.2.0
       '@aws-crypto/sha256-js': 5.2.0
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/middleware-host-header': 3.972.3
       '@aws-sdk/middleware-logger': 3.972.3
       '@aws-sdk/middleware-recursion-detection': 3.972.3
       '@aws-sdk/middleware-user-agent': 3.972.7
       '@aws-sdk/region-config-resolver': 3.972.3
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@aws-sdk/util-endpoints': 3.985.0
       '@aws-sdk/util-user-agent-browser': 3.972.3
       '@aws-sdk/util-user-agent-node': 3.972.5
       '@smithy/config-resolver': 4.4.6
-      '@smithy/core': 3.22.1
-      '@smithy/fetch-http-handler': 5.3.9
+      '@smithy/core': 3.24.6
+      '@smithy/fetch-http-handler': 5.4.6
       '@smithy/hash-node': 4.2.8
       '@smithy/invalid-dependency': 4.2.8
       '@smithy/middleware-content-length': 4.2.8
@@ -25313,10 +25305,10 @@ snapshots:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/middleware-stack': 4.2.8
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/node-http-handler': 4.4.9
+      '@smithy/node-http-handler': 4.7.7
       '@smithy/protocol-http': 5.3.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
@@ -25348,25 +25340,25 @@ snapshots:
     dependencies:
       '@aws-sdk/types': 3.804.0
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-config-provider': 4.2.0
       '@smithy/util-middleware': 4.2.8
       tslib: 2.8.1
 
   '@aws-sdk/region-config-resolver@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/config-resolver': 4.4.6
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/region-config-resolver@3.972.3':
     dependencies:
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/config-resolver': 4.4.6
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/signature-v4-multi-region@3.806.0':
@@ -25374,8 +25366,8 @@ snapshots:
       '@aws-sdk/middleware-sdk-s3': 3.806.0
       '@aws-sdk/types': 3.804.0
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/signature-v4': 5.4.6
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/signature-v4-multi-region@3.972.0':
@@ -25383,17 +25375,17 @@ snapshots:
       '@aws-sdk/middleware-sdk-s3': 3.972.0
       '@aws-sdk/types': 3.972.0
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/signature-v4': 5.4.6
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/signature-v4-multi-region@3.985.0':
     dependencies:
       '@aws-sdk/middleware-sdk-s3': 3.972.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/signature-v4': 5.4.6
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/signature-v4-multi-region@3.996.32':
@@ -25427,41 +25419,41 @@ snapshots:
       '@aws-sdk/types': 3.804.0
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
 
   '@aws-sdk/token-providers@3.985.0':
     dependencies:
-      '@aws-sdk/core': 3.973.7
+      '@aws-sdk/core': 3.974.18
       '@aws-sdk/nested-clients': 3.985.0
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
 
   '@aws-sdk/types@3.804.0':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/types@3.972.0':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/types@3.973.0':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/types@3.973.1':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/types@3.973.11':
@@ -25484,22 +25476,22 @@ snapshots:
   '@aws-sdk/util-endpoints@3.806.0':
     dependencies:
       '@aws-sdk/types': 3.804.0
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-endpoints': 3.2.8
       tslib: 2.8.1
 
   '@aws-sdk/util-endpoints@3.972.0':
     dependencies:
       '@aws-sdk/types': 3.972.0
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-endpoints': 3.2.8
       tslib: 2.8.1
 
   '@aws-sdk/util-endpoints@3.985.0':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-endpoints': 3.2.8
       tslib: 2.8.1
@@ -25511,21 +25503,21 @@ snapshots:
   '@aws-sdk/util-user-agent-browser@3.804.0':
     dependencies:
       '@aws-sdk/types': 3.804.0
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       bowser: 2.11.0
       tslib: 2.8.1
 
   '@aws-sdk/util-user-agent-browser@3.972.1':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       bowser: 2.11.0
       tslib: 2.8.1
 
   '@aws-sdk/util-user-agent-browser@3.972.3':
     dependencies:
-      '@aws-sdk/types': 3.973.1
-      '@smithy/types': 4.12.0
+      '@aws-sdk/types': 3.973.11
+      '@smithy/types': 4.14.3
       bowser: 2.11.0
       tslib: 2.8.1
 
@@ -25534,40 +25526,34 @@ snapshots:
       '@aws-sdk/middleware-user-agent': 3.806.0
       '@aws-sdk/types': 3.804.0
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/util-user-agent-node@3.972.1':
     dependencies:
       '@aws-sdk/middleware-user-agent': 3.972.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/util-user-agent-node@3.972.5':
     dependencies:
       '@aws-sdk/middleware-user-agent': 3.972.7
-      '@aws-sdk/types': 3.973.1
+      '@aws-sdk/types': 3.973.11
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.0':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
   '@aws-sdk/xml-builder@3.972.28':
     dependencies:
       '@smithy/types': 4.14.3
-      fast-xml-parser: 5.5.6
-      tslib: 2.8.1
-
-  '@aws-sdk/xml-builder@3.972.4':
-    dependencies:
-      '@smithy/types': 4.12.0
       fast-xml-parser: 5.5.6
       tslib: 2.8.1
 
@@ -28662,7 +28648,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.34.5':
     dependencies:
-      '@emnapi/runtime': 1.9.2
+      '@emnapi/runtime': 1.10.0
     optional: true
 
   '@img/sharp-win32-arm64@0.34.5':
@@ -29834,8 +29820,8 @@ snapshots:
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
-      '@emnapi/core': 1.9.2
-      '@emnapi/runtime': 1.9.2
+      '@emnapi/core': 1.10.0
+      '@emnapi/runtime': 1.10.0
       '@tybys/wasm-util': 0.10.1
     optional: true
 
@@ -32765,7 +32751,7 @@ snapshots:
 
   '@smithy/abort-controller@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/chunked-blob-reader-native@4.2.1':
@@ -32780,7 +32766,7 @@ snapshots:
   '@smithy/config-resolver@4.4.6':
     dependencies:
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-config-provider': 4.2.0
       '@smithy/util-endpoints': 3.2.8
       '@smithy/util-middleware': 4.2.8
@@ -32790,7 +32776,7 @@ snapshots:
     dependencies:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
       '@smithy/util-middleware': 4.2.8
@@ -32803,7 +32789,7 @@ snapshots:
     dependencies:
       '@smithy/middleware-serde': 4.2.9
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       '@smithy/util-body-length-browser': 4.2.0
       '@smithy/util-middleware': 4.2.8
@@ -32822,7 +32808,7 @@ snapshots:
     dependencies:
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       tslib: 2.8.1
 
@@ -32835,38 +32821,38 @@ snapshots:
   '@smithy/eventstream-codec@4.2.8':
     dependencies:
       '@aws-crypto/crc32': 5.2.0
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-hex-encoding': 4.2.0
       tslib: 2.8.1
 
   '@smithy/eventstream-serde-browser@4.2.8':
     dependencies:
       '@smithy/eventstream-serde-universal': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/eventstream-serde-config-resolver@4.3.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/eventstream-serde-node@4.2.8':
     dependencies:
       '@smithy/eventstream-serde-universal': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/eventstream-serde-universal@4.2.8':
     dependencies:
       '@smithy/eventstream-codec': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/fetch-http-handler@5.3.9':
     dependencies:
       '@smithy/protocol-http': 5.3.8
       '@smithy/querystring-builder': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       tslib: 2.8.1
 
@@ -32880,25 +32866,25 @@ snapshots:
     dependencies:
       '@smithy/chunked-blob-reader': 5.2.0
       '@smithy/chunked-blob-reader-native': 4.2.1
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/hash-node@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-buffer-from': 4.2.0
       '@smithy/util-utf8': 4.2.0
       tslib: 2.8.1
 
   '@smithy/hash-stream-node@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-utf8': 4.2.0
       tslib: 2.8.1
 
   '@smithy/invalid-dependency@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/is-array-buffer@2.2.0':
@@ -32911,34 +32897,34 @@ snapshots:
 
   '@smithy/md5-js@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-utf8': 4.2.0
       tslib: 2.8.1
 
   '@smithy/middleware-content-length@4.2.8':
     dependencies:
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/middleware-endpoint@4.4.11':
     dependencies:
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/middleware-serde': 4.2.9
       '@smithy/node-config-provider': 4.3.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-middleware': 4.2.8
       tslib: 2.8.1
 
   '@smithy/middleware-endpoint@4.4.13':
     dependencies:
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/middleware-serde': 4.2.9
       '@smithy/node-config-provider': 4.3.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/url-parser': 4.2.8
       '@smithy/util-middleware': 4.2.8
       tslib: 2.8.1
@@ -32949,7 +32935,7 @@ snapshots:
       '@smithy/protocol-http': 5.3.8
       '@smithy/service-error-classification': 4.2.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-retry': 4.2.8
       '@smithy/uuid': 1.1.0
@@ -32961,7 +32947,7 @@ snapshots:
       '@smithy/protocol-http': 5.3.8
       '@smithy/service-error-classification': 4.2.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-middleware': 4.2.8
       '@smithy/util-retry': 4.2.8
       '@smithy/uuid': 1.1.0
@@ -32970,19 +32956,19 @@ snapshots:
   '@smithy/middleware-serde@4.2.9':
     dependencies:
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/middleware-stack@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/node-config-provider@4.3.8':
     dependencies:
       '@smithy/property-provider': 4.2.8
       '@smithy/shared-ini-file-loader': 4.4.3
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/node-http-handler@4.4.9':
@@ -32990,7 +32976,7 @@ snapshots:
       '@smithy/abort-controller': 4.2.8
       '@smithy/protocol-http': 5.3.8
       '@smithy/querystring-builder': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/node-http-handler@4.7.3':
@@ -33007,43 +32993,32 @@ snapshots:
 
   '@smithy/property-provider@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/protocol-http@5.3.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/querystring-builder@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-uri-escape': 4.2.0
       tslib: 2.8.1
 
   '@smithy/querystring-parser@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/service-error-classification@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
 
   '@smithy/shared-ini-file-loader@4.4.3':
     dependencies:
-      '@smithy/types': 4.12.0
-      tslib: 2.8.1
-
-  '@smithy/signature-v4@5.3.8':
-    dependencies:
-      '@smithy/is-array-buffer': 4.2.0
-      '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
-      '@smithy/util-hex-encoding': 4.2.0
-      '@smithy/util-middleware': 4.2.8
-      '@smithy/util-uri-escape': 4.2.0
-      '@smithy/util-utf8': 4.2.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/signature-v4@5.4.6':
@@ -33054,21 +33029,21 @@ snapshots:
 
   '@smithy/smithy-client@4.10.12':
     dependencies:
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/middleware-endpoint': 4.4.13
       '@smithy/middleware-stack': 4.2.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-stream': 4.5.11
       tslib: 2.8.1
 
   '@smithy/smithy-client@4.11.2':
     dependencies:
-      '@smithy/core': 3.22.1
+      '@smithy/core': 3.24.6
       '@smithy/middleware-endpoint': 4.4.13
       '@smithy/middleware-stack': 4.2.8
       '@smithy/protocol-http': 5.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       '@smithy/util-stream': 4.5.11
       tslib: 2.8.1
 
@@ -33083,7 +33058,7 @@ snapshots:
   '@smithy/url-parser@4.2.8':
     dependencies:
       '@smithy/querystring-parser': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-base64@4.3.0':
@@ -33118,14 +33093,14 @@ snapshots:
     dependencies:
       '@smithy/property-provider': 4.2.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-defaults-mode-browser@4.3.29':
     dependencies:
       '@smithy/property-provider': 4.2.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-defaults-mode-node@4.2.29':
@@ -33135,23 +33110,23 @@ snapshots:
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-defaults-mode-node@4.2.32':
     dependencies:
       '@smithy/config-resolver': 4.4.6
-      '@smithy/credential-provider-imds': 4.2.8
+      '@smithy/credential-provider-imds': 4.3.8
       '@smithy/node-config-provider': 4.3.8
       '@smithy/property-provider': 4.2.8
       '@smithy/smithy-client': 4.11.2
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-endpoints@3.2.8':
     dependencies:
       '@smithy/node-config-provider': 4.3.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-hex-encoding@4.2.0':
@@ -33160,20 +33135,20 @@ snapshots:
 
   '@smithy/util-middleware@4.2.8':
     dependencies:
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-retry@4.2.8':
     dependencies:
       '@smithy/service-error-classification': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/util-stream@4.5.11':
     dependencies:
-      '@smithy/fetch-http-handler': 5.3.9
-      '@smithy/node-http-handler': 4.4.9
-      '@smithy/types': 4.12.0
+      '@smithy/fetch-http-handler': 5.4.6
+      '@smithy/node-http-handler': 4.7.7
+      '@smithy/types': 4.14.3
       '@smithy/util-base64': 4.3.0
       '@smithy/util-buffer-from': 4.2.0
       '@smithy/util-hex-encoding': 4.2.0
@@ -33197,7 +33172,7 @@ snapshots:
   '@smithy/util-waiter@4.2.8':
     dependencies:
       '@smithy/abort-controller': 4.2.8
-      '@smithy/types': 4.12.0
+      '@smithy/types': 4.14.3
       tslib: 2.8.1
 
   '@smithy/uuid@1.1.0':

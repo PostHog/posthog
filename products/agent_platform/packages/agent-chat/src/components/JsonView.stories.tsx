@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+
 import { weeklyDigestDraftRevision } from '../fixtures'
 import { JsonView } from './JsonView'
 

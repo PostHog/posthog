@@ -34,7 +34,12 @@ export interface JsonViewProps {
     className?: string
 }
 
-export function JsonView({ value, defaultView = 'tree', expandToLevel = 2, className }: JsonViewProps): React.ReactElement {
+export function JsonView({
+    value,
+    defaultView = 'tree',
+    expandToLevel = 2,
+    className,
+}: JsonViewProps): React.ReactElement {
     const [view, setView] = useState<JsonViewMode>(defaultView)
 
     return (
@@ -59,7 +64,13 @@ export function JsonView({ value, defaultView = 'tree', expandToLevel = 2, class
     )
 }
 
-function ViewToggle({ view, onChange }: { view: JsonViewMode; onChange: (next: JsonViewMode) => void }): React.ReactElement {
+function ViewToggle({
+    view,
+    onChange,
+}: {
+    view: JsonViewMode
+    onChange: (next: JsonViewMode) => void
+}): React.ReactElement {
     return (
         <div
             className="inline-flex overflow-hidden rounded border border-border/60 bg-background/80 shadow-sm"

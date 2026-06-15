@@ -61,7 +61,7 @@ shouldn't pressure the product DB.
 
 **Slack signing secret — per-agent, no env var, no spec ref.** Each
 trigger type declares the secrets it expects in `TRIGGER_REQUIRED_SECRETS`
-(see `services/agent-shared/src/spec/trigger-secrets.ts`). The slack
+(see `products/agent_platform/services/agent-shared/src/spec/trigger-secrets.ts`). The slack
 trigger requires `SLACK_SIGNING_SECRET` in the agent's
 `AgentApplication.encrypted_env`. Authors set it via the env editor in
 the console; the Django `promote` action refuses to flip a revision live

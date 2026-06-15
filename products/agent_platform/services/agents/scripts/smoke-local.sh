@@ -20,7 +20,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
+REPO_ROOT="$(cd "$HERE/../../../../.." && pwd)"
 SMOKE_SCRIPT="$REPO_ROOT/.github/scripts/smoke-test-agent-bundle.sh"
 
 IMAGE="${IMAGE:-posthog-agents:dev}"
@@ -39,7 +39,7 @@ fi
 if [ "$SKIP_BUILD" = "0" ] && [ -z "${IMAGE_OVERRIDE:-}" ] && [ "$IMAGE" = "posthog-agents:dev" ]; then
     echo "::group::Build $IMAGE (set SKIP_BUILD=1 to reuse existing tag)"
     docker build \
-        -f "$REPO_ROOT/services/agents/Dockerfile" \
+        -f "$REPO_ROOT/products/agent_platform/services/agents/Dockerfile" \
         -t "$IMAGE" \
         "$REPO_ROOT"
     echo "::endgroup::"

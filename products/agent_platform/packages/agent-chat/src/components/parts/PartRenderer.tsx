@@ -26,9 +26,7 @@ export type PartTextVariant = 'plain' | 'bubble'
  * `/client_tool_result` endpoint — `{ ok, body }` for success,
  * `{ ok: false, error }` for failure.
  */
-export type ClientToolOutcome =
-    | { ok: true; body: Record<string, unknown> }
-    | { ok: false; error: string }
+export type ClientToolOutcome = { ok: true; body: Record<string, unknown> } | { ok: false; error: string }
 
 export interface PartRendererProps {
     part: AssistantTurnPart

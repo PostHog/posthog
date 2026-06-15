@@ -20,6 +20,7 @@
 
 import { ArrowUpIcon, SquareIcon, XIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
+
 import { ApprovalCard } from './components/ApprovalCard'
 import type { ClientToolOutcome } from './components/parts'
 import { TurnRow } from './components/Turn'
@@ -93,7 +94,9 @@ export interface AgentChatProps {
      * reasons for failures, etc. Returning `null` (or omitting the
      * prop) falls back to the bare collapsed card.
      */
-    renderToolSummary?: (part: Extract<import('./types').AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null
+    renderToolSummary?: (
+        part: Extract<import('./types').AssistantTurnPart, { kind: 'tool_call' }>
+    ) => React.ReactNode | null
 }
 
 /**
@@ -290,13 +293,16 @@ function describeTransportError(err: TransportError): { title: string; body: str
     if (code === 'upstream_unreachable' || err.status === 502 || err.status === -1) {
         return {
             title: 'Agent platform unreachable',
-            body: detail || 'Could not reach the agent runtime. Check that the ingress service is running, then try again.',
+            body:
+                detail ||
+                'Could not reach the agent runtime. Check that the ingress service is running, then try again.',
         }
     }
     if (code === 'no_chat_trigger') {
         return {
             title: 'No chat trigger on this revision',
-            body: detail || 'This agent revision was not built to accept chat. Update its spec to add a `chat` trigger.',
+            body:
+                detail || 'This agent revision was not built to accept chat. Update its spec to add a `chat` trigger.',
         }
     }
     if (code === 'preview_token_required' || code === 'preview_token_expired') {

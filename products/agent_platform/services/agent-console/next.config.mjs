@@ -10,12 +10,13 @@ const nextConfig = {
     // a URL Django doesn't recognize.
     skipTrailingSlashRedirect: true,
     // Emits a minimal self-contained server bundle under `.next/standalone/`
-    // for the container image — see services/agent-console/Dockerfile.
+    // for the container image — see Dockerfile in this directory.
     output: 'standalone',
     // The standalone output traces dependencies from this file outward.
     // Pinning the workspace root makes the trace deterministic across
     // local + docker builds (otherwise next picks a parent dir as root).
-    outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
+    // Four levels up from products/agent_platform/services/agent-console/ → repo root.
+    outputFileTracingRoot: new URL('../../../../', import.meta.url).pathname,
 }
 
 export default nextConfig

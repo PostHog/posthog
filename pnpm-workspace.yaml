@@ -7,7 +7,6 @@ packages:
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
-    - packages/agent-chat
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -16,16 +15,9 @@ packages:
     - nodejs
     - nodejs/src/scripts
     - products/*
+    - products/agent_platform/services/*
+    - products/agent_platform/packages/*
     - docs/onboarding
-    - services/agent-console
-    - services/agents
-    - services/agent-shared
-    - services/agent-tools
-    - services/agent-sandbox-host
-    - services/agent-ingress
-    - services/agent-janitor
-    - services/agent-runner
-    - services/agent-tests
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app

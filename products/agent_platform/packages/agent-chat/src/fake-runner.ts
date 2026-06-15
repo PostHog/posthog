@@ -26,6 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
 import type { AssistantTurnPart, ChatSession, ClientToolHandler, Turn } from './types'
 
 /* ── Script shape ────────────────────────────────────────────────── */
@@ -228,8 +229,10 @@ async function playScript({
                     result = { ok: false, error: `no client handler registered for ${step.toolId}` }
                 }
             } else {
-                result =
-                    step.result ?? { ok: true, body: { note: 'no result provided in script — synthesized empty body' } }
+                result = step.result ?? {
+                    ok: true,
+                    body: { note: 'no result provided in script — synthesized empty body' },
+                }
             }
 
             updatePart(setSession, assistantId, partIndex, {
@@ -312,9 +315,7 @@ function updatePart(
     index: number,
     part: AssistantTurnPart
 ): void {
-    setSession((s) =>
-        withAssistantTurn(s, assistantId, (parts) => parts.map((p, i) => (i === index ? part : p)))
-    )
+    setSession((s) => withAssistantTurn(s, assistantId, (parts) => parts.map((p, i) => (i === index ? part : p))))
 }
 
 function sleep(ms: number): Promise<void> {
