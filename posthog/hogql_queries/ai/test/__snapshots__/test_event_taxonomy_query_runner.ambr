@@ -31,6 +31,38 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestEventTaxonomyQueryRunner.test_event_taxonomy_query_runner[new_events_schema]
+  '''
+  SELECT key,
+         arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  values,
+         count(DISTINCT value) AS total_count
+  FROM
+    (SELECT JSONExtractKeysAndValues(toString(events.properties), 'String') AS kv
+     FROM events_json AS events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
+     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+     LIMIT 100) ARRAY
+  JOIN (kv).1 AS key,
+       (kv).2 AS value
+  WHERE and(not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|\\$feature_enrollment\\/|\\$feature_interaction\\/|\\$product_tour|__|survey_dismiss|survey_responded|phjs|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)')), isNotNull(value), ifNull(notEquals(value, ''), 1))
+  GROUP BY key
+  ORDER BY total_count DESC
+  LIMIT 501
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestEventTaxonomyQueryRunner.test_property_taxonomy_handles_numeric_property_values
   '''
   SELECT key AS key,
@@ -69,6 +101,44 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestEventTaxonomyQueryRunner.test_property_taxonomy_handles_numeric_property_values[new_events_schema]
+  '''
+  SELECT key AS key,
+                arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  values,
+                count(DISTINCT value) AS total_count
+  FROM
+    (SELECT key,
+            value,
+            count() AS count
+     FROM
+       (SELECT [tuple('zero_duration_recording_count_in_period', if(isNull(events.properties.zero_duration_recording_count_in_period), NULL, toString(events.properties.zero_duration_recording_count_in_period)))] AS kv
+        FROM events_json AS events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), ifNull(notEquals(if(isNull(events.properties.zero_duration_recording_count_in_period), NULL, toString(events.properties.zero_duration_recording_count_in_period)), ''), 1))) ARRAY
+     JOIN (kv).1 AS key,
+          (kv).2 AS value
+     WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))
+     GROUP BY key,
+              value
+     ORDER BY count DESC)
+  GROUP BY key
+  ORDER BY total_count DESC,
+           key ASC
+  LIMIT 501
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
 # name: TestEventTaxonomyQueryRunner.test_retrieves_action_properties
   '''
   SELECT key,
@@ -78,6 +148,38 @@
   FROM
     (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
      FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
+     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+     LIMIT 100) ARRAY
+  JOIN (kv).1 AS key,
+       (kv).2 AS value
+  WHERE and(not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|\\$feature_enrollment\\/|\\$feature_interaction\\/|\\$product_tour|__|survey_dismiss|survey_responded|phjs|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)')), isNotNull(value), ifNull(notEquals(value, ''), 1))
+  GROUP BY key
+  ORDER BY total_count DESC
+  LIMIT 501
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventTaxonomyQueryRunner.test_retrieves_action_properties[new_events_schema]
+  '''
+  SELECT key,
+         arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  values,
+         count(DISTINCT value) AS total_count
+  FROM
+    (SELECT JSONExtractKeysAndValues(toString(events.properties), 'String') AS kv
+     FROM events_json AS events
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
      ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
      LIMIT 100) ARRAY

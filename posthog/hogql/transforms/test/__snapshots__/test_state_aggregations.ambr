@@ -111,13 +111,13 @@
   FROM (
     SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s))) AS funnel_metrics 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 420), equals(events.properties.device_type, %(hogql_val_2)s))) 
+    WHERE and(equals(events.team_id, 420), ifNull(equals(if(isNull(events.properties.device_type), NULL, toString(events.properties.device_type)), %(hogql_val_2)s), 0))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(funnel_metrics, 1)), countMerge(tupleElement(funnel_metrics, 2)), countMerge(tupleElement(funnel_metrics, 3))) AS funnel_metrics 
   FROM (
     SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_3)s)), countStateIf(equals(events.event, %(hogql_val_4)s))) AS funnel_metrics 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 420), equals(events.properties.device_type, %(hogql_val_5)s))) 
+    WHERE and(equals(events.team_id, 420), ifNull(equals(if(isNull(events.properties.device_type), NULL, toString(events.properties.device_type)), %(hogql_val_5)s), 0))) 
   LIMIT 50000
   '''
 # ---
@@ -259,8 +259,6 @@
   GROUP BY host 
   LIMIT 50000
   '''
-# ---
-# ---
 # ---
 # name: TestStateTransforms.test_combine_three_data_sources_with_mixed_tuples[new_events_schema]
   '''
@@ -485,13 +483,13 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2))) AS session_metrics 
   FROM (
-    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(nullIf(nullIf(events.properties.duration, ''), 'null'), %(hogql_val_0)s))) AS session_metrics 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(if(isNull(events.properties.duration), NULL, toString(events.properties.duration)), %(hogql_val_0)s))) AS session_metrics 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2))) AS session_metrics 
   FROM (
-    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(nullIf(nullIf(events.properties.duration, ''), 'null'), %(hogql_val_3)s))) AS session_metrics 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(if(isNull(events.properties.duration), NULL, toString(events.properties.duration)), %(hogql_val_3)s))) AS session_metrics 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)))) 
   LIMIT 50000

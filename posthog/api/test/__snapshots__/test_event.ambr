@@ -14,147 +14,92 @@
 # name: TestEvents.test_event_property_values.1
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values.2
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%qw%'), 0))
-  ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
+    AND replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') ILIKE '%qw%'
+  ORDER BY length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) ASC
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values.3
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%QW%'), 0))
-  ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
+    AND replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') ILIKE '%QW%'
+  ORDER BY length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) ASC
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values.4
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%6%'), 0))
-  ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
+    AND replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') ILIKE '%6%'
+  ORDER BY length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) ASC
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values.5
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), equals(events.event, 'random event'), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%6%'), 0))
-  ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
+    AND (events.event = 'random event')
+    AND replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') ILIKE '%6%'
+  ORDER BY length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) ASC
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values.6
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%6%'), 0))
-  ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
+    AND (events.event = 'foo'
+         OR events.event = 'random event')
+    AND replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') ILIKE '%6%'
+  ORDER BY length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) ASC
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values.7
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS random_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), equals(events.event, '404_i_dont_exist'), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')), '%qw%'), 0))
-  ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
+    AND (events.event = '404_i_dont_exist')
+    AND replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '') ILIKE '%qw%'
+  ORDER BY length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')) ASC
+  LIMIT 10
+  '''
+# ---
+# name: TestEvents.test_event_property_values[new_events_schema]
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events_json
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized
@@ -292,21 +237,10 @@
 # name: TestEvents.test_event_property_values_with_hidden_properties
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'visible_prop'), ''), 'null'), '^"|"$', '') AS visible_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'visible_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'visible_prop'), ''), 'null'), '^"|"$', '')))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values_with_hidden_properties_materialized
@@ -330,21 +264,10 @@
 # name: TestEvents.test_event_property_values_without_hidden_properties
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', '') AS test_prop
+  SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', '') AS value
   FROM events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'test_prop'), ''), 'null'), '^"|"$', '')))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  LIMIT 10
   '''
 # ---
 # name: TestEvents.test_event_property_values_without_hidden_properties_materialized

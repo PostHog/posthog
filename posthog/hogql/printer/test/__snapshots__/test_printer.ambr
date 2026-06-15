@@ -5893,7 +5893,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(lower(nullIf(nullIf(events.properties.email, ''), 'null')), ['foo@example.com', 'bar@example.com']))
+  WHERE and(equals(events.team_id, 99999), in(lower(if(isNull(events.properties.email), NULL, toString(events.properties.email))), ['foo@example.com', 'bar@example.com']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -5931,7 +5931,7 @@
   '''
   SELECT count() AS `count()`
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(lower(nullIf(nullIf(events.properties.email, ''), 'null')), ['foo@example.com', 'bar@example.com']))
+  WHERE and(equals(events.team_id, 99999), in(lower(if(isNull(events.properties.email), NULL, toString(events.properties.email))), ['foo@example.com', 'bar@example.com']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -6374,9 +6374,9 @@
 # name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_1_materialized_on_events[new_events_schema]
   '''
   SELECT events.distinct_id AS distinct_id,
-         nullIf(nullIf(events.person_properties.email, ''), 'null') AS email_value,
-         isNull(nullIf(nullIf(events.person_properties.email, ''), 'null')) AS is_not_set_result,
-         or(isNull(nullIf(nullIf(events.person_properties.email, ''), 'null')), not(has(JSONAllPaths(events.person_properties), 'email'))) AS is_not_set_result_historical
+         if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email)) AS email_value,
+         isNull(if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email))) AS is_not_set_result,
+         or(isNull(if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email))), not(isNotNull(events.person_properties.email))) AS is_not_set_result_historical
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
   ORDER BY distinct_id ASC
@@ -6502,9 +6502,9 @@
 # name: TestMaterializedColumnOptimization.test_person_property_is_not_set_behavior_3_not_materialized_on_events[new_events_schema]
   '''
   SELECT events.distinct_id AS distinct_id,
-         nullIf(nullIf(events.person_properties.email, ''), 'null') AS email_value,
-         isNull(nullIf(nullIf(events.person_properties.email, ''), 'null')) AS is_not_set_result,
-         or(isNull(nullIf(nullIf(events.person_properties.email, ''), 'null')), not(has(JSONAllPaths(events.person_properties), 'email'))) AS is_not_set_result_historical
+         if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email)) AS email_value,
+         isNull(if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email))) AS is_not_set_result,
+         or(isNull(if(isNull(events.person_properties.email), NULL, toString(events.person_properties.email))), not(isNotNull(events.person_properties.email))) AS is_not_set_result_historical
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))
   ORDER BY distinct_id ASC
@@ -6682,6 +6682,9 @@
 # name: TestPrinter.test_projection_pushdown_no_asterisk_unchanged_0_with_optimize_projections[new_events_schema]
   'SELECT sub.event AS event FROM (SELECT events.event AS event, events.distinct_id AS distinct_id FROM events_json AS events WHERE equals(events.team_id, 99999)) AS sub LIMIT 50000'
 # ---
+# name: TestPrinter.test_projection_pushdown_no_asterisk_unchanged_1_without_optimize_projections
+  'SELECT sub.event AS event FROM (SELECT events.event AS event, events.distinct_id AS distinct_id FROM events WHERE equals(events.team_id, 99999)) AS sub LIMIT 50000'
+# ---
 # name: TestPrinter.test_projection_pushdown_no_asterisk_unchanged_1_without_optimize_projections[new_events_schema]
   'SELECT sub.event AS event FROM (SELECT events.event AS event, events.distinct_id AS distinct_id FROM events_json AS events WHERE equals(events.team_id, 99999)) AS sub LIMIT 50000'
 # ---
@@ -6804,8 +6807,4 @@
 # ---
 # name: TestPrinter.test_s3_tables_global_join_with_multiple_joins_1[new_events_schema]
   "SELECT e.event, s.event AS event, t.id AS id FROM events_json AS e JOIN (SELECT events.event AS event FROM events_json AS events WHERE equals(events.team_id, 99999)) AS s ON equals(e.event, s.event) LEFT JOIN s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s) AS t ON equals(e.event, toString(t.id)) WHERE equals(e.team_id, 99999) LIMIT 50000"
-# ---
-# ---
-# name: TestPrinter.test_projection_pushdown_no_asterisk_unchanged_1_without_optimize_projections
-  'SELECT sub.event AS event FROM (SELECT events.event AS event, events.distinct_id AS distinct_id FROM events WHERE equals(events.team_id, 99999)) AS sub LIMIT 50000'
 # ---
