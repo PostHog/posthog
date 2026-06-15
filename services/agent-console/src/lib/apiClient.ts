@@ -1165,6 +1165,7 @@ export interface NativeToolCatalogEntry {
         requires: {
             integrations: string[]
             scopes: string[]
+            secrets: string[]
         }
         cost_hint: 'cheap' | 'medium' | 'expensive'
     }

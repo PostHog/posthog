@@ -45,7 +45,11 @@ describe('native tool registry', () => {
             expect(t.schema.args).not.toBeUndefined()
             expect(t.schema.returns).not.toBeUndefined()
             expect(t.schema.requires).toEqual(
-                expect.objectContaining({ integrations: expect.any(Array), scopes: expect.any(Array) })
+                expect.objectContaining({
+                    integrations: expect.any(Array),
+                    scopes: expect.any(Array),
+                    secrets: expect.any(Array),
+                })
             )
             expect(['cheap', 'medium', 'expensive']).toContain(t.schema.cost_hint)
         }

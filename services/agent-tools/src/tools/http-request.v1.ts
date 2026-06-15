@@ -26,7 +26,7 @@
  * API."
  */
 
-import { defineNativeTool, type ToolContext, Type } from '@posthog/agent-shared'
+import { defineNativeTool, SECRET_WILDCARD, type ToolContext, Type } from '@posthog/agent-shared'
 
 const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
 
@@ -152,7 +152,10 @@ export const httpRequestV1 = defineNativeTool({
         url: Type.String(),
         truncated: Type.Boolean({ description: 'True if the response body was clipped to max_response_bytes.' }),
     }),
-    requires: { integrations: [], scopes: ['web:fetch'] },
+    // Resolves `${NAME}` placeholders by author-supplied name, so it must reach
+    // any secret the spec declares — the `*` wildcard scopes it to `spec.secrets`
+    // (still narrower than the raw decrypted env).
+    requires: { integrations: [], scopes: ['web:fetch'], secrets: [SECRET_WILDCARD] },
     cost_hint: 'medium',
     async run(args, ctx) {
         const url = substituteSecrets(args.url, ctx)

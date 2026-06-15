@@ -38,6 +38,7 @@ import {
     MemoryStore,
     TabularStore,
     Sandbox,
+    SECRET_WILDCARD,
     ToolContext,
 } from '@posthog/agent-shared'
 import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
@@ -299,6 +300,9 @@ function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> 
 
 function makeNativeTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, ToolResultDetails> {
     const native = getNativeTool(id)
+    // Least privilege: this tool may only read the secrets it declares in
+    // `requires.secrets`. The accessor handed to `run` denies anything else.
+    const allowedSecrets = secretAllowlistFor(native.schema.requires.secrets, deps.rev.spec.secrets)
     return {
         name: id,
         label: id,
@@ -307,9 +311,54 @@ function makeNativeTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, Too
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             // Throws propagate: the loop renders them as an error tool_result
             // (content = message, isError: true) — same shape as the old path.
-            const result = await native.run(args, buildToolContext(deps))
+            const result = await native.run(args, buildToolContext(deps, { toolId: id, allowedSecrets }))
             return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
         },
+    }
+}
+
+/**
+ * Warn-only switch for per-tool secret scoping. While `false`, a read of an
+ * undeclared secret is logged (`secret_access_denied`) but still returns the
+ * value — so prod denials surface in the logs before we enforce. Flip to `true`
+ * once the logs are clean for every shipped agent (a one-line follow-up).
+ */
+export const ENFORCE_SECRET_SCOPING = false
+
+/**
+ * Resolve the set of secret names a native tool may read. An explicit
+ * `requires.secrets` list passes through verbatim; the `*` wildcard widens to
+ * every secret the spec declares (`spec.secrets`) — still narrower than the
+ * full decrypted env, and reserved for by-name resolvers like
+ * `@posthog/http-request`.
+ */
+export function secretAllowlistFor(requiresSecrets: readonly string[], specSecrets: readonly string[]): Set<string> {
+    if (requiresSecrets.includes(SECRET_WILDCARD)) {
+        return new Set(specSecrets)
+    }
+    return new Set(requiresSecrets)
+}
+
+/**
+ * Build the `ctx.secret` accessor scoped to `allowed`. A read outside the set
+ * logs `secret_access_denied`; under `enforce` it returns undefined (which
+ * tools already handle as a missing secret), otherwise it returns the value so
+ * we can observe denials without changing behaviour during rollout.
+ */
+export function makeScopedSecretAccessor(
+    deps: Pick<AgentToolDeps, 'secrets' | 'log'>,
+    toolId: string,
+    allowed: Set<string>,
+    enforce: boolean = ENFORCE_SECRET_SCOPING
+): (name: string) => string | undefined {
+    return (name: string): string | undefined => {
+        if (!allowed.has(name)) {
+            deps.log('warn', 'secret_access_denied', { tool: toolId, secret: name, enforced: enforce })
+            if (enforce) {
+                return undefined
+            }
+        }
+        return deps.secrets[name]
     }
 }
 
@@ -425,8 +474,15 @@ function makeMcpTool(
     }
 }
 
-/** Replicates the `ToolContext` the old `dispatchTool` built for native tools. */
-function buildToolContext(deps: AgentToolDeps): ToolContext {
+/**
+ * Replicates the `ToolContext` the old `dispatchTool` built for native tools.
+ * `secretScope` scopes the `secret` accessor to the calling tool's declared
+ * `requires.secrets` (see `makeScopedSecretAccessor`).
+ */
+function buildToolContext(
+    deps: AgentToolDeps,
+    secretScope: { toolId: string; allowedSecrets: Set<string> }
+): ToolContext {
     const credentialBroker = deps.credentialBroker
     const sessionId = deps.session.id
     // The `@posthog/*` data tools act as the invoking PostHog user, so they
@@ -442,7 +498,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
         applicationId: deps.rev.application_id,
         sessionId,
         integrations: deps.integrations,
-        secret: (name) => deps.secrets[name],
+        secret: makeScopedSecretAccessor(deps, secretScope.toolId, secretScope.allowedSecrets),
         log: deps.log,
         skillIndex: deps.rev.spec.skills.map((s) => ({ id: s.id, description: s.description, path: s.path })),
         readBundleFile: async (path: string): Promise<string | null> => {

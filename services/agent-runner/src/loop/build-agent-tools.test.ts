@@ -12,12 +12,13 @@ import {
     McpRef,
     newTestPrefix,
     S3BundleStore,
+    SECRET_WILDCARD,
     ToolRefSchema,
     wipeTestPrefix,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
-import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
+import { AgentToolDeps, buildAgentTools, makeScopedSecretAccessor, secretAllowlistFor } from './build-agent-tools'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 
 let bundlePrefix: string
@@ -432,6 +433,60 @@ describe('buildAgentTools', () => {
             await expect(buildAgentTools(rev, makeDeps(rev, { mcpClients: [brokenClient] }))).rejects.toThrow(
                 /mcp_list_tools_failed:flaky: socket hang up/
             )
+        })
+    })
+
+    describe('per-tool secret scoping', () => {
+        it('secretAllowlistFor passes an explicit list through verbatim', () => {
+            expect(secretAllowlistFor(['SLACK_BOT_TOKEN'], ['SLACK_BOT_TOKEN', 'OTHER'])).toEqual(
+                new Set(['SLACK_BOT_TOKEN'])
+            )
+            expect(secretAllowlistFor([], ['ANY'])).toEqual(new Set())
+        })
+
+        it('secretAllowlistFor widens the * wildcard to the spec-declared secrets', () => {
+            expect(secretAllowlistFor([SECRET_WILDCARD], ['A', 'B'])).toEqual(new Set(['A', 'B']))
+            // Wildcard is still bounded by spec.secrets, not the raw env.
+            expect(secretAllowlistFor([SECRET_WILDCARD], [])).toEqual(new Set())
+        })
+
+        it('a declared secret resolves with no denial log', () => {
+            const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = []
+            const accessor = makeScopedSecretAccessor(
+                { secrets: { SLACK_BOT_TOKEN: 'xoxb-1' }, log: (_l, msg, meta) => logs.push({ msg, meta }) },
+                '@posthog/slack-post-message',
+                new Set(['SLACK_BOT_TOKEN'])
+            )
+            expect(accessor('SLACK_BOT_TOKEN')).toBe('xoxb-1')
+            expect(logs).toEqual([])
+        })
+
+        it('warn-only (default): an undeclared secret still resolves but logs secret_access_denied', () => {
+            const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = []
+            const accessor = makeScopedSecretAccessor(
+                { secrets: { OTHER_API_KEY: 'sk-secret' }, log: (_l, msg, meta) => logs.push({ msg, meta }) },
+                '@posthog/slack-post-message',
+                new Set(['SLACK_BOT_TOKEN'])
+            )
+            expect(accessor('OTHER_API_KEY')).toBe('sk-secret')
+            expect(logs).toHaveLength(1)
+            expect(logs[0].msg).toBe('secret_access_denied')
+            expect(logs[0].meta).toMatchObject({
+                tool: '@posthog/slack-post-message',
+                secret: 'OTHER_API_KEY',
+                enforced: false,
+            })
+        })
+
+        it('enforce: an undeclared secret returns undefined (degrades like a missing secret)', () => {
+            const accessor = makeScopedSecretAccessor(
+                { secrets: { OTHER_API_KEY: 'sk-secret' }, log: () => undefined },
+                '@posthog/slack-post-message',
+                new Set(['SLACK_BOT_TOKEN']),
+                true
+            )
+            expect(accessor('OTHER_API_KEY')).toBeUndefined()
+            expect(accessor('SLACK_BOT_TOKEN')).toBeUndefined() // not in the env map
         })
     })
 })

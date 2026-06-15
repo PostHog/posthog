@@ -34,10 +34,30 @@ export interface NativeToolSchema {
     requires: {
         integrations: string[]
         scopes: string[]
+        /**
+         * Env keys from `spec.secrets` this tool is allowed to read through
+         * `ctx.secret`. The runner scopes each native tool's secret accessor
+         * to this list, so a tool can only reach the credentials it declares —
+         * `@posthog/slack-*` reads only `SLACK_BOT_TOKEN`, not every secret on
+         * the application. `[SECRET_WILDCARD]` ('*') means "any secret the spec
+         * declares", reserved for tools that resolve secrets by an
+         * author-supplied name (e.g. `@posthog/http-request`'s `${NAME}`
+         * interpolation); even then the scope is `spec.secrets`, not the raw
+         * decrypted env.
+         */
+        secrets: string[]
     }
     /** Hint for runner timeout selection + authoring UI cost annotations. */
     cost_hint: 'cheap' | 'medium' | 'expensive'
 }
+
+/**
+ * `requires.secrets` sentinel: this tool reads secrets by author-supplied name
+ * rather than a fixed set, so it may read any secret the spec declares
+ * (`spec.secrets`) — still narrower than the full decrypted `encrypted_env`.
+ * A tool declaring this is the broad-access case worth flagging in spec review.
+ */
+export const SECRET_WILDCARD = '*'
 
 export interface ToolContext {
     /**
@@ -150,6 +170,7 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
             requires: {
                 integrations: def.requires?.integrations ?? [],
                 scopes: def.requires?.scopes ?? [],
+                secrets: def.requires?.secrets ?? [],
             },
             cost_hint: def.cost_hint ?? 'medium',
         },
