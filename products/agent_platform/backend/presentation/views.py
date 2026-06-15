@@ -137,6 +137,23 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
+            # Append structured upstream errors (custom-tool compile failures carry
+            # errors=[{kind, message, line}]) so the caller + concierge model see the
+            # concrete reason, not just the opaque `tool_compile_failed` code.
+            sub_errors = e.body.get("errors")
+            if isinstance(sub_errors, list) and sub_errors:
+                parts: list[str] = []
+                for er in sub_errors:
+                    if not isinstance(er, dict) or not isinstance(er.get("message"), str):
+                        continue
+                    kind = er.get("kind")
+                    line = er.get("line")
+                    prefix = f"{kind}: " if isinstance(kind, str) else ""
+                    suffix = f" (line {line})" if isinstance(line, int) else ""
+                    parts.append(f"{prefix}{er['message']}{suffix}")
+                if parts:
+                    joined = "; ".join(parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
             detail_str = e.body

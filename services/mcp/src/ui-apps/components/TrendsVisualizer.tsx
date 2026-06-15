@@ -2,7 +2,7 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { BarChart as BarValueChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart as BarValueChart, SlopeChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
@@ -19,12 +19,16 @@ import { CHART_THEME, colorAt } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
-type ChartMode = 'line' | 'bar'
+type ChartMode = 'line' | 'bar' | 'slope'
 
 const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'bar' as const, label: 'Bar' },
 ]
+
+// "Slope" collapses each series to its first and last point — the start-vs-end view a user wants
+// when they ask "how much did X change between A and B?" rather than the path between them.
+const SLOPE_MODE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
@@ -94,9 +98,39 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     }))
     const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
 
+    // A slope needs a start and an end, so only offer it when there are at least two time points.
+    const slopeAvailable = labels.length >= 2
+    const chartModeOptions = slopeAvailable ? [...CHART_MODE_OPTIONS, SLOPE_MODE_OPTION] : CHART_MODE_OPTIONS
+    // Results can shrink below two points after slope was selected; fall back rather than render blank.
+    const effectiveMode = chartMode === 'slope' && !slopeAvailable ? 'line' : chartMode
+
     // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
     const renderChart = (): ReactElement => {
-        if (chartMode === 'bar') {
+        if (effectiveMode === 'slope') {
+            const slopeSeries = trendResults
+                .map((item, index) => {
+                    if (item.data.length < 2) {
+                        return null
+                    }
+                    return {
+                        key: String(item.id),
+                        label: item.label,
+                        color: colorAt(index),
+                        data: [item.data[0]!, item.data[item.data.length - 1]!],
+                    }
+                })
+                .filter((s): s is NonNullable<typeof s> => s !== null)
+            const slopeLabels = [formatDate(labels[0]!), formatDate(labels[labels.length - 1]!)]
+            return (
+                <SlopeChart
+                    series={slopeSeries}
+                    labels={slopeLabels}
+                    theme={CHART_THEME}
+                    config={{ showSeriesLabels: false, legend: { show: true, position: 'bottom' } }}
+                />
+            )
+        }
+        if (effectiveMode === 'bar') {
             const { series, config } = buildTrendsBarChartModel(trendResults, {
                 getColor: (_, index) => colorAt(index),
                 labels,
@@ -127,7 +161,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         <div>
             <div className="mb-2 flex justify-end">
                 {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
+                <Select value={effectiveMode} onChange={setChartMode} options={chartModeOptions} />
             </div>
             <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>
