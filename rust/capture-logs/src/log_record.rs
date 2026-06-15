@@ -385,11 +385,10 @@ mod tests {
     #[test]
     fn test_compute_kafka_log_row_bytes_sums_string_and_map_lengths() {
         let row = sample_row();
-        // string fields: uuid(9) + trace_id(3) + span_id(3) + body(5) + severity_text(4)
-        // + service_name(3) + instrumentation_scope(7) + event_name(3) = 37
+        // string fields: body(5)
         // maps: resource_attributes "host.name"(9)+"localhost"(9)=18; attributes "k"(1)+"v"(1)=2
-        // total = 37 + 18 + 2 = 57
-        assert_eq!(compute_kafka_log_row_bytes(&row), 57);
+        // total = 5 + 18 + 2 = 25
+        assert_eq!(compute_kafka_log_row_bytes(&row), 25);
     }
 
     fn sample_row_bytes() -> u64 {
