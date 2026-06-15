@@ -1,7 +1,5 @@
 import type { Series, SlopeSeriesMeta } from '@posthog/quill-charts'
 
-import { computeDashedFromIndex } from '../TrendsLineChart/trendsChartTransforms'
-
 export interface SlopeResultLike {
     id?: string | number
     label?: string | null
@@ -11,8 +9,9 @@ export interface SlopeResultLike {
 export interface BuildSlopeSeriesOpts<R extends SlopeResultLike> {
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
-    /** Negative offset from the end marking the in-progress tail. When the last bucket is the current
-     *  incomplete period, the connector to that endpoint is dashed, mirroring the line chart. */
+    /** Negative when the last bucket is the current, still-accumulating period. The slope collapses
+     *  to two points and the first bucket is never current, so this just dashes the connector to the
+     *  end point — mirroring the line chart — regardless of how many trailing buckets the source had. */
     incompletenessOffsetFromEnd?: number
 }
 
@@ -23,6 +22,7 @@ export function buildSlopeSeries<R extends SlopeResultLike>(
     results: R[],
     opts: BuildSlopeSeriesOpts<R>
 ): Series<SlopeSeriesMeta>[] {
+    const lastBucketInProgress = opts.incompletenessOffsetFromEnd !== undefined && opts.incompletenessOffsetFromEnd < 0
     const series: Series<SlopeSeriesMeta>[] = []
     results.forEach((r, index) => {
         if (opts.getHidden?.(r, index)) {
@@ -32,17 +32,12 @@ export function buildSlopeSeries<R extends SlopeResultLike>(
         if (data.length < 2) {
             return
         }
-        const points = [data[0], data[data.length - 1]]
-        const dashedFromIndex = computeDashedFromIndex(
-            { ...r, data: points },
-            { incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd }
-        )
         series.push({
             key: String(r.id ?? index),
             label: r.label ?? '',
             color: opts.getColor(r, index),
-            data: points,
-            stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
+            data: [data[0], data[data.length - 1]],
+            stroke: lastBucketInProgress ? { partial: { fromIndex: 1 } } : undefined,
         })
     })
     return series

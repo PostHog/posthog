@@ -42,6 +42,9 @@ describe('slopeChartTransforms', () => {
 
         it.each([
             ['last bucket incomplete', -1, { partial: { fromIndex: 1 } }],
+            // The offset is measured against the source series length, so a many-bucket source still
+            // dashes the single connector — never a negative fromIndex.
+            ['several trailing buckets incomplete', -5, { partial: { fromIndex: 1 } }],
             ['nothing incomplete', 0, undefined],
             ['offset omitted', undefined, undefined],
         ])('dashes the connector when %s', (_name, incompletenessOffsetFromEnd, expectedStroke) => {
