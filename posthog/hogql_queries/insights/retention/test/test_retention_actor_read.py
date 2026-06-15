@@ -106,6 +106,43 @@ class TestRetentionActorReadParity(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
+    def _gate(self, *, query_overrides: dict | None = None, retention_overrides: dict | None = None) -> bool:
+        query = {
+            "dateRange": {"date_from": "2024-01-01", "date_to": "2024-01-08"},
+            "retentionFilter": {
+                "period": "Day",
+                "totalIntervals": 7,
+                "retentionType": "retention_first_time",
+                **(retention_overrides or {}),
+            },
+            **(query_overrides or {}),
+        }
+        runner = RetentionQueryRunner(
+            team=self.team, query=query, modifiers=HogQLQueryModifiers(useRetentionPreAggregation=True)
+        )
+        return runner.should_use_retention_preagg
+
+    def test_gate_on_for_covered_shape(self):
+        # Anchor: the plain covered shape (modifier on) does take the pre-agg path, so the
+        # fallback assertions below aren't passing vacuously.
+        self.assertTrue(self._gate())
+
+    @parameterized.expand(
+        [
+            ("breakdown", {"breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}}, {}),
+            ("group_aggregation", {"aggregation_group_type_index": 0}, {}),
+            ("test_accounts", {"filterTestAccounts": True}, {}),
+            ("property_filter", {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}, {}),
+            ("min_occurrences", {}, {"minimumOccurrences": 2}),
+        ]
+    )
+    def test_gate_falls_back_for_unsupported_shapes(
+        self, _name: str, query_overrides: dict, retention_overrides: dict
+    ) -> None:
+        # Each shape the pre-agg can't reproduce must fall through to raw, not slip past the gate
+        # and crash on the read path.
+        self.assertFalse(self._gate(query_overrides=query_overrides, retention_overrides=retention_overrides))
+
     def test_gate_off_uses_raw(self):
         # With the modifier off, the pre-agg path must not be taken — results still correct.
         self._seed()

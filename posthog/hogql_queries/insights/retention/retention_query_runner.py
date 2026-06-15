@@ -433,6 +433,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         # Person retention only.
         if self.group_type_index is not None:
             return False
+        # Breakdowns split the cohort grid per value; the pre-agg base query doesn't produce a
+        # breakdown_value, so let these fall through to raw.
+        if has_breakdown_filter(self.query.breakdownFilter):
+            return False
         if self.has_property_aggregation:
             return False
         if (self.query.retentionFilter.minimumOccurrences or 1) > 1:
