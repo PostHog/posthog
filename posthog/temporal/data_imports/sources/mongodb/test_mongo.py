@@ -9,9 +9,11 @@ from django.test import SimpleTestCase, override_settings
 from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
+from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
+    _get_rows_to_sync,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
@@ -374,3 +376,30 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         message = self.non_retryable[pattern]
         assert message is not None
         assert expected_substring in message.lower()
+
+
+class TestGetRowsToSync(SimpleTestCase):
+    """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
+    0 without failing the sync, and expected pymongo errors must not be reported to
+    error tracking (they are transient/operational and classified by the real data read)."""
+
+    def test_returns_count_on_success(self):
+        coll = MagicMock()
+        coll.count_documents.return_value = 42
+        assert _get_rows_to_sync(coll, {}, MagicMock()) == 42
+
+    def test_pymongo_error_returns_zero_without_capture(self):
+        coll = MagicMock()
+        coll.count_documents.side_effect = ServerSelectionTimeoutError(
+            "atlas-sql.query.mongodb.net:27017: connection closed, Timeout: 10.0s"
+        )
+        with patch("posthog.temporal.data_imports.sources.mongodb.mongo.capture_exception") as capture:
+            assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
+            capture.assert_not_called()
+
+    def test_unexpected_error_returns_zero_and_captures(self):
+        coll = MagicMock()
+        coll.count_documents.side_effect = ValueError("unexpected bug")
+        with patch("posthog.temporal.data_imports.sources.mongodb.mongo.capture_exception") as capture:
+            assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
+            capture.assert_called_once()
