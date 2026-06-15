@@ -168,7 +168,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                     return {
                         ...s,
                         data: [start, (start + end) / 2, end],
-                        points: { ...s.points, radius: endpointRadius, endpointsOnly: true },
+                        points: { ...s.points, radius: endpointRadius, startAndEndValuesOnly: true },
                         stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromIndex: 2 } },
                     }
                 }

@@ -48,7 +48,7 @@ export interface Series<Meta = unknown> {
         radius: number
         /** Draw a dot only at the first and last data point, skipping interior ones (used by the
          *  slope chart, whose midpoint is synthetic). */
-        endpointsOnly?: boolean
+        startAndEndValuesOnly?: boolean
     }
     /** Line stroke configuration. */
     stroke?: {
