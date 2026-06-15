@@ -64,5 +64,19 @@ describe('SessionReplayWidget', () => {
 
         expect(container.querySelector('[data-attr="session-replay-widget-empty-state"]')).toBeInTheDocument()
         expect(screen.getByText('No recordings yet')).toBeInTheDocument()
+        expect(screen.getByText('No session recordings matched your filters for this date range.')).toBeInTheDocument()
+    })
+
+    it('empty state references the saved filter instead of the date range when one is active', () => {
+        render(
+            <SessionReplayWidget
+                tileId={1}
+                config={{ limit: 10, savedFilterId: 'abc123' }}
+                loading={false}
+                result={{ results: [] }}
+            />
+        )
+
+        expect(screen.getByText('No session recordings matched this saved filter.')).toBeInTheDocument()
     })
 })

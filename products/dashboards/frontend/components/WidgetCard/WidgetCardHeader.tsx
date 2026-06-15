@@ -165,9 +165,14 @@ export function WidgetCardHeader({
 }: WidgetCardHeaderProps): JSX.Element {
     const showWidgetType = headerMeta?.showWidgetType ?? true
     const showDateRange = headerMeta?.showDateRange ?? false
+    // A saved filter overrides the widget's date range, so surface that instead of a now-misleading range.
+    const savedFilterId = config?.savedFilterId
+    const hasSavedFilter = typeof savedFilterId === 'string' && savedFilterId.length > 0
     const dateText =
         widgetTypeLabel && showDateRange
-            ? widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
+            ? hasSavedFilter
+                ? 'Saved filter'
+                : widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
             : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText) ? (

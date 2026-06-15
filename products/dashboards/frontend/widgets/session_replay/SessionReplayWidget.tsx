@@ -56,7 +56,9 @@ function SessionReplayWidgetRecordingRow({
 export function SessionReplayWidget({ result, loading, config }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as SessionReplayWidgetResult | null | undefined
     const recordings = payload?.results ?? []
-    const order = parseSessionReplayWidgetConfig(config).orderBy as RecordingsQuery['order']
+    const parsedConfig = parseSessionReplayWidgetConfig(config)
+    const order = parsedConfig.orderBy as RecordingsQuery['order']
+    const hasSavedFilter = !!parsedConfig.savedFilterId
 
     if (loading) {
         return (
@@ -81,7 +83,9 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                         <FilmCameraHog className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
                         <p className="m-0 text-sm text-muted">
-                            No session recordings matched your filters for this date range.
+                            {hasSavedFilter
+                                ? 'No session recordings matched this saved filter.'
+                                : 'No session recordings matched your filters for this date range.'}
                         </p>
                     </div>
                 </WidgetCardBodyMessage>
