@@ -29,7 +29,7 @@
                          status
         FROM
           (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
-                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
@@ -102,7 +102,7 @@
                          status
         FROM
           (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
-                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
@@ -175,7 +175,7 @@
                          status
         FROM
           (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
-                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'US/Pacific'), 'US/Pacific')))) AS all_activity,
+                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(e.timestamp, 'US/Pacific'), 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'US/Pacific'), 'US/Pacific')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
