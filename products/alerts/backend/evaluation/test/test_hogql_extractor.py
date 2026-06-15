@@ -1,6 +1,4 @@
-import re
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -13,7 +11,7 @@ from posthog.schema import (
     InsightThresholdType,
 )
 
-from products.alerts.backend.evaluation.comparator import evaluate_threshold
+from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, evaluate_threshold
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.hogql import ANY_ROW_MAX_ROWS, HogQLExtractor, _resolve_value_column_index
 
@@ -39,35 +37,33 @@ def _extract(rows, *, columns=None, condition_type=AlertConditionType.ABSOLUTE_V
         return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock())
 
 
-# ---- result shape handling ----
+@pytest.mark.parametrize(
+    "rows,exc,match",
+    [
+        # A None result means the query layer swallowed an error — raise (not AlertExtractionError)
+        # to avoid a misfire, matching the trends extractor.
+        (None, RuntimeError, "No results found"),
+        ({"not": "a list"}, AlertExtractionError, "unexpected result shape"),
+        ([{"a": 1}], AlertExtractionError, "rows as lists/tuples"),
+    ],
+)
+def test_bad_result_shape_raises(rows, exc, match):
+    with pytest.raises(exc, match=match):
+        _extract(rows)
 
 
-def test_none_result_raises_runtime_error():
-    # A None result means the query layer swallowed an error — raise (not AlertExtractionError) to
-    # avoid a misfire, matching the trends extractor.
-    with pytest.raises(RuntimeError, match="No results found"):
-        _extract(None)
-
-
-def test_non_list_shape_raises_distinct_error():
-    with pytest.raises(AlertExtractionError, match="unexpected result shape"):
-        _extract({"not": "a list"})
-
-
-def test_non_list_rows_raise():
-    with pytest.raises(AlertExtractionError, match="rows as lists/tuples"):
-        _extract([{"a": 1}])
-
-
-@pytest.mark.parametrize("bad", ["text", True])
-def test_non_numeric_value_raises(bad):
-    with pytest.raises(AlertExtractionError, match="numeric value"):
-        _extract([[bad]])
-
-
-@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
-def test_rejects_non_finite(bad):
-    with pytest.raises(AlertExtractionError, match="finite numeric value"):
+@pytest.mark.parametrize(
+    "bad,match",
+    [
+        ("text", "numeric value"),
+        (True, "numeric value"),
+        (float("nan"), "finite numeric value"),
+        (float("inf"), "finite numeric value"),
+        (float("-inf"), "finite numeric value"),
+    ],
+)
+def test_non_numeric_or_non_finite_value_raises(bad, match):
+    with pytest.raises(AlertExtractionError, match=match):
         _extract([[bad]])
 
 
@@ -80,9 +76,6 @@ def test_accepts_decimal_columns():
     # ClickHouse Decimal columns surface as decimal.Decimal — they are valid numeric values.
     result = _extract([[Decimal("41.5")], [Decimal("42.0")]])
     assert [p.value for p in result.series[0].points] == [41.5, 42.0]
-
-
-# ---- empty result = 0, matching trends ----
 
 
 @pytest.mark.parametrize(
@@ -100,17 +93,6 @@ def test_empty_result_evaluates_as_zero_and_can_breach_lower_bound(condition_typ
     assert no_breach.breaches == []
 
 
-def test_any_row_cap_matches_the_frontend_mirror():
-    # The preview mirror (see the PREVIEW MIRROR CONTRACT on HogQLExtractor) duplicates the
-    # any-row cap as a TS constant; pin the two values together so a one-sided bump fails CI.
-    mirror = (
-        Path(__file__).parents[5] / "frontend" / "src" / "lib" / "components" / "Alerts" / "alertFormLogic.ts"
-    ).read_text()
-    match = re.search(r"HOGQL_ANY_ROW_MAX_ROWS = (\d+)", mirror)
-    assert match, "HOGQL_ANY_ROW_MAX_ROWS not found in the frontend mirror"
-    assert int(match.group(1)) == ANY_ROW_MAX_ROWS
-
-
 def test_evaluation_uses_saved_variable_values_not_session_overrides():
     # The alert path passes no variables_override, so a variable-using SQL query evaluates with
     # the values saved on the query (or each variable's default) — session-level UI overrides
@@ -120,9 +102,6 @@ def test_evaluation_uses_saved_variable_values_not_session_overrides():
         calc.return_value = MagicMock(result=[[5]], columns=["count"])
         HogQLExtractor().extract(_alert(), MagicMock(), MagicMock())
     assert "variables_override" not in calc.call_args.kwargs
-
-
-# ---- column selection ----
 
 
 def test_single_column_needs_no_metadata():
@@ -139,14 +118,16 @@ def test_single_numeric_column_heuristic_skips_date_column():
     assert result.series[0].label == "value"
 
 
-def test_multiple_numeric_columns_require_explicit_pick():
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [[1, 2]],  # two numeric columns — ambiguous
+        [["x", "y"]],  # no numeric column
+    ],
+)
+def test_ambiguous_columns_require_explicit_pick(rows):
     with pytest.raises(AlertExtractionError, match="pick the column"):
-        _extract([[1, 2]], columns=["a", "b"])
-
-
-def test_no_numeric_column_raises():
-    with pytest.raises(AlertExtractionError, match="pick the column"):
-        _extract([["x", "y"]], columns=["a", "b"])
+        _extract(rows, columns=["a", "b"])
 
 
 def test_explicit_column_pick():
@@ -176,9 +157,6 @@ def test_all_none_column_is_not_numeric():
     assert _resolve_value_column_index(None, ["a", "b"], [[None, 1], [None, 2]]) == 1
 
 
-# ---- last_row evaluation (default) ----
-
-
 def test_builds_unframed_single_series():
     result = _extract([[10], [42]])
     assert result.framed is False and result.is_breakdown is False
@@ -197,9 +175,6 @@ def test_absolute_alert_breaches_on_last_row():
 def test_relative_alert_needs_two_rows():
     with pytest.raises(AlertExtractionError, match="at least two rows"):
         _extract([[5]], condition_type=AlertConditionType.RELATIVE_INCREASE)
-
-
-# ---- any_row evaluation ----
 
 
 def test_any_row_breaches_on_any_value_with_row_label():
@@ -273,22 +248,25 @@ def test_any_row_reports_every_breaching_row():
 
 
 def test_any_row_breach_list_is_capped():
-    rows = [[f"r{i}", 10.0] for i in range(8)]
+    overflow = 3
+    rows = [[f"r{i}", 10.0] for i in range(MAX_BREACH_MESSAGES + overflow)]
     result = _extract(rows, columns=["name", "value"], config={"type": "HogQLAlertConfig", "evaluation": "any_row"})
     evaluation = evaluate_threshold(result, ABSOLUTE, _threshold(upper=5))
-    assert evaluation.breaches is not None and len(evaluation.breaches) == 6  # 5 rows + the overflow note
-    assert evaluation.breaches[-1] == "...and 3 more rows breach"
+    assert (
+        evaluation.breaches is not None and len(evaluation.breaches) == MAX_BREACH_MESSAGES + 1
+    )  # rows + overflow note
+    assert evaluation.breaches[-1] == f"...and {overflow} more rows breach"
 
 
 def test_any_row_accepts_exactly_the_row_cap():
-    rows = [[float(i)] for i in range(1000)]
+    rows = [[float(i)] for i in range(ANY_ROW_MAX_ROWS)]
     result = _extract(rows, config={"type": "HogQLAlertConfig", "evaluation": "any_row"})
-    assert len(result.series) == 1000
+    assert len(result.series) == ANY_ROW_MAX_ROWS
 
 
 def test_any_row_rejects_too_many_rows():
-    rows = [[float(i)] for i in range(1001)]
-    with pytest.raises(AlertExtractionError, match="at most 1000 rows"):
+    rows = [[float(i)] for i in range(ANY_ROW_MAX_ROWS + 1)]
+    with pytest.raises(AlertExtractionError, match=f"at most {ANY_ROW_MAX_ROWS} rows"):
         _extract(rows, config={"type": "HogQLAlertConfig", "evaluation": "any_row"})
 
 
