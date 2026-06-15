@@ -10,6 +10,8 @@ import {
 import type { WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
 
+export const ACTIVITY_EVENTS_DEFAULT_DATE_FROM: WidgetDateFromValue = '-24h'
+
 export const ACTIVITY_EVENTS_WIDGET_FORM_FIELD_NAMES = Object.keys(
     activityEventsWidgetFormSchema.shape
 ) as (keyof typeof activityEventsWidgetFormSchema.shape)[]
@@ -40,7 +42,7 @@ export function patchActivityEventsWidgetFilterFields(
 
     return activityEventsWidgetConfigSchema.parse({
         ...base,
-        dateRange: { date_from: patch.dateFrom ?? base.dateRange?.date_from ?? '-24h' },
+        dateRange: { date_from: patch.dateFrom ?? base.dateRange?.date_from ?? ACTIVITY_EVENTS_DEFAULT_DATE_FROM },
     })
 }
 
@@ -63,7 +65,7 @@ export function validateActivityEventsWidgetConfigInput(input: {
     | { success: false; fieldErrors: ActivityEventsWidgetFieldErrors } {
     const parsed = activityEventsWidgetFormSchema.safeParse({
         limit: input.limit,
-        dateRange: { date_from: input.baseConfig.dateRange?.date_from ?? '-24h' },
+        dateRange: { date_from: input.baseConfig.dateRange?.date_from ?? ACTIVITY_EVENTS_DEFAULT_DATE_FROM },
         filterTestAccounts: input.filterTestAccounts,
     })
 
@@ -98,7 +100,9 @@ export function parseActivityEventsWidgetConfigApiError(
 
     const parsedForm = activityEventsWidgetFormSchema.safeParse({
         limit: (config.limit as number) ?? activityEventsConfigDefaults.limit ?? 0,
-        dateRange: (config.dateRange as { date_from?: string | null } | undefined) ?? { date_from: '-24h' },
+        dateRange: (config.dateRange as { date_from?: string | null } | undefined) ?? {
+            date_from: ACTIVITY_EVENTS_DEFAULT_DATE_FROM,
+        },
         filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
     })
     if (!parsedForm.success) {
