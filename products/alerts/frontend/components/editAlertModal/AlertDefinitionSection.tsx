@@ -188,10 +188,16 @@ export function AlertDefinitionSection({
                                         }}
                                         options={[
                                             {
-                                                label: 'the latest value (last row)',
+                                                label: 'the last row',
                                                 value: 'last_row',
                                                 tooltip:
-                                                    'The query is expected to be ordered chronologically; the last row is the current value.',
+                                                    'For queries ordered oldest→newest (the usual chart order): the last row is the current value.',
+                                            },
+                                            {
+                                                label: 'the first row',
+                                                value: 'first_row',
+                                                tooltip:
+                                                    'For queries ordered newest→oldest (e.g. ORDER BY ... DESC): the first row is the current value. Pairs with a LIMIT to bound the query.',
                                             },
                                             {
                                                 label: 'any row',

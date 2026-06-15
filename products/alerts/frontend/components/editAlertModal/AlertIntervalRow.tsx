@@ -32,7 +32,13 @@ export function AlertIntervalRow({
     guardAvailableFeature,
     nextPlannedEvaluationStale,
 }: AlertIntervalRowProps): JSX.Element {
-    const hogqlAnyRow = isHogQLAlertConfig(alertForm.config) && alertForm.config.evaluation === 'any_row'
+    const hogqlEvaluation = isHogQLAlertConfig(alertForm.config) ? alertForm.config.evaluation : null
+    const hogqlEvaluatedText =
+        hogqlEvaluation === 'any_row'
+            ? 'and check every row of the result'
+            : hogqlEvaluation === 'first_row'
+              ? "and evaluate the query's first (newest) row"
+              : "and evaluate the query's last (newest) row"
     return (
         <>
             <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
@@ -61,9 +67,7 @@ export function AlertIntervalRow({
                 {!supportsTimeWindow(alertForm.config) ? (
                     // SQL queries own their time window — there is no insight interval to echo here,
                     // so state what is actually evaluated instead of a trends-style "check last day".
-                    <div>
-                        {hogqlAnyRow ? 'and check every row of the result' : "and evaluate the query's latest row"}
-                    </div>
+                    <div>{hogqlEvaluatedText}</div>
                 ) : (
                     <>
                         <div>

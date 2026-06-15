@@ -16,19 +16,27 @@ export function HogQLAlertPreviewRowsTable({
     preview: Extract<HogQLAlertPreview, { status: 'ok' }>
 }): JSX.Element | null {
     const isAnyRow = preview.mode === 'any_row'
+    const isFirstRow = preview.mode === 'first_row'
     const rows = isAnyRow
         ? [...preview.rows].sort((a, b) => Number(b.breaching) - Number(a.breaching)).slice(0, PREVIEW_TABLE_MAX_ROWS)
-        : preview.rows.slice(-PREVIEW_TABLE_MAX_ROWS) // chronological: the most recent rows
+        : isFirstRow
+          ? preview.rows.slice(0, PREVIEW_TABLE_MAX_ROWS) // newest first: the head
+          : preview.rows.slice(-PREVIEW_TABLE_MAX_ROWS) // newest last: the tail
     const hiddenCount = preview.rows.length - rows.length
     const showStatus = preview.breachingRows !== null
+    // Only the evaluated row is tagged in single-row modes (the banner carries the rest); any-row
+    // tags them all. first_row evaluates the top row, last_row the bottom.
+    const evaluatedIndex = isAnyRow ? null : isFirstRow ? 0 : rows.length - 1
+    // The trimmed rows are always the older ones — in last_row they sit before the visible window
+    // (note above), in first_row after it (note below); below would read as newer data otherwise.
+    const overflowNote =
+        hiddenCount > 0 ? (
+            <div className="text-muted text-xs">+{pluralize(hiddenCount, isAnyRow ? 'more row' : 'older row')}</div>
+        ) : null
 
     return (
         <div className="deprecated-space-y-1">
-            {hiddenCount > 0 && (
-                // The note sits above the table in both modes: in last-row mode the trimmed rows
-                // are older ones (below would read as newer data), and any-row matches for consistency.
-                <div className="text-muted text-xs">+{pluralize(hiddenCount, isAnyRow ? 'more row' : 'older row')}</div>
-            )}
+            {!isFirstRow && overflowNote}
             <LemonTable
                 size="small"
                 dataSource={rows}
@@ -46,11 +54,8 @@ export function HogQLAlertPreviewRowsTable({
                         ? [
                               {
                                   title: '',
-                                  // In last-row mode only the final row is evaluated, so only it gets a
-                                  // tag — historical rows stay untagged (the banner carries the
-                                  // outside-threshold count) instead of reading as live breaches.
                                   render: (_: unknown, row: HogQLAlertPreviewRow, index: number) =>
-                                      isAnyRow || index === rows.length - 1 ? (
+                                      index === evaluatedIndex || isAnyRow ? (
                                           row.breaching ? (
                                               <LemonTag type="warning">breach</LemonTag>
                                           ) : (
@@ -62,6 +67,7 @@ export function HogQLAlertPreviewRowsTable({
                         : []),
                 ]}
             />
+            {isFirstRow && overflowNote}
         </div>
     )
 }
@@ -156,13 +162,19 @@ export function HogQLAlertPreviewBanner({
             if (isRelative && preview.rowCount < 2) {
                 return (
                     <LemonBanner type="warning">
-                        Relative conditions compare the last two rows, but the query currently returns only one row.
+                        Relative conditions compare the two most recent rows, but the query currently returns only one
+                        row.
                     </LemonBanner>
                 )
             }
+            const isFirstRow = preview.mode === 'first_row'
+            const anchorRowLabel = isFirstRow ? 'first row' : 'last row'
+            const orderingHint = isFirstRow
+                ? 'Order the query newest→oldest (e.g. ORDER BY ... DESC) so the first row is the most recent value.'
+                : 'Order the query oldest→newest so the last row is the most recent value.'
             return (
                 <LemonBanner type="info">
-                    The alert evaluates the last row of {columnLabel} — currently{' '}
+                    The alert evaluates the {anchorRowLabel} of {columnLabel} — currently{' '}
                     <strong>{humanFriendlyNumber(preview.currentValue)}</strong>
                     {isRelative && preview.previousValue !== null ? (
                         <>
@@ -170,7 +182,7 @@ export function HogQLAlertPreviewBanner({
                             vs <strong>{humanFriendlyNumber(preview.previousValue)}</strong> in the previous row
                         </>
                     ) : null}
-                    . Order the query chronologically so the last row is the most recent value.
+                    . {orderingHint}
                     {!isRelative && preview.breachingRows !== null ? (
                         <>
                             {' '}
