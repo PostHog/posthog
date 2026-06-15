@@ -304,5 +304,7 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (FeatureFlag.DoesNotExist, ValueError):
             # Orphaned schedule (flag deleted / non-numeric record_id): allow team-scoped cleanup.
             return
-        if not CanEditFeatureFlag().has_object_permission(self.request, self, feature_flag):
+        # Reuse the viewset's access-control instance (warmed by safely_get_queryset) instead of
+        # CanEditFeatureFlag, which would build a fresh UserAccessControl with cold caches per delete.
+        if not self.user_access_control.check_access_level_for_object(feature_flag, "editor"):
             raise PermissionDenied("You don't have edit permissions for this feature flag")

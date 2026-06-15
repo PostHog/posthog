@@ -169,6 +169,28 @@ class TestScheduledChange(APIBaseTest):
         assert response_data["record_id"] == str(feature_flag.id)
         assert ScheduledChange.objects.get(id=response_data["id"]).record_id == str(feature_flag.id)
 
+    def test_update_canonicalizes_non_canonical_record_id(self):
+        """A legacy schedule whose stored record_id has leading zeros is canonicalized on update,
+        so the viewset's str-equality per-flag access filter keeps matching it."""
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="update-canon", name="UC")
+        change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=f"000{feature_flag.id}",
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/scheduled_changes/{change.id}/",
+            data={"scheduled_at": "2023-12-09T12:00:00Z"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        change.refresh_from_db()
+        assert change.record_id == str(feature_flag.id)
+
     def test_recurring_schedule_requires_interval(self):
         """Test that recurring schedules require a recurrence_interval"""
         feature_flag = FeatureFlag.objects.create(
@@ -871,6 +893,18 @@ class TestScheduledChangeAccessControl(BaseAccessControlTest):
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{viewer_change.id}/")
         assert delete_response.status_code == status.HTTP_403_FORBIDDEN, delete_response.content
         assert ScheduledChange.objects.filter(id=viewer_change.id).exists()
+
+    def test_delete_orphaned_schedule_when_flag_deleted(self):
+        # The target flag has been hard-deleted, so the edit check can't resolve it; the orphaned
+        # schedule must still be deletable for team-scoped cleanup.
+        _, orphaned_change = self._make_schedule_for_flag("orphan-flag")
+        FeatureFlag.objects.filter(id=orphaned_change.record_id).delete()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{orphaned_change.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not ScheduledChange.objects.filter(id=orphaned_change.id).exists()
 
     def test_create_requires_resource_write_despite_object_editor_grant(self):
         # Create is gated at the resource level: AccessControlPermission denies `create` before the
