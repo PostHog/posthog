@@ -32,7 +32,7 @@ export function sleep(ms: number): Promise<void> {
 }
 
 export class CyclotronV2Worker {
-    protected pool: Pool
+    private pool: Pool
     protected isConsuming = false
     protected lastPollTime = new Date()
     private consumerLoopPromise: Promise<void> | null = null
@@ -42,7 +42,7 @@ export class CyclotronV2Worker {
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
 
-    constructor(protected config: CyclotronV2WorkerConfig) {
+    constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,

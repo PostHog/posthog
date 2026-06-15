@@ -30,13 +30,16 @@ type SerializedJobState = {
 
 export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
-    protected worker?: CyclotronV2Worker
+    private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
+        // protected — the rate-limited subclass needs this to cap its token
+        // claim at the actual batch size we can process (avoids deducting
+        // tokens we'd never use).
         protected consumerBatchSize: number,
-        protected config: Pick<
+        private config: Pick<
             CdpConfig,
             | 'CYCLOTRON_NODE_DATABASE_URL'
             | 'CYCLOTRON_SHARD_DEPTH_LIMIT'

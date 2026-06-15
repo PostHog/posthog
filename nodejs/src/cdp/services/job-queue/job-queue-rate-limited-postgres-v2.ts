@@ -54,11 +54,18 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
      * decision the worker applies: how many rows to dequeue, or "skip and
      * sleep" when nothing is available. Runtime Valkey errors return 0 granted
      * (fail-closed mid-shift) — the worker sleeps and retries.
+     *
+     * We cap `requested` at `consumerBatchSize` because tokens granted above
+     * that ceiling would be deducted from the Valkey bucket but never used —
+     * `effectiveLimit` in the worker is `min(decision.limit, batchMaxSize)`.
+     * Without the cap, an operator misconfiguration setting capacity > batch
+     * size would silently waste SES budget.
      */
     private async claimBatchLimit(): Promise<CyclotronV2BatchLimit | undefined> {
+        const requested = Math.min(this.rateLimit.capacity, this.consumerBatchSize)
         const granted = await this.rateLimit.limiter.claimUpTo({
             key: this.rateLimit.key,
-            requested: this.rateLimit.capacity,
+            requested,
             capacity: this.rateLimit.capacity,
             refillPerSecond: this.rateLimit.refillPerSecond,
         })

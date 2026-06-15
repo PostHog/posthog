@@ -28,7 +28,9 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                 this.lastPollTime = new Date()
 
                 const decision = await this.getBatchLimit()
-                if (decision && decision.limit <= 0) {
+                // === 0 (not <=) so a future bug returning a negative limit
+                // surfaces as a SQL LIMIT error instead of silently sleeping.
+                if (decision && decision.limit === 0) {
                     await sleep(decision.sleepMs ?? this.pollDelayMs)
                     continue
                 }

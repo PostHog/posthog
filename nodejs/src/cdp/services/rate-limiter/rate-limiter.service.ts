@@ -136,6 +136,8 @@ export class RateLimiterService {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const ttlSeconds = req.ttlSeconds ?? 3600
         try {
+            // useClient throws on error (failOpen unset), so the catch block
+            // handles Valkey reachability — no need for a null-result branch.
             const result = await this.valkey.useClient(
                 { name: `rate-limiter:${this.config.name}:claimUpTo`, timeout: 1000 },
                 (client) =>
@@ -150,11 +152,6 @@ export class RateLimiterService {
                         String(ttlSeconds)
                     )
             )
-
-            if (result === null) {
-                claimCounter.inc({ limiter: this.config.name, key: req.key, result: 'valkey_error' })
-                return 0
-            }
 
             const granted = Number(result)
             if (!Number.isFinite(granted) || granted < 0) {

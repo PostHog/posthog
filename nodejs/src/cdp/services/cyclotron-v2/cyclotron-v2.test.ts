@@ -549,6 +549,43 @@ describe('Cyclotron V2', () => {
 
                 expect(jobs).toHaveLength(5)
             })
+
+            it('exits promptly when stopConsuming is called during a throttled sleep', async () => {
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 100 }))
+
+                await worker.connect(async () => {})
+                // Let the loop reach the sleep branch.
+                await new Promise((resolve) => setTimeout(resolve, 50))
+
+                const stopStarted = Date.now()
+                await worker.stopConsuming()
+                const stopDuration = Date.now() - stopStarted
+
+                // At most one sleepMs (100ms) + small overhead — never indefinite.
+                expect(stopDuration).toBeLessThan(300)
+            })
+
+            it('keeps looping after the hook rejects', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // Reject once, then return a valid decision so dequeueOneBatch
+                // captures a non-empty batch and resolves.
+                let calls = 0
+                const worker = createRateLimitedWorker(() => {
+                    calls += 1
+                    if (calls === 1) {
+                        return Promise.reject(new Error('boom'))
+                    }
+                    return Promise.resolve({ limit: 5 })
+                })
+
+                const jobs = await dequeueOneBatch(worker, 1000)
+                expect(jobs).toHaveLength(2)
+                // The first call rejected — the loop's catch swallowed it and tried again.
+                expect(calls).toBeGreaterThan(1)
+            })
         })
 
         it.each([
