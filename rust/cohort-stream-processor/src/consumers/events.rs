@@ -31,8 +31,9 @@ use crate::observability::metrics::{
     COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED, COHORT_STREAM_OFFSET_COMMITS,
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
     COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED, COHORT_STREAM_WORKERS_SPAWNED,
-    MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_REVOKED_TOTAL,
-    PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
+    MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
+    PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL,
+    REVOKE_DRAIN_DURATION_SECONDS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
@@ -399,8 +400,11 @@ impl EventDispatcher {
         self.merge.merge_tracker.forget_partition(partition);
         self.merge.transfer_tracker.forget_partition(partition);
 
-        // Reset the pending-transfers gauge so it doesn't linger after the partition is wiped.
+        // Reset the per-partition gauges so they don't linger after the partition is wiped. The
+        // held-offset gauge in particular is alerted on a sustained non-zero level — without this
+        // reset, a hold that cleared on revoke would keep the alert firing for the stale label.
         gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition.to_string()).set(0.0);
+        gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
 
         // Delete the on-disk state slice for this partition.
         let Some(partition_id) = partition_to_store_id(partition) else {

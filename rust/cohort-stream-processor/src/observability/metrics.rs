@@ -197,6 +197,12 @@ pub const MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL: &str = "merge_transfers_skipped_e
 /// Entries currently staged in a partition's `cf_pending_transfers` outbox, labelled by `partition`
 /// (gauge). A sustained non-zero level means the transfer topic keeps refusing produces.
 pub const MERGE_PENDING_TRANSFERS_GAUGE: &str = "merge_pending_transfers";
+/// The merge/transfer commit floor pinned by a sticky offset hold on a partition, labelled by
+/// `partition` (gauge). A non-zero value means a failed merge drain / transfer apply is holding the
+/// partition's committable offset for redelivery and will not advance until the next tenure replays
+/// it — a *visible* commit-stall, by design, in place of silent merge/transfer state loss. **Alert on
+/// a sustained non-zero level**: a persistent store error re-fails every tenure and lag grows.
+pub const MERGE_HELD_OFFSET_GAUGE: &str = "merge_held_offset";
 /// Latency of one merge drain (histogram, seconds).
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).

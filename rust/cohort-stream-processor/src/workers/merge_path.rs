@@ -20,10 +20,10 @@ use crate::merge::drain_handler::{handle_merge_event, DrainOutcome};
 use crate::merge::transfer::{MergeStateTransfer, PendingTransfer, PersonMergeEvent};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
-    MERGE_DRAIN_DURATION_SECONDS, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL, MERGE_PENDING_TRANSFERS_GAUGE,
-    MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL, MERGE_TRANSFER_FORWARDS_TOTAL,
-    MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
-    STAGE1_TRANSITIONS,
+    MERGE_DRAIN_DURATION_SECONDS, MERGE_HELD_OFFSET_GAUGE, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL,
+    MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL,
+    MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL,
+    OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{
@@ -184,18 +184,26 @@ pub(crate) async fn handle_merge(
                 }
             },
             Err(error) => {
+                // Category A: the outbox read itself failed, so we cannot re-produce the staged
+                // transfer this pass and have no other handle on it — a sticky hold redelivers the
+                // merge so a later pass (or the next tenure) can resolve it.
                 warn!(
                     partition_id,
                     team_id = event.team_id,
                     error = %error,
                     "pending transfer read failed; holding the merge offset for redelivery",
                 );
+                hold(&merge.merge_tracker, partition_id, offset);
             }
         },
         Ok(DrainOutcome::Skipped(_)) => {
             mark_processed(&merge.merge_tracker, partition_id, offset);
         }
         Err(error) => {
+            // Category A: the drain's atomic `write_batch` failed, so it left no
+            // `cf_merge_drains_applied` marker and produced no transfer — nothing recovers this but a
+            // replay of the merge message. A sticky hold redelivers it; advancing past it would drop
+            // the merge silently.
             warn!(
                 partition_id,
                 team_id = event.team_id,
@@ -203,6 +211,7 @@ pub(crate) async fn handle_merge(
                 error = %error,
                 "merge drain store error; holding the merge offset for redelivery",
             );
+            hold(&merge.merge_tracker, partition_id, offset);
         }
     }
 }
@@ -271,6 +280,10 @@ pub(crate) async fn handle_apply(
             mark_processed(&merge.transfer_tracker, partition_id, offset);
         }
         Err(error) => {
+            // Category A: the atomic apply `write_batch` failed, so no `cf_merge_applied` marker was
+            // written and the Kafka transfer is the last copy of P_old's state (drain already deleted
+            // its leaves, the outbox slot was cleared on the produce ack). A sticky hold replays the
+            // transfer cleanly; advancing past it would lose the state for good.
             warn!(
                 partition_id,
                 team_id = transfer.team_id,
@@ -278,6 +291,7 @@ pub(crate) async fn handle_apply(
                 error = %error,
                 "transfer apply store error; holding the transfer offset for redelivery",
             );
+            hold(&merge.transfer_tracker, partition_id, offset);
         }
     }
 }
@@ -296,6 +310,9 @@ async fn forward_transfer(
 ) {
     let acks = merge.transfer_sink.produce(vec![forwarded.clone()]).await;
     if !acks.iter().all(Result::is_ok) {
+        // Category B: the forward wrote no state and no outbox entry, so the failed produce leaves
+        // nothing to redrive — a sticky hold redelivers the transfer, which re-resolves and re-forwards
+        // (the survivor's marker dedups any duplicate).
         warn!(
             partition_id,
             team_id = forwarded.team_id,
@@ -304,6 +321,7 @@ async fn forward_transfer(
             forward_hops = forwarded.forward_hops,
             "transfer forward produce failed; holding the transfer offset for redelivery",
         );
+        hold(&merge.transfer_tracker, partition_id, offset);
         return;
     }
     counter!(MERGE_TRANSFER_FORWARDS_TOTAL, "path" => "re_keyed").increment(1);
@@ -394,6 +412,10 @@ async fn produce_and_settle(
     if !produce_transfer_with_retry(&merge.transfer_sink, transfer, &merge.retry, partition_id)
         .await
     {
+        // Category C: deliberately **no** `hold` here. The transfer stays staged in
+        // `cf_pending_transfers` and the periodic redrive (`handle_redrive`) owns recovery — it
+        // re-produces and then `mark_processed`es `K + 1`. A sticky hold would pin `K` even after the
+        // redrive advances past it, wedging the partition on a message the outbox already handles.
         counter!(MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL).increment(1);
         warn!(
             partition_id,
@@ -515,6 +537,17 @@ fn mark_processed(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
             "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
         );
     }
+}
+
+/// Pin the partition's commit floor at the failed message's **own** offset (no `+ 1`, unlike
+/// [`mark_processed`]) so Kafka redelivers it instead of a later success leapfrogging it. The hold is
+/// sticky for the worker's tenure; emit [`MERGE_HELD_OFFSET_GAUGE`] so the resulting commit-stall is
+/// never silent (alert on a sustained non-zero level).
+fn hold(tracker: &OffsetTracker, partition_id: u16, offset: i64) {
+    // Report the resulting floor (an earlier hold may pin a lower offset), not the raw `offset`, so
+    // the gauge matches the position Kafka will actually redeliver.
+    let floor = tracker.hold(partition_id as i32, offset);
+    gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition_id.to_string()).set(floor as f64);
 }
 
 /// Fallback for a team absent from the catalog: no cohorts, UTC timezone.
@@ -913,6 +946,38 @@ mod tests {
                 .get(&(FORWARD_PARTITION as i32)),
             Some(&81),
             "the transfer offset is marked only after the ack",
+        );
+    }
+
+    /// The D8 residual: a store-error hold must be **sticky** so a later success on the same partition
+    /// cannot leapfrog the failed message. This drives the real offset-accounting wrappers both arms
+    /// call — `hold` (the exact call the apply/drain store-error arms now make at the failed offset
+    /// `K`) and `mark_processed` (the call a later `Applied`/`AlreadyApplied` transfer makes at the
+    /// next offset). Before the fix the arm skipped the mark and `mark_processed` was a monotonic max,
+    /// so the later success advanced committable to `K' + 1` and the held message was never
+    /// redelivered; the load-bearing assertion below fails in that world.
+    #[test]
+    fn an_apply_store_error_hold_is_not_leapfrogged_by_a_later_successful_transfer() {
+        const P: u16 = 6;
+        let deps = capture_deps(CaptureTransferSink::new());
+        // The partition processed transfers up to offset 40 this tenure, then saw 41 (fails) and 43.
+        deps.transfer_tracker.mark_dispatched(P as i32, 44);
+        mark_processed(&deps.transfer_tracker, P, 40);
+        assert_eq!(
+            deps.transfer_tracker.committable_offsets().get(&(P as i32)),
+            Some(&41),
+            "before the failure, committable is the next-offset 41",
+        );
+
+        // The apply store-error arm holds at the failed message's own offset K=41 (no +1).
+        hold(&deps.transfer_tracker, P, 41);
+
+        // A later transfer for the same partition applies cleanly and marks next-offset 44.
+        mark_processed(&deps.transfer_tracker, P, 43);
+        assert_eq!(
+            deps.transfer_tracker.committable_offsets().get(&(P as i32)),
+            Some(&41),
+            "the later success must NOT advance committable past the held offset 41",
         );
     }
 }
