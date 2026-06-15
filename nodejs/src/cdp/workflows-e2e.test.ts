@@ -17,6 +17,7 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -1757,5 +1758,112 @@ describe('Workflows E2E (email queue)', () => {
         const bucket = await limiterValkey.useClient({ name: 'read-bucket' }, (client) => client.hgetall(bucketKey))
         expect(bucket?.ts).toBeTruthy()
         expect(bucket?.pool).toBeTruthy()
+    })
+
+    it('rate-limits dequeue when the bucket drains, then drains the queue as it refills', async () => {
+        // Tiny bucket (capacity 1, refill 2/sec = 1 token every 500ms) so the
+        // worker has to wait for refills between sends. With 3 emails enqueued
+        // we should see the bucket get denied at least once while the worker
+        // is waiting — and all 3 should still eventually go through.
+        await emailWorker.stop()
+
+        const limiterValkey = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        const bucketKey = '@posthog-test/ses-e2e-throttled/bucket'
+        await deleteKeysWithPrefix(limiterValkey, '@posthog-test/ses-e2e-throttled/')
+
+        const limiterName = 'ses-e2e-throttled'
+        const rateLimitedQueue = new CyclotronJobQueueRateLimitedPostgresV2(hub.CONSUMER_BATCH_SIZE, hub, {
+            limiter: new RateLimiterService(limiterValkey, { name: limiterName }),
+            key: bucketKey,
+            capacity: 1,
+            refillPerSecond: 2,
+            throttledPollDelayMs: 50,
+        })
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, rateLimitedQueue)
+        await emailWorker.start()
+
+        // Snapshot the denied counter so we measure only this test's claims.
+        const readDeniedCount = async (): Promise<number> => {
+            const metric = register.getSingleMetric('cdp_rate_limiter_claim_total')
+            if (!metric) {
+                return 0
+            }
+            const data = await metric.get()
+            return data.values
+                .filter(
+                    (v: any) =>
+                        v.labels.result === 'denied' && v.labels.limiter === limiterName && v.labels.key === bucketKey
+                )
+                .reduce((sum: number, v: any) => sum + v.value, 0)
+        }
+        const deniedBefore = await readDeniedCount()
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Throttled email',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        // Three distinct events → three email jobs queued near-simultaneously.
+        const events = Array.from({ length: 3 }, () => createGlobals({ uuid: new UUIDT().toString() }))
+        const { backgroundTask } = await eventsConsumer.processBatch(events)
+        await backgroundTask
+
+        // All three eventually send — generous timeout because the bucket only
+        // refills 2 tokens/sec.
+        await waitForExpect(() => {
+            const emailSentCount = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(emailSentCount).toBe(3)
+        }, 20000)
+
+        // The bucket was denied at least once during processing — proves the
+        // gating actually fired, not that we just dequeued 3 jobs in a row.
+        // (With capacity=1 and three pending jobs, between sends the worker
+        // polls many times finding bucket=0.)
+        const deniedAfter = await readDeniedCount()
+        expect(deniedAfter - deniedBefore).toBeGreaterThan(0)
     })
 })
