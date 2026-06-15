@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 
@@ -8,6 +11,7 @@ from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _get_worksheet,
     get_schemas,
+    google_sheets_source,
 )
 from posthog.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
 
@@ -153,6 +157,32 @@ def test_reraises_permission_error_with_message(call_site):
             call_site()
 
         assert "Spreadsheet access denied" in str(exc_info.value)
+
+
+def test_google_sheets_source_reads_blank_cells_as_null():
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.return_value = [["id", "NumericColumnWithBlanks"]]
+    mock_worksheet.get_all_records.return_value = [
+        {"id": 1, "NumericColumnWithBlanks": 1.5},
+        {"id": 2, "NumericColumnWithBlanks": None},
+    ]
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        list(cast(Iterable[Any], response.items()))
+
+    mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
 
 
 def test_permission_error_is_non_retryable():
