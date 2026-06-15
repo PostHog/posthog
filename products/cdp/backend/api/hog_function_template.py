@@ -140,7 +140,7 @@ class PublicHogFunctionTemplateViewSet(
         # catalog is anonymous, and the MCP server / public API authenticate with a personal API key or
         # OAuth token — exposing a hidden template (whether via list or retrieve-by-id) lets an agent
         # discover and then create an unsupported destination (e.g. the native email sender) from one.
-        # Gate both actions; only the first-party session-authenticated app and staff may see them.
+        # Gate both actions; only the first-party session-authenticated app (the workflow editor) sees them.
         if not self._may_see_hidden_templates():
             queryset = queryset.exclude(status="hidden")
 
@@ -162,14 +162,14 @@ class PublicHogFunctionTemplateViewSet(
         return queryset
 
     def _may_see_hidden_templates(self) -> bool:
-        # The anonymous public catalog never exposes hidden templates, regardless of who is calling.
+        # The anonymous public catalog never exposes hidden templates, regardless of who is calling
+        # (a logged-in browser hitting it is still session-authenticated).
         if self.request.path.startswith("/api/public_hog_function_templates"):
             return False
-        user = self.request.user
-        if isinstance(user, User) and user.is_staff:
-            return True
-        # Only the first-party, session-authenticated app (the workflow editor) needs hidden templates;
-        # personal API key / OAuth token callers (MCP, public API) do not.
+        # Otherwise hidden templates are only needed by the first-party, session-authenticated app (the
+        # workflow editor) to render action configuration. All token callers (MCP / public API via
+        # personal API key or OAuth), staff included, must not see them — so they can't be discovered
+        # and turned into an unsupported destination.
         return isinstance(self.request.successful_authenticator, SessionAuthentication)
 
     @extend_schema(

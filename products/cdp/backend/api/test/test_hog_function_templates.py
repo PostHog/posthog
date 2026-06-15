@@ -406,11 +406,11 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     @parameterized.expand(
         [
-            # The session-authenticated workflow editor (and staff) must still see hidden templates;
-            # programmatic personal API key / OAuth callers (MCP, public API) must not.
+            # Only the session-authenticated workflow editor sees hidden templates. Token callers (MCP /
+            # public API via personal API key or OAuth) must not — staff included.
             ("session_non_staff", "session", False, True),
             ("personal_api_key_non_staff", "pak", False, False),
-            ("personal_api_key_staff", "pak", True, True),
+            ("personal_api_key_staff", "pak", True, False),
         ]
     )
     def test_hidden_templates_visibility_on_list(self, _name, auth, is_staff, should_see_hidden):
@@ -428,18 +428,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         template_ids = [template["id"] for template in response.json()["results"]]
         assert ("template-hidden" in template_ids) is should_see_hidden
 
-    @parameterized.expand(
-        [
-            # Gating list alone is not enough — a PAK caller who knows the id could otherwise fetch a
-            # hidden template directly via retrieve. Block that for non-staff while staff can still look it up.
-            ("non_staff", False, status.HTTP_404_NOT_FOUND),
-            ("staff", True, status.HTTP_200_OK),
-        ]
-    )
-    def test_hidden_template_retrieve_by_id_respects_staff_for_pak_caller(self, _name, is_staff, expected_status):
+    @parameterized.expand([("non_staff", False), ("staff", True)])
+    def test_hidden_template_not_retrievable_by_id_for_pak_caller(self, _name, is_staff):
+        # Gating list alone is not enough — a token caller who knows the id could otherwise fetch a
+        # hidden template directly via retrieve. Block that for every token caller, staff included.
         if is_staff:
             self.user.is_staff = True
             self.user.save()
         self._create_hidden_template()
         response = self._get_with_pak("/hog_function_templates/template-hidden", ["hog_function:read"])
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
