@@ -9,6 +9,7 @@
 import { fireEvent } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
+import { dragSelection } from './interactions'
 import { dimensions } from './jsdom'
 import { type HogChartTooltip, waitForHogChartTooltip } from './tooltip'
 
@@ -97,6 +98,7 @@ export interface HogChart<Meta = unknown> {
     /** Hover at the index, wait for the tooltip to settle, then click. Mirrors the
      *  hover-then-click sequence the chart's onClick handler relies on. */
     clickAtIndex(index: number): Promise<void>
+    dragSelection(fromIndex: number, toIndex: number): void
     /** Wait for the tooltip to mount, then return a snapshot — every `TooltipContext` field
      *  plus the rendered portal element and an `isPinned` getter. Only available when the
      *  chart was rendered via `renderHogChart`; throws otherwise. */
@@ -261,6 +263,12 @@ export function getHogChart<Meta = unknown>(
             // synchronously to choose between pinning and onPointClick.
             await waitForHogChartTooltip()
             fireEvent.click(wrapper)
+        },
+        dragSelection(fromIndex: number, toIndex: number): void {
+            if (totalLabels === undefined) {
+                throw new Error('chart.dragSelection requires renderHogChart (which captures labels.length)')
+            }
+            dragSelection(wrapper, fromIndex, toIndex, totalLabels)
         },
         async waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>> {
             const element = await waitForHogChartTooltip(timeout)

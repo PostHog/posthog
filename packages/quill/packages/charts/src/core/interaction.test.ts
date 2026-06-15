@@ -1,5 +1,12 @@
 import { dimensions, makeSeries } from '../testing'
-import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
+import {
+    buildLabelPositions,
+    buildPointClickData,
+    buildTooltipContext,
+    dragRectToLabelRange,
+    findNearestIndex,
+    isInPlotArea,
+} from './interaction'
 import type { ResolveValueFn } from './types'
 
 const defaultResolveValue: ResolveValueFn = (s, i) => s.data[i]
@@ -284,6 +291,37 @@ describe('hog-charts interaction', () => {
             )
             expect(result?.position.x).toBe(400)
             expect(result?.position.y).toBe(150)
+        })
+    })
+
+    describe('dragRectToLabelRange', () => {
+        const xScale = (label: string): number | undefined => ({ a: 100, b: 200, c: 300, d: 400, e: 500 })[label]
+        const positions = buildLabelPositions(['a', 'b', 'c', 'd', 'e'], xScale)
+
+        it('returns null when fewer than two labels are positioned', () => {
+            const single = buildLabelPositions(['a'], xScale)
+            expect(dragRectToLabelRange({ x0: 50, x1: 500 }, single)).toBeNull()
+        })
+
+        it('returns the [start,end] range for a left-to-right drag', () => {
+            // 160 → nearest 200 (index 1); 340 → nearest 300 (index 2)
+            expect(dragRectToLabelRange({ x0: 160, x1: 340 }, positions)).toEqual({ startIndex: 1, endIndex: 2 })
+        })
+
+        it('normalizes a right-to-left drag', () => {
+            expect(dragRectToLabelRange({ x0: 340, x1: 160 }, positions)).toEqual({ startIndex: 1, endIndex: 2 })
+        })
+
+        it('clamps to the outermost label when the drag extends past the plot edges', () => {
+            expect(dragRectToLabelRange({ x0: -100, x1: 9999 }, positions)).toEqual({ startIndex: 0, endIndex: 4 })
+        })
+
+        it('returns null when both edges of the drag land on the same label', () => {
+            expect(dragRectToLabelRange({ x0: 195, x1: 205 }, positions)).toBeNull()
+        })
+
+        it('returns null for a zero-width drag', () => {
+            expect(dragRectToLabelRange({ x0: 250, x1: 250 }, positions)).toBeNull()
         })
     })
 

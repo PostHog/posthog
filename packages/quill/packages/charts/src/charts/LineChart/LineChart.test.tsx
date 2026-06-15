@@ -1,6 +1,8 @@
+import { act, fireEvent } from '@testing-library/react'
+
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { renderHogChart } from '../../testing'
+import { dimensions as testDimensions, renderHogChart } from '../../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = {
@@ -265,6 +267,139 @@ describe('LineChart', () => {
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
             expect(tooltip.element.textContent).not.toContain('B')
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const LONG_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const LONG_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the start and end labels of the dragged range', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('normalizes a right-to-left drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(3, 1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('does not fire onPointClick when a drag completes', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('still fires onPointClick on a plain click when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('switches the wrapper cursor to crosshair when onDateRangeZoom is provided', () => {
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={jest.fn()} />
+            )
+            expect(chart.element.classList).toContain('cursor-crosshair')
+        })
+
+        it('a drag that releases outside the wrapper does not swallow the next unrelated click', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+
+            act(() => {
+                fireEvent.mouseDown(chart.element, {
+                    button: 0,
+                    clientX: testDimensions.plotLeft + 10,
+                    clientY: testDimensions.plotTop + testDimensions.plotHeight / 2,
+                })
+                fireEvent.mouseMove(chart.element, {
+                    clientX: testDimensions.plotLeft + 200,
+                    clientY: testDimensions.plotTop + testDimensions.plotHeight / 2,
+                })
+                fireEvent(window, new MouseEvent('mouseup', { bubbles: true, clientX: 9999, clientY: 9999 }))
+            })
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+
+            await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+            await chart.clickAtIndex(2)
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+        })
+
+        it('click-without-drag still dismisses a pinned tooltip when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={[
+                        { key: 'a', label: 'A', data: [10, 20, 30, 40, 50] },
+                        { key: 'b', label: 'B', data: [5, 15, 25, 35, 45] },
+                    ]}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { pinnable: true } }}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            const pinned = await chart.waitForTooltip()
+            expect(pinned.isPinned).toBe(true)
+
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
         })
     })
 

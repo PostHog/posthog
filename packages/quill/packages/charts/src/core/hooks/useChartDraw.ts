@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, DrawHoverResult, ResolvedSeries } from '../types'
+import type {
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartScales,
+    ChartTheme,
+    DragRect,
+    DrawHoverResult,
+    ResolvedSeries,
+} from '../types'
 import { clearAndPrepare } from './clearCanvas'
 import { useHoverAnimation } from './useHoverAnimation'
 
@@ -16,6 +24,8 @@ interface UseChartDrawOptions {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
+    /** Live drag-to-zoom selection, when the chart type supports it. Omitted by charts that don't. */
+    dragRect?: DragRect | null
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in/out. `0` disables. */
@@ -32,6 +42,7 @@ export function useChartDraw({
     hoverIndex,
     hoverPosition,
     theme,
+    dragRect = null,
     drawStatic,
     drawHover,
     hoverAnimationMs = 0,
@@ -84,6 +95,7 @@ export function useChartDraw({
         hoverIndex,
         hoverPosition,
         theme,
+        dragRect,
         drawHover,
         hoverAnimationMs,
     })

@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, DrawHoverResult, ResolvedSeries } from '../types'
+import type {
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartScales,
+    ChartTheme,
+    DragRect,
+    DrawHoverResult,
+    ResolvedSeries,
+} from '../types'
 import { clearAndPrepare } from './clearCanvas'
 import { useLatest } from './useLatest'
 
@@ -14,6 +22,8 @@ interface UseHoverAnimationOptions {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
+    /** Live drag-to-zoom selection, when the chart type supports it. Omitted by charts that don't. */
+    dragRect?: DragRect | null
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in. `0` snaps instantly. */
     hoverAnimationMs: number
@@ -33,6 +43,7 @@ export function useHoverAnimation({
     hoverIndex,
     hoverPosition,
     theme,
+    dragRect = null,
     drawHover,
     hoverAnimationMs,
 }: UseHoverAnimationOptions): void {
@@ -50,6 +61,7 @@ export function useHoverAnimation({
     const seriesRef = useLatest(series)
     const labelsRef = useLatest(labels)
     const themeRef = useLatest(theme)
+    const dragRectRef = useLatest(dragRect)
 
     // The RAF loop ticks until hoverProgress reaches 1, then exits and waits for the next
     // dep change. Timer is held in a ref so cancel/restart cycles resume the fade smoothly.
@@ -91,6 +103,7 @@ export function useHoverAnimation({
                 theme: themeRef.current,
                 hoverProgress,
                 resetHoverFade,
+                dragRect: dragRectRef.current,
             })
             overlayCtx.restore()
             drewVisibleRef.current = drewVisible
@@ -116,7 +129,8 @@ export function useHoverAnimation({
         // `drawHover`, and entering a bar from canvas-empty-space doesn't change hoverIndex.
         // The fade timer only resets on hoverIndex change (see check above), so re-running
         // the effect per mousemove doesn't restart the animation.
-        // series/labels/theme/drawHover are read via refs — see top of hook.
+        // series/labels/theme/drawHover/dragRect are read via refs — dragRect is also in the dep
+        // array below so the overlay repaints the selection as the drag rectangle changes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs])
+    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs, dragRect])
 }

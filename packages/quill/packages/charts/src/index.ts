@@ -83,6 +83,7 @@ export type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     LineChartConfig,
     PointClickData,
     ResolvedSeries,
