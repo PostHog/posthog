@@ -9,9 +9,10 @@ from unittest.mock import patch
 from django.core.exceptions import SynchronousOnlyOperation
 
 from asgiref.sync import async_to_sync
+from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from posthog.schema import HumanMessage
+from posthog.schema import AssistantMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -288,7 +289,7 @@ class TestUsage(BaseTest):
         # command would swallow into a generic failure. This guard mimics that check: it raises only when
         # get_ai_usage_period executes directly on the running loop.
         conversation = Conversation.objects.create(team=self.team, user=self.user)
-        config = {"configurable": {"thread_id": str(conversation.id)}}
+        config = RunnableConfig(configurable={"thread_id": str(conversation.id)})
         state = AssistantState(messages=[HumanMessage(content="/usage")])
 
         def usage_period_guarded(*args, **kwargs):
@@ -325,7 +326,9 @@ class TestUsage(BaseTest):
         ):
             result = async_to_sync(UsageCommand(self.team, self.user).execute)(config, state)
 
-        content = cast(str, result.messages[0].content)
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        content = cast(str, message.content)
         self.assertIn("PostHog AI usage", content)
         self.assertNotIn("query failed", content)
 
