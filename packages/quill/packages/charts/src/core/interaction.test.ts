@@ -297,31 +297,38 @@ describe('hog-charts interaction', () => {
     describe('dragRectToLabelRange', () => {
         const xScale = (label: string): number | undefined => ({ a: 100, b: 200, c: 300, d: 400, e: 500 })[label]
         const positions = buildLabelPositions(['a', 'b', 'c', 'd', 'e'], xScale)
+        const single = buildLabelPositions(['a'], xScale)
 
-        it('returns null when fewer than two labels are positioned', () => {
-            const single = buildLabelPositions(['a'], xScale)
-            expect(dragRectToLabelRange({ x0: 50, x1: 500 }, single)).toBeNull()
-        })
-
-        it('returns the [start,end] range for a left-to-right drag', () => {
+        it.each([
+            { desc: 'fewer than two labels are positioned', rect: { x0: 50, x1: 500 }, pos: single, expected: null },
             // 160 → nearest 200 (index 1); 340 → nearest 300 (index 2)
-            expect(dragRectToLabelRange({ x0: 160, x1: 340 }, positions)).toEqual({ startIndex: 1, endIndex: 2 })
-        })
-
-        it('normalizes a right-to-left drag', () => {
-            expect(dragRectToLabelRange({ x0: 340, x1: 160 }, positions)).toEqual({ startIndex: 1, endIndex: 2 })
-        })
-
-        it('clamps to the outermost label when the drag extends past the plot edges', () => {
-            expect(dragRectToLabelRange({ x0: -100, x1: 9999 }, positions)).toEqual({ startIndex: 0, endIndex: 4 })
-        })
-
-        it('returns null when both edges of the drag land on the same label', () => {
-            expect(dragRectToLabelRange({ x0: 195, x1: 205 }, positions)).toBeNull()
-        })
-
-        it('returns null for a zero-width drag', () => {
-            expect(dragRectToLabelRange({ x0: 250, x1: 250 }, positions)).toBeNull()
+            {
+                desc: 'a left-to-right drag',
+                rect: { x0: 160, x1: 340 },
+                pos: positions,
+                expected: { startIndex: 1, endIndex: 2 },
+            },
+            {
+                desc: 'a right-to-left drag (normalized)',
+                rect: { x0: 340, x1: 160 },
+                pos: positions,
+                expected: { startIndex: 1, endIndex: 2 },
+            },
+            {
+                desc: 'a drag past the plot edges (clamped to outermost labels)',
+                rect: { x0: -100, x1: 9999 },
+                pos: positions,
+                expected: { startIndex: 0, endIndex: 4 },
+            },
+            {
+                desc: 'both edges landing on the same label',
+                rect: { x0: 195, x1: 205 },
+                pos: positions,
+                expected: null,
+            },
+            { desc: 'a zero-width drag', rect: { x0: 250, x1: 250 }, pos: positions, expected: null },
+        ])('returns $expected for $desc', ({ rect, pos, expected }) => {
+            expect(dragRectToLabelRange(rect, pos)).toEqual(expected)
         })
     })
 

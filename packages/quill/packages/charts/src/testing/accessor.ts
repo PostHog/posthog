@@ -10,7 +10,7 @@ import { fireEvent } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
 import { dragSelection } from './interactions'
-import { dimensions } from './jsdom'
+import { clientForIndex } from './jsdom'
 import { type HogChartTooltip, waitForHogChartTooltip } from './tooltip'
 
 /** A single entry of `TooltipContext.seriesData`. */
@@ -152,14 +152,6 @@ function readReferenceLine(el: HTMLElement): ReferenceLineSummary {
     return { color, orientation, position, label }
 }
 
-function clientForIndex(totalLabels: number, index: number): { clientX: number; clientY: number } {
-    const step = dimensions.plotWidth / Math.max(1, totalLabels - 1)
-    return {
-        clientX: dimensions.plotLeft + step * index,
-        clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-    }
-}
-
 export function getHogChart<Meta = unknown>(
     scope: HTMLElement = document.body,
     options: GetHogChartOptions<Meta> = {}
@@ -252,13 +244,13 @@ export function getHogChart<Meta = unknown>(
             if (totalLabels === undefined) {
                 throw new Error('chart.hoverAtIndex requires renderHogChart (which captures labels.length)')
             }
-            fireEvent.mouseMove(wrapper, clientForIndex(totalLabels, index))
+            fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
         },
         async clickAtIndex(index: number): Promise<void> {
             if (totalLabels === undefined) {
                 throw new Error('chart.clickAtIndex requires renderHogChart (which captures labels.length)')
             }
-            fireEvent.mouseMove(wrapper, clientForIndex(totalLabels, index))
+            fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
             // Wait for the hover state to flush — the click handler reads live tooltipCtx
             // synchronously to choose between pinning and onPointClick.
             await waitForHogChartTooltip()

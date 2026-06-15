@@ -1,15 +1,7 @@
 import { act, fireEvent } from '@testing-library/react'
 
-import { dimensions } from './jsdom'
+import { clientForIndex } from './jsdom'
 import { waitForHogChartTooltip } from './tooltip'
-
-function clientForIndex(index: number, totalLabels: number): { clientX: number; clientY: number } {
-    const step = dimensions.plotWidth / Math.max(1, totalLabels - 1)
-    return {
-        clientX: dimensions.plotLeft + step * index,
-        clientY: dimensions.plotTop + dimensions.plotHeight / 2,
-    }
-}
 
 /** Fire a mouseMove on a chart wrapper element at the pixel position
  *  corresponding to the given label index. */

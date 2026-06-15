@@ -88,6 +88,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         if (days.length === 0) {
             return undefined
         }
+        // Shared/embedded charts are read-only — only honor an explicit context handler,
+        // never fall back to re-querying the local insight's date range.
+        if (!contextOnDateRangeZoom && inSharedMode) {
+            return undefined
+        }
         return ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
             const dateFrom = days[startIndex]
             const dateTo = days[endIndex]
@@ -100,7 +105,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
             }
         }
-    }, [contextOnDateRangeZoom, days, updateDateRange])
+    }, [contextOnDateRangeZoom, days, updateDateRange, inSharedMode])
 
     const hasData =
         indexedResults &&
