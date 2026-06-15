@@ -665,15 +665,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
             },
             {
-                id: 'feature-flag-secure-api-key',
-                title: 'Feature flags secure API key',
-                description:
-                    'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
-                docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                component: <FlagsSecureApiKeys />,
-                keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
-            },
-            {
                 id: 'feature-flag-evaluation-context-suggestions',
                 title: 'Evaluation context suggestions',
                 description:
@@ -682,6 +673,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'FLAG_EVALUATION_TAGS',
                 component: <EvaluationContextSuggestions />,
                 keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
+            },
+            {
+                id: 'feature-flag-secure-api-key',
+                title: 'Feature flags secure API key',
+                description:
+                    'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
+                docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
+                component: <FlagsSecureApiKeys />,
+                keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
             },
         ],
     },
