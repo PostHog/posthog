@@ -28,6 +28,7 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     SlackDeliveryResult,
     SlackMessageData,
     deliver_slack_message_data,
+    subscription_explore_button_enabled_async,
 )
 
 logger = structlog.get_logger(__name__)
@@ -257,7 +258,12 @@ def send_email_ai_subscription_credit_limited(
 
 
 def _build_ai_slack_message(
-    subscription: Subscription, markdown: str, *, delivery_id: uuid.UUID, integration: Integration | None = None
+    subscription: Subscription,
+    markdown: str,
+    *,
+    delivery_id: uuid.UUID,
+    integration: Integration | None = None,
+    explore_enabled: bool = False,
 ) -> SlackMessageData:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
@@ -287,8 +293,9 @@ def _build_ai_slack_message(
             "url": f"{subscription_url}?{utm_tags}",
         }
     ]
-    explore_button = build_explore_button(integration, resource_name=title, utm_tags=utm_tags)
-    if explore_button:
+    if explore_button := build_explore_button(
+        integration, enabled=explore_enabled, resource_name=title, utm_tags=utm_tags
+    ):
         action_elements.append(explore_button)
 
     blocks.extend(
@@ -324,7 +331,10 @@ async def send_slack_ai_subscription_report(
     integration: Integration,
     delivery_id: uuid.UUID,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id, integration=integration)
+    explore_enabled = await subscription_explore_button_enabled_async(subscription)
+    message_data = _build_ai_slack_message(
+        subscription, markdown, delivery_id=delivery_id, integration=integration, explore_enabled=explore_enabled
+    )
     return await deliver_slack_message_data(integration, subscription, message_data)
 
 

@@ -219,7 +219,23 @@ def _action_elements(message: SlackMessageData) -> list[dict]:
 
 class TestAIExploreButton:
     def test_no_explore_button_without_integration(self) -> None:
-        labels = [el["text"]["text"] for el in _action_elements(_build_message("A short report."))]
+        # Flag on but no integration to attach to -> no button.
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, explore_enabled=True
+        )
+        labels = [el["text"]["text"] for el in _action_elements(message)]
+        assert labels == ["Manage subscription"]
+
+    def test_no_explore_button_when_flag_off(self) -> None:
+        # Bot-ready integration but rollout flag off -> no button.
+        message = _build_ai_slack_message(
+            _mock_subscription(),
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            integration=_mock_integration(REQUIRED_SLACK_SCOPES),
+            explore_enabled=False,
+        )
+        labels = [el["text"]["text"] for el in _action_elements(message)]
         assert labels == ["Manage subscription"]
 
     @pytest.mark.parametrize(
@@ -233,7 +249,11 @@ class TestAIExploreButton:
         self, scopes: frozenset[str], label: str, expected_keys: set[str], forbidden_keys: set[str]
     ) -> None:
         message = _build_ai_slack_message(
-            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, integration=_mock_integration(scopes)
+            _mock_subscription(),
+            "A short report.",
+            delivery_id=_DELIVERY_ID,
+            integration=_mock_integration(scopes),
+            explore_enabled=True,
         )
         explore = next(el for el in _action_elements(message) if el["text"]["text"] == label)
         assert expected_keys.issubset(explore.keys())

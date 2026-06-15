@@ -13,6 +13,7 @@ from typing import Any
 from django.core import signing
 
 import structlog
+import posthoganalytics
 
 from posthog.models.integration import Integration, SlackIntegration
 
@@ -53,6 +54,33 @@ EXPLORE_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
 # Docs page explaining how to invite/enable the @PostHog bot in a channel.
 BOT_SETUP_DOCS_URL = "https://posthog.com/docs/slack-app"
 
+# Org-level rollout gate for the whole explore button (both the interactive and the
+# docs-link variants). Configure in PostHog as an organization group flag and ramp by
+# org. Orgs without the flag see exactly the pre-feature message. Subscriptions whose
+# org can't be resolved fail closed — same stance as the prompt-guide gate.
+SUBSCRIPTION_EXPLORE_BUTTON_FEATURE_FLAG_KEY = "subscription-explore-button"
+
+
+def explore_button_enabled(*, organization_id: str) -> bool:
+    """True when the explore button is rolled out to this organization.
+
+    Takes a primitive org id (not a Subscription) so this core helper stays free of any
+    product-model dependency. The senders read the org off their subscription's team and,
+    on the async delivery paths, call this inside ``database_sync_to_async`` — ``feature_enabled``
+    issues a blocking decide request and must not run on the event loop.
+    """
+    if not organization_id:
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            SUBSCRIPTION_EXPLORE_BUTTON_FEATURE_FLAG_KEY,
+            organization_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+        )
+    )
+
 
 def bot_is_ready(integration: Integration) -> bool:
     """True when this Slack install has every scope the conversational bot needs."""
@@ -91,7 +119,7 @@ def decode_explore_token(token: str) -> dict[str, Any] | None:
 
 
 def build_explore_button(
-    integration: Integration | None, *, resource_name: str, utm_tags: str
+    integration: Integration | None, *, enabled: bool, resource_name: str, utm_tags: str
 ) -> dict[str, Any] | None:
     """A Slack ``actions`` element inviting the channel to ask @PostHog about this report in-thread.
 
@@ -100,10 +128,11 @@ def build_explore_button(
     - Bot fully scoped -> an interactive button that opens the "Dive into the data" modal.
     - Slack connected but bot not invited / missing scopes -> a link button pointing at the docs.
 
-    Returns ``None`` only when there's no Slack integration at all (nothing to attach to). Shared
-    by both the insight/dashboard and AI subscription delivery paths so the button stays identical.
+    Returns ``None`` when the feature is disabled for this org (``enabled`` is False) or there's no
+    Slack integration to attach to — the one place that decides whether and which button to show.
+    Shared by both the insight/dashboard and AI subscription delivery paths so the button stays identical.
     """
-    if integration is None:
+    if not enabled or integration is None:
         return None
     if bot_is_ready(integration):
         return {

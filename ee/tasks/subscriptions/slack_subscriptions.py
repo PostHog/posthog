@@ -8,8 +8,9 @@ import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_subscription_explore import build_explore_button
+from posthog.helpers.slack_subscription_explore import build_explore_button, explore_button_enabled
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -133,6 +134,20 @@ def send_slack_subscription_report(
     send_slack_message_with_integration(integration, subscription, assets, total_asset_count, is_new_subscription)
 
 
+def subscription_explore_button_enabled(subscription: Subscription) -> bool:
+    """Org-level explore-button gate for a subscription. Reads the org off the subscription's
+    team (DB) and evaluates the flag (network) — call it directly only from the sync delivery
+    path; async callers must use ``subscription_explore_button_enabled_async``."""
+    org_id = str(subscription.team.organization_id) if subscription.team_id else ""
+    return explore_button_enabled(organization_id=org_id)
+
+
+async def subscription_explore_button_enabled_async(subscription: Subscription) -> bool:
+    """Off-the-event-loop wrapper for the gate: it touches the DB (team) and the flag service
+    (network), so the Temporal delivery paths must run it in a thread."""
+    return await database_sync_to_async(subscription_explore_button_enabled, thread_sensitive=False)(subscription)
+
+
 def _prepare_slack_message(
     subscription: Subscription,
     assets: list[ExportedAsset],
@@ -141,6 +156,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: Integration | None = None,
+    explore_enabled: bool = False,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -207,8 +223,9 @@ def _prepare_slack_message(
         },
     ]
 
-    explore_button = build_explore_button(integration, resource_name=resource_info.name, utm_tags=utm_tags)
-    if explore_button:
+    if explore_button := build_explore_button(
+        integration, enabled=explore_enabled, resource_name=resource_info.name, utm_tags=utm_tags
+    ):
         action_elements.append(explore_button)
 
     blocks.extend(
@@ -255,7 +272,12 @@ def send_slack_message_with_integration(
 ) -> None:
     """Send Slack message using provided integration (sync version)."""
     message_data = _prepare_slack_message(
-        subscription, assets, total_asset_count, is_new_subscription, integration=integration
+        subscription,
+        assets,
+        total_asset_count,
+        is_new_subscription,
+        integration=integration,
+        explore_enabled=subscription_explore_button_enabled(subscription),
     )
     slack_integration = SlackIntegration(integration)
 
@@ -378,6 +400,7 @@ async def send_slack_message_with_integration_async(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
 ) -> SlackDeliveryResult:
+    explore_enabled = await subscription_explore_button_enabled_async(subscription)
     message_data = _prepare_slack_message(
         subscription,
         assets,
@@ -386,5 +409,6 @@ async def send_slack_message_with_integration_async(
         change_summary=change_summary,
         summary_skipped_over_budget=summary_skipped_over_budget,
         integration=integration,
+        explore_enabled=explore_enabled,
     )
     return await deliver_slack_message_data(integration, subscription, message_data)

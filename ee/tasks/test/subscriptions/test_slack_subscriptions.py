@@ -64,6 +64,14 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
 
         self.integration = Integration.objects.create(team=self.team, kind="slack")
 
+        # The explore button is flag-gated; default the rollout flag ON for this class so the
+        # full-delivery assertions below still see it. A dedicated test flips it off.
+        explore_flag_patcher = patch(
+            "posthog.helpers.slack_subscription_explore.posthoganalytics.feature_enabled", return_value=True
+        )
+        self.mock_explore_flag = explore_flag_patcher.start()
+        self.addCleanup(explore_flag_patcher.stop)
+
     def test_subscription_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
         MockSlackIntegration.return_value = mock_slack_integration
@@ -112,6 +120,19 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                 ],
             },
         ]
+
+    def test_subscription_delivery_omits_explore_button_when_flag_off(self, MockSlackIntegration: MagicMock) -> None:
+        self.mock_explore_flag.return_value = False
+        mock_slack_integration = MagicMock()
+        MockSlackIntegration.return_value = mock_slack_integration
+        mock_slack_integration.client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        send_slack_subscription_report(self.subscription, [self.asset], 1)
+
+        blocks = mock_slack_integration.client.chat_postMessage.call_args_list[0].kwargs["blocks"]
+        actions = next(b for b in blocks if b.get("type") == "actions")
+        labels = [el["text"]["text"] for el in actions["elements"]]
+        assert labels == ["View in PostHog", "Manage Subscription"]
 
     @parameterized.expand(
         [
@@ -688,8 +709,14 @@ class TestSlackExploreButton(APIBaseTest):
             target_value="C12345|#test-channel",
         )
 
-    def _action_elements(self, integration: Integration | None) -> list[dict]:
-        message = _prepare_slack_message(self.subscription, [self.asset], total_asset_count=1, integration=integration)
+    def _action_elements(self, integration: Integration | None, explore_enabled: bool = True) -> list[dict]:
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            integration=integration,
+            explore_enabled=explore_enabled,
+        )
         return [el for block in message.blocks if block.get("type") == "actions" for el in block["elements"]]
 
     def _make_integration(self, scopes: frozenset[str]) -> Integration:
@@ -703,6 +730,12 @@ class TestSlackExploreButton(APIBaseTest):
 
     def test_no_explore_button_without_integration(self) -> None:
         labels = [el["text"]["text"] for el in self._action_elements(None)]
+        assert labels == ["View in PostHog", "Manage Subscription"]
+
+    def test_no_explore_button_when_flag_off(self) -> None:
+        # Even a fully bot-ready integration shows no explore button while the rollout flag is off.
+        elements = self._action_elements(self._make_integration(self.required_scopes), explore_enabled=False)
+        labels = [el["text"]["text"] for el in elements]
         assert labels == ["View in PostHog", "Manage Subscription"]
 
     @parameterized.expand(

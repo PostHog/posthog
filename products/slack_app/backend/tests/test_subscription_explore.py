@@ -1,5 +1,7 @@
 import json
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -8,8 +10,10 @@ from posthog.helpers.slack_subscription_explore import (
     EXPLORE_ACTION_ID,
     EXPLORE_VIEW_CALLBACK_ID,
     REQUIRED_SLACK_SCOPES,
+    SUBSCRIPTION_EXPLORE_BUTTON_FEATURE_FLAG_KEY,
     bot_is_ready,
     decode_explore_token,
+    explore_button_enabled,
     make_explore_token,
 )
 from posthog.models.integration import Integration
@@ -86,7 +90,8 @@ class TestExploreHints(TestCase):
         assert _extract_explore_hints(payload) is None
 
     def test_view_submission_with_null_view_does_not_raise(self) -> None:
-        # This runs on every interactivity payload; a null `view` must not blow up the handler.
+        # The token extractors run on every interactivity payload, so a null `view` must not raise here.
+        # (The submit handler's own null-view tolerance is covered in TestSubscriptionExploreInteractivity.)
         assert _explore_token_from_payload({"type": "view_submission", "view": None}) == ""
         assert _extract_explore_hints({"type": "view_submission", "view": None}) is None
 
@@ -108,3 +113,25 @@ class TestBuildExploreModal(TestCase):
         # The resource name is surfaced in the heading, and there's a free-text input to fill.
         assert "Signups" in modal["blocks"][0]["text"]["text"]
         assert any(block.get("type") == "input" for block in modal["blocks"])
+
+
+class TestExploreButtonEnabled(TestCase):
+    def test_empty_organization_id_is_fail_closed(self) -> None:
+        # No flag call when we can't resolve the org — disabled.
+        with patch("posthog.helpers.slack_subscription_explore.posthoganalytics.feature_enabled") as mock_flag:
+            assert explore_button_enabled(organization_id="") is False
+            mock_flag.assert_not_called()
+
+    @patch("posthog.helpers.slack_subscription_explore.posthoganalytics.feature_enabled")
+    def test_evaluates_org_flag(self, mock_flag) -> None:
+        mock_flag.return_value = True
+        assert explore_button_enabled(organization_id="org-123") is True
+        mock_flag.assert_called_once()
+        args, kwargs = mock_flag.call_args
+        assert args[0] == SUBSCRIPTION_EXPLORE_BUTTON_FEATURE_FLAG_KEY
+        assert args[1] == "org-123"
+        assert kwargs["groups"] == {"organization": "org-123"}
+
+    @patch("posthog.helpers.slack_subscription_explore.posthoganalytics.feature_enabled", return_value=None)
+    def test_unknown_flag_is_false(self, _mock_flag) -> None:
+        assert explore_button_enabled(organization_id="org-123") is False
