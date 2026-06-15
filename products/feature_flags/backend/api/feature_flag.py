@@ -1041,6 +1041,8 @@ class FeatureFlagSerializer(
         if not (archived and active):
             return
 
+        # If this request set archived=True, the user is archiving an enabled flag;
+        # otherwise they're enabling an already-archived flag.
         if attrs.get("archived"):
             raise serializers.ValidationError(
                 "Cannot archive an enabled feature flag. Disable it first, or send active: false in the same request."
@@ -2216,7 +2218,7 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag "
+            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
             "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
             "out. Use the `rollout` object to determine rollout completeness."
         )

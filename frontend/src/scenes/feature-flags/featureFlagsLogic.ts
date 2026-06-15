@@ -101,6 +101,7 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
         (!filters.created_by_id?.length ||
             (flag.created_by != null && filters.created_by_id.includes(flag.created_by.id))) &&
         (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
+        // excluded_tags wins over tags on conflict (AND semantics)
         (!filters.excluded_tags?.length || !filters.excluded_tags.some((tag) => flag.tags?.includes(tag))) &&
         (!filters.evaluation_runtime || flag.evaluation_runtime === filters.evaluation_runtime)
     )
