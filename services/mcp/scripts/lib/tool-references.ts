@@ -33,7 +33,9 @@ const REFERENCE_ALLOWLIST = new Set([
     'deep-dive', // "a deep-dive skill"
     'team-shared',
     'per-team',
+    'per-session', // adjective in "per-session tool calls", not a tool name
     'multi-file',
+    'document-window', // shorthand for the business-knowledge-document-window-retrieve tool
 ])
 
 // "use the X tool", "load the `X` skill" — kebab or snake candidate followed by tool/skill.

@@ -73,7 +73,9 @@ _REFERENCE_ALLOWLIST = {
     "deep-dive",  # "a deep-dive skill"
     "team-shared",
     "per-team",
+    "per-session",  # adjective in "per-session tool calls", not a tool name
     "multi-file",
+    "document-window",  # shorthand for the business-knowledge-document-window-retrieve tool
     # SDK / HogQL functions legitimately shown with call syntax in skills:
     "feature_enabled",
     "get_feature_flag",
