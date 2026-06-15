@@ -10,37 +10,36 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from products.web_analytics.backend.temporal.digest_common import ACTIVITY_RETRY_POLICY
-    from products.web_analytics.backend.temporal.weekly_digest.activities import (
+    from products.web_analytics.backend.temporal.digest_notification.activities import (
         get_org_batch_page,
-        push_wa_digest_metrics_activity,
-        run_wa_digest_batch,
-        send_test_wa_digest,
+        run_wa_digest_notification_batch,
+        send_test_wa_digest_notification,
     )
-    from products.web_analytics.backend.temporal.weekly_digest.types import (
-        WA_DIGEST_THRESHOLD_EXCEEDED_TYPE,
+    from products.web_analytics.backend.temporal.digest_notification.types import (
+        WA_DIGEST_NOTIF_THRESHOLD_EXCEEDED_TYPE,
         DigestBatchInput,
         DigestBatchResult,
         OrgBatchPageInput,
-        SendTestDigestInput,
-        WAWeeklyDigestInput,
+        SendTestDigestNotificationInput,
+        WADigestNotificationInput,
     )
 
 
-@workflow.defn(name="wa-weekly-digest")
-class WAWeeklyDigestWorkflow(PostHogWorkflow):
+@workflow.defn(name="wa-digest-notification")
+class WADigestNotificationWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> WAWeeklyDigestInput:
+    def parse_inputs(inputs: list[str]) -> WADigestNotificationInput:
         if inputs:
             data = json.loads(inputs[0])
-            return WAWeeklyDigestInput(
-                **{f.name: data[f.name] for f in dataclasses.fields(WAWeeklyDigestInput) if f.name in data}
+            return WADigestNotificationInput(
+                **{f.name: data[f.name] for f in dataclasses.fields(WADigestNotificationInput) if f.name in data}
             )
-        return WAWeeklyDigestInput()
+        return WADigestNotificationInput()
 
     @workflow.run
-    async def run(self, input: WAWeeklyDigestInput | None = None) -> dict:
+    async def run(self, input: WADigestNotificationInput | None = None) -> dict:
         if input is None:
-            input = WAWeeklyDigestInput()
+            input = WADigestNotificationInput()
 
         totals = DigestBatchResult()
         failed_batches = 0
@@ -51,8 +50,8 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
         async def _run_batch(batch: list[str]) -> DigestBatchResult:
             async with semaphore:
                 return await workflow.execute_activity(
-                    run_wa_digest_batch,
-                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run),
+                    run_wa_digest_notification_batch,
+                    DigestBatchInput(org_ids=batch, dry_run=input.dry_run, flag_key=input.flag_key),
                     start_to_close_timeout=timedelta(minutes=30),
                     heartbeat_timeout=timedelta(minutes=5),
                     retry_policy=ACTIVITY_RETRY_POLICY,
@@ -68,7 +67,7 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
 
             if page.batches:
                 workflow.logger.info(
-                    "Fanning out WA digest page",
+                    "Fanning out WA digest notification page",
                     batches=len(page.batches),
                     orgs=page.org_count,
                     cursor=cursor,
@@ -85,7 +84,7 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
                     if isinstance(r, BaseException):
                         failed_batches += 1
                         totals += DigestBatchResult(batch_size=len(batch), orgs_failed=len(batch))
-                        workflow.logger.error("WA digest batch failed: %s", str(r))
+                        workflow.logger.error("WA digest notification batch failed: %s", str(r))
                     else:
                         totals += r
 
@@ -94,23 +93,16 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             cursor = page.cursor
 
         if batch_count == 0:
-            workflow.logger.info("No org batches for WA weekly digest")
+            workflow.logger.info("No org batches for WA digest notification")
 
         threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
 
-        await workflow.execute_activity(
-            push_wa_digest_metrics_activity,
-            args=[dataclasses.asdict(totals), not threshold_exceeded],
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-
         if threshold_exceeded:
             raise ApplicationError(
-                f"WA weekly digest: {totals.orgs_failed:,}/{totals.batch_size:,} orgs failed "
+                f"WA digest notification: {totals.orgs_failed:,}/{totals.batch_size:,} orgs failed "
                 f"({totals.failure_rate:.1%}), exceeds threshold {input.failure_threshold:.1%} "
                 f"(skipped={totals.orgs_skipped:,} not counted toward failure rate)",
-                type=WA_DIGEST_THRESHOLD_EXCEEDED_TYPE,
+                type=WA_DIGEST_NOTIF_THRESHOLD_EXCEEDED_TYPE,
                 non_retryable=True,
             )
 
@@ -118,34 +110,27 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             "orgs": totals.batch_size,
             "batches": batch_count,
             "failed_batches": failed_batches,
-            "emails_sent": totals.emails_sent,
-            "emails_failed": totals.emails_failed,
+            "notifications_sent": totals.notifications_sent,
+            "control_exposed": totals.control_exposed,
+            "failed": totals.failed,
             "cumulative_duration_seconds": totals.total_duration,
         }
 
 
-@workflow.defn(name="wa-weekly-digest-test")
-class WAWeeklyDigestTestWorkflow(PostHogWorkflow):
-    """Send a test digest, bypassing notification settings and feature flags. See `SendTestDigestInput`."""
-
+@workflow.defn(name="wa-digest-notification-test")
+class WADigestNotificationTestWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> SendTestDigestInput:
-        """Parse inputs from the management command CLI.
-
-        Usage:
-          manage.py start_temporal_workflow wa-weekly-digest-test '{"email": "you@example.com"}'
-          manage.py start_temporal_workflow wa-weekly-digest-test '{"email": "you@example.com", "team_id": 1}'
-        """
+    def parse_inputs(inputs: list[str]) -> SendTestDigestNotificationInput:
         data = json.loads(inputs[0])
-        return SendTestDigestInput(
+        return SendTestDigestNotificationInput(
             email=data["email"],
             team_id=data.get("team_id"),
         )
 
     @workflow.run
-    async def run(self, input: SendTestDigestInput) -> None:
+    async def run(self, input: SendTestDigestNotificationInput) -> None:
         await workflow.execute_activity(
-            send_test_wa_digest,
+            send_test_wa_digest_notification,
             input,
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=common.RetryPolicy(maximum_attempts=1),
