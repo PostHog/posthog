@@ -1,6 +1,6 @@
 import datetime
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from pydantic import (
     BaseModel,
@@ -21,8 +21,37 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
 
+# The HogQL catalog is pickled and reloaded per request (see build_database_root_node). Pydantic's
+# default pickle state is a 4-key dict carrying __pydantic_fields_set__, __pydantic_extra__ and
+# __pydantic_private__ per node — pure overhead for the catalog, where those are always the trivial
+# case. The slim state below emits just __dict__ and rebuilds the bookkeeping on load (smaller blob,
+# faster unpickle). It is DEFENSIVE: a model that actually carries extra or private state falls back
+# to pydantic's full state, so no real data is ever dropped. __pydantic_fields_set__ is regenerated
+# as the full field set — nothing in the database layer reads it, and pydantic equality ignores it.
+def _slim_pickle_getstate(model: BaseModel) -> dict[str, Any]:
+    if model.__pydantic_extra__ is None and model.__pydantic_private__ is None:
+        return model.__dict__
+    return cast("dict[str, Any]", BaseModel.__getstate__(model))
+
+
+def _slim_pickle_setstate(model: BaseModel, state: dict[str, Any]) -> None:
+    if "__pydantic_fields_set__" in state:  # pydantic's full state — restore verbatim
+        BaseModel.__setstate__(model, state)
+        return
+    object.__setattr__(model, "__dict__", state)
+    object.__setattr__(model, "__pydantic_fields_set__", set(state))
+    object.__setattr__(model, "__pydantic_extra__", None)
+    object.__setattr__(model, "__pydantic_private__", None)
+
+
 class FieldOrTable(BaseModel):
     hidden: bool = False
+
+    def __getstate__(self) -> dict[str, Any]:
+        return _slim_pickle_getstate(self)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        _slim_pickle_setstate(self, state)
 
 
 class DatabaseField(FieldOrTable):
@@ -238,6 +267,12 @@ class TableNode(BaseModel):
     # When True, the table is reachable by the resolver (so other tables can reference it
     # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
     hidden: bool = False
+
+    def __getstate__(self) -> dict[str, Any]:
+        return _slim_pickle_getstate(self)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        _slim_pickle_setstate(self, state)
 
     def get(self) -> FieldOrTable:
         """

@@ -1,5 +1,6 @@
 import json
 import pickle
+import dataclasses
 from typing import Any, cast
 
 import pytest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from pydantic import BaseModel
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
@@ -62,6 +64,32 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+
+def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
+    # Walk a catalog tree, recording the id() of every mutable object (models, AST dataclasses, and
+    # the containers holding them) so two trees can be checked for any shared mutable state.
+    stack = [obj]
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, BaseModel):
+            ids.add(id(current))
+            stack.extend(current.__dict__.values())
+        elif dataclasses.is_dataclass(current) and not isinstance(current, type):
+            ids.add(id(current))
+            stack.extend(getattr(current, f.name) for f in dataclasses.fields(current))
+        elif isinstance(current, dict):
+            ids.add(id(current))
+            stack.extend(current.values())
+        elif isinstance(current, (list, set)):
+            ids.add(id(current))
+            stack.extend(current)
+        elif isinstance(current, (tuple, frozenset)):
+            stack.extend(current)
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
@@ -286,7 +314,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
     def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
         # build_database_root_node reconstructs the static catalog from a cached pickle blob; it must be
-        # byte-for-byte equivalent to constructing it from scratch, and each call must be independent.
+        # equivalent to constructing it from scratch, and a fresh object (deep independence is covered by
+        # test_build_database_root_node_loads_are_deeply_independent).
         cached = build_database_root_node(include_posthog_tables=include_posthog_tables)
         fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
 
@@ -304,6 +333,39 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert restored == fresh
         assert restored.children["events"].table is not fresh.children["events"].table
+
+    def test_build_database_root_node_loads_are_deeply_independent(self):
+        # Two builds must share zero mutable objects anywhere in the tree, so per-request mutation can
+        # never leak between teams. This is the guarantee the previous model_copy(deep=True) gave.
+        # Keep both trees referenced while walking — otherwise a GC'd first tree can have its id()s
+        # recycled by the second, producing a false overlap.
+        first = build_database_root_node()
+        second = build_database_root_node()
+        first_ids: set[int] = set()
+        second_ids: set[int] = set()
+        _collect_mutable_object_ids(first, first_ids)
+        _collect_mutable_object_ids(second, second_ids)
+
+        assert first_ids and second_ids
+        assert first_ids.isdisjoint(second_ids)
+
+    def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
+        # Common case takes the slim path: field values survive, bookkeeping resets to the trivial case.
+        field = StringDatabaseField(name="col")
+        restored = pickle.loads(pickle.dumps(field, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored == field and restored.name == "col"
+
+        # Defensive: a model actually carrying private or extra state must fall back to pydantic's full
+        # state so that data is never dropped by the slim representation.
+        with_private = StringDatabaseField(name="col")
+        object.__setattr__(with_private, "__pydantic_private__", {"secret": 1})
+        restored_private = pickle.loads(pickle.dumps(with_private, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored_private.__pydantic_private__ == {"secret": 1}
+
+        with_extra = StringDatabaseField(name="col")
+        object.__setattr__(with_extra, "__pydantic_extra__", {"extra_key": "value"})
+        restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
 
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(

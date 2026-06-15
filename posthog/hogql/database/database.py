@@ -1,5 +1,6 @@
 import copy
 import pickle
+import threading
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
@@ -306,16 +307,22 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # include_posthog_tables. CAVEAT: every node in the catalog must stay picklable; the
 # test_build_database_root_node_* tests fail loudly if a future field breaks that.
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
+_DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
+    # Double-checked locking: the warm path is a lock-free dict read; only the one-time cold
+    # build is serialized, so concurrent first-callers don't each rebuild + pickle the catalog.
     blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
     if blob is None:
-        blob = pickle.dumps(
-            _construct_database_root_node(include_posthog_tables=include_posthog_tables),
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
-        _DATABASE_ROOT_NODE_BLOBS[include_posthog_tables] = blob
+        with _DATABASE_ROOT_NODE_BLOBS_LOCK:
+            blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
+            if blob is None:
+                blob = pickle.dumps(
+                    _construct_database_root_node(include_posthog_tables=include_posthog_tables),
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
+                _DATABASE_ROOT_NODE_BLOBS[include_posthog_tables] = blob
     return pickle.loads(blob)
 
 
