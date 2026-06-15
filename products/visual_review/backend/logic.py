@@ -7,6 +7,8 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+import re
+import html
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -14,6 +16,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.conf import settings
 from django.db import (
     connections,
     models as db_models,
@@ -1435,8 +1438,6 @@ def _build_snapshots_yaml(
     *updates* is a list of ``{identifier, new_hash}`` where ``new_hash``
     is a plain content hash — it gets signed here.
     """
-    from django.conf import settings
-
     import yaml
 
     kid, secret_hex = repo.get_active_signing_key()
@@ -1481,8 +1482,6 @@ def _post_commit_status(
     if not repo.repo_full_name:
         return
 
-    from django.conf import settings
-
     from .github import github_request
 
     try:
@@ -1494,7 +1493,7 @@ def _post_commit_status(
         return
 
     access_token = github.get_access_token()
-    target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    target_url = _run_url(run, repo)
 
     try:
         response = github_request(
@@ -1654,9 +1653,7 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     if run.metadata.get("github_comment_id"):
         return
 
-    from django.conf import settings
-
-    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    run_url = _run_url(run, repo)
     comment_body = (
         f"👋 **Visual changes detected** for this PR.\n\n"
         f"[Review and approve in PostHog Visual Review]({run_url})\n\n"
@@ -1723,21 +1720,153 @@ class _Approver:
     is_github_login: bool
 
 
-def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
+# A reviewer should be able to eyeball the approved snapshots straight from the PR.
+# GitHub can't render base64 data URIs (its markdown sanitizer strips them) and the
+# user-attachments upload path needs a browser session we don't have, so we embed
+# presigned object-storage URLs and let GitHub's image proxy (camo) fetch + cache
+# them. That proxy fetch can happen well after the comment is posted, so the URL
+# must outlive the default hour — use the S3 SigV4 maximum.
+_COMMENT_IMAGE_URL_EXPIRATION = 60 * 60 * 24 * 7  # 7 days
+_COMMENT_IMAGE_WIDTH = 320
+# Keep the comment readable: show the first N snapshots and link out for the rest.
+_MAX_COMMENT_IMAGES = 8
+
+
+def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
+    """Presigned URL for embedding a snapshot image in a PR comment.
+
+    Prefers the thumbnail to keep the comment lightweight. Returns None when the
+    artifact is missing or object storage is disabled — the caller renders an
+    empty cell in that case.
+    """
+    if artifact is None:
+        return None
+    display = artifact.thumbnail or artifact
+    storage = ArtifactStorage(str(repo.id))
+    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+
+
+_TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _run_url(run: Run, repo: Repo) -> str:
+    """Link to the run page in PostHog."""
+    return f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+
+
+def _snapshot_url(run: Run, repo: Repo, snapshot: RunSnapshot) -> str:
+    """Deep link straight to a single snapshot on the run page."""
+    return f"{_run_url(run, repo)}?snapshot={snapshot.id}"
+
+
+def _snapshot_name_cell(identifier: str, suffix: str = "") -> str:
+    """Render a snapshot identifier as a single-line table cell (code span, pipe-safe).
+
+    Identifiers come from the run manifest without newline validation, so collapse
+    control characters (newlines, tabs, etc.) to spaces first — otherwise a
+    malformed or user-controlled story name could break out of the table row and
+    inject markdown/HTML into the comment. Then strip backticks and escape pipes so
+    it stays inside the code span and the cell.
+    """
+    safe = _TABLE_BREAKING_CHARS_RE.sub(" ", identifier).replace("`", "").replace("|", "\\|")
+    return f"`{safe}`{suffix}"
+
+
+def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str = "") -> str:
+    """Snapshot identifier linked to its deep link on the run page, so a reviewer can jump
+    straight to that snapshot rather than the run as a whole."""
+    return f"[{_snapshot_name_cell(snapshot.identifier)}]({_snapshot_url(run, repo, snapshot)}){suffix}"
+
+
+def _image_cell(url: str | None, alt: str) -> str:
+    """Render an image (or an empty placeholder) for a before/after table cell."""
+    if not url:
+        return "_(none)_"
+    # Escape both attributes — a URL containing a quote would otherwise break out of src.
+    src = html.escape(url, quote=True)
+    return f'<img src="{src}" width="{_COMMENT_IMAGE_WIDTH}" alt="{html.escape(alt, quote=True)}">'
+
+
+_IMAGE_TABLE_HEADER = "| Snapshot | Before | After |\n| --- | --- | --- |"
+
+
+def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
+    """Before/after image tables for the approved snapshots.
+
+    Changed and removed snapshots share one table (removed ones leave the *after*
+    cell empty); new snapshots get their own table (empty *before* cell). Capped
+    at ``_MAX_COMMENT_IMAGES`` rows total, prioritizing changed/removed diffs;
+    anything beyond links back to PostHog. Returns "" when no image could be
+    resolved (e.g. object storage disabled) so the comment stays text-only.
+    """
+    snapshots = list(
+        run.snapshots.using(READER_DB)
+        .filter(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
+        .select_related(
+            "current_artifact",
+            "current_artifact__thumbnail",
+            "baseline_artifact",
+            "baseline_artifact__thumbnail",
+        )
+        .order_by("identifier")
+    )
+    if not snapshots:
+        return ""
+
+    # Changed/removed first — they carry a baseline diff a reviewer most needs to
+    # see — then new snapshots fill whatever's left of the image budget.
+    changed = [s for s in snapshots if s.result in (SnapshotResult.CHANGED, SnapshotResult.REMOVED)]
+    new = [s for s in snapshots if s.result == SnapshotResult.NEW]
+
+    total = len(changed) + len(new)
+    shown_changed = changed[:_MAX_COMMENT_IMAGES]
+    shown_new = new[: max(0, _MAX_COMMENT_IMAGES - len(shown_changed))]
+    shown = len(shown_changed) + len(shown_new)
+
+    any_image = False
+
+    def cell(artifact: Artifact | None, alt: str) -> str:
+        nonlocal any_image
+        url = _comment_image_url(repo, artifact)
+        if url:
+            any_image = True
+        return _image_cell(url, alt)
+
+    def row(s: RunSnapshot, before: Artifact | None) -> str:
+        suffix = " _(removed)_" if s.result == SnapshotResult.REMOVED else ""
+        name = _snapshot_link_cell(run, repo, s, suffix)
+        return f"| {name} | {cell(before, 'before')} | {cell(s.current_artifact, 'after')} |"
+
+    changed_rows = [row(s, s.baseline_artifact) for s in shown_changed]
+    new_rows = [row(s, None) for s in shown_new]
+
+    if not any_image:
+        return ""
+
+    def table(heading: str, rows: list[str]) -> str:
+        return "\n".join((f"**{heading}**", "", _IMAGE_TABLE_HEADER, *rows))
+
+    sections = [table(heading, rows) for heading, rows in (("Changed", changed_rows), ("New", new_rows)) if rows]
+    if shown < total:
+        sections.append(f"…and {total - shown} more — [view all in PostHog]({_run_url(run, repo)}).")
+
+    return "\n\n".join(sections)
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None, add_images: bool = False) -> str:
     """Build the markdown body of the post-approval PR comment.
 
-    A short textual summary of what changed — reviewers go to PostHog to see
-    the actual snapshots.
+    Always a textual summary of what changed. When ``add_images`` is set, a
+    before/after table of the approved snapshot images is appended so another
+    reviewer can eyeball them without leaving the PR (omitted when no image can
+    be resolved).
     """
-    from django.conf import settings
-
     counts = Counter(
         run.snapshots.filter(
             result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
         ).values_list("result", flat=True)
     )
 
-    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
     if approver is None:
         approver_text = "a reviewer"
     elif approver.is_github_login:
@@ -1747,21 +1876,28 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
-    header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
+    summary = ", ".join(
+        f"{counts[result]} {label}"
+        for result, label in (
+            (SnapshotResult.CHANGED, "changed"),
+            (SnapshotResult.NEW, "new"),
+            (SnapshotResult.REMOVED, "removed"),
+        )
+        if counts.get(result)
+    )
 
-    parts = []
-    for result, label in (
-        (SnapshotResult.CHANGED, "changed"),
-        (SnapshotResult.NEW, "new"),
-        (SnapshotResult.REMOVED, "removed"),
-    ):
-        if counts.get(result):
-            parts.append(f"{counts[result]} {label}")
+    sections = [
+        f"✅ **Visual changes approved** by {approver_text}{sha_text}.",
+        f"[View this run in PostHog]({_run_url(run, repo)})",
+    ]
+    if summary:
+        sections.append(f"{summary}.")
+    if add_images:
+        tables = _build_snapshot_image_tables(run, repo)
+        if tables:
+            sections.append(tables)
 
-    if not parts:
-        return header
-
-    return header + f"\n{', '.join(parts)}.\n"
+    return "\n\n".join(sections) + "\n"
 
 
 def _resolve_approver(user_id: int | None) -> _Approver | None:
@@ -1797,12 +1933,13 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
     return None
 
 
-def _post_approval_comment(run: Run, repo: Repo) -> None:
+def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> None:
     """Update the existing PR comment in place with the approved-changes summary.
 
     Best-effort and never raises. Skips silently when the original review-prompt
     comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
-    when the review wasn't initiated by a human.
+    when the review wasn't initiated by a human. ``add_images`` embeds the
+    before/after snapshot images in the comment when the reviewer opted in.
     """
     if not repo.enable_pr_comments:
         return
@@ -1822,7 +1959,7 @@ def _post_approval_comment(run: Run, repo: Repo) -> None:
         return
 
     approver = _resolve_approver(run.approved_by_id)
-    body = _build_approval_comment_body(run, repo, approver)
+    body = _build_approval_comment_body(run, repo, approver, add_images=add_images)
 
     try:
         response = _github_api_request(
@@ -1878,7 +2015,7 @@ def _post_approval_comment(run: Run, repo: Repo) -> None:
         )
 
 
-def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> None:
+def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None, add_images: bool = False) -> None:
     """Public entrypoint for the Celery task to update a PR comment after approval."""
     run = (
         Run.objects.select_related("repo")
@@ -1888,7 +2025,7 @@ def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> N
     )
     if run is None:
         return
-    _post_approval_comment(run, run.repo)
+    _post_approval_comment(run, run.repo, add_images=add_images)
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -1899,6 +2036,7 @@ def finalize_run(
     approve_all: bool = False,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
+    add_images_to_comment_on_pr: bool = False,
 ) -> Run:
     """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
@@ -1915,6 +2053,11 @@ def finalize_run(
 
     Set ``commit_to_github=False`` for CLI auto-approve, which writes the baseline locally
     instead of pushing it to the PR branch.
+
+    The post-approval PR comment is always posted (subject to the existing conditions: repo
+    PR comments enabled, run initiated from a GitHub review prompt). ``add_images_to_comment_on_pr``
+    only controls whether the before/after snapshot images are embedded in that comment;
+    defaults false so the comment stays a text summary unless the reviewer opts in.
     """
     run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
@@ -1994,8 +2137,9 @@ def finalize_run(
 
         run_id_str = str(run.id)
         run_team_id = run.team_id
+        add_images = add_images_to_comment_on_pr
         transaction.on_commit(
-            lambda: post_approval_comment.delay(run_team_id, run_id_str),
+            lambda: post_approval_comment.delay(run_team_id, run_id_str, add_images),
             using=WRITER_DB,
         )
 

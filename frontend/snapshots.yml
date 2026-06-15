@@ -6250,6 +6250,10 @@ snapshots:
         hash: v1.k794b7964.d69d7670abb2a83ae34f5fd1d5207f21e5b1ef14e0116997b55b6854f77564a5.BuxfmZGhUt3c9qQw3T27cYFr9cnafBjOJXLbAke8Sx4
     scenes-app-user-research-topics--topics-list--light:
         hash: v1.k794b7964.c4ee7785c554f517bcaf7013daa0277ccb038faf2883d1ddb3ccb6f3ac7c7e00.apAT1Kl9oDw_AAmV8akOA9zvcF0mOUCUjtrEwJ1wA54
+    scenes-app-visual-review-run--ready-to-finalize--dark:
+        hash: v1.k794b7964.0963628627d2de9b968394dac5513b1749b3a9c90f1ca07f51c4497036a9262b.CSDgJl9gZqu0yrd7a0p8-WSSKR2zVFP-t47fKNoGOGI
+    scenes-app-visual-review-run--ready-to-finalize--light:
+        hash: v1.k794b7964.cbad9f0954e55a8a37053d4824897f00e6ce6cdfec8bcf16afcaaef887ea53b4.BtH21G_RiNOuXE6qtG9BjC0OEcbzdO5SfkUft7rL56Y
     scenes-app-web-analytics--web-analytics-dashboard--dark:
         hash: v1.k794b7964.918e3e893e634a2ea697e21bc8a47b433261d2cd70f262bdf9f89a4cfbc8c89f.UVILZaS1DVrMHZKjXeu9IdpDmNRizwe9RpXAWfYaWq0
     scenes-app-web-analytics--web-analytics-dashboard--light:

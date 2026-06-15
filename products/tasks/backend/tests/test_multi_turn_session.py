@@ -194,6 +194,22 @@ class TestPollForTurnStaleSalvage:
         assert total_lines == len(done)
 
     @pytest.mark.asyncio
+    async def test_max_poll_seconds_overrides_module_budget(self):
+        # A caller-supplied max_poll_seconds bounds the loop instead of the module MAX_POLL_SECONDS:
+        # the module value is left larger, so the elapsed in the timeout error proves the override won.
+        log = _agent_message_line("intermediate")  # no fingerprint — always times out
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.MAX_POLL_SECONDS", 100),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(RuntimeError, match="after 30s"):
+                await poll_for_turn(fake, skip_lines=0, max_poll_seconds=30)
+
+    @pytest.mark.asyncio
     async def test_salvage_reassembles_chunked_message(self):
         # Response split across agent_message_chunk slices, then null-cost usage_update — salvage
         # reparses from start-of-turn and returns all chunks, not just the last.
