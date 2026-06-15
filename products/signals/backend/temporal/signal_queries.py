@@ -613,23 +613,35 @@ def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[s
     if not source_ids:
         return {}
 
+    # Push the source_id filter into the document_embeddings scan so we only dedup the
+    # handful of signals for these findings, not the team's entire signal history.
+    # Resolve the newest signal per source_id FIRST (carrying its deleted/report state),
+    # then decide whether to return a link. Filtering deleted/empty rows before the argMax
+    # would let an older non-deleted report win when the latest signal was deleted or
+    # report-less, surfacing a stale link instead of the documented "most recent wins" null.
+    source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
     ch_query = f"""
-        SELECT source_id, argMax(report_id, timestamp) as report_id
+        SELECT source_id, report_id
         FROM (
             SELECT
-                JSONExtractString(metadata, 'source_id') as source_id,
-                JSONExtractString(metadata, 'report_id') as report_id,
-                JSONExtractBool(metadata, 'deleted') as is_deleted,
-                JSONExtractString(metadata, 'source_product') as source_product,
-                timestamp
-            FROM ({_deduped_signals_subquery()})
+                source_id,
+                argMax(report_id, timestamp) as report_id,
+                argMax(is_deleted, timestamp) as is_deleted
+            FROM (
+                SELECT
+                    JSONExtractString(metadata, 'source_id') as source_id,
+                    JSONExtractString(metadata, 'report_id') as report_id,
+                    JSONExtractBool(metadata, 'deleted') as is_deleted,
+                    JSONExtractString(metadata, 'source_product') as source_product,
+                    timestamp
+                FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
+            )
+            WHERE source_product = 'signals_scout'
+              AND source_id != ''
+            GROUP BY source_id
         )
         WHERE NOT is_deleted
-          AND source_product = 'signals_scout'
-          AND source_id != ''
           AND report_id != ''
-          AND source_id IN ({{source_ids}})
-        GROUP BY source_id
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)

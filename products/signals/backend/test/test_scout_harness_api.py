@@ -301,6 +301,16 @@ class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["report"] is None
 
+    def test_clickhouse_failure_degrades_to_null_links(self) -> None:
+        # A transient CH/HogQL failure shouldn't 500 the whole page — each finding still
+        # comes back, just with `report: null` instead of a resolved link.
+        run = _make_run(self.team, emitted_finding_ids=["f-a"])
+        _make_emission(self.team, run, finding_id="f-a")
+        with patch(_FETCH_REPORT_IDS, side_effect=Exception("ClickHouse timeout")):
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["report"] is None
+
     def test_empty_run_returns_empty_and_skips_clickhouse(self) -> None:
         run = _make_run(self.team)
         with patch(_FETCH_REPORT_IDS) as mock_fetch:

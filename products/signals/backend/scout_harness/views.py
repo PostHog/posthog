@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
@@ -81,6 +82,8 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 )
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
+
+logger = structlog.get_logger(__name__)
 
 # Hard cap on the per-run emissions response. Far above any realistic run (a scout emits a
 # handful of findings), so it never truncates in practice — it just bounds a pathological
@@ -323,8 +326,17 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # One ClickHouse round-trip for the whole run: map every finding's source_id to the
         # report_id its signal grouped into (best effort — unmatched/deleted findings drop out).
+        # Query with the canonical team so the injected `document_embeddings.team_id` guard
+        # matches where signals persist (child-environment requests would otherwise find none).
+        # CH/HogQL failures degrade to "no links" rather than 500-ing the whole page.
+        canonical_team = self.team.parent_team or self.team
         source_ids = [e.source_id for e in emissions if e.source_id]
-        source_id_to_report_id = fetch_report_ids_for_source_ids(self.team, source_ids) if source_ids else {}
+        source_id_to_report_id: dict[str, str] = {}
+        if source_ids:
+            try:
+                source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
+            except Exception:
+                logger.exception("scout_emission_reports_lookup_failed", run_id=str(run_id), team_id=team_id)
 
         # Hydrate the resolved report ids into minimal projections. Exclude DELETED reports —
         # ClickHouse soft-delete and Postgres status can drift, so a finding could resolve to a
