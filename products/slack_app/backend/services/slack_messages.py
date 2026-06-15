@@ -68,6 +68,22 @@ def resolve_user_mentions_text(
     return resolved
 
 
+def decode_slack_event_text(slack: "SlackIntegration", integration: "Integration", text: str) -> str:
+    """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
+
+    Trigger sites all want the same thing: drop the bot's self-ping (it's just
+    the activation, no information for the agent) and enrich every other
+    `<@U…>` reference with a `|displayname` label so the agent can echo the
+    token verbatim to ping the user back. Centralised here so a new trigger
+    handler can't drift back into the original mention-eating bug.
+    """
+    # Deferred to break the circular dep between this module and slack_app api.py.
+    from products.slack_app.backend.api import _get_cached_bot_user_id  # noqa: PLC0415
+
+    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+
+
 def labeled_mentions_to_display_names(text: str) -> str:
     """Render labeled `<@U…|name>` mentions as plain `@name` for human-facing display.
 
