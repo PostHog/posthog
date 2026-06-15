@@ -889,17 +889,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         respondToPermission: async ({ conversationId, requestId, optionId, customInput }) => {
             try {
                 // PERMISSION_RESPONDED telemetry is emitted server-side by the /permission/ handler;
-                // forward the trace_id so it can correlate with the rest of this run's events.
-                // Forward the run id this SSE is streaming — the run that emitted the request — so a
-                // run transition (terminal resume, prewarm rewarm) between showing the card and
-                // answering it can't misroute the reply to a successor run.
-                const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+                // forward the trace_id so it can correlate with the rest of this run's events. The
+                // server targets the conversation's current run on its own — sandboxes are persistent,
+                // so a run transition only happens when the old sandbox dies and the successor run is
+                // exactly where the reply belongs.
                 await api.conversations.permission(conversationId, {
                     requestId,
                     optionId,
                     customInput,
                     traceId: values.traceId ?? undefined,
-                    runId: activeRun?.runId,
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {

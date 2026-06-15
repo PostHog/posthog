@@ -109,9 +109,11 @@ class TestConversationPermission(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
 
-    def test_permission_targets_originating_run_over_current_run(self):
+    def test_permission_targets_current_run(self):
         run = self._create_run()
-        # A successor run on the same task makes `current_run` resolve to the newer run.
+        # A successor run takes over the same task after the original sandbox dies; `current_run`
+        # resolves to this newer run, and the persistent sandbox lives there now — so that is where
+        # the reply must go, never the dead original.
         successor = TaskRun.objects.create(task=run.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         conversation = Conversation.objects.create(user=self.user, team=self.team, task=run.task)
 
@@ -121,33 +123,13 @@ class TestConversationPermission(APIBaseTest):
         ) as mock_send:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/{conversation.id}/permission/",
-                {"requestId": "req-1", "optionId": "allow_once", "runId": str(run.id)},
+                {"requestId": "req-1", "optionId": "allow_once"},
                 format="json",
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         args, _ = mock_send.call_args
-        # The reply targets the run that emitted the request, not the newer current run.
-        self.assertEqual(args[0].id, run.id)
-        self.assertNotEqual(args[0].id, successor.id)
-
-    def test_permission_falls_back_to_current_run_without_run_id(self):
-        run = self._create_run()
-        TaskRun.objects.create(task=run.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        conversation = Conversation.objects.create(user=self.user, team=self.team, task=run.task)
-
-        with patch(
-            "ee.api.conversation.send_permission_response",
-            return_value=CommandResult(success=True, status_code=200, data={}),
-        ) as mock_send:
-            self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/permission/",
-                {"requestId": "req-1", "optionId": "allow_once"},
-                format="json",
-            )
-
-        args, _ = mock_send.call_args
-        # No run id supplied → the conversation's current (newest) run.
+        self.assertEqual(args[0].id, successor.id)
         self.assertEqual(args[0].id, run.task.latest_run.id)
 
     def test_permission_responded_telemetry_marks_forward_failure(self):

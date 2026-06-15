@@ -112,10 +112,6 @@ class PermissionResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation.",
     )
-    runId = serializers.UUIDField(
-        required=False,
-        help_text="The run that emitted the request; preferred over the conversation's current run so a run transition between showing the card and answering it cannot misroute the reply.",
-    )
 
 
 class PermissionResponseResultSerializer(serializers.Serializer):
@@ -831,15 +827,11 @@ class ConversationViewSet(
         serializer = PermissionResponseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Prefer the run that emitted the request (its id round-trips through the client) so a run
-        # transition between showing the approval card and answering it can't forward the reply to a
-        # successor run while the original stays blocked. Fall back to the current run when the
-        # client sent no id (older clients, or a request re-derived from history).
-        run_id = serializer.validated_data.get("runId")
-        task = conversation.task
-        task_run = task.runs.filter(id=run_id).first() if task is not None and run_id is not None else None
-        if task_run is None:
-            task_run = conversation.current_run
+        # Always target the conversation's current run. Sandboxes are persistent, so `current_run`
+        # only advances when the old sandbox dies and a successor run takes over the same Task — and
+        # that successor is exactly where a follow-up reply belongs, since the dead run can no longer
+        # receive it.
+        task_run = conversation.current_run
         if task_run is None or task_run.team_id != self.team.pk:
             return Response({"error": "Conversation has no active sandbox run"}, status=status.HTTP_400_BAD_REQUEST)
 
