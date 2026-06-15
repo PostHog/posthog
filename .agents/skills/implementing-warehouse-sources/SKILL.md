@@ -225,6 +225,26 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 - In `source_for_pipeline`, call `self.get_webhook_source_manager(inputs)` and pass its iterator alongside the pull iterator so a single sync pulls historical + webhook-delivered rows.
 - Populate `SourceSchema.supports_webhooks=True` only for endpoints where webhooks are actually viable (usually incremental/append-only ones).
 
+## Multi-schema SQL database sources
+
+SQL DB sources (Postgres, MSSQL, Snowflake, Redshift today) can import tables from **every namespace (schema) in one connection**: a blank namespace field discovers tables across all non-system namespaces, the wizard groups them by namespace, and sync writes one warehouse table per `namespace.table`. Reference implementation: `postgres/postgres.py` + `PostgresImplementation`; the shared seam lives in `common/sql/`.
+
+The capability marker is the source's `schema` field being **optional** (`required=False`) in `get_source_config` — `is_multi_schema_capable_sql_source()` (`products/data_warehouse/backend/sql_warehouse_migration.py`) keys off it, so flipping the field optional is what turns on the viewset migration behavior. Treat `None` / `""` / whitespace as "all namespaces" (`normalize_namespace` in `common/sql/location.py`) and never emit `WHERE table_schema = ''`.
+
+Checklist for bringing a SQL source to multi-schema parity:
+
+1. **Namespace field optional** — `required=False` on the `schema` field, rerun `pnpm run generate:source-configs`. Keep `database` required: the database/catalog stays fixed per connection.
+2. **Multi-namespace discovery** — in `get_columns`, `get_primary_keys`, index/row-count/foreign-key helpers: when the namespace is blank, drop the `WHERE table_schema = <ns>` predicate (excluding system namespaces like `information_schema`, `pg_catalog`, `sys`) and return **qualified display names** (`namespace.table`). Keep the single-namespace fast path when the field is set.
+3. **Implement `get_source_metadata`** — return `SourceMetadata(catalog_by_table, schema_by_table, table_name_by_table)` keyed by the qualified display name. `SQLSource.get_schemas` stamps it onto each `SourceSchema`, and `reconcile_schema_metadata` persists it into `ExternalDataSchema.sync_type_config["schema_metadata"]`.
+4. **Per-row routing in `build_pipeline`** — resolve `(schema, table_name, response_name)` with `resolve_source_location` (`common/sql/location.py`): per-row metadata → dotted-name self-heal → config namespace. Run SQL against the resolved schema + **unqualified** table; set `SourceResponse.name = response_name` (`dwh_storage_key or schema.name`, normalized) — never the bare table name, or the row's Delta path moves and orphans synced data.
+5. **Thread the resolved namespace through every streaming/stats helper** — table metadata, row stats, average row size, partition settings, chunk size, primary-key lookup all take `(schema, table)`. Missing one degrades silently (no partitioning / wrong stats).
+6. **Never feed a dotted display name to an identifier quoter** — `quote("a.b")` yields one wrong identifier. Split into `(schema, table)` first and use `quote_qualified` (`common/sql/identifiers.py`).
+7. **Naming layers are derived, never stored** — display name `analytics.users`; S3/Delta subdir `analytics_users` (normalized `response_name`); HogQL table `{prefix}_analytics_users`. The one stored exception is `dwh_storage_key`, which pins a migrated legacy row to its original Delta path.
+8. **Legacy migration is capability-driven, not source-type-gated** — when a user clears the namespace on an existing single-schema source, `sql_warehouse_migration.py` renames rows to qualified form and stamps `dwh_storage_key`, preserving synced data with no re-sync. Don't add `source_type == "..."` branches to the shared layer.
+9. **Tests** — two namespaces with the same table name stay distinct end to end; blank-namespace discovery excludes system namespaces; per-row routing hits the right namespace; legacy single-namespace sources keep working; migrated rows keep their legacy Delta path.
+
+Discovery cost: `validate_credentials` and `database_schema` run discovery with no name filter, so a blank namespace on a catalog with hundreds of schemas must not issue per-table queries per namespace — batch the listing queries or cap enumeration (see Snowflake's `SHOW PRIMARY KEYS` handling).
+
 ## Outbound HTTP must go through the tracked transport
 
 Every HTTP call from `posthog/temporal/data_imports/sources/**` must go through `make_tracked_session()` (from

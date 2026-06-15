@@ -5,6 +5,7 @@ import requests
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -147,7 +148,7 @@ class GoogleSearchConsoleSource(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "
                 "(clicks, impressions, CTR, average position). Requires a Google account with read access to the property."
             ),
-            releaseStatus="alpha",
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-google-search-console",
             iconPath="/static/services/google-search-console.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-search-console",

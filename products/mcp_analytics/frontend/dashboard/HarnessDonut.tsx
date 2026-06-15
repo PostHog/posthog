@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     PieChart,
@@ -9,6 +8,7 @@ import {
     type TooltipContext,
     useRadialLayout,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils'
 
@@ -111,7 +111,7 @@ export function HarnessDonut({
         return (
             <Card className="flex flex-1 flex-col" title="Share of calls by harness">
                 <div className="flex min-h-[300px] flex-1 items-center justify-center">
-                    <LemonSkeleton className="h-[180px] w-[180px] rounded-full" />
+                    <Skeleton className="h-[180px] w-[180px] rounded-full" />
                 </div>
             </Card>
         )
