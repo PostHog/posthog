@@ -45,6 +45,20 @@ interface AnomalyPointSummary {
     color: string
 }
 
+interface SlopeValueLabelSummary {
+    text: string
+    /** Inline style color (matches the series color). */
+    color: string
+    /** Which end of the slope this label sits on. */
+    side: 'start' | 'end'
+}
+
+interface SlopeLegendItemSummary {
+    label: string
+    /** The per-series change text, or null when absent. */
+    secondaryLabel: string | null
+}
+
 export interface HogChart<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
@@ -68,6 +82,12 @@ export interface HogChart<Meta = unknown> {
     valueLabels(): ValueLabelSummary[]
     /** All anomaly point markers currently rendered (TimeSeriesLineChart only). */
     anomalyPoints(): AnomalyPointSummary[]
+    /** All slope-chart value labels currently rendered (start + end columns). */
+    slopeValueLabels(): SlopeValueLabelSummary[]
+    /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
+    slopeSeriesLabels(): string[]
+    /** Slope-chart legend rows — label plus the per-series change. Empty when the legend is hidden. */
+    slopeLegendItems(): SlopeLegendItemSummary[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -197,6 +217,34 @@ export function getHogChart<Meta = unknown>(
                 element: el,
                 color: el.style.backgroundColor,
             })),
+        slopeValueLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-value-label"]')).map(
+                (el) => ({
+                    text: el.textContent ?? '',
+                    color: el.style.color,
+                    side: el.dataset.slopeSide === 'end' ? 'end' : 'start',
+                })
+            ),
+        slopeSeriesLabels: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
+                (el) => el.textContent ?? ''
+            ),
+        slopeLegendItems: () => {
+            // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it
+            // lives in the broader render scope rather than under `wrapper`.
+            const legend = scope.querySelector<HTMLElement>('[data-attr="hog-chart-slope-legend"]')
+            if (!legend) {
+                return []
+            }
+            return Array.from(legend.querySelectorAll<HTMLElement>('.truncate')).map((labelEl) => {
+                const secondary = labelEl.nextElementSibling
+                const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
+                return {
+                    label: labelEl.textContent ?? '',
+                    secondaryLabel: isSecondary ? (secondary as HTMLElement).textContent : null,
+                }
+            })
+        },
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {

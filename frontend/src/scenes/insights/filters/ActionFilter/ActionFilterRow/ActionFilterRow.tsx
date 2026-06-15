@@ -700,6 +700,7 @@ export function ActionFilterRow({
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
+                        triggerVariant="input"
                     />
                     <SaveAsActionBanner filter={filter} />
                 </div>

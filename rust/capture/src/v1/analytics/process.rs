@@ -53,6 +53,11 @@ pub async fn process_batch(
 
     let mut events = validate_events(context, batch)?;
 
+    // Nothing left to process — return 200 with per-event drops.
+    if events.iter().all(|ev| ev.result != EventResult::Ok) {
+        return Ok(BatchResponse::build(context, &events));
+    }
+
     crate::v1::quota_limiter_shim::apply_quota_limits(
         &state.quota_limiter,
         &context.api_token,
@@ -2449,6 +2454,39 @@ mod tests {
             matches!(err, Error::ServiceUnavailable(_)),
             "expected ServiceUnavailable, got: {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn process_batch_all_validation_dropped_returns_200_not_402() {
+        let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
+        let state = test_state.state;
+
+        let mut ctx = test_utils::test_context();
+        // Every event is invalid — empty name, empty distinct_id, bad timestamp.
+        let batch = valid_batch(vec![
+            Event {
+                event: String::new(),
+                ..valid_event()
+            },
+            Event {
+                distinct_id: String::new(),
+                ..valid_event()
+            },
+            Event {
+                timestamp: "not-a-date".to_string(),
+                ..valid_event()
+            },
+        ]);
+
+        let resp = process_batch(&state, &mut ctx, batch).await.unwrap();
+        assert_eq!(resp.entries().len(), 3);
+        for (_, entry) in resp.entries() {
+            assert_eq!(
+                entry.result,
+                EventResult::Drop,
+                "all-invalid batch must return 200 with per-event drops, not 402"
+            );
+        }
     }
 
     // =========================================================================

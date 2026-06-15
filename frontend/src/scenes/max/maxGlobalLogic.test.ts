@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -66,6 +68,27 @@ describe('maxGlobalLogic', () => {
                 sidePanelMax?.unmount()
             }
         )
+    })
+
+    describe('isMaxAvailable selector', () => {
+        it.each([
+            { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
+            { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
+            {
+                realm: 'self-hosted with an Anthropic key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true },
+                expected: true,
+            },
+            {
+                realm: 'self-hosted without a key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: false },
+                expected: false,
+            },
+        ])('is $expected on $realm', async ({ preflight, expected }) => {
+            preflightLogic.actions.loadPreflightSuccess(preflight as any)
+
+            await expectLogic(logic).toMatchValues({ isMaxAvailable: expected })
+        })
     })
 
     describe('editInsightToolRegistered selector', () => {
