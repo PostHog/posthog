@@ -122,10 +122,23 @@ def test_validate_credentials_missing_integration_returns_reconnect_message():
     assert "Integration matching query" not in (message or "")
 
 
-def test_validate_credentials_refresh_error_returns_reconnect_message():
+@pytest.mark.parametrize(
+    "error_args,banned_substring",
+    [
+        (
+            ("invalid_scope: Bad Request", {"error": "invalid_scope", "error_description": "Bad Request"}),
+            "invalid_scope",
+        ),
+        (
+            ("invalid_grant: Token has been expired or revoked.", {"error": "invalid_grant"}),
+            "invalid_grant",
+        ),
+    ],
+)
+def test_validate_credentials_refresh_error_returns_reconnect_message(error_args, banned_substring):
     from google.auth.exceptions import RefreshError
 
-    err = RefreshError("invalid_scope: Bad Request", {"error": "invalid_scope", "error_description": "Bad Request"})
+    err = RefreshError(*error_args)
     with (
         mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
         mock.patch(
@@ -137,7 +150,7 @@ def test_validate_credentials_refresh_error_returns_reconnect_message():
 
     assert ok is False
     assert "reconnect your Google account" in (message or "")
-    assert "invalid_scope" not in (message or "")
+    assert banned_substring not in (message or "")
 
 
 def test_validate_credentials_rejects_unknown_site():
