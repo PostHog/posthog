@@ -1575,8 +1575,6 @@ export interface TrendsFilterApi {
     showPercentStackView?: boolean | null
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
-    /** Include the current, still-incomplete period in the slope graph's start-vs-end comparison. Off by default so a partial latest period (e.g. today, so far) doesn't read as a drop. */
-    slopeIncludeIncompletePeriod?: boolean | null
     smoothingIntervals?: number | null
     /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
     stackBreakdownValues?: boolean | null
