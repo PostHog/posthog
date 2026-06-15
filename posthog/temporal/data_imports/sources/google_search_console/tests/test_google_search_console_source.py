@@ -108,6 +108,38 @@ def test_validate_credentials_handles_auth_failures(status_code, expected_substr
     assert expected_substring in (message or "")
 
 
+def test_validate_credentials_missing_integration_returns_reconnect_message():
+    from posthog.models.integration import Integration
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
+        side_effect=Integration.DoesNotExist(),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "no longer exists" in (message or "")
+    assert "Integration matching query" not in (message or "")
+
+
+def test_validate_credentials_refresh_error_returns_reconnect_message():
+    from google.auth.exceptions import RefreshError
+
+    err = RefreshError("invalid_scope: Bad Request", {"error": "invalid_scope", "error_description": "Bad Request"})
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_search_console.source.list_sites",
+            side_effect=err,
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google account" in (message or "")
+    assert "invalid_scope" not in (message or "")
+
+
 def test_validate_credentials_rejects_unknown_site():
     with (
         mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
