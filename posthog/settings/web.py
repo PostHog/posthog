@@ -788,6 +788,7 @@ OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": OIDC_RSA_PRIVATE_KEYS_INACTIVE,
     "SCOPES": {
         "openid": "OpenID Connect scope",
         "profile": "Access to user's profile",
