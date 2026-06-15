@@ -6248,6 +6248,8 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
+      useQueryV2?: boolean | null;
+      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
@@ -19287,6 +19289,8 @@ export namespace Schemas {
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
       commit_to_github?: boolean;
+      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+      add_images_to_comment_on_pr?: boolean;
     }
 
     export interface FlagValueItem {
@@ -43998,7 +44002,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Property filters for the count. */
       filterGroup?: _SpanPropertyFilter[];
@@ -44031,7 +44035,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
