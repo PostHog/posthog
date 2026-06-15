@@ -1,6 +1,6 @@
 # Monorepo Layout
 
-High-level structure of the PostHog monorepo. Some directories are aspirational (e.g., `platform/` doesn't exist yet - shared code currently lives in `common/`).
+High-level structure of the PostHog monorepo.
 
 ## Directory structure
 
@@ -19,12 +19,16 @@ products/              # Product-specific apps (see products/README.md for layou
     frontend/          # React (scenes, components, logics)
     manifest.tsx       # Routes, scenes, URLs
     package.json
+    services/          # Optional: services this product deploys (see "What a product can own")
+    packages/          # Optional: libraries/CLIs this product owns
 
-services/              # Independent backend services
+services/              # Independent services NOT owned by any one product
   llm-gateway/         # LLM proxy service
   mcp/                 # Model Context Protocol service
   oauth-proxy/         # OAuth proxy (Cloudflare Worker)
   stripe-app/          # Stripe integration app
+
+packages/              # Libraries shared across more than one product/service (e.g. quill)
 
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser
@@ -34,16 +38,6 @@ tools/                 # Developer/CI tooling, not imported by runtime code
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
 
 devenv/                # Developer environment config (intent map, process model)
-
-platform/              # Shared platform code (aspirational - not yet created)
-  integrations/        # External adapters
-    vercel/
-  auth/                # Token utils
-  http/                # Shared HTTP clients
-  storage/             # S3/GCS clients
-  queue/               # Message queue helpers
-  db/                  # Shared DB utilities
-  observability/       # Logging, tracing, metrics
 ```
 
 ### Products
@@ -56,6 +50,23 @@ User-facing features with their own backend (Django app) and frontend (React). E
 
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
+#### What a product can own
+
+Most products are a Django app plus React scenes. Some also own adjacent runtime and tooling — services they deploy, a CLI, packages, a standalone console. Nest those under the product instead of scattering them across top-level dirs:
+
+- `products/<product>/services/<svc>/`, `.../packages/<lib>/`, a product CLI, and so on. Top-level `services/`, `packages/`, `tools/`, and `cli/` are for things no single product owns.
+- Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
+
+Nest because tooling boundaries become path-scoped (`products/<product>/**` for CODEOWNERS, CI filters, lint) instead of hand-synced `<product>-*` prefixes. A prefix doing a folder's job is the signal to nest.
+
+### Packages
+
+A package's location doesn't gate who can import it — pnpm resolves by name, so location is an ownership signal, not access control. Place by current ownership:
+
+- Owned by one product → `products/<product>/packages/<name>/` (the default — keeps the product self-contained).
+- Genuinely shared across more than one product/service → top-level `packages/<name>/` (e.g. `quill`).
+- Promote nested → root only when a second consumer actually depends on it — on real usage, not intent. It's a path rename with a stable package name (no import churn), so don't pay the "shared" cost before it's true.
+
 ### Services
 
 - are their own deployment
@@ -65,24 +76,8 @@ See [products/README.md](/products/README.md) for how to create products. For ne
 - aren’t cross-cutting glue
 - aren’t frontend-facing “products”
 
-These are not glue, because glue adapts other systems.  
-They are not products, because no one interacts with them as a user-facing feature.  
-They are not platform, because they own domain logic, not shared tooling.
-
-### Platform
-
-Cross-cutting glue and infrastructure: external adapters (Vercel), clients, shared libs. Must not import products/services.
-
-Why platform must not call product code:
-
-- If platform imports and calls product code, platform becomes a hidden orchestrator
-- it must know which products exist
-- it must route events to product logic
-- it accumulates product-specific conditionals
-- dependency direction flips (platform → products)
-- cycles become likely over time
-
-That destroys the "platform is foundational" property and makes boundaries brittle.
+These are not glue, because glue adapts other systems.
+They are not products, because no one interacts with them as a user-facing feature.
 
 ### Common
 
