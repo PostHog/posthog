@@ -3,17 +3,20 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from django.db import OperationalError
+
 import structlog
-from asgiref.sync import sync_to_async
 
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
+from posthog.sync import database_sync_to_async_pool
 
-# Errors worth retrying
-RETRIABLE_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+# Errors worth retrying. OperationalError covers stale Postgres connections (e.g. "the connection is closed")
+# that surface during HogQL query planning's ORM lookups in long-running Temporal workers.
+RETRIABLE_ERRORS = (ClickHouseAtCapacity, OperationalError, *CH_TRANSIENT_ERRORS)
 
 logger = structlog.get_logger(__name__)
 
@@ -47,10 +50,15 @@ async def execute_hogql_query_with_retry(
     base_delay: float = BASE_DELAY_SECONDS,
     heartbeat_fn: Callable[[], None] | None = None,
 ):
-    """Execute a HogQL query, retrying on transient ClickHouse errors with exponential backoff and jitter."""
+    """Execute a HogQL query, retrying on transient ClickHouse errors and stale Postgres connections with exponential backoff and jitter."""
     for attempt in range(max_retries + 1):
         try:
-            return await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+            # database_sync_to_async_pool runs on the general thread pool and evicts stale
+            # Django DB connections via close_old_connections() inside the executor thread —
+            # the same thread that runs the query planning's ORM lookups. The activity-level
+            # @close_db_connections guard runs in a different thread, so connections that go
+            # stale here (killed by Postgres or past CONN_MAX_AGE) would otherwise survive.
+            return await database_sync_to_async_pool(execute_hogql_query)(
                 query_type=query_type,
                 query=query,
                 team=team,
