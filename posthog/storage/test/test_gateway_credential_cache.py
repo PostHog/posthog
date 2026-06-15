@@ -6,7 +6,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db.models.deletion import ProtectedError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -45,19 +44,18 @@ class GatewayCredentialTestMixin(BaseTest):
         super().setUp()
         # LocMemCache persists across tests in-process; isolate each test.
         hypercache.cache_client.clear()
-        # The credential's bound gateway is the source of truth for team + slug.
+        # One gateway per team is the source of truth for slug; credentials resolve to it by
+        # team. Drop any auto-provisioned default so the team has exactly this one.
+        Gateway.all_teams.filter(team=self.team).delete()
         self.gateway = Gateway.all_teams.create(team=self.team, slug="posthog_code")
 
-    def _make_secret_key(
-        self, scopes: list[str], token: str | None = None, gateway: Gateway | None = None
-    ) -> tuple[ProjectSecretAPIKey, str]:
+    def _make_secret_key(self, scopes: list[str], token: str | None = None) -> tuple[ProjectSecretAPIKey, str]:
         token = token or generate_random_token_secret()
         key = ProjectSecretAPIKey.objects.create(
             label=f"sk {token[-12:]}",  # unique_team_label requires a distinct label per team
             team=self.team,
             secure_value=hash_key_value(token),
             scopes=scopes,
-            gateway=gateway or self.gateway,
         )
         return key, token
 
@@ -66,7 +64,6 @@ class GatewayCredentialTestMixin(BaseTest):
         scope: str,
         expires_in_hours: float = 1,
         token: str | None = None,
-        gateway: Gateway | None = None,
         user: User | None = None,
     ) -> OAuthAccessToken:
         token = token or f"pha_{generate_random_token()}"
@@ -78,7 +75,6 @@ class GatewayCredentialTestMixin(BaseTest):
             algorithm="RS256",
             organization=self.organization,
             user=user or self.user,
-            gateway=gateway or self.gateway,
         )
         return OAuthAccessToken.objects.create(
             user=user or self.user,
@@ -149,10 +145,10 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
             project_gateway_credential(fresh)
         self.assertIsNone(self._read_blob(credential_hash(fresh)))
 
-    def test_unbound_credential_fails_closed(self):
-        # A scoped credential with no gateway binding can't resolve a team — fail closed.
+    def test_team_without_gateway_fails_closed(self):
+        # A scoped credential whose team has no gateway can't resolve a slug — fail closed.
         key, _ = self._make_secret_key([GATEWAY_SCOPE])
-        ProjectSecretAPIKey.objects.filter(pk=key.pk).update(gateway=None)
+        Gateway.all_teams.filter(team=self.team).delete()
         fresh = ProjectSecretAPIKey.objects.get(pk=key.pk)
         project_gateway_credential(fresh)
         self.assertIsNone(self._read_blob(credential_hash(fresh)))
@@ -307,7 +303,7 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
 
 class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
     def test_refresh_projects_eligible_credentials(self):
-        # Many keys can share one gateway; secret_key, oauth, and ignored all bind to self.gateway.
+        # Many keys share the team's one gateway; secret_key, oauth, and ignored all resolve by team.
         secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
         oauth = self._make_oauth(GATEWAY_SCOPE)
         ignored, _ = self._make_secret_key(["feature_flag:read"])
@@ -520,24 +516,31 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_gateway_bound_credentials_task.delay")
+    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_team_gateway_credentials_task.delay")
     def test_gateway_slug_change_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        # The slug is the attribution value; a rename reprojects the team's credentials
+        # (they resolve to this gateway by team, not by binding).
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        gateway = Gateway.all_teams.create(team=self.team, slug="wizard")
-        reloaded = Gateway.all_teams.get(pk=gateway.pk)  # snapshot old slug under patched setting
-        reloaded.slug = "wizard_v2"
+        reloaded = Gateway.all_teams.get(pk=self.gateway.pk)  # snapshot old slug under patched setting
+        reloaded.slug = "posthog_code_v2"
         reloaded.save()
 
-        mock_delay.assert_called_with(str(gateway.pk))
+        mock_delay.assert_called_with(self.team.id)
 
-    def test_gateway_delete_protected_while_credential_bound(self):
-        # gateway FK is PROTECT: a gateway with a bound credential can't be deleted —
-        # the credential must be unbound (drained) first.
-        self._make_secret_key([GATEWAY_SCOPE])
-        with self.assertRaises(ProtectedError):
-            self.gateway.delete()
+    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    @patch("posthog.storage.gateway_credential_signal_handlers.reproject_team_gateway_credentials_task.delay")
+    def test_gateway_delete_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
+        # No FK to protect: deleting the team's gateway reprojects the team so its scoped
+        # credentials fail closed (the projection finds no gateway and clears each blob).
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.gateway.delete()
+
+        mock_delay.assert_called_with(self.team.id)
 
     @pytest.mark.ee
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
@@ -587,25 +590,6 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         mock_task.assert_called_with(self.user.pk)  # synchronous reprojection
         mock_task.delay.assert_called_with(self.user.pk)  # retry/warm path
-
-    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
-    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
-    @patch(
-        "posthog.storage.gateway_credential_signal_handlers.reproject_oauth_application_gateway_credentials_task.delay"
-    )
-    def test_oauth_application_gateway_rebind_reprojects(self, mock_delay, mock_settings, mock_transaction):
-        # The gateway binding is on the application, not the token, so a rebind
-        # must reproject the app's tokens directly.
-        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
-        mock_transaction.on_commit.side_effect = lambda fn: fn()
-
-        oauth = self._make_oauth(GATEWAY_SCOPE)
-        other_gateway = Gateway.all_teams.create(team=self.team, slug="other_gw")
-        app = OAuthApplication.objects.get(pk=oauth.application_id)  # snapshot gateway under patched setting
-        app.gateway = other_gateway
-        app.save()
-
-        mock_delay.assert_called_with(str(app.pk))
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")

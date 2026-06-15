@@ -8,8 +8,9 @@ so the secret never sits in a Redis key. Public phc_ project tokens can't dispat
     Body: {team_id, project_token, scopes, gateway_slug, billing_mode, revoked_at}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
-gateway derives identically. Each credential binds to one gateway, whose slug is the
-$ai_gateway_slug billing-attribution value, so the blob carries a single slug. project_token
+gateway derives identically. A credential reaches its team's one gateway by holding
+llm_gateway:read (no per-key binding); that gateway's slug is the $ai_gateway_slug
+billing-attribution value, so the blob carries a single slug. project_token
 is the team's phc_ key, carried only so the gateway can stamp the $ai_generation envelope —
 it never authorizes dispatch; the phs_/pha_ secret does. The gateway fails closed on a
 missing field, so a blob is written only for a fully-resolvable credential and cleared
@@ -33,6 +34,7 @@ from posthog.models.gateway import GATEWAY_SLUG_PATTERN, Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
@@ -83,6 +85,7 @@ class _RefreshMemo:
     def __init__(self) -> None:
         self._memberships: dict[tuple[Any, Any], Any] = {}
         self._access: dict[tuple[Any, Any], bool] = {}
+        self._gateways: dict[Any, Gateway | None] = {}
 
     def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
         key = (organization_id, user_id)
@@ -95,6 +98,11 @@ class _RefreshMemo:
         if key not in self._access:
             self._access[key] = load()
         return self._access[key]
+
+    def gateway(self, team_id: Any, load: Callable[[], "Gateway | None"]) -> "Gateway | None":
+        if team_id not in self._gateways:
+            self._gateways[team_id] = load()
+        return self._gateways[team_id]
 
 
 def credential_hash(credential: Credential) -> str | None:
@@ -120,16 +128,45 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
     return GATEWAY_CREDENTIAL_REQUIRED_SCOPE in credential.scope.split()
 
 
-def _gateway_for_credential(credential: Credential) -> Gateway | None:
-    """The gateway this credential is bound to, or None if unbound.
+def _org_root_team_id(organization_id: Any) -> int | None:
+    """An organization's single project-root team, or None when absent/ambiguous.
 
-    A secret key binds directly; an OAuth token binds through its application
-    (stable across token rotation). Callers select_related the join.
+    An OAuth app is org-scoped; its gateway is the org's root team's. Bind only when
+    exactly one root exists (fetch 2 to detect ambiguity) — fail closed otherwise."""
+    if not organization_id:
+        return None
+    roots = list(
+        Team.objects.filter(organization_id=organization_id, parent_team_id__isnull=True).values_list("id", flat=True)[
+            :2
+        ]
+    )
+    return roots[0] if len(roots) == 1 else None
+
+
+def _team_gateway(team_id: int, memo: "_RefreshMemo | None") -> Gateway | None:
+    """The team's gateway (one per team), or None. Oldest-first so a team that somehow
+    has more than one resolves deterministically to its provisioned default."""
+
+    def load() -> Gateway | None:
+        return Gateway.all_teams.select_related("team").filter(team_id=team_id).order_by("created_at").first()
+
+    return memo.gateway(team_id, load) if memo else load()
+
+
+def _gateway_for_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> Gateway | None:
+    """The credential's team's gateway, resolved by scope+team (no per-key binding).
+
+    A secret key resolves to its canonical (project-root) team; an OAuth token to its
+    application's org root team. Returns None when the team or its gateway is absent.
     """
     if isinstance(credential, ProjectSecretAPIKey):
-        return credential.gateway
-    application = credential.application
-    return application.gateway if application is not None else None
+        team_id: int | None = credential.team.parent_team_id or credential.team_id
+    else:
+        application = credential.application
+        team_id = _org_root_team_id(application.organization_id) if application is not None else None
+    if team_id is None:
+        return None
+    return _team_gateway(team_id, memo)
 
 
 def _ttl_for_credential(credential: Credential) -> float:
@@ -191,15 +228,16 @@ def _policy_for_credential(
 ) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
-    The bound gateway (not a user's current team) is the source of truth for the billed
-    team. Fails closed on missing scope, unbound credential, a team with no token, an
-    invalid slug, or — for OAuth — the user/expiry/scope/membership/RBAC checks. A project
-    secret key has no user, so bound + slug-valid + team-has-token is sufficient.
+    The credential's team's gateway (not a user's current team) is the source of truth for
+    the billed team. Fails closed on missing scope, a team with no gateway, a team with no
+    token, an invalid slug, or — for OAuth — the user/expiry/scope/membership/RBAC checks. A
+    project secret key has no user, so scope + resolvable-gateway + slug-valid + team-has-token
+    is sufficient.
     """
     if not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
 
-    gateway = _gateway_for_credential(credential)
+    gateway = _gateway_for_credential(credential, memo)
     if gateway is None:
         return HyperCacheStoreMissing()
 
@@ -231,18 +269,12 @@ def _resolve_credential(hash_key: str) -> Credential | None:
     """Reverse a cache-key hash back to its credential (Django-side reads only;
     the gateway never calls Django). ProjectSecretAPIKey.secure_value stores the
     prefixed hash directly; OAuth.token_checksum is the bare hex, so strip the prefix."""
-    secret_key = (
-        ProjectSecretAPIKey.objects.select_related("team", "gateway__team").filter(secure_value=hash_key).first()
-    )
+    secret_key = ProjectSecretAPIKey.objects.select_related("team").filter(secure_value=hash_key).first()
     if secret_key is not None:
         return secret_key
     if hash_key.startswith(SHA256_HASH_PREFIX):
         checksum = hash_key[len(SHA256_HASH_PREFIX) :]
-        return (
-            OAuthAccessToken.objects.select_related("user", "application__gateway__team")
-            .filter(token_checksum=checksum)
-            .first()
-        )
+        return OAuthAccessToken.objects.select_related("user", "application").filter(token_checksum=checksum).first()
     return None
 
 
@@ -308,18 +340,16 @@ def refresh_all_gateway_credentials() -> int:
     """Re-project every credential currently granted llm_gateway:read, keeping entries warm.
 
     Forward-only (the cache key is a one-way hash); signals and the per-OAuth TTL handle
-    removal. select_related joins the gateway+team; the per-OAuth membership/RBAC checks are
-    memoized by (org, user) / (team, user) so the run does O(distinct users) lookups, and
-    .iterator() keeps the working set flat. The secret-key scopes lookup rides the
-    projectsecretapikey_scopes_gin index; OAuth scope is a whitespace-bounded regex.
+    removal. The team's gateway and the per-OAuth membership/RBAC checks are memoized by team /
+    (org, user) / (team, user) so the run does O(distinct teams/users) lookups, and .iterator()
+    keeps the working set flat. The secret-key scopes lookup rides the projectsecretapikey_scopes_gin
+    index; OAuth scope is a whitespace-bounded regex.
     """
     now = timezone.now()
     memo = _RefreshMemo()
     querysets = (
-        ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
-            scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
-        ),
-        OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
+        ProjectSecretAPIKey.objects.select_related("team").filter(scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
+        OAuthAccessToken.objects.select_related("user", "application").filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
             user__is_active=True,
             application_id__isnull=False,
