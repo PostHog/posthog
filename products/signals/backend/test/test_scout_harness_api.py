@@ -22,6 +22,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
@@ -676,6 +677,45 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "Foo scout."
+        # The partial_update path resolves skill_info independently of list — assert origin too.
+        assert response.json()["scout_origin"] == "custom"
+
+    @parameterized.expand(
+        [
+            # (label, skill_name, metadata, expected). `signals-scout-general` is a real on-disk
+            # canonical scout; `signals-scout-my-fork` is a name the harness never ships.
+            (
+                "harness_seeded_canonical_name",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+                "canonical",
+            ),
+            ("hand_authored_no_metadata", "signals-scout-general", {}, "custom"),
+            ("hand_authored_other_seed", "signals-scout-general", {"seeded_by": "some_other_thing"}, "custom"),
+            # A fork via duplicate_skill() inherits the source row's seeded_by tag, but a fork can
+            # never take a canonical name — so the name guard reclassifies it as custom.
+            ("seeded_tag_but_non_canonical_name", "signals-scout-my-fork", {"seeded_by": HARNESS_SEEDED_BY}, "custom"),
+        ]
+    )
+    def test_list_classifies_origin_from_skill_metadata(
+        self, _name: str, skill_name: str, metadata: dict, expected_origin: str
+    ) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="...", metadata=metadata)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_origin"] == expected_origin
+
+    def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
+        # A config with no live skill row isn't a canonical scout.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_origin"] == "custom"
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

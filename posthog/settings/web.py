@@ -522,6 +522,7 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],

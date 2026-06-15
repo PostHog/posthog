@@ -169,10 +169,10 @@ class HogFlowActionSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
     on_error = serializers.ChoiceField(
-        choices=["continue", "abort", "complete", "branch"],
+        choices=["continue", "abort"],
         required=False,
         allow_null=True,
-        help_text="On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).",
+        help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
     created_at = serializers.IntegerField(required=False, help_text="Created at (epoch ms). Frontend-managed.")
     updated_at = serializers.IntegerField(required=False, help_text="Updated at (epoch ms). Frontend-managed.")
@@ -182,7 +182,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     type = serializers.CharField(
         max_length=100,
         help_text=(
-            "trigger | function | function_email | function_sms | function_push | delay | "
+            "trigger | function | function_email | function_sms | delay | "
             "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
         ),
     )

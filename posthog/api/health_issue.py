@@ -198,6 +198,7 @@ VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
 
 
+@extend_schema(extensions={"x-product": "health_issues"})
 @extend_schema_view(
     list=extend_schema(
         summary="List health issues",
