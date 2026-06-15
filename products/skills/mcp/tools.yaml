@@ -73,9 +73,9 @@ tools:
         title: Create skill file
         description: >
             Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use
-            skill-update with files to replace, or skill-file-delete followed by skill-file-create to
-            overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain
-            further edits via base_version). Supply base_version for optimistic concurrency.
+            skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite.
+            Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits
+            via base_version). Supply base_version for optimistic concurrency.
     skill-file-delete:
         operation: llm_skills_name_files_destroy
         enabled: true
@@ -147,9 +147,9 @@ tools:
         description: >
             List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
             descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
-            skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the
-            skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The
-            `id` (UUID) is not a valid route segment and will 404.
+            skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill
+            `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id`
+            (UUID) is not a valid route segment and will 404.
     skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
