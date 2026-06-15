@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AmazonCloudWatchSource(SimpleSource[AmazonCloudWatchSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_CLOUD_WATCH,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Amazon CloudWatch",
             iconPath="/static/services/amazon_cloudwatch.png",
             fields=cast(list[FieldType], []),
