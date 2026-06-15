@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any, Literal
 
 import structlog
@@ -13,7 +13,6 @@ from temporalio.common import RetryPolicy
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
-from posthog.storage import object_storage
 from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs, classify_untagged_followup_activity
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -1447,13 +1446,6 @@ def _resume_task_with_new_run(
     return True
 
 
-def _resolve_followup_reply_text(task_run: Any, command_result_data: Any) -> str | None:
-    command_text = _extract_assistant_text_from_command_result(command_result_data)
-    if command_text:
-        return command_text
-    return _extract_recent_assistant_text_from_logs(task_run)
-
-
 def _delete_followup_progress(
     integration_id: int,
     channel: str,
@@ -1485,138 +1477,6 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
         pass
 
     _safe_react(slack.client, channel, user_message_ts, done_emoji)
-
-
-def _extract_assistant_text_from_command_result(command_result_data: Any) -> str | None:
-    if not isinstance(command_result_data, dict):
-        return None
-
-    result = command_result_data.get("result")
-    if isinstance(result, dict):
-        direct_text = result.get("assistant_message") or result.get("output_text")
-        if isinstance(direct_text, str) and direct_text.strip():
-            return direct_text.strip()
-
-        messages = result.get("messages")
-        if isinstance(messages, list):
-            for message in reversed(messages):
-                if not isinstance(message, dict) or message.get("role") != "assistant":
-                    continue
-                text = _extract_text_from_message_payload(message)
-                if text:
-                    return text
-
-        if result.get("role") == "assistant":
-            return _extract_text_from_message_payload(result)
-
-    return None
-
-
-def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
-    content = message.get("content")
-    if isinstance(content, str) and content.strip():
-        return content.strip()
-
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        for part in content:
-            if not isinstance(part, dict):
-                continue
-            if part.get("type") == "text" and isinstance(part.get("text"), str):
-                text = part["text"].strip()
-                if text:
-                    text_parts.append(text)
-        if text_parts:
-            return "\n".join(text_parts)
-
-    text_value = message.get("text")
-    if isinstance(text_value, str) and text_value.strip():
-        return text_value.strip()
-
-    return None
-
-
-def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
-    log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
-
-    if not log_content.strip():
-        return None
-
-    latest_text: str | None = None
-    latest_agent_timestamp: datetime | None = None
-    latest_user_timestamp: datetime | None = None
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
-
-    for line in log_content.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        notification = entry.get("notification")
-        if not isinstance(notification, dict) or notification.get("method") != "session/update":
-            continue
-
-        params = notification.get("params")
-        update = params.get("update") if isinstance(params, dict) else None
-        if not isinstance(update, dict):
-            continue
-
-        timestamp = _parse_iso_datetime(entry.get("timestamp"))
-        if timestamp and timestamp < cutoff:
-            continue
-
-        session_update = update.get("sessionUpdate")
-        if session_update in {"user_message", "user_message_chunk"}:
-            if timestamp and (latest_user_timestamp is None or timestamp >= latest_user_timestamp):
-                latest_user_timestamp = timestamp
-            continue
-
-        if session_update not in {"agent_message", "agent_message_chunk"}:
-            continue
-
-        content = update.get("content")
-        text: str | None = None
-        if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
-            candidate = content["text"].strip()
-            text = candidate or None
-        elif isinstance(update.get("message"), str):
-            candidate = update["message"].strip()
-            text = candidate or None
-
-        if not text:
-            continue
-
-        if latest_agent_timestamp is None or (timestamp and timestamp >= latest_agent_timestamp):
-            latest_agent_timestamp = timestamp
-            latest_text = text
-
-    if not latest_text:
-        return None
-
-    if latest_agent_timestamp and latest_user_timestamp and latest_agent_timestamp < latest_user_timestamp:
-        return None
-
-    return latest_text
-
-
-def _parse_iso_datetime(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-
-    normalized = value.strip().replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-
-    if parsed.tzinfo is not None:
-        return parsed.replace(tzinfo=None)
-    return parsed
 
 
 @activity.defn
