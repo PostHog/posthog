@@ -32,7 +32,7 @@ const LABEL_FONT = `600 12px ${FONT_FAMILY}`
 const VALUE_GAP = 8
 const NAME_GAP = 8
 const EDGE_PAD = 8
-const DEFAULT_ENDPOINT_RADIUS = 4
+const DEFAULT_POINT_RADIUS = 4
 // Synthetic, hidden x-axis label for the collinear midpoint inserted when the end is incomplete.
 const SLOPE_MIDPOINT_LABEL = '__slope_mid__'
 
@@ -45,7 +45,7 @@ export interface SlopeChartLegendConfig {
 }
 
 export interface SlopeChartConfig extends ChartConfig {
-    /** Show the series name labels beside each end point. Default true. */
+    /** Show the series name labels beside each series' last point. Default true. */
     showSeriesLabels?: boolean
     /** Default for the start (left) value labels; per-series `meta.showStartLabel` overrides. Default true. */
     showStartLabels?: boolean
@@ -57,8 +57,8 @@ export interface SlopeChartConfig extends ChartConfig {
     valueFormatter?: (value: number) => string
     /** Formats the per-series change shown in the legend. Defaults to a signed `toLocaleString`. */
     deltaFormatter?: (delta: number) => string
-    /** Radius of the endpoint dots in px. Default 4. */
-    endpointRadius?: number
+    /** Radius of the point markers in px. Default 4. */
+    pointRadius?: number
     /** Value-axis domain control — omit for data-derived auto-scaling. */
     valueDomain?: ValueDomain
 }
@@ -107,7 +107,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         legend,
         valueFormatter = defaultValueFormatter,
         deltaFormatter = defaultDeltaFormatter,
-        endpointRadius = DEFAULT_ENDPOINT_RADIUS,
+        pointRadius = DEFAULT_POINT_RADIUS,
         valueDomain,
     } = config ?? {}
 
@@ -132,7 +132,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
               )
             : 0
 
-        // The x-axis labels sit centred under the two endpoints, so half of the first/last label
+        // The x-axis labels sit centred under the two points, so half of the first/last label
         // overhangs the side gutter — reserve room for it too, else a wide label (e.g. a date) clips.
         const firstAxisHalf = labels.length > 0 ? measureLabelWidth(labels[0], AXIS_LABEL_FONT) / 2 : 0
         const lastAxisHalf = labels.length > 1 ? measureLabelWidth(labels[labels.length - 1], AXIS_LABEL_FONT) / 2 : 0
@@ -152,11 +152,11 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
     }, [series, labels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
-    // When the end point is the current incomplete period, dash only the *second half* of the
+    // When the last point is the current incomplete period, dash only the *second half* of the
     // connector so it reads as "the end is provisional", not the whole comparison.
     const dashEnd = useMemo(() => series.some((s) => (s.meta as SlopeSeriesMeta | undefined)?.incompleteEnd), [series])
 
-    // A slope is a two-point line — collapse each series to its endpoints, with a dot at each. For a
+    // A slope is a two-point line — collapse each series to its two points, with a dot at each. For a
     // dashed end we insert a collinear midpoint (no dot) so the connector splits into a solid first
     // half and a dashed second half.
     const slopeSeries = useMemo<Series<Meta>[]>(
@@ -168,13 +168,13 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                     return {
                         ...s,
                         data: [start, (start + end) / 2, end],
-                        points: { ...s.points, radius: endpointRadius, startAndEndValuesOnly: true },
+                        points: { ...s.points, radius: pointRadius, startAndEndValuesOnly: true },
                         stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromIndex: 2 } },
                     }
                 }
-                return { ...s, data: [start, end], points: { ...s.points, radius: endpointRadius } }
+                return { ...s, data: [start, end], points: { ...s.points, radius: pointRadius } }
             }),
-        [series, endpointRadius, dashEnd]
+        [series, pointRadius, dashEnd]
     )
 
     // The midpoint needs a label slot to occupy, but it must not render a tick — hide it.

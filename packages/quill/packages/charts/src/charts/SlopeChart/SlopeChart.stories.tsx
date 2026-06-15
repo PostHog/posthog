@@ -30,7 +30,7 @@ export const Default: Story = {
     },
 }
 
-/** When the end point is the current, still-accumulating period (`meta.incompleteEnd`), only the
+/** When the last point is the current, still-accumulating period (`meta.incompleteEnd`), only the
  *  second half of each connector dashes — the start-to-mid half stays solid. */
 export const IncompleteEnd: Story = {
     render: () => {

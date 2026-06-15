@@ -7,7 +7,7 @@ export interface SlopeSeriesMeta {
     showStartLabel?: boolean
     /** Show this series' end (right) value label. Falls back to the chart-level default. */
     showEndLabel?: boolean
-    /** The end point is the current, still-accumulating period. The chart dashes only the second
+    /** The last point is the current, still-accumulating period. The chart dashes only the second
      *  half of the connector to show the end — not the whole comparison — is provisional. */
     incompleteEnd?: boolean
 }
@@ -31,7 +31,7 @@ export function slopeLabelVisible(
 }
 
 /** A slope chart series carries exactly two values — `[start, end]`. These helpers read the first
- *  and last entry, substituting 0 when an endpoint is absent. */
+ *  and last entry, substituting 0 when a value is absent. */
 export function slopeStart(series: Pick<Series, 'data'>): number {
     return series.data[0] ?? 0
 }
