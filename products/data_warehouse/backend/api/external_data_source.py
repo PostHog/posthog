@@ -18,7 +18,7 @@ import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -496,6 +496,20 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Schema updates to apply in a single batch.",
     )
+
+
+class BulkScheduleUpdateError(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "bulk_schedule_update_failed"
+
+    def __init__(self, failed_schema_names: list[str]) -> None:
+        names = ", ".join(failed_schema_names)
+        super().__init__(
+            detail=(
+                f"Schema settings were saved, but the sync schedule failed to update for: {names}. "
+                "Please retry to bring the schedule in sync with the saved settings."
+            )
+        )
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
@@ -3303,8 +3317,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
-        post_commit_actions: list[Callable[[], None]] = []
-        update_serializer_context = {**serializer_context, "post_commit_actions": post_commit_actions}
+        # Keep each schema's deferred Temporal actions paired with the schema, so a failure can be
+        # attributed to the schema it belongs to rather than reported as one anonymous error.
+        deferred_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
 
         with transaction.atomic():
             for schema_update in schema_updates:
@@ -3312,17 +3327,38 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema = source_schemas_by_id[schema_id]
                 schema_payload = {key: value for key, value in schema_update.items() if key != "id"}
 
+                schema_post_commit_actions: list[Callable[[], None]] = []
                 schema_serializer = ExternalDataSchemaSerializer(
                     schema,
                     data=schema_payload,
                     partial=True,
-                    context=update_serializer_context,
+                    context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
                 )
                 schema_serializer.is_valid(raise_exception=True)
-                updated_schemas.append(schema_serializer.save())
+                updated = schema_serializer.save()
+                updated_schemas.append(updated)
+                deferred_actions.extend((updated, action) for action in schema_post_commit_actions)
 
-        for post_commit_action in post_commit_actions:
-            post_commit_action()
+        # The DB writes are already committed at this point. Run every deferred action even if some
+        # raise — otherwise one schema's Temporal failure strands the schedule updates for every
+        # schema after it in the batch, leaving them with the new frequency in the DB but the old
+        # schedule still running. Collect every failure (deduped per schema) and surface them all so
+        # the caller knows exactly which schemas didn't apply and can retry.
+        failed_schemas: dict[str, str] = {}
+        for updated_schema, post_commit_action in deferred_actions:
+            try:
+                post_commit_action()
+            except Exception as e:
+                capture_exception(e)
+                logger.exception(
+                    "bulk_update_schemas post-commit action failed",
+                    source_id=str(source.id),
+                    schema_id=str(updated_schema.id),
+                )
+                failed_schemas[str(updated_schema.id)] = updated_schema.name
+
+        if failed_schemas:
+            raise BulkScheduleUpdateError(sorted(failed_schemas.values()))
 
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,

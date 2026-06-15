@@ -15,6 +15,7 @@ from django.utils import timezone
 import psycopg
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from posthog.schema import (
     SourceFieldFileUploadConfig,
@@ -450,6 +451,56 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_count == 1
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_one_schedule_failure_does_not_strand_others(self, _mock_workflow_exists):
+        # The deferred schedule updates run after the DB transaction commits. A failure on one
+        # schema must not strand the rest: every schema's schedule update has to be attempted,
+        # otherwise the DB shows the new frequency while the Temporal schedule keeps the old one.
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=f"Table{i}",
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            )
+            for i in range(3)
+        ]
+
+        attempted = 0
+
+        def _side_effect(schema, create=False, should_sync=True):
+            nonlocal attempted
+            attempted += 1
+            if attempted == 2:
+                raise APIException("temporal unavailable")
+            return schema
+
+        with patch(
+            "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow",
+            side_effect=_side_effect,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(s.id), "sync_frequency": "7day"} for s in schemas]},
+                format="json",
+            )
+
+        # Every schema's schedule update is attempted despite the second one failing.
+        assert attempted == 3
+        # The failure is surfaced and attributes the exact schema that didn't apply.
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "Table1" in response.json()["detail"]
+        assert "Table0" not in response.json()["detail"]
+
+        for s in schemas:
+            s.refresh_from_db()
+            assert sync_frequency_interval_to_sync_frequency(s.sync_frequency_interval) == "7day"
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
