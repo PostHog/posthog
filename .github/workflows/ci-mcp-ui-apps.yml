@@ -76,10 +76,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install dependencies
-              # Match services/mcp/Dockerfile exactly (`--filter @posthog/mcp...`). Do NOT add
-              # `--filter ./products/*`: that links react/quill/etc. into products/*/node_modules,
-              # which the image never does, so files reached via the `products` vite alias resolve
-              # here but fail in the real build. The vite config aliases those deps instead.
+              # Match services/mcp/Dockerfile exactly
               run: pnpm --filter=@posthog/mcp... install --frozen-lockfile
 
             - name: Check generated UI apps are up to date
