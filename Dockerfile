@@ -358,10 +358,6 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
-# Keep /code on sys.path explicitly. First-party packages (posthog, products, common, dags)
-# run from source (uv sync --no-install-project), so they resolve via the repo root. Pinning it
-# in PYTHONPATH makes that independent of cwd, so lazily-imported modules (e.g. common.hogvm,
-# imported on first query) resolve in every process — web, workers, and the Dagster grpc server.
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/code:/python-runtime
 
