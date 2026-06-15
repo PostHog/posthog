@@ -19,6 +19,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     PullRequestListItem,
     RepoRef,
+    WorkflowHealthDay,
     WorkflowHealthItem,
 )
 
@@ -70,6 +71,10 @@ class PRLifecycleEventSerializer(DataclassSerializer):
             "at": {"help_text": "When the event occurred."},
             "detail": {
                 "help_text": "Optional detail, e.g. workflow name and conclusion for CI events.",
+                "allow_null": True,
+            },
+            "run_id": {
+                "help_text": "GitHub Actions run id for ci_started/ci_finished events, null otherwise.",
                 "allow_null": True,
             },
         }
@@ -150,7 +155,23 @@ class CICardSummarySerializer(DataclassSerializer):
         }
 
 
+class WorkflowHealthDaySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowHealthDay
+        extra_kwargs = {
+            "day": {"help_text": "UTC calendar day."},
+            "run_count": {"help_text": "Runs started that day."},
+            "completed": {"help_text": "Runs that completed that day."},
+            "successes": {"help_text": "Completed runs with conclusion 'success' that day."},
+        }
+
+
 class WorkflowHealthItemSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
+    daily = WorkflowHealthDaySerializer(
+        many=True, help_text="Daily run history across the whole window, oldest first, zero-filled."
+    )
+
     class Meta:
         dataclass = WorkflowHealthItem
         extra_kwargs = {
