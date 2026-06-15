@@ -13,32 +13,34 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
         matches = context.data.actions(int(arg.value), scope="project")
-        if len(matches) == 1:
-            context.add_notice(
-                start=arg.start,
-                end=arg.end,
-                message=f"Action #{matches[0].id} can also be specified as {escape_clickhouse_string(matches[0].name)}",
-                fix=escape_clickhouse_string(matches[0].name),
-            )
-            expr = context.data.action_expr(matches[0].id, events_alias=events_alias)
-            if expr is not None:
-                return expr
-        raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
+        if len(matches) != 1:
+            raise QueryError(f"Could not find an action with the ID {arg.value}", node=arg)
+        context.add_notice(
+            start=arg.start,
+            end=arg.end,
+            message=f"Action #{matches[0].id} can also be specified as {escape_clickhouse_string(matches[0].name)}",
+            fix=escape_clickhouse_string(matches[0].name),
+        )
+        expr = context.data.action_expr(matches[0].id, events_alias=events_alias)
+        if expr is None:
+            raise QueryError(f"Could not resolve action #{matches[0].id} to an expression", node=arg)
+        return expr
 
     if isinstance(arg.value, str):
         matches = context.data.actions(arg.value, scope="project")
-        if len(matches) == 1:
-            context.add_notice(
-                start=arg.start,
-                end=arg.end,
-                message=f"Searching for action by name. Replace with numeric ID {matches[0].id} to protect against renaming.",
-                fix=str(matches[0].id),
-            )
-            expr = context.data.action_expr(matches[0].id, events_alias=events_alias)
-            if expr is not None:
-                return expr
-        elif len(matches) > 1:
+        if len(matches) > 1:
             raise QueryError(f"Found multiple actions with name '{arg.value}'", node=arg)
-        raise QueryError(f"Could not find an action with the name '{arg.value}'", node=arg)
+        if len(matches) != 1:
+            raise QueryError(f"Could not find an action with the name '{arg.value}'", node=arg)
+        context.add_notice(
+            start=arg.start,
+            end=arg.end,
+            message=f"Searching for action by name. Replace with numeric ID {matches[0].id} to protect against renaming.",
+            fix=str(matches[0].id),
+        )
+        expr = context.data.action_expr(matches[0].id, events_alias=events_alias)
+        if expr is None:
+            raise QueryError(f"Could not resolve action '{arg.value}' to an expression", node=arg)
+        return expr
 
     raise QueryError("action() takes exactly one string or integer argument", node=arg)
