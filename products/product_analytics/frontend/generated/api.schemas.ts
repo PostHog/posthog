@@ -6361,6 +6361,8 @@ export interface ErrorTrackingQueryApi {
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
+    useQueryV2?: boolean | null
+    useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
     volumeResolution: number

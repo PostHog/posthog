@@ -352,7 +352,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class CheckoutComSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -368,7 +370,8 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class ClariSourceConfig(config.Config):
-    pass
+    api_key: str
+    forecast_id: str
 
 
 @config.config
@@ -402,7 +405,7 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudflareSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -645,7 +648,9 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GladlySourceConfig(config.Config):
-    pass
+    organization: str
+    agent_email: str
+    api_token: str
 
 
 @config.config
@@ -810,7 +815,8 @@ class LeverSourceConfig(config.Config):
 
 @config.config
 class LightspeedRetailSourceConfig(config.Config):
-    pass
+    domain_prefix: str
+    api_token: str
 
 
 @config.config
@@ -945,6 +951,11 @@ class OneDriveSourceConfig(config.Config):
 
 
 @config.config
+class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class OpsgenieSourceConfig(config.Config):
     pass
 
@@ -977,7 +988,8 @@ class OrttoSourceConfig(config.Config):
 
 @config.config
 class OutbrainSourceConfig(config.Config):
-    pass
+    username: str
+    password: str
 
 
 @config.config
@@ -1605,6 +1617,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
         ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+        ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
         ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
         ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
         ExternalDataSourceType.ORACLE: OracleSourceConfig,

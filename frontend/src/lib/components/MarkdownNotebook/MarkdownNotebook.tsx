@@ -50,6 +50,7 @@ import {
     getNotebookStringProp,
     getPromptSource,
     getSlashCommandQuery,
+    getTaskItemShortcut,
     getTextBlockShortcutReplacement,
     hasNotebookContent,
     getDiscussionCommentRefId,
@@ -1453,6 +1454,8 @@ export function MarkdownNotebook({
             children: after,
             depth: item.depth,
             ordered: item.ordered ?? node.ordered,
+            // A new item split off a task starts as an unchecked task
+            checked: item.checked !== undefined ? false : undefined,
         }
         const nextItems = [...node.items]
         nextItems[targetItemIndex] = { ...item, children: before }
@@ -4381,6 +4384,29 @@ export function MarkdownNotebook({
                 return
             }
 
+            const listNode = nodes.find((node) => node.id === nodeId)
+            let taskShortcut: ReturnType<typeof getTaskItemShortcut> = null
+            if (listNode?.type === 'list') {
+                const item = listNode.items[getListItemIndex(listNode.items, itemIndex, itemId)]
+                if (item && item.checked === undefined && !(item.ordered ?? listNode.ordered)) {
+                    taskShortcut = getTaskItemShortcut(nextChildren)
+                }
+            }
+            if (taskShortcut) {
+                const caretOffset = Math.max(
+                    0,
+                    (getCollapsedSelectionRange(inlineEditableElement, nodeId)?.start ?? taskShortcut.markerLength) -
+                        taskShortcut.markerLength
+                )
+                restoreSelectionRef.current = {
+                    nodeId,
+                    listItemIndex: itemIndex,
+                    listItemId: itemId,
+                    start: caretOffset,
+                    end: caretOffset,
+                }
+            }
+
             updateNode(nodeId, (currentNode) => {
                 if (currentNode.type !== 'list') {
                     return currentNode
@@ -4392,7 +4418,11 @@ export function MarkdownNotebook({
                 return {
                     ...currentNode,
                     items: currentNode.items.map((item, index) =>
-                        index === targetItemIndex ? { ...item, children: nextChildren } : item
+                        index === targetItemIndex
+                            ? taskShortcut
+                                ? { ...item, checked: taskShortcut.checked, children: taskShortcut.children }
+                                : { ...item, children: nextChildren }
+                            : item
                     ),
                 }
             })

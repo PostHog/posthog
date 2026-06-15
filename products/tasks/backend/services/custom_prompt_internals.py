@@ -46,6 +46,19 @@ STALE_TURN_SALVAGE_SECONDS = 300
 # "Activity task failed" wrapper.
 AGENT_ERROR_METHOD = "_posthog/error"
 
+# Observability side-channels the relay interleaves into the turn log asynchronously
+# (agentsh network-audit dumps and sandbox credential refreshes ride on `_posthog/console`,
+# sandbox stdout/stderr on `_posthog/sandbox_output`, setup steps on `_posthog/progress`).
+# They carry no turn-state and routinely land *after* the agent's closing usage_update, so the
+# dropped-finalization tail check skips them rather than treating one as the decisive tail.
+TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
+    {
+        "_posthog/console",
+        "_posthog/progress",
+        "_posthog/sandbox_output",
+    }
+)
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -129,8 +142,17 @@ async def poll_for_turn(
     verbose: bool = False,
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
+    max_poll_seconds: int | None = None,
 ) -> tuple[str, str | None, int, int]:
-    """Poll S3 logs until the agent finishes a turn."""
+    """Poll S3 logs until the agent finishes a turn.
+
+    `max_poll_seconds` overrides the default poll budget for callers whose activity
+    timeout is shorter than `MAX_POLL_SECONDS` — the dropped-finalization salvage only
+    runs once this budget is exhausted, so a caller must keep it below its own activity
+    `start_to_close_timeout` or the salvage never gets a chance to fire (the Signals
+    scout passes its 15-minute per-run budget for exactly this reason).
+    """
+    poll_budget = MAX_POLL_SECONDS if max_poll_seconds is None else max_poll_seconds
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
@@ -142,7 +164,7 @@ async def poll_for_turn(
     # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
-    while elapsed < MAX_POLL_SECONDS:
+    while elapsed < poll_budget:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
         # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
@@ -572,12 +594,19 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
 
 
 def _ended_on_pending_finalization(full_log: str | None) -> bool:
-    """True when the log's last notification is a usage_update carrying an explicit null cost —
-    the sandbox ran turn accounting but the closing end_turn was dropped. The cost key must be
-    present and null: older usage_update lines omit it entirely and are not this fingerprint.
-    Any other trailing notification (an end_turn/result, a `_posthog/error`, a mid-turn update)
-    is decisive that this is not the dropped-finalization case, so we don't salvage and let the
-    normal completion / terminal-status drain handle it."""
+    """True when the agent's last turn-relevant notification is a usage_update carrying an explicit
+    null cost — the sandbox ran turn accounting but the closing end_turn was dropped. The cost key
+    must be present and null: older usage_update lines omit it entirely and are not this fingerprint.
+    Any other trailing turn-relevant notification (an end_turn/result, a `_posthog/error`, a mid-turn
+    update) is decisive that this is not the dropped-finalization case, so we don't salvage and let
+    the normal completion / terminal-status drain handle it.
+
+    Observability side-channels (`TRANSIENT_SIDE_CHANNEL_METHODS`) are skipped while walking back:
+    the relay appends agentsh network-audit events and credential-refresh notices to the turn log
+    asynchronously, so one routinely lands after the closing usage_update. Treating such a line as
+    the decisive tail (the prior behavior) masked the fingerprint and made the salvage decline a
+    turn that had genuinely finished — the dominant cause of scout runs hanging out to the poll
+    timeout and being marked failed."""
     if not full_log:
         return False
     for line in reversed(full_log.strip().split("\n")):
@@ -589,6 +618,8 @@ def _ended_on_pending_finalization(full_log: str | None) -> bool:
         except json.JSONDecodeError:
             continue
         if not isinstance(notification, dict):
+            continue
+        if notification.get("method") in TRANSIENT_SIDE_CHANNEL_METHODS:
             continue
         params = notification.get("params")
         update = params.get("update") if isinstance(params, dict) else None
