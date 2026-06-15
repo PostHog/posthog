@@ -24,8 +24,8 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         super(config, deps, jobQueue)
         this.queue = 'email'
 
-        const pool = createSesRateLimiterValkeyPool(config)
-        this.sesRateLimiter = pool ? new RateLimiterService(pool.writer, { name: 'ses' }) : null
+        const valkey = createSesRateLimiterValkeyPool(config)
+        this.sesRateLimiter = valkey ? new RateLimiterService(valkey, { name: 'ses' }) : null
 
         if (this.sesRateLimiter) {
             if (!(jobQueue instanceof CyclotronJobQueuePostgresV2)) {
