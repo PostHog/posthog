@@ -65,6 +65,11 @@ describe('getFeatureFlagDeleteBlockers', () => {
             surveys: [{ id: '1', name: 'Survey A' }],
             is_used_in_replay_settings: true,
         } as Partial<FeatureFlagType>
-        expect(getFeatureFlagDeleteBlockers(flag)).toHaveLength(4)
+        expect(getFeatureFlagDeleteBlockers(flag).map((b) => b.kind)).toEqual([
+            'Early access feature',
+            'Running experiment',
+            'Survey',
+            'Session replay',
+        ])
     })
 })

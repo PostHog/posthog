@@ -189,6 +189,12 @@ describe('flagMatchesFilters', () => {
             ],
             ['keeps a flag when excluded_tags is empty', flagWithTag, { excluded_tags: [] }, true],
             [
+                'keeps an untagged flag when excluded_tags is set',
+                { ...base, tags: undefined } as FeatureFlagType,
+                { excluded_tags: ['internal'] },
+                true,
+            ],
+            [
                 'excluded_tags wins over tags when both match',
                 flagWithTag,
                 { tags: ['beta'], excluded_tags: ['beta'] },
