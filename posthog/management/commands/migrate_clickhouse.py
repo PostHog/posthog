@@ -12,10 +12,13 @@ from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import default_client
+from posthog.clickhouse.migration_packages import CORE_MIGRATIONS_PACKAGE, get_clickhouse_migration_packages
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
-MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
+# Kept for backwards compatibility — the core package. Use get_clickhouse_migration_packages()
+# to run migrations across core and opted-in products.
+MIGRATIONS_PACKAGE_NAME = CORE_MIGRATIONS_PACKAGE
 
 
 class Command(BaseCommand):
@@ -68,46 +71,54 @@ class Command(BaseCommand):
             trust_env=False,
         )
 
+        packages = get_clickhouse_migration_packages()
+
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
-            migrations = list(self.get_migrations(database, options["upto"]))
-            for migration_name, operations in migrations:
-                print(f"Migration would get applied: {migration_name}")
-                for op in operations:
-                    sql = getattr(op, "_sql", None)
-                    if options["print_sql"] and sql is not None:
-                        if isinstance(sql, str):
-                            print(indent(sql, "    "))
-                        else:
-                            print(indent("\n\n".join(sql), "    "))
-            applied = self.get_applied_migrations(database)
-            if len(applied) > 0:
-                last = max(applied)
-                print(f"\nClickhouse most recent applied migration: {last}")
-            if len(migrations) == 0:
+            total = 0
+            for package in packages:
+                migrations = list(self.get_migrations(database, package, options["upto"]))
+                total += len(migrations)
+                for migration_name, operations in migrations:
+                    print(f"Migration would get applied: {package} {migration_name}")
+                    for op in operations:
+                        sql = getattr(op, "_sql", None)
+                        if options["print_sql"] and sql is not None:
+                            if isinstance(sql, str):
+                                print(indent(sql, "    "))
+                            else:
+                                print(indent("\n\n".join(sql), "    "))
+                applied = self.get_applied_migrations(database, package)
+                if len(applied) > 0:
+                    last = max(applied)
+                    print(f"\n{package} most recent applied migration: {last}")
+            if total == 0:
                 print("Clickhouse migrations up to date!")
             elif options["check"]:
                 exit(1)
         elif options["fake"]:
-            for migration_name, _ in self.get_migrations(database, options["upto"]):
-                print(f"Faked migration: {migration_name}")
-                database.insert(
-                    [
-                        MigrationHistory(
-                            package_name=MIGRATIONS_PACKAGE_NAME,
-                            module_name=migration_name,
-                            applied=datetime.date.today(),
-                        )
-                    ]
-                )
+            for package in packages:
+                for migration_name, _ in self.get_migrations(database, package, options["upto"]):
+                    print(f"Faked migration: {package} {migration_name}")
+                    database.insert(
+                        [
+                            MigrationHistory(
+                                package_name=package,
+                                module_name=migration_name,
+                                applied=datetime.date.today(),
+                            )
+                        ]
+                    )
             print("Migrations done")
         else:
-            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=True)
+            for package in packages:
+                print(f"Migrating {package}…")
+                database.migrate(package, options["upto"], replicated=True)
             print("✅ Migration successful")
 
-    def get_migrations(self, database, upto):
-        modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
-        applied_migrations = self.get_applied_migrations(database)
+    def get_migrations(self, database, package, upto):
+        modules = import_submodules(package)
+        applied_migrations = self.get_applied_migrations(database, package)
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
@@ -117,8 +128,8 @@ class Command(BaseCommand):
                 break
 
     @cached(cache={})
-    def get_applied_migrations(self, database) -> set[str]:
-        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
+    def get_applied_migrations(self, database, package) -> set[str]:
+        return database._get_applied_migrations(package, replicated=True)
 
     def _create_database_if_not_exists(self, database: str, cluster: str):
         # MULTINODE_CLICKHOUSE: infi.clickhouse_orm creates the Distributed

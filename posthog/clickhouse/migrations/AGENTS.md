@@ -79,6 +79,29 @@ If you create a new table inside such a guard, also add its SQL function to
 The only exception is tables whose definition intentionally differs per environment and is
 not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table above).
 
+# Product migration packages
+
+Core migrations live here (`posthog/clickhouse/migrations`). A product can ship its own
+ClickHouse migrations alongside core by creating
+`products/<name>/backend/clickhouse/migrations/` (with `__init__.py` and a `max_migration.txt`).
+`migrate_clickhouse` discovers these via the installed product apps and runs core first, then
+each product in `INSTALLED_APPS` order.
+
+Each package is **numbered and tracked independently** — `infi` keys applied state on the
+package name, so a product's `0001_` never collides with core's. `max_migration.txt`,
+duplicate-number checks, and the one-migration-per-PR rule are all enforced per package.
+
+Conventions:
+
+- A product migration must only touch that product's own tables. There is no cross-package
+  dependency mechanism (unlike Django's `dependencies`); ordering is convention-based, and
+  the only guarantee is that core migrates before products.
+- Migration numbers are package-local. "Migration 0001" is ambiguous without its package —
+  always qualify it (e.g. `products.logs.backend.clickhouse.migrations 0001_initial`).
+- `--upto N` applies the bound per package.
+- Scaffold with `python manage.py create_ch_migration --name <name> --product <product>`
+  (omit `--product` for core).
+
 # Migration basics
 
 ## run_sql_with_exceptions function

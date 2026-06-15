@@ -60,7 +60,7 @@ class Command(BaseCommand):
     def _handle_text(self, names: list[str]) -> None:
         print(f"# CLOUD_DEPLOYMENT={settings.CLOUD_DEPLOYMENT!r}")
         for name in names:
-            module = importlib.import_module(f"{MIGRATIONS_PACKAGE_NAME}.{name}")
+            module = importlib.import_module(name)
             operations = getattr(module, "operations", None)
             if operations is None:
                 print(f"\n## {name}\n  (no `operations` attribute)")
@@ -86,7 +86,7 @@ class Command(BaseCommand):
         groups: dict[str, list[str]] = {}
         notes: list[str] = []
         for name in names:
-            module = importlib.import_module(f"{MIGRATIONS_PACKAGE_NAME}.{name}")
+            module = importlib.import_module(name)
             operations = getattr(module, "operations", None)
             if operations is None:
                 notes.append(f"`{name}` — no `operations` attribute")
@@ -120,11 +120,16 @@ class Command(BaseCommand):
 
     @staticmethod
     def _normalize(value: str) -> str:
+        """Return a fully-qualified module path for a migration.
+
+        Accepts a bare name (e.g. ``0247_foo``, assumed to be a core migration) or a full
+        file path under any package (e.g. ``products/logs/backend/clickhouse/migrations/0001_x.py``).
+        """
         cleaned = value.strip()
         if not cleaned:
             raise CommandError("empty migration name")
         if cleaned.endswith(".py"):
             cleaned = cleaned[:-3]
         if "/" in cleaned:
-            cleaned = cleaned.rsplit("/", 1)[-1]
-        return cleaned
+            return cleaned.replace("/", ".")
+        return f"{MIGRATIONS_PACKAGE_NAME}.{cleaned}"
