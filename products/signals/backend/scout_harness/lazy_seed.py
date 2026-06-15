@@ -46,6 +46,13 @@ _MAX_SKILL_FILE_COUNT = 50
 # canonical path fails with a clear error instead of a Postgres `value too long` DataError.
 _MAX_SKILL_FILE_PATH_LENGTH = 500
 
+# Stamped on `LLMSkill.metadata.seeded_by` for every harness-managed scout row. Its presence
+# is the single source of truth for "the harness owns this row": it gates which rows
+# `sync_canonical_skills` may update/prune, AND it's what distinguishes a canonical scout
+# (shipped in products/signals/skills, seeded here) from a team's hand-authored scout when
+# classifying a config's origin downstream. Keep reads of it pointed at this constant.
+HARNESS_SEEDED_BY = "signals_scout_harness"
+
 
 @dataclass(frozen=True)
 class CanonicalSkillFile:
@@ -294,7 +301,7 @@ def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonica
             body=canonical.body,
             allowed_tools=list(canonical.allowed_tools),
             metadata={
-                "seeded_by": "signals_scout_harness",
+                "seeded_by": HARNESS_SEEDED_BY,
                 "source": "products/signals/skills",
                 "canonical_hash": canonical_hash,
             },
@@ -338,7 +345,7 @@ def _update_skill_from_canonical(
         locked.save(update_fields=["is_latest", "updated_at"])
 
         new_metadata = dict(locked.metadata or {})
-        new_metadata["seeded_by"] = "signals_scout_harness"
+        new_metadata["seeded_by"] = HARNESS_SEEDED_BY
         new_metadata["source"] = "products/signals/skills"
         new_metadata["canonical_hash"] = canonical_hash
 
@@ -424,7 +431,7 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
 
         # Only manage rows we seeded. A team can hand-author a signals-scout-* skill that
         # shares a canonical name — no seeded_by tag — and we must never touch it.
-        if (live.metadata or {}).get("seeded_by") != "signals_scout_harness":
+        if (live.metadata or {}).get("seeded_by") != HARNESS_SEEDED_BY:
             diverged.append(canonical.name)
             continue
 
@@ -479,7 +486,7 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
             deleted=False,
             is_latest=True,
             name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            metadata__seeded_by="signals_scout_harness",
+            metadata__seeded_by=HARNESS_SEEDED_BY,
         ).exclude(name__in=canonical_names)
         for row in orphan_rows:
             stored_hash = (row.metadata or {}).get("canonical_hash")
@@ -489,7 +496,7 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
             # Re-scope the soft-delete to seeded rows too, so a team-authored row sharing the
             # name is never caught by the bulk update.
             LLMSkill.objects.filter(
-                team=team, name=row.name, deleted=False, metadata__seeded_by="signals_scout_harness"
+                team=team, name=row.name, deleted=False, metadata__seeded_by=HARNESS_SEEDED_BY
             ).update(deleted=True, is_latest=False)
             pruned.append(row.name)
 

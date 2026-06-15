@@ -12963,10 +12963,10 @@ export namespace Schemas {
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset
      */
-    export type OriginEnum = typeof OriginEnum[keyof typeof OriginEnum];
+    export type SavedQueryOriginEnum = typeof SavedQueryOriginEnum[keyof typeof SavedQueryOriginEnum];
 
 
-    export const OriginEnum = {
+    export const SavedQueryOriginEnum = {
       DataWarehouse: 'data_warehouse',
       Endpoint: 'endpoint',
       ManagedViewset: 'managed_viewset',
@@ -13041,7 +13041,7 @@ export namespace Schemas {
        * * `data_warehouse` - Data Warehouse
        * * `endpoint` - Endpoint
        * * `managed_viewset` - Managed Viewset */
-      readonly origin: OriginEnum | null;
+      readonly origin: SavedQueryOriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       is_test?: boolean;
       /**
@@ -13135,7 +13135,7 @@ export namespace Schemas {
        * * `data_warehouse` - Data Warehouse
        * * `endpoint` - Endpoint
        * * `managed_viewset` - Managed Viewset */
-      readonly origin: OriginEnum | null;
+      readonly origin: SavedQueryOriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       readonly is_test: boolean;
       /**
@@ -29885,7 +29885,7 @@ export namespace Schemas {
        * * `data_warehouse` - Data Warehouse
        * * `endpoint` - Endpoint
        * * `managed_viewset` - Managed Viewset */
-      readonly origin?: OriginEnum | null;
+      readonly origin?: SavedQueryOriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       is_test?: boolean;
       /**
@@ -33693,6 +33693,14 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    export type ScoutConfigOriginEnum = typeof ScoutConfigOriginEnum[keyof typeof ScoutConfigOriginEnum];
+
+
+    export const ScoutConfigOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Per-(team, skill) scout config: schedule, enablement, and emit posture.
      *
@@ -33705,6 +33713,8 @@ export namespace Schemas {
       readonly skill_name?: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description?: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly origin?: ScoutConfigOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -40319,6 +40329,8 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly origin: ScoutConfigOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */

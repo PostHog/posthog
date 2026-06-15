@@ -2416,9 +2416,9 @@ export const SavedQueryStatusEnumApi = {
  * * `endpoint` - Endpoint
  * * `managed_viewset` - Managed Viewset
  */
-export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
+export type SavedQueryOriginEnumApi = (typeof SavedQueryOriginEnumApi)[keyof typeof SavedQueryOriginEnumApi]
 
-export const OriginEnumApi = {
+export const SavedQueryOriginEnumApi = {
     DataWarehouse: 'data_warehouse',
     Endpoint: 'endpoint',
     ManagedViewset: 'managed_viewset',
@@ -2464,7 +2464,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | null
+    readonly origin: SavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
     /**
@@ -2574,7 +2574,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | null
+    readonly origin: SavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -2675,7 +2675,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
      * * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | null
+    readonly origin?: SavedQueryOriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
