@@ -21,10 +21,8 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
 
-# These models are pickled once, and reloaded per request (build_database_root_node), so trim pydantic's
-# default per-node pickle state to just __dict__ and rebuild the bookkeeping on load. DEFENSIVE: fall
-# back to the full state when __pydantic_extra__/__pydantic_private__ is actually set, so no data is
-# dropped. fields_set is regenerated full — nothing in the database layer reads it.
+# These models are pickled once, and reloaded per request (build_database_root_node)
+# Trim pydantic's default per-node pickle state to just __dict__ and rebuild the bookkeeping on load. 
 def _slim_pickle_getstate(model: BaseModel) -> dict[str, Any]:
     if model.__pydantic_extra__ is None and model.__pydantic_private__ is None:
         return model.__dict__
