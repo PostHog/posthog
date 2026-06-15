@@ -21,13 +21,10 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
 
-# The HogQL catalog is pickled and reloaded per request (see build_database_root_node). Pydantic's
-# default pickle state is a 4-key dict carrying __pydantic_fields_set__, __pydantic_extra__ and
-# __pydantic_private__ per node — pure overhead for the catalog, where those are always the trivial
-# case. The slim state below emits just __dict__ and rebuilds the bookkeeping on load (smaller blob,
-# faster unpickle). It is DEFENSIVE: a model that actually carries extra or private state falls back
-# to pydantic's full state, so no real data is ever dropped. __pydantic_fields_set__ is regenerated
-# as the full field set — nothing in the database layer reads it, and pydantic equality ignores it.
+# These models are pickled and reloaded per request (build_database_root_node), so trim pydantic's
+# default per-node pickle state to just __dict__ and rebuild the bookkeeping on load. DEFENSIVE: fall
+# back to the full state when __pydantic_extra__/__pydantic_private__ is actually set, so no data is
+# dropped. fields_set is regenerated full — nothing in the database layer reads it.
 def _slim_pickle_getstate(model: BaseModel) -> dict[str, Any]:
     if model.__pydantic_extra__ is None and model.__pydantic_private__ is None:
         return model.__dict__

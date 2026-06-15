@@ -298,27 +298,21 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
-# The static catalog is identical for every team and request. Building it from scratch and
-# deep-copying the root tables on each call is the dominant CPU cost of the no-I/O build phase.
-# Instead we construct it once, pickle it, and reconstruct per-request copies via pickle.loads:
-# cheaper than rebuild + deep-copy, and each load is a fully independent tree (so per-request
-# mutation can't leak between teams). The blob lives in-process and is rebuilt on every fresh
-# import, so it always matches the current code — no cross-deploy staleness. Keyed by
-# include_posthog_tables. CAVEAT: every node in the catalog must stay picklable; the
-# test_build_database_root_node_* tests fail loudly if a future field breaks that.
+# The static catalog is identical for every team/request, so build + pickle it once and reload per
+# request. Each pickle.loads is an independent tree (so per-request mutation can't leak between teams);
+# the in-process blob can't go stale across deploys. Every catalog node must stay picklable.
 _DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
 _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
-    # Double-checked locking: the warm path is a lock-free dict read; only the one-time cold
-    # build is serialized, so concurrent first-callers don't each rebuild + pickle the catalog.
+    # Double-checked locking so concurrent first-callers don't each rebuild + pickle the catalog.
     blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
     if blob is None:
         with _DATABASE_ROOT_NODE_BLOBS_LOCK:
             blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
             if blob is None:
-                # Built lazily on first use, deliberately NOT eagerly at import: eager-warming would move this construct+pickle cost onto startup for every process that imports this module, including code unrelated to querying.
+                # Built lazily, not eager-warmed at import: that would move this cost onto startup for every importer of this module, query-related or not.
                 blob = pickle.dumps(
                     _construct_database_root_node(include_posthog_tables=include_posthog_tables),
                     protocol=pickle.HIGHEST_PROTOCOL,
