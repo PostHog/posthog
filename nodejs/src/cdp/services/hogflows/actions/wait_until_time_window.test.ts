@@ -101,6 +101,29 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             expect(getWaitUntilTime(action)).toBeNull()
         })
 
+        it('handles the morning half of a spanning window in a non-UTC timezone', () => {
+            action.config.timezone = 'America/New_York'
+            action.config.time = ['23:00', '01:00']
+            jest.setSystemTime(new Date('2025-01-15T05:30:00.000Z')) // 00:30 in New York
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('handles the morning half of a spanning window on a DST fall-back night', () => {
+            action.config.timezone = 'America/New_York'
+            action.config.time = ['23:00', '01:00']
+            // 2025-11-02 is the US fall-back date; 04:30 UTC is 00:30 in New York, inside the window
+            jest.setSystemTime(new Date('2025-11-02T04:30:00.000Z'))
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
+        it('handles the evening half of a spanning window on a DST spring-forward night', () => {
+            action.config.timezone = 'America/New_York'
+            action.config.time = ['23:00', '01:00']
+            // 2025-03-09 is the US spring-forward date; 03:30 UTC on the 10th is 23:30 on the 9th in New York
+            jest.setSystemTime(new Date('2025-03-10T03:30:00.000Z'))
+            expect(getWaitUntilTime(action)).toBeNull()
+        })
+
         it('should handle time window with minutes', () => {
             action.config.time = ['14:30', '15:45']
             const result = getWaitUntilTime(action)
