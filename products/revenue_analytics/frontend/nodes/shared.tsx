@@ -148,7 +148,6 @@ export interface RevenueAnalyticsLineGraphProps {
     legend?: { display: boolean; reverse?: boolean }
 }
 
-// Wrapper around the time-series chart, applying the consistent display mode and date filter.
 export const RevenueAnalyticsLineGraph = (props: RevenueAnalyticsLineGraphProps): JSX.Element => {
     const { insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
 

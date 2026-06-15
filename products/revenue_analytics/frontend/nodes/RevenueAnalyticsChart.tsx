@@ -23,7 +23,11 @@ import type { TrendsSeriesMeta } from 'products/product_analytics/frontend/insig
 import { TrendsTooltip } from 'products/product_analytics/frontend/insights/trends/shared/TrendsTooltip'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { buildRevenueAnalyticsSeries, type RevenueAnalyticsChartKind } from './revenueAnalyticsChartTransforms'
+import {
+    buildRevenueAnalyticsSeries,
+    orderLegendItems,
+    type RevenueAnalyticsChartKind,
+} from './revenueAnalyticsChartTransforms'
 
 export type { RevenueAnalyticsChartKind }
 
@@ -32,8 +36,7 @@ const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 export interface RevenueAnalyticsChartLegendProps {
     show: boolean
     position?: 'top' | 'bottom' | 'left' | 'right'
-    // chart.js drew the first series at the bottom of a stack while listing it at the top of the
-    // legend; reversing keeps the legend reading top-down in the same visual order as the stack.
+    // See orderLegendItems: reverse keeps the legend order matching a stack's visual order.
     reverse?: boolean
 }
 
@@ -72,9 +75,11 @@ export function RevenueAnalyticsChart({
 
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
+    // isDarkModeOn is a dep (not an arg): getColor can resolve theme-dependent CSS colors into
+    // concrete values, so the series must rebuild on a light/dark toggle.
     const series = useMemo(
         () => buildRevenueAnalyticsSeries(datasets, { kind, isInProgress, getColor }),
-        [datasets, kind, isInProgress, getColor]
+        [datasets, kind, isInProgress, getColor, isDarkModeOn]
     )
 
     const yAxis = useMemo<YAxisConfig>(
@@ -82,10 +87,10 @@ export function RevenueAnalyticsChart({
         [trendsFilter, baseCurrency]
     )
 
-    const legendItems = useMemo(() => {
-        const items = legendItemsFromSeries(series, theme)
-        return legend?.reverse ? [...items].reverse() : items
-    }, [series, theme, legend?.reverse])
+    const legendItems = useMemo(
+        () => orderLegendItems(legendItemsFromSeries(series, theme), legend?.reverse),
+        [series, theme, legend?.reverse]
+    )
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => (
@@ -104,6 +109,8 @@ export function RevenueAnalyticsChart({
     const legendPosition = legend?.position ?? 'right'
     const showLegend = !!legend?.show
 
+    // No xAxis config: the backend ships pre-formatted period labels, so the time-axis date
+    // formatter is intentionally left inert (it would otherwise re-format the labels itself).
     if (kind === 'bar') {
         const config: TimeSeriesBarChartConfig = {
             yAxis,

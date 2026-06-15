@@ -1,4 +1,4 @@
-import type { Series } from '@posthog/quill-charts'
+import type { LegendItem, Series } from '@posthog/quill-charts'
 
 import type { GraphDataset } from '~/types'
 
@@ -35,4 +35,10 @@ export function buildRevenueAnalyticsSeries(
             },
         }
     })
+}
+
+// Stacked charts draw the first series at the bottom but list it at the top of the legend;
+// reversing keeps the legend reading top-down in the same visual order as the stack.
+export function orderLegendItems(items: LegendItem[], reverse?: boolean): LegendItem[] {
+    return reverse ? [...items].reverse() : items
 }

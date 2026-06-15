@@ -1,6 +1,12 @@
+import type { LegendItem } from '@posthog/quill-charts'
+
 import type { GraphDataset } from '~/types'
 
-import { buildRevenueAnalyticsSeries, type RevenueAnalyticsChartKind } from './revenueAnalyticsChartTransforms'
+import {
+    buildRevenueAnalyticsSeries,
+    orderLegendItems,
+    type RevenueAnalyticsChartKind,
+} from './revenueAnalyticsChartTransforms'
 
 const dataset = (overrides: Partial<GraphDataset> = {}): GraphDataset =>
     ({ id: 0, label: 'stripe.saas', data: [1, 2, 3], ...overrides }) as GraphDataset
@@ -123,5 +129,26 @@ describe('buildRevenueAnalyticsSeries', () => {
     it('tolerates a missing data array', () => {
         const [series] = buildRevenueAnalyticsSeries([dataset({ data: undefined })], { kind: 'line' })
         expect(series.data).toEqual([])
+    })
+})
+
+describe('orderLegendItems', () => {
+    const items = [{ label: 'a' }, { label: 'b' }, { label: 'c' }] as LegendItem[]
+
+    it('reverses the items when reverse is true', () => {
+        expect(orderLegendItems(items, true).map((i) => i.label)).toEqual(['c', 'b', 'a'])
+    })
+
+    it.each([{ reverse: false }, { reverse: undefined }])(
+        'keeps the original order when reverse=$reverse',
+        ({ reverse }) => {
+            expect(orderLegendItems(items, reverse).map((i) => i.label)).toEqual(['a', 'b', 'c'])
+        }
+    )
+
+    it('does not mutate the input array', () => {
+        const input = [{ label: 'a' }, { label: 'b' }] as LegendItem[]
+        orderLegendItems(input, true)
+        expect(input.map((i) => i.label)).toEqual(['a', 'b'])
     })
 })
