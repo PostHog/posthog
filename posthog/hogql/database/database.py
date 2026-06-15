@@ -313,11 +313,13 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
             blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
             if blob is None:
                 # Built lazily, not eager-warmed at import: that would move this cost onto startup for every importer of this module, query-related or not.
+                # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (in-process cache of our own code-built catalog, never untrusted input)
                 blob = pickle.dumps(
                     _construct_database_root_node(include_posthog_tables=include_posthog_tables),
                     protocol=pickle.HIGHEST_PROTOCOL,
                 )
                 _DATABASE_ROOT_NODE_BLOBS[include_posthog_tables] = blob
+    # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (in-process cache of our own code-built catalog, never untrusted input)
     return pickle.loads(blob)
 
 

@@ -21,15 +21,15 @@ if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
 
-# Trim pydantic's default per-node pickle state to just __dict__ and rebuild the bookkeeping on load. 
+# Trim pydantic's default per-node pickle state to just __dict__ and rebuild the bookkeeping on load.
 # This improves performance by 20-40%
-def _slim_pickle_getstate(model: BaseModel) -> dict[str, Any]:
+def _slim_pickle_getstate(model: BaseModel) -> dict[Any, Any]:
     if model.__pydantic_extra__ is None and model.__pydantic_private__ is None:
-        return model.__dict__
-    return cast("dict[str, Any]", BaseModel.__getstate__(model))
+        return cast("dict[Any, Any]", model.__dict__)
+    return BaseModel.__getstate__(model)
 
 
-def _slim_pickle_setstate(model: BaseModel, state: dict[str, Any]) -> None:
+def _slim_pickle_setstate(model: BaseModel, state: dict[Any, Any]) -> None:
     if "__pydantic_fields_set__" in state:  # pydantic's full state — restore verbatim
         BaseModel.__setstate__(model, state)
         return
@@ -42,10 +42,10 @@ def _slim_pickle_setstate(model: BaseModel, state: dict[str, Any]) -> None:
 class FieldOrTable(BaseModel):
     hidden: bool = False
 
-    def __getstate__(self) -> dict[str, Any]:
+    def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
+    def __setstate__(self, state: dict[Any, Any]) -> None:
         _slim_pickle_setstate(self, state)
 
 
@@ -263,10 +263,10 @@ class TableNode(BaseModel):
     # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
     hidden: bool = False
 
-    def __getstate__(self) -> dict[str, Any]:
+    def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
+    def __setstate__(self, state: dict[Any, Any]) -> None:
         _slim_pickle_setstate(self, state)
 
     def get(self) -> FieldOrTable:

@@ -105,13 +105,15 @@ class TestBuildDatabaseRootNode(TestCase):
         if include_posthog_tables:
             assert "events" in cached.children
 
-    def test_build_database_root_node_catalog_stays_picklable(self):
+    @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
+    def test_build_database_root_node_catalog_stays_picklable(self, _name: str, include_posthog_tables: bool):
         # Guards against a future catalog field becoming unpicklable (which would otherwise fail at request time).
-        fresh = _construct_database_root_node(include_posthog_tables=True)
+        fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
         restored = pickle.loads(pickle.dumps(fresh, protocol=pickle.HIGHEST_PROTOCOL))
 
         assert restored == fresh
-        assert restored.children["events"].table is not fresh.children["events"].table
+        if include_posthog_tables:
+            assert restored.children["events"].table is not fresh.children["events"].table
 
     def test_build_database_root_node_loads_are_deeply_independent(self):
         # Hold both trees while walking, or a GC'd first tree's id()s get recycled by the second (false overlap).
