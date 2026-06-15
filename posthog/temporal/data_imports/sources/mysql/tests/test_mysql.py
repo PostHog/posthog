@@ -481,6 +481,17 @@ class TestExplainQuery:
         # Must not raise — diagnostic-only.
         impl.explain_query(cursor, "SELECT 1", {}, logger)
 
+    def test_does_not_capture_exceptions(self, impl, cursor, logger, mocker):
+        # EXPLAIN is best-effort diagnostics — a failure (e.g. MySQL 1345 when
+        # EXPLAINing a view whose underlying tables the user can't SHOW VIEW on)
+        # never affects the sync, so it must not be reported to error tracking.
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        cursor.execute.side_effect = pymysql.err.OperationalError(
+            1345, "EXPLAIN/SHOW can not be issued; lacking privileges for underlying table"
+        )
+        impl.explain_query(cursor, "SELECT 1", {}, logger)
+        capture.assert_not_called()
+
 
 class TestSafetyContract:
     """Verifies that driver-specific metadata queries never splice untrusted identifiers into SQL."""

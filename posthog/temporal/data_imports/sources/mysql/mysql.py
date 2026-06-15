@@ -732,8 +732,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             explain_lines = [str(dict(zip(column_names, row))) for row in rows]
             logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
         except Exception as e:
+            # EXPLAIN is best-effort diagnostics; its failure never affects the
+            # sync (the streaming query runs right after regardless). Capturing
+            # here just floods error tracking with benign, non-actionable noise —
+            # e.g. MySQL 1345 when EXPLAINing a view whose underlying tables the
+            # connected user lacks SHOW VIEW on. Debug-log only, like
+            # `find_index_for_cursor`.
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
-            capture_exception(e)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
