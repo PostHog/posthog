@@ -19,6 +19,7 @@ boundaries are exercised end-to-end.  The gate is forced ON by default
 from __future__ import annotations
 
 import json
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -621,6 +622,7 @@ class FakePersonHogClient:
                     person_id=self._next_split_person_id,
                     uuid=new_uuid,
                     version=new_person_version,
+                    created_at=int(time.time() * 1000),
                 )
 
             pdi_version = (mapping_by_did[did].version or 0) + 101
